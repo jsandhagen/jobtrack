@@ -22,6 +22,11 @@ const DEFAULT_SETTINGS = {
   // How to read job postings off the screen: 'ocr' (free, on this computer),
   // 'ocr-then-claude' (free first, Claude only if that finds nothing), or 'claude'.
   screenReader: 'ocr',
+  // Sprout's Garden, the optional game that rewards applying (off by default).
+  gardenEnabled: false,
+  weeklyGoal: 5,
+  // Badges and level already celebrated, so each is celebrated once.
+  gardenSeen: null,
 };
 
 const DEFAULT_PROFILE = {

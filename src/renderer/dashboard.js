@@ -210,9 +210,10 @@ const views = {
           <button class="soft" id="scanBtn">${icon('camera')} Scan my screen</button>
         </div>
       </div>
+      ${gardenHomeCard()}
       <div class="grid three" style="margin-bottom:16px">
         <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('seedling', 26)}</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
-        <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('send', 26)}</div><div><b>${appliedWeek}</b><span>applied this week · ${appliedAll} total</span></div></div>
+        <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('send', 26)}</div><div><b>${appliedWeek}</b><span>applied in the last 7 days · ${appliedAll} total</span></div></div>
         <div class="card stat"><div class="stat-icon" style="background:var(--peach-soft);color:#b8653e">${icon('chat', 26)}</div><div><b>${appliedAll ? Math.round((responses / appliedAll) * 100) + '%' : '–'}</b><span>got an interview or offer</span></div></div>
       </div>
       ${due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0"><h3 class="with-icon">${icon('clock', 20)} Follow-ups due</h3><div class="list">${due.map(appRow).join('')}</div></div>` : ''}
@@ -346,6 +347,12 @@ const views = {
           <input id="followUpDays" type="number" min="1" max="60" value="${s.followUpDays}" style="max-width:160px">
           <p class="faint">Set when you mark a role as applied. You'll get a desktop notification when it's due.</p>
           <button class="primary" id="saveTracking">Save</button>
+        </div>
+        <div class="card"><h2 class="with-icon">${icon('seedling', 22)} Sprout's garden <span class="chip">optional game</span></h2>
+          <div class="toggle-row"><input type="checkbox" id="gardenEnabled" ${s.gardenEnabled ? 'checked' : ''}><div class="what"><b>Make applying a game</b><span>Every application grows Sprout's garden. Set a weekly goal, keep streaks (weekends never break them) and earn badges. Nothing is shared or sent anywhere.</span></div></div>
+          <label style="margin-top:10px">Weekly applications goal</label>
+          <input id="weeklyGoal" type="number" min="1" max="100" value="${s.weeklyGoal}" style="max-width:160px">
+          <div style="margin-top:10px"><button class="primary" id="saveGarden">Save</button></div>
         </div>
         <div class="card"><h2>Job detection</h2>
           <div class="toggle-row"><input type="checkbox" id="clipboardWatch" ${s.clipboardWatch ? 'checked' : ''}><div class="what"><b>Watch my clipboard</b><span>Copy a job description anywhere and I'll pop up with a score. Free — nothing is sent anywhere until you ask.</span></div></div>
@@ -733,7 +740,8 @@ function openApplyModal(a) {
         notes: $('#mNotes', card).value,
       });
       closeModal();
-      celebrate(`${say('applied')} I'll remind you to follow up.`);
+      await refreshState();
+      celebrate(`${say('applied')}${gardenAppliedNote(a.id) || " I'll remind you to follow up."}`);
     }, 'Saving…')
   );
 }
@@ -890,6 +898,13 @@ const binders = {
     $('#saveTracking').addEventListener('click', (e) =>
       run(e.currentTarget, async () => (await S.updateSettings({ followUpDays: Math.max(1, parseInt($('#followUpDays').value, 10) || 7) }), toast('Saved', 'good')), 'Saving…')
     );
+    $('#saveGarden').addEventListener('click', (e) =>
+      run(e.currentTarget, async () => {
+        const on = $('#gardenEnabled').checked;
+        await S.updateSettings({ gardenEnabled: on, weeklyGoal: Math.max(1, Math.min(100, parseInt($('#weeklyGoal').value, 10) || 5)) });
+        toast(on ? "Garden's on! Every application plants something." : 'Garden turned off. Your progress is kept if you turn it back on.', 'good', 4200, on ? 'thrilled' : 'happy');
+      }, 'Saving…')
+    );
     $('#saveSettings').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         await S.updateSettings({
@@ -922,7 +937,9 @@ async function refreshState() {
     <div style="margin-top:4px"><span class="dot ${state.settings.clipboardWatch || state.settings.screenWatch ? 'on' : ''}"></span>${
       state.settings.screenWatch ? 'Watching screen & clipboard' : state.settings.clipboardWatch ? 'Watching clipboard' : 'Detection paused'
     }</div>`;
+  document.getElementById('navGarden').hidden = !state.settings.gardenEnabled;
   renderBuddy();
+  checkGardenNews();
 }
 
 // Sprout in the sidebar: mood follows how things are going; poke it for a pep talk.
@@ -979,4 +996,5 @@ S.onNavigate(({ view: v, id }) => (location.hash = v === 'application' ? `#appli
 
 document.getElementById('brandMark').innerHTML = icon('seedling', 30);
 $$('.side a[data-icon]', document).forEach((a) => a.insertAdjacentHTML('afterbegin', icon(a.dataset.icon, 20)));
-refreshState().then(route);
+// Start once bank.js, editor.js and garden.js have added their views.
+document.addEventListener('DOMContentLoaded', () => refreshState().then(route));

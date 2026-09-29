@@ -1110,6 +1110,7 @@ function summarizeApp(a) {
     confidence: a.quick.confidence || null,
     dealbreaker: !!(a.quick.dealbreakers && a.quick.dealbreakers.length),
     appliedAt: a.appliedAt || null,
+    statusHistory: a.statusHistory || [],
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
     atsBefore: (() => {

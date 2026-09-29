@@ -23,6 +23,7 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - Each application shows its notes and a status timeline.
   - The tracker has filters (to apply / applied / interviewing / offers / archived), search, sorting and **CSV export**.
   - Postings you've already seen are recognised ("You applied on Sep 12") instead of duplicated.
+- **Sprout's garden (optional game)**: turn it on in Settings to make applying a game. See [Sprout's garden](#sprouts-garden).
 
 ## Getting started
 
@@ -238,6 +239,18 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 - Claude only receives data when you (a) ask for a deeper read, or turn on automatic reads, (b) press the scan hotkey or turn on screen watching, or (c) generate a document. Screen watching sends a screenshot only after the screen changes and settles, at most once per interval.
 - Rough cost per call with Claude Opus 5.5: a fit read is a few cents, and a resume a few more. Your document library is cached, so repeat calls are cheaper. Settings → *When to use Claude* shows this month's estimated total.
 - Reading jobs **from the screen** is free by default (on-device OCR). Claude is only used for it if you pick that in Settings.
+
+## Sprout's garden
+
+An optional game, off by default (Settings → *Sprout's garden*), that rewards sending applications:
+
+- **Weekly goal** (default 5, Monday to Sunday), shown as a ring on the home page, with a streak of weeks you hit it. A week in progress never breaks the streak.
+- **Day streak** for applying on consecutive days. Weekends without an application are skipped, so they never break it.
+- **Points** grow Sprout's plant through nine stages, from a seed to an old oak: +10 for each application, +4 with a tailored resume, +3 with a cover letter, +15 for an interview, +40 for an offer, +5 when a role says no (it still took effort), +1 for each role you check.
+- **Garden bed**: one plant per application. It buds when you apply, blooms at an interview, turns gold with an offer, and becomes a clover if it doesn't work out. Click a plant to open that application.
+- **15 badges**, such as *Bounce back* (apply again within 3 days of a "no") and *Steady gardener* (3 weeks in a row on goal). Each new badge and level-up is celebrated once.
+
+Everything is computed from your application history (`src/shared/garden.js`, tested in `test/garden.test.js`), so editing a date or deleting a role updates the garden too, and turning the game off and on again keeps your progress.
 
 ## Development
 

@@ -260,3 +260,32 @@ details.tray-card summary { cursor: pointer; }
 @media print { .ed-page li.rs-bullet.flagged { background: none; box-shadow: none; } }
 
 .voice-profile { white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.55; background: var(--butter-soft); border-radius: 10px; padding: 8px 12px; margin: 6px 0 0; }
+
+/* ---- Sprout's garden (optional game) ---- */
+.garden-home { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; cursor: pointer; background: linear-gradient(120deg, var(--surface), var(--sage-soft)); }
+.garden-home:hover { box-shadow: 0 0 0 2px var(--sage-soft), var(--shadow); }
+.garden-home-line { display: block; margin: 2px 0 8px; }
+.garden-streaks { display: flex; flex-direction: column; align-items: flex-start; }
+.garden-home-plant { flex: none; margin: -12px 0 -14px; }
+@media (max-width: 800px) { .garden-home-plant, .garden-streaks { display: none; } }
+.xp-top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 5px; }
+.xp .track, .badge .track { height: 9px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.xp .track i, .badge .track i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--sage), var(--leaf)); transition: width .8s ease; }
+.grid.garden-top { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+@media (max-width: 1000px) { .grid.garden-top { grid-template-columns: 1fr; } }
+.garden-plant-card, .garden-week { display: flex; align-items: center; gap: 18px; }
+.garden-plant-card .plant { flex: none; }
+.bed { display: flex; flex-wrap: wrap; gap: 4px 2px; padding: 14px 12px 6px; border-radius: 14px; background: linear-gradient(180deg, transparent 60%, #d9bf9a55 60%), var(--sage-soft); }
+.bed-plant { cursor: pointer; transform-origin: bottom center; transition: transform .15s; }
+.bed-plant:hover { transform: scale(1.25) rotate(-4deg); }
+.bed-key { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+.bed-key span { display: inline-flex; align-items: center; gap: 2px; }
+.bed-key svg { width: 20px; height: 22px; }
+.badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.badge { display: flex; flex-direction: column; gap: 3px; padding: 12px; border-radius: 14px; border: 1.5px dashed var(--line); color: var(--ink-faint); }
+.badge span { font-size: 12.5px; line-height: 1.35; }
+.badge .badge-ic { width: 42px; height: 42px; border-radius: 14px 12px 15px 11px; display: grid; place-items: center; background: var(--surface-2); filter: grayscale(1); opacity: .6; }
+.badge.earned { border-style: solid; border-color: var(--sage-soft); background: var(--sage-soft); color: var(--ink); }
+.badge.earned .badge-ic { background: var(--surface); filter: none; opacity: 1; color: var(--sage-deep); }
+.badge em { font-style: normal; font-size: 11.5px; align-self: flex-start; margin-top: 2px; }
+.goal-picks { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
