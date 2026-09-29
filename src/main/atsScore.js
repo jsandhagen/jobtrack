@@ -17,7 +17,7 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, classifyJobSkills, significantTerms, requiredYears, yearsOfExperience } = require('./fitScore');
+const { SKILLS, classifyJobSkills, classifyLines, significantTerms, requiredYears, yearsOfExperience } = require('./fitScore');
 
 const SOFT_SKILLS = new Set(['Leadership', 'Communication', 'Collaboration', 'Problem Solving']);
 
@@ -54,6 +54,22 @@ function escapeRe(s) {
 function containsTerm(haystack, term) {
   // word-ish boundaries that still work for terms like "c++" or ".net"
   return new RegExp(`(^|[^a-z0-9])${escapeRe(term)}($|[^a-z0-9])`).test(haystack);
+}
+
+// Degree the posting requires vs. merely prefers ("Bachelor's required;
+// Master's a plus" should not demand a Master's).
+function degreeRequirements(jobText) {
+  let required = 0;
+  let preferred = 0;
+  for (const { original, kind } of classifyLines(jobText)) {
+    const t = original.toLowerCase();
+    const levels = DEGREE_LEVELS.filter(([, re]) => re.test(t)).map(([l]) => l);
+    if (!levels.length) continue;
+    const pref = kind === 'preferred' || /\b(preferred|a plus|nice to have|ideally)\b/i.test(original);
+    if (pref) preferred = Math.max(preferred, ...levels);
+    else required = Math.min(required || 9, ...levels); // "Bachelor's or Master's" -> Bachelor's
+  }
+  return { required: required || null, preferred: preferred > (required || 0) ? preferred : null };
 }
 
 function degreeLevel(text) {
@@ -104,7 +120,7 @@ function scoreJobTitle(title, resumeLower) {
 }
 
 function scoreEducation(jobText, resumeText) {
-  const need = degreeLevel(jobText);
+  const need = degreeRequirements(jobText).required;
   if (!need) return null;
   const have = degreeLevel(resumeText);
   const equivalentOk = /equivalent (?:practical |work |professional )?experience|or equivalent/i.test(jobText);
@@ -155,11 +171,11 @@ function scoreParseability(resumeText) {
     { id: 'phone', ok: /(\+?\d[\d\s().-]{7,}\d)/.test(t), tip: 'Add a phone number.' },
     {
       id: 'experience-heading',
-      ok: /^\s*#*\s*(work |professional |relevant )?(experience|employment|work history)\s*$/im.test(t),
+      ok: /^\s*#*\s*((work|professional|relevant|career)\s+)*(experience|employment|work history)\s*$/im.test(t),
       tip: 'Use a standard "Experience" heading — parsers map sections by their names.',
     },
     { id: 'education-heading', ok: /^\s*#*\s*education\b.*$/im.test(t), tip: 'Add an "Education" section (even a short one).' },
-    { id: 'skills-heading', ok: /^\s*#*\s*(technical |core |key )?skills\b.*$/im.test(t), tip: 'Add a "Skills" section listing your tools and skills explicitly.' },
+    { id: 'skills-heading', ok: /^\s*#*\s*((technical|core|key|relevant|professional)\s+)*skills\b.*$/im.test(t), tip: 'Add a "Skills" section listing your tools and skills explicitly.' },
     {
       id: 'dates',
       ok: /\b(?:19|20)\d{2}\s*(?:-|–|—|to)\s*(?:(?:19|20)\d{2}|present|current)\b/i.test(tl) || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?:19|20)\d{2}\b/i.test(t),
@@ -306,4 +322,4 @@ function libraryAtsScore(job, documents) {
   return { ...atsScore(job, documents.map((d) => d.text).join('\n\n'), { checkFormatting: false }), basis: 'your whole library (add a resume for formatting checks)' };
 }
 
-module.exports = { atsScore, libraryAtsScore, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, WEIGHTS };
+module.exports = { atsScore, libraryAtsScore, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };

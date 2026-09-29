@@ -114,9 +114,10 @@ const SAMPLE_RESUME = {
 
 test('resume renders to escaped HTML and Markdown', () => {
   const html = renderResumeHtml(SAMPLE_RESUME);
-  assert.match(html, /<h1>Jordan Rivera<\/h1>/);
+  assert.match(html, /<div class="rs-name">Jordan Rivera<\/div>/);
+  assert.match(html, /Times New Roman/);
   assert.match(html, /&lt;delightful&gt;/);
-  assert.doesNotMatch(html, /Projects/);
+  assert.doesNotMatch(html, /data-sec="projects"/);
   assert.doesNotMatch(html, /Double-check dates/, 'tailoring notes are not printed');
   const md = resumeToMarkdown(SAMPLE_RESUME);
   assert.match(md, /^# Jordan Rivera/);

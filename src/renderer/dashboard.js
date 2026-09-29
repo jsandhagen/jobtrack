@@ -396,8 +396,7 @@ async function renderApplication(id) {
     page.innerHTML = `<div class="card empty">${mascotSvg('curious', 72)}<p>That application was removed.</p></div>`;
     return;
   }
-  // Open on the builder until there's a resume to look at.
-  if (appTab === 'auto') appTab = a.resumeHtml ? 'resume' : 'build';
+  if (appTab === 'auto') appTab = 'resume';
   const an = a.analysis;
   const score = an ? an.score : a.quick.score;
   const label = an ? an.label : a.quick.label;
@@ -441,83 +440,62 @@ async function renderApplication(id) {
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
 
-  const tabBody = () => {
-    if (appTab === 'posting') return `<div class="posting-text">${esc(a.job.text)}</div>`;
-    if (appTab === 'build') return '<div id="builderSlot"><div class="empty"><span class="spinner"></span></div></div>';
-    const isLetter = appTab === 'letter';
-    const html = isLetter ? a.letterHtml : a.resumeHtml;
-    const busy = isLetter ? busyLetter : busyResume;
-    const err = isLetter ? a.letterError : a.resumeError;
-    if (busy) return `<div class="empty">${mascotSvg('thinking', 80)}<h3>Writing your ${isLetter ? 'cover letter' : 'resume'}…</h3><p>Usually under a minute.</p></div>`;
-    if (!html)
-      return `<div class="empty">${mascotSvg('cheer', 80)}<h3>${isLetter ? 'No cover letter yet' : 'Ready when you are!'}</h3>
-        ${err ? `<p style="color:var(--rose)">${esc(err)}</p>` : ''}
-        ${isLetter ? '' : '<button class="primary" data-tab="build">🧩 Build it from my bullets — free</button> '}
-        <button class="${isLetter ? 'primary' : 'soft'}" id="${isLetter ? 'genLetter' : 'genResume'}" ${state.hasApiKey ? '' : 'disabled'}>✨ ${isLetter ? 'Generate cover letter' : 'Have Claude write it'}</button>
-        ${state.hasApiKey ? '' : '<p class="faint" style="margin-top:8px"><a href="#settings">Add an API key</a> for Claude to write it.</p>'}
-        ${!isLetter && state.hasApiKey ? '<p class="faint" style="margin-top:8px">Claude writes from your library, using the bullets you picked in Build as the backbone.</p>' : ''}</div>`;
-    const notes = !isLetter && a.resume && a.resume.tailoring_notes && a.resume.tailoring_notes.length
-      ? `<div class="card" style="margin-bottom:12px;background:var(--butter-soft);border:0;box-shadow:none"><b>📝 Notes from Sprout</b><ul class="tidy" style="margin-top:6px">${a.resume.tailoring_notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>`
-      : '';
-    return `${notes}<div class="inline" style="margin-bottom:10px">
-        <button class="primary exp" data-fmt="pdf">⬇ Export PDF</button><button class="soft exp" data-fmt="md">Markdown</button><button class="soft exp" data-fmt="html">HTML</button>
-        <button class="ghost" id="regen">${!isLetter && a.resumeSource === 'bank' ? '🧩 Change bullets' : '↻ Regenerate'}</button><span class="faint">✏️ Click anywhere on the page to tweak wording before exporting.</span></div>
+  const fitCard = `<div class="card">${mascotSvg(analyzing ? 'thinking' : moodForScore(score), 56)}${insight}${evidenceBlock(a)}${skills}
+        ${q.requiredYears ? `<div class="section-title">Experience</div><p class="muted" style="margin:0">Posting asks for ~${q.requiredYears}+ years${q.estimatedYears !== null ? `; your documents span about ${q.estimatedYears}.` : '.'}</p>` : ''}
+      </div>`;
+
+  const letterBody = () => {
+    if (busyLetter) return `<div class="empty">${mascotSvg('thinking', 80)}<h3>Writing your cover letter…</h3><p>Usually under a minute.</p></div>`;
+    if (!a.letterHtml)
+      return `<div class="card empty">${mascotSvg('cheer', 80)}<h3>No cover letter yet</h3>
+        ${a.letterError ? `<p style="color:var(--rose)">${esc(a.letterError)}</p>` : ''}
+        <button class="primary" id="genLetter" ${state.hasApiKey ? '' : 'disabled'}>✨ Write a cover letter with Claude</button>
+        ${state.hasApiKey ? '<p class="faint" style="margin-top:8px">Uses the same letterhead as your resume.</p>' : '<p class="faint" style="margin-top:8px"><a href="#settings">Add an API key</a> for Claude to write it.</p>'}</div>`;
+    return `<div class="inline" style="margin-bottom:10px">
+        <button class="primary exp" data-fmt="pdf">⬇ Export PDF</button><button class="soft exp" data-fmt="md">Markdown</button>
+        <button class="ghost" id="regenLetter">↻ Rewrite</button><span class="faint">✏️ Click on the page to tweak wording before exporting.</span></div>
       <div class="preview-wrap"><iframe class="preview-frame" id="preview"></iframe></div>`;
   };
 
+  const tabBody = () => {
+    if (appTab === 'posting') return `<div class="posting-text card">${esc(a.job.text)}</div>`;
+    if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}</div>`;
+    if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel(a.ats) : '<div></div>'}${fitCard}</div>`;
+    if (appTab === 'letter') return letterBody();
+    if (busyResume) return `<div class="empty">${mascotSvg('thinking', 80)}<h3>Claude is writing your resume…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
+    return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';
+  };
+
   page.innerHTML = `
-    <div class="card" style="margin-bottom:16px"><div class="app-head">${scoreRing(score, 116)}
+    <div class="card app-card"><div class="app-head">${scoreRing(score, 84)}
       <div class="grow"><div class="faint">${esc(a.via === 'screen' ? '📸 spotted on screen' : a.via === 'clipboard' ? '📋 from your clipboard' : a.via === 'browser' ? '🌐 from your browser' : '✍️ pasted in')} · ${timeAgo(a.createdAt)}</div>
-        <h1 style="margin:2px 0">${esc(a.job.title)}</h1>
+        <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
         <div class="muted" style="font-weight:700">${esc([a.job.company, a.job.location].filter(Boolean).join(' · '))}</div>
-        <div style="margin-top:8px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}</div>
-        <p class="muted" style="margin:6px 0 0">${esc(encouragement(score, a.id.charCodeAt(1)))}</p>
+        <div style="margin-top:6px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}
+        <span class="faint">${esc(encouragement(score, a.id.charCodeAt(1)))}</span></div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:170px">
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:170px">
         ${a.appliedAt ? `<span class="chip good" style="justify-content:center">✅ Applied ${fmtDate(a.appliedAt)}</span>` : '<button class="primary" id="markApplied">✅ Mark as applied</button>'}
         <select id="statusSel">${STATUSES.map((s) => `<option ${s === a.status ? 'selected' : ''} value="${s}">${STATUS_LABEL[s]}</option>`).join('')}</select>
         <div class="inline" style="justify-content:center"><button class="ghost small" id="editJob">✏️ Edit</button><button class="ghost danger small" id="delApp">Delete</button></div>
       </div></div></div>
-    <div id="atsSlot">${a.ats ? atsPanel(a.ats) : ''}</div>
-    <div class="grid sidebar">
-      <div>
-        <div class="tabs">
-          <button class="${appTab === 'build' ? 'on' : ''}" data-tab="build">🧩 Build</button>
-          <button class="${appTab === 'resume' ? 'on' : ''}" data-tab="resume">📄 Resume</button>
-          <button class="${appTab === 'letter' ? 'on' : ''}" data-tab="letter">💌 Cover letter</button>
-          <button class="${appTab === 'posting' ? 'on' : ''}" data-tab="posting">📰 Posting</button>
-        </div>
-        <div id="tabBody">${tabBody()}</div>
-      </div>
-      <div class="grid" style="gap:16px">
-      ${trackingCard(a)}
-      <div class="card">${mascotSvg(analyzing ? 'thinking' : moodForScore(score), 56)}${insight}${evidenceBlock(a)}${skills}
-        ${q.requiredYears ? `<div class="section-title">Experience</div><p class="muted" style="margin:0">Posting asks for ~${q.requiredYears}+ years${q.estimatedYears !== null ? `; your documents span about ${q.estimatedYears}.` : '.'}</p>` : ''}
-      </div></div>
-    </div>`;
+    <div class="tabs">
+      <button class="${appTab === 'resume' ? 'on' : ''}" data-tab="resume">📝 Resume</button>
+      <button class="${appTab === 'fit' ? 'on' : ''}" data-tab="fit">🎯 Fit & ATS</button>
+      <button class="${appTab === 'letter' ? 'on' : ''}" data-tab="letter">💌 Cover letter</button>
+      <button class="${appTab === 'posting' ? 'on' : ''}" data-tab="posting">📰 Posting</button>
+      <button class="${appTab === 'tracking' ? 'on' : ''}" data-tab="tracking">📮 Tracking${followUpDue(a) ? ' ⏰' : ''}</button>
+    </div>
+    <div id="tabBody">${tabBody()}</div>`;
   animateRings(page);
-  if (appTab === 'build') renderBuilder(id);
+  if (appTab === 'resume' && !busyResume) renderEditor(id, a);
 
   const frame = document.getElementById('preview');
   if (frame) {
-    frame.srcdoc = appTab === 'letter' ? a.letterHtml : a.resumeHtml;
+    frame.srcdoc = a.letterHtml;
     frame.addEventListener('load', () => {
       frame.contentDocument.designMode = 'on';
       frame.style.height = Math.max(900, frame.contentDocument.documentElement.scrollHeight + 40) + 'px';
-      if (appTab !== 'resume') return;
-      // Re-score as the user edits, so they can see which changes help.
-      let t = null;
-      frame.contentDocument.addEventListener('input', () => {
-        clearTimeout(t);
-        t = setTimeout(async () => {
-          const after = await S.rescoreAts(id, '<!doctype html>' + frame.contentDocument.documentElement.outerHTML).catch(() => null);
-          const slot = document.getElementById('atsSlot');
-          if (after && slot) {
-            slot.innerHTML = atsPanel({ before: a.ats.before, after });
-            animateRings(slot);
-          }
-        }, 500);
-      });
     });
   }
 
@@ -558,32 +536,22 @@ async function renderApplication(id) {
     await S.removeApplication(id);
     location.hash = '#applications';
   });
-  const gen = async (btn, which) => {
-    appTab = which;
-    const p = which === 'letter' ? S.generateCoverLetter(id) : S.generateResume(id);
+  const genLetter = async () => {
+    const p = S.generateCoverLetter(id);
     renderApplication(id);
-    await run(null, () => p.then(() => toast(which === 'letter' ? 'Cover letter ready! 💌' : 'Resume ready! 🎉', 'good')));
+    await run(null, () => p.then(() => toast('Cover letter ready! 💌', 'good')));
     renderApplication(id);
   };
-  const gr = $('#genResume', page);
-  if (gr) gr.addEventListener('click', () => gen(gr, 'resume'));
   const gl = $('#genLetter', page);
-  if (gl) gl.addEventListener('click', () => gen(gl, 'letter'));
-  const rg = $('#regen', page);
-  if (rg)
-    rg.addEventListener('click', () => {
-      if (appTab === 'resume' && a.resumeSource === 'bank') return (appTab = 'build'), renderApplication(id);
-      if (confirm('Regenerate? Your edits will be replaced.')) gen(rg, appTab);
-    });
+  if (gl) gl.addEventListener('click', genLetter);
+  const rl = $('#regenLetter', page);
+  if (rl) rl.addEventListener('click', () => confirm('Rewrite the cover letter? Your edits will be replaced.') && genLetter());
   $$('.exp', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
         const edited = frame && frame.contentDocument ? '<!doctype html>' + frame.contentDocument.documentElement.outerHTML : null;
-        const out = await S.exportDoc(id, appTab, b.dataset.fmt, b.dataset.fmt === 'md' ? null : edited);
-        if (out) {
-          toast('Saved! Go get \'em 💪', 'good');
-          if (!a.appliedAt && appTab === 'resume') offerMarkApplied(a);
-        }
+        const out = await S.exportDoc(id, 'letter', b.dataset.fmt, b.dataset.fmt === 'md' ? null : edited);
+        if (out) toast('Saved! 💌', 'good');
       }, 'Saving…')
     )
   );

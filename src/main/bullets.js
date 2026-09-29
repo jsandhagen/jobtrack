@@ -11,17 +11,21 @@ const DATE = `(?:${MONTH}\\s+)?(?:\\d{1,2}/)?(?:19|20)\\d{2}`;
 const DATE_RANGE = new RegExp(`(${DATE})\\s*(?:-|–|—|to)\\s*(${DATE}|present|current|now|today)`, 'i');
 const BULLET = /^\s*(?:[-•*▪●◦‣∙·–—]|\d+[.)])\s+/;
 const SECTION = {
-  experience: /^(work |professional |relevant )?(experience|employment( history)?|work history|career history)$/i,
-  projects: /^(selected |key )?projects$/i,
-  education: /^education( & training| and training)?$/i,
-  skills: /^(technical |core |key )?(skills|competencies|technologies|tools)( & tools)?$/i,
-  summary: /^(professional )?(summary|profile|about( me)?|objective)$/i,
-  certifications: /^(licenses?( &| and) )?certifications?( &| and licenses?)?$/i,
-  other: /^(volunteer(ing)?|awards|publications|interests|languages|references|activities|leadership)$/i,
+  experience: /^((relevant|professional|work|career|selected)\s+)*(experience|employment( history)?|work history|career history)$/i,
+  projects: /^((selected|key|relevant|personal|academic)\s+)*projects$/i,
+  education: /^(education|academic background)(\s*(&|and)\s*(training|certifications?))?$/i,
+  skills: /^((relevant|technical|core|key|professional)\s+)*(skills|competencies|technologies|tools|expertise)(\s*(&|and)\s*(tools|abilities|interests))?$/i,
+  summary: /^((professional|career|executive)\s+)?(summary|profile|about( me)?|objective)$/i,
+  certifications: /^(licenses?\s*(&|and)\s*)?certifications?(\s*(&|and)\s*licenses?)?$/i,
+  other: /^(volunteer(ing| experience| work)?|awards|honors|publications|interests|languages|references|activities|leadership|additional information)$/i,
 };
 
 const TITLE_WORD =
-  /\b(engineer|developer|manager|designer|analyst|nurse|accountant|director|lead|specialist|coordinator|consultant|associate|assistant|intern|scientist|architect|administrator|officer|representative|teacher|technician|writer|editor|owner|founder|programmer|clerk|supervisor|advisor|agent|therapist|pharmacist|recruiter|producer|strategist|researcher|marketer|planner|buyer|chef|cook|barista|cashier|driver|electrician|mechanic|paralegal|attorney|lawyer|physician|instructor|tutor|volunteer)s?\b/i;
+  /\b(engineer|developer|manager|designer|analyst|nurse|accountant|director|lead|specialist|coordinator|consultant|associate|assistant|intern|scientist|architect|administrator|officer|representative|teacher|technician|writer|editor|owner|founder|programmer|clerk|supervisor|advisor|agent|therapist|pharmacist|recruiter|producer|strategist|researcher|marketer|planner|buyer|chef|cook|barista|cashier|driver|electrician|mechanic|paralegal|attorney|lawyer|physician|instructor|tutor|volunteer|president|partner|principal|head|fellow|trainee|apprentice)s?\b/i;
+const SCHOOL = /\b(university|college|institute|school|academy|polytechnic|conservatory)\b/i;
+const DEGREE_WORD = /\b(b\.?s\.?|b\.?a\.?|m\.?s\.?|m\.?a\.?|mba|ph\.?d|bachelor'?s?|masters?|master'?s|associate'?s?|diploma|certificate|degree|bsn|msn|gpa)\b/i;
+const CITY_PREFIX = '(?:San|Santa|New|Los|Las|Salt Lake|St\\.|Saint|Fort|Ft\\.|El|Palo|Baton|Grand|Kansas|Oklahoma|Colorado|Jersey|Silver|Cedar|Des|Sioux|Ann|Little|Long|Corpus|Green|Ocean|Mountain|Newport|West|East|North|South|Falls|Virginia)\\s';
+const TRAILING_PLACE = new RegExp(`^(.*\\S)\\s+((?:${CITY_PREFIX})?[A-Z][a-zA-Z.'-]+,\\s?[A-Z]{2}|Remote|Hybrid)$`);
 
 const id = () => crypto.randomUUID();
 const lower = (s) => String(s || '').toLowerCase();
@@ -78,9 +82,19 @@ function yearOf(s) {
 
 function sectionOf(line) {
   const t = line.replace(/[:#]/g, '').trim();
-  if (t.length > 40) return null;
+  if (t.length > 45) return null;
   for (const [name, re] of Object.entries(SECTION)) if (re.test(t)) return name;
   return null;
+}
+
+// "Freddie Mac McLean, VA" / "Bloom Labs — Portland, OR" / "Acme    Remote"
+function splitOrgLocation(text) {
+  const t = String(text || '').trim().replace(/[|·•,–—-]\s*$/, '');
+  const wide = t.split(/\s{2,}|\s+[|·•]\s+|\s+[–—]\s+|\s+-\s+/).map((x) => x.trim()).filter(Boolean);
+  if (wide.length > 1) return { organization: wide[0], location: wide.slice(1).join(', ') };
+  const m = t.match(TRAILING_PLACE);
+  if (m) return { organization: m[1].replace(/,\s*$/, ''), location: m[2] };
+  return { organization: t, location: '' };
 }
 
 // "Senior Engineer, Bloom Labs, Portland" / "Bloom Labs — Senior Engineer" / "Engineer at Bloom"
@@ -89,14 +103,13 @@ function splitHeader(text) {
   // Keep "Portland, OR" together while splitting on commas.
   const protectedText = t.replace(/([A-Z][a-zA-Z.]+(?:\s[A-Z][a-zA-Z.]+)*),\s?([A-Z]{2})\b/g, '$1\u0000 $2');
   let parts = protectedText
-    .split(/\s+(?:at|@)\s+|\s*[|·•]\s*|\s+[–—-]\s+|,\s*/)
+    .split(/\s+(?:at|@)\s+|\s*[|·•]\s*|\s+[–—-]\s+|,\s*|\s{2,}/)
     .map((p) => p.replace(/\u0000/g, ',').trim())
     .filter(Boolean);
   if (!parts.length) return { title: '', organization: '', location: '' };
   // Put a company-looking part second if it came first ("Bloom Labs — Engineer").
   const orgLike = /\b(inc|llc|ltd|labs?|corp|corporation|company|co\.?|group|hospital|university|college|school|studio|agency|bank|health|systems|technologies|partners|gmbh)\b/i;
-  const titleLike = TITLE_WORD || /\b(engineer|developer|manager|designer|analyst|nurse|accountant|director|lead|specialist|coordinator|consultant|associate|assistant|intern|scientist|architect|administrator|officer|representative|teacher|technician|writer|editor|owner|founder)\b/i;
-  if (parts.length >= 2 && orgLike.test(parts[0]) && titleLike.test(parts[1]) && !titleLike.test(parts[0])) parts = [parts[1], parts[0], ...parts.slice(2)];
+  if (parts.length >= 2 && orgLike.test(parts[0]) && TITLE_WORD.test(parts[1]) && !TITLE_WORD.test(parts[0])) parts = [parts[1], parts[0], ...parts.slice(2)];
   const locationLike = /^(remote|hybrid|[A-Z][a-z]+(?:\s[A-Z][a-z]+)*,?\s?[A-Z]{2}|[A-Z][a-z]+(?:\s[A-Z][a-z]+)*)$/;
   return {
     title: parts[0] || '',
@@ -105,120 +118,183 @@ function splitHeader(text) {
   };
 }
 
+function cap(s) {
+  return String(s || '').replace(/^./, (c) => c.toUpperCase());
+}
+
+// A role header: one to three lines that include a date range, possibly
+// split across lines ("... Analytics   June" / "2022-Current").
+function headerAt(L, i) {
+  for (let span = 1; span <= 3 && i + span <= L.length; span++) {
+    const chunk = L.slice(i, i + span);
+    if (chunk.some((l) => BULLET.test(l) || sectionOf(l))) return null;
+    const joined = chunk.map((l) => l.trim()).join('\n');
+    const m = joined.match(DATE_RANGE);
+    if (!m) continue;
+    // Only accept if the date is on the last line of the chunk (it ends the header).
+    const lastStart = joined.lastIndexOf('\n') + 1;
+    if (m.index + m[0].length < lastStart) return null;
+    const rest = (joined.slice(0, m.index) + ' ' + joined.slice(m.index + m[0].length))
+      .split('\n')
+      .map((l) => l.replace(/[\s|·•,–—-]+$/, '').trim())
+      .filter((l) => l.replace(/[\W_]/g, ''));
+    return { span, start: m[1].replace(/\s+/g, ' '), end: m[2].replace(/\s+/g, ' '), lines: rest };
+  }
+  return null;
+}
+
+function roleFromHeader(h) {
+  let title = '';
+  let organization = '';
+  let location = '';
+  if (h.lines.length >= 2) {
+    // Two-line headers: the line with a job-title word is the title.
+    const [a, b] = h.lines.slice(-2);
+    const [titleLine, orgLine] = TITLE_WORD.test(b) || !TITLE_WORD.test(a) ? [b, a] : [a, b];
+    ({ organization, location } = splitOrgLocation(orgLine));
+    title = titleLine;
+  } else if (h.lines.length === 1) {
+    ({ title, organization, location } = splitHeader(h.lines[0]));
+  }
+  const dates = `${cap(h.start)} – ${cap(h.end)}`;
+  return { title: title.trim(), organization: organization.trim(), location: location.trim(), dates, start: h.start, end: h.end, bullets: [] };
+}
+
+function parseEducation(lines) {
+  const out = [];
+  let cur = null;
+  let lastLabel = null;
+  const fresh = () => (cur = { school: '', location: '', degree: '', dates: '', lines: [] }) && out.push(cur);
+  for (const raw of lines) {
+    const line = raw.replace(BULLET, '').trim();
+    if (!line) continue;
+    const label = line.match(/^([A-Z][A-Za-z &/'-]{2,32}):\s+(.+)$/);
+    if (label && !DEGREE_WORD.test(label[1])) {
+      if (!cur) fresh();
+      lastLabel = { label: label[1], text: label[2] };
+      cur.lines.push(lastLabel);
+      continue;
+    }
+    const date = line.match(new RegExp(`(?:${MONTH}\\s+)?(?:19|20)\\d{2}(?:\\s*(?:-|–|—|to)\\s*(?:${MONTH}\\s+)?(?:(?:19|20)\\d{2}|present|current))?\\s*$`, 'i'));
+    const body = (date ? line.slice(0, date.index) : line).replace(/[\s,|–—-]+$/, '').trim();
+    if (SCHOOL.test(body) && !DEGREE_WORD.test(body.replace(SCHOOL, ''))) {
+      if (!cur || cur.school) fresh();
+      Object.assign(cur, (({ organization, location }) => ({ school: organization, location }))(splitOrgLocation(body)));
+      if (date && !cur.dates) cur.dates = date[0].trim();
+      lastLabel = null;
+      continue;
+    }
+    if (DEGREE_WORD.test(line) && (!cur || !cur.degree)) {
+      if (!cur) fresh();
+      // "Bachelor of Science in X, Oregon State University" -> degree + school
+      const m = body.match(/^(.*?),\s*([^,]*\b(?:University|College|Institute|School|Academy|Polytechnic)\b[^,]*)(?:,.*)?$/i);
+      if (m && !cur.school) Object.assign(cur, { degree: m[1].trim(), school: m[2].trim() });
+      else cur.degree = body;
+      if (date) cur.dates = date[0].trim();
+      lastLabel = null;
+      continue;
+    }
+    if (lastLabel) {
+      lastLabel.text += ' ' + line; // wrapped "Relevant Courses: …" line
+      continue;
+    }
+    if (!cur) fresh();
+    if (!cur.degree) cur.degree = body;
+    else cur.lines.push({ label: '', text: line });
+    if (date && !cur.dates) cur.dates = date[0].trim();
+  }
+  return out
+    .filter((e) => e.school || e.degree)
+    .map((e) => ({ ...e, details: e.lines.map((l) => (l.label ? `${l.label}: ${l.text}` : l.text)).join(' ') }));
+}
+
 /**
  * Pull roles, bullets, education and skills out of a resume's plain text.
  * @returns {{experiences: object[], education: object[], skills: string[], summary: string}}
  */
 function parseResume(text) {
-  const lines = String(text || '').replace(/\r/g, '').split('\n').map((l) => l.replace(/\s+$/, ''));
+  const all = String(text || '').replace(/\r/g, '').split('\n').map((l) => l.replace(/\s+$/, ''));
+  // Split into sections first.
+  const sections = [];
+  let cur = { name: null, lines: [] };
+  sections.push(cur);
+  for (const l of all) {
+    const sec = l.trim() && sectionOf(l.trim());
+    if (sec) sections.push((cur = { name: sec, lines: [] }));
+    else cur.lines.push(l);
+  }
+
   const experiences = [];
   const education = [];
   const skills = [];
   const summary = [];
-  let section = null;
-  let current = null;
-  let lastBullet = null;
-  let pendingHeader = []; // non-bullet lines just before a date line
-
-  const startRole = (header, dates) => {
-    const h = splitHeader(header);
-    const [start, end] = dates ? [dates[1], dates[2]] : ['', ''];
-    current = { ...h, dates: dates ? `${dates[1]} – ${dates[2].replace(/^./, (c) => c.toUpperCase())}` : '', start, end, bullets: [] };
-    experiences.push(current);
-    lastBullet = null;
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const line = raw.trim();
-    if (!line) {
-      lastBullet = null;
-      continue;
-    }
-    const sec = sectionOf(line);
-    if (sec) {
-      section = sec;
-      current = null;
-      lastBullet = null;
-      pendingHeader = [];
-      continue;
-    }
-    if (section === 'education') {
-      const dates = line.match(DATE_RANGE) || line.match(/(19|20)\d{2}/);
-      if (/\b(b\.?s|b\.?a|m\.?s|m\.?a|mba|ph\.?d|bachelor|master|associate|diploma|certificate|degree|bsn|msn)\b/i.test(line) || !education.length) {
-        const text = line.replace(DATE_RANGE, '').replace(/,?\s*(19|20)\d{2}\s*$/, '').trim();
-        // "Bachelor of Science in X, Oregon State University" -> degree + school
-        const m = text.match(/^(.*?),\s*([^,]*\b(?:University|College|Institute|School|Academy|Polytechnic)\b[^,]*)(?:,.*)?$/i);
-        education.push({ degree: m ? m[1].trim() : text, school: m ? m[2].trim() : '', dates: dates ? dates[0] : '', details: '' });
-      } else {
-        const e = education[education.length - 1];
-        if (!e.school) e.school = line.replace(/,?\s*(19|20)\d{2}\s*$/, '').trim();
-        else e.details = [e.details, line].filter(Boolean).join(' ');
-        if (!e.dates && dates) e.dates = dates[0];
+  for (const sec of sections) {
+    if (sec.name === 'summary') summary.push(...sec.lines.map((l) => l.trim()).filter(Boolean));
+    else if (sec.name === 'education') education.push(...parseEducation(sec.lines));
+    else if (sec.name === 'skills') {
+      for (const l of sec.lines) {
+        for (const s of l.replace(/^[^:●•]{0,40}:\s*/, '').split(/[●•▪◦,;|·]|\s{2,}/)) {
+          const v = s.replace(BULLET, '').trim();
+          if (v && v.length < 45) skills.push(v);
+        }
       }
-      continue;
+    } else if (sec.name === 'experience' || sec.name === 'projects' || sec.name === null) {
+      experiences.push(...parseRoles(sec.lines, sec.name === 'projects', sec.name === null));
     }
-    if (section === 'skills') {
-      for (const s of line.replace(/^[^:]{0,40}:\s*/, '').split(/[,;|•·]/)) {
-        const v = s.replace(BULLET, '').trim();
-        if (v && v.length < 40) skills.push(v);
-      }
-      continue;
-    }
-    if (section === 'summary') {
-      summary.push(line);
-      continue;
-    }
-    if (section === 'other' || section === 'certifications') continue;
-
-    const isBullet = BULLET.test(raw);
-    const dates = !isBullet && line.match(DATE_RANGE);
-    if (dates) {
-      // Header may be on this line, the line(s) above, or split across both.
-      const own = line.replace(DATE_RANGE, '').replace(/[\s|·•,–—-]+$/, '').trim();
-      const above = pendingHeader.join(', ');
-      if (own && above) {
-        // Two-line headers: "Bloom Labs — Portland, OR" + "Frontend Engineer   2019 – Present"
-        // (or the other way round). The line with a job-title word is the title.
-        const [titleLine, orgLine] = TITLE_WORD.test(own) || !TITLE_WORD.test(above) ? [own, above] : [above, own];
-        const org = splitHeader(orgLine);
-        startRole('', dates);
-        Object.assign(current, { title: titleLine, organization: org.title, location: [org.organization, org.location].filter(Boolean).join(', ') });
-      } else {
-        startRole(own || above || 'Role', dates);
-      }
-      if (section === 'projects') current.isProject = true;
-      pendingHeader = [];
-      continue;
-    }
-    if (isBullet) {
-      if (!current) startRole(pendingHeader.join(', ') || 'Other experience', null);
-      pendingHeader = [];
-      lastBullet = { text: line.replace(BULLET, '').trim() };
-      current.bullets.push(lastBullet);
-      continue;
-    }
-    // A wrapped bullet continues on the next line (common in PDFs).
-    if (lastBullet && (/^[a-z(&]/.test(line) || (/^\s{2,}/.test(raw) && !/\s[—|]\s/.test(line))) && line.length < 140 && !DATE_RANGE.test(line)) {
-      lastBullet.text += ' ' + line;
-      continue;
-    }
-    // Resumes without bullet symbols: sentence-like lines under a role are bullets.
-    if (current && current.dates && /^[A-Z]/.test(line) && line.length > 40 && line.split(' ').length > 6) {
-      lastBullet = { text: line };
-      current.bullets.push(lastBullet);
-      continue;
-    }
-    pendingHeader.push(line);
-    if (pendingHeader.length > 2) pendingHeader.shift();
   }
-
   return {
     experiences: experiences.filter((e) => e.bullets.length || e.dates),
-    education: education.filter((e) => e.degree),
+    education: education.filter((e) => e.degree || e.school),
     skills: [...new Set(skills)],
     summary: summary.join(' ').trim(),
   };
+}
+
+function parseRoles(lines, isProject, preamble) {
+  const L = lines.filter((l) => l.trim());
+  const roles = [];
+  let cur = null;
+  let last = null;
+  let pending = [];
+  for (let i = 0; i < L.length; i++) {
+    const raw = L[i];
+    const line = raw.trim();
+    if (BULLET.test(raw)) {
+      if (!cur) {
+        if (preamble && !pending.length) continue;
+        cur = { title: pending.slice(-1)[0] || (isProject ? 'Project' : 'Other experience'), organization: '', location: '', dates: '', start: '', end: '', bullets: [] };
+        roles.push(cur);
+      }
+      pending = [];
+      last = { text: line.replace(BULLET, '').trim() };
+      cur.bullets.push(last);
+      cur.glyph = true;
+      continue;
+    }
+    const h = headerAt(L, i);
+    if (h) {
+      cur = roleFromHeader(h);
+      if (isProject) cur.isProject = true;
+      roles.push(cur);
+      last = null;
+      pending = [];
+      i += h.span - 1;
+      continue;
+    }
+    // A wrapped bullet continues on the next line (PDFs lose the indentation).
+    if (last && (cur.glyph || /^[a-z(&]/.test(line)) && line.length < 160) {
+      last.text += ' ' + line;
+      continue;
+    }
+    // Resumes without bullet symbols: sentence-like lines under a role are bullets.
+    if (cur && cur.dates && /^[A-Z]/.test(line) && line.length > 40 && line.split(' ').length > 6) {
+      last = { text: line };
+      cur.bullets.push(last);
+      continue;
+    }
+    pending.push(line);
+  }
+  return preamble ? roles.filter((r) => r.dates) : roles;
 }
 
 // ---------- bank maintenance ----------
@@ -468,7 +544,59 @@ function buildResume({ profile, bank, job, roles }) {
   };
 }
 
+/**
+ * The editable resume document for a job: your header, summary, the picked
+ * bullets under each role, skills (relevant ones first) and education, all
+ * in the shared template's format (src/shared/resumeDoc.js).
+ */
+function buildDoc({ profile, bank, job, roles }) {
+  const ResumeDoc = require('../shared/resumeDoc');
+  const r = buildResume({ profile, bank, job, roles });
+  const expById = new Map(bank.experiences.map((e) => [e.id, e]));
+  const skills = [];
+  for (const g of r.skills) for (const s of g.items) if (!skills.some((x) => x.toLowerCase() === s.toLowerCase())) skills.push(s);
+  return {
+    doc: {
+      header: ResumeDoc.headerFromProfile(profile),
+      summary: bank.summary || '',
+      titles: {},
+      roles: roles
+        .filter((x) => expById.has(x.experienceId) && (x.bullets.length || !expById.get(x.experienceId).isProject))
+        .map((x) => {
+          const e = expById.get(x.experienceId);
+          return { experienceId: e.id, isProject: !!e.isProject, organization: e.organization || '', location: e.location || '', title: e.title || '', dates: e.dates || '', bullets: x.bullets.map((b) => ({ bulletId: b.bulletId, text: b.text })) };
+        }),
+      // A tidy grid: up to 12 skills, most relevant first.
+      skills: skills.slice(0, 12),
+      education: (bank.education || []).map((e) => ({ school: e.school || '', location: e.location || '', degree: e.degree || '', dates: e.dates || '', lines: e.lines || ResumeDoc.labelLines(e.details) })),
+      certifications: [],
+    },
+    notes: r.tailoring_notes,
+  };
+}
+
+// Link a doc written elsewhere (e.g. by Claude) back to bank roles and bullets.
+function linkDocToBank(doc, bank) {
+  const n = (s) => norm(s);
+  for (const role of doc.roles) {
+    if (!role.experienceId) {
+      const e = bank.experiences.find((x) => (n(x.organization) && n(x.organization) === n(role.organization)) || (n(x.title) && n(x.title) === n(role.title) && !role.organization));
+      if (e) role.experienceId = e.id;
+    }
+    const pool = bank.bullets.filter((b) => !role.experienceId || b.experienceId === role.experienceId);
+    for (const b of role.bullets) {
+      if (b.bulletId) continue;
+      const hit = pool.find((x) => [x.text, ...(x.variants || [])].some((v) => similarity(v, b.text) >= SAME_BULLET));
+      if (hit) b.bulletId = hit.id;
+    }
+  }
+  return doc;
+}
+
 module.exports = {
+  buildDoc,
+  linkDocToBank,
+  SAME_BULLET,
   parseResume,
   mergeIntoBank,
   emptyBank,

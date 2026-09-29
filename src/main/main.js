@@ -24,6 +24,7 @@ const { PostingWatcher, fingerprint } = require('./watcher');
 const ocr = require('./ocr');
 const { createBridge } = require('./bridge');
 const bulletBank = require('./bullets');
+const ResumeDoc = require('../shared/resumeDoc');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
@@ -95,9 +96,9 @@ function createDashboard() {
     return dashboard;
   }
   dashboard = new BrowserWindow({
-    width: 1180,
-    height: 800,
-    minWidth: 860,
+    width: 1440,
+    height: 920,
+    minWidth: 960,
     minHeight: 600,
     title: 'Sprout — Job Application Buddy',
     backgroundColor: '#fbf8f3',
@@ -428,7 +429,8 @@ async function makeResume(appId) {
       bullets: chosenBulletsForClaude(rec),
       model: store.getSettings().model,
     });
-    store.updateApplication(appId, { resume, resumeHtml: renderResumeHtml(resume), resumeStatus: 'ready' });
+    store.updateApplication(appId, { resume });
+    saveDoc(appId, bulletBank.linkDocToBank(ResumeDoc.fromResume(resume, store.getProfile()), store.getBank()), { resumeSource: 'claude' });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
     broadcast('app-updated', updated);
     return updated;
@@ -452,8 +454,8 @@ async function makeCoverLetter(appId) {
       analysis: rec.analysis,
       model: store.getSettings().model,
     });
-    const contact = (rec.resume && rec.resume.contact) || [profile.email, profile.phone, profile.location].filter(Boolean);
-    const letterHtml = renderCoverLetterHtml(letter, { name: profile.name || letter.signature, contact });
+    const header = (rec.builder && rec.builder.doc && rec.builder.doc.header) || ResumeDoc.headerFromProfile(profile);
+    const letterHtml = renderCoverLetterHtml(letter, { header: { ...header, name: header.name || letter.signature } });
     const updated = store.updateApplication(appId, { letter, letterHtml, letterStatus: 'ready' });
     broadcast('app-updated', updated);
     return updated;
@@ -501,52 +503,100 @@ function importBullets(docs) {
   return { added, merged, roles };
 }
 
-function builderState(rec) {
+// The resume document being edited for an application. Created on first open
+// from the best bullets in the bank (or from a Claude-written resume).
+function currentDoc(rec) {
   const bank = store.getBank();
+  const profile = store.getProfile();
+  if (rec.builder && rec.builder.doc) return rec.builder.doc;
+  if (rec.resume) return bulletBank.linkDocToBank(ResumeDoc.fromResume(rec.resume, profile), bank);
+  // Older saves kept just the picked bullets.
   const roles = rec.builder && rec.builder.roles ? rec.builder.roles : bulletBank.selectBullets(rec.job, bank).roles;
+  return bulletBank.buildDoc({ profile, bank, job: rec.job, roles }).doc;
+}
+
+function saveDoc(appId, doc, extra = {}) {
+  const clean = ResumeDoc.normalize(doc);
+  store.updateApplication(appId, {
+    builder: { doc: clean, savedAt: new Date().toISOString() },
+    resumeHtml: ResumeDoc.renderHtml(ResumeDoc.compact(clean)),
+    resumeStatus: 'ready',
+    ...extra,
+  });
+  return clean;
+}
+
+function builderState(rec) {
+  let doc = currentDoc(rec);
+  if (!rec.builder || !rec.builder.doc) {
+    doc = saveDoc(rec.id, doc, { resumeSource: rec.resumeSource || 'bank' });
+    rec = store.getApplication(rec.id);
+  }
+  const bank = store.getBank();
   const { ranked, units } = bulletBank.rankBullets(rec.job, bank);
-  const chosenIds = new Set(roles.flatMap((r) => r.bullets.map((b) => b.bulletId)));
-  const byId = new Map(bank.bullets.map((b) => [b.id, b]));
+  const used = new Set(doc.roles.flatMap((r) => r.bullets.map((b) => b.bulletId).filter(Boolean)));
+  const usedText = new Set(doc.roles.flatMap((r) => r.bullets.map((b) => b.text)));
   const rankById = new Map(ranked.map((r) => [r.id, r]));
-  const exps = bulletBank.orderedExperiences(bank);
-  // Roles added to the bank after the builder was saved still show up.
-  const roleList = exps.map((e) => roles.find((r) => r.experienceId === e.id) || { experienceId: e.id, bullets: [] });
+  const byId = new Map(bank.bullets.map((b) => [b.id, b]));
+  const inDoc = new Set(doc.roles.map((r) => r.experienceId).filter(Boolean));
+
+  // Requirement checklist for what's on the page now: bullets (with their
+  // role title as context), the summary, and education all count; a skill
+  // that's only in the skills grid counts half.
+  const pageTexts = [
+    ...doc.roles.flatMap((r) => r.bullets.map((b) => `${b.text}\n${r.title}`.toLowerCase())),
+    doc.summary.toLowerCase(),
+    doc.education.map((e) => [e.degree, e.school, ...e.lines.map((l) => `${l.label}: ${l.text}`)].join('\n')).join('\n').toLowerCase(),
+  ].filter(Boolean);
+  const skillsText = doc.skills.join(', ').toLowerCase();
+  const coverage = units.map((u) => {
+    const byBullet = Math.max(0, ...pageTexts.map((t) => u.match(t))) >= 0.6;
+    return { key: u.key, label: u.label, kind: u.kind, covered: byBullet, skillsOnly: !byBullet && u.match(skillsText) >= 0.6 };
+  });
+
+  const ats = atsScore(rec.job, htmlToText(rec.resumeHtml || ResumeDoc.renderHtml(ResumeDoc.compact(doc))));
   return {
-    roles: roleList.map((r) => {
-      const exp = exps.find((e) => e.id === r.experienceId);
-      return {
-        experienceId: r.experienceId,
-        exp: exp && { title: exp.title, organization: exp.organization, dates: exp.dates, isProject: !!exp.isProject },
-        bullets: r.bullets
-          .filter((b) => !b.bulletId || byId.has(b.bulletId))
-          .map((b) => {
-            const orig = b.bulletId && byId.get(b.bulletId);
-            const rr = rankById.get(b.bulletId);
-            const known = orig ? [orig.text, ...(orig.variants || [])] : [];
-            return { ...b, bankText: orig ? orig.text : '', edited: !!orig && !known.includes(b.text), covers: rr ? rr.covers.map((c) => c.label) : [] };
-          }),
-        more: ranked
-          .filter((x) => x.experienceId === r.experienceId && !chosenIds.has(x.id))
-          .map((x) => ({ bulletId: x.id, text: x.text, score: Math.round(x.score * 10) / 10, covers: x.covers.map((c) => c.label) })),
-      };
-    }),
-    coverage: bulletBank.coverageOf(units, roleList, bank),
+    doc,
+    roles: doc.roles.map((r) => ({
+      experienceId: r.experienceId,
+      // Bullets from this role in the bank that aren't on the page yet.
+      more: ranked
+        .filter((x) => x.experienceId === r.experienceId && !used.has(x.id) && !usedText.has(x.text))
+        .map((x) => ({ bulletId: x.id, text: x.text, score: Math.round(x.score * 10) / 10, covers: x.covers.map((c) => c.key) })),
+      // For each bullet on the page: its bank wordings, and whether it was reworded here.
+      bullets: r.bullets.map((b) => {
+        const orig = b.bulletId && byId.get(b.bulletId);
+        const words = orig ? [orig.text, ...(orig.variants || [])] : [];
+        const rr = b.bulletId && rankById.get(b.bulletId);
+        return { wordings: words, edited: !!orig && !words.includes(b.text), inBank: !!orig, covers: rr ? rr.covers.map((c) => c.key) : [] };
+      }),
+    })),
+    otherRoles: bulletBank
+      .orderedExperiences(bank)
+      .filter((e) => !inDoc.has(e.id))
+      .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
+    coverage,
+    units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
+    ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 5) },
     bankSize: bank.bullets.length,
+    resumeSource: rec.resumeSource || 'bank',
   };
 }
 
 function chosenBulletsForClaude(rec) {
-  const bank = store.getBank();
-  if (!bank.bullets.length) return [];
-  const roles = rec.builder && rec.builder.roles ? rec.builder.roles : bulletBank.selectBullets(rec.job, bank).roles;
-  const exps = new Map(bank.experiences.map((e) => [e.id, e]));
-  return roles
-    .filter((r) => r.bullets.length && exps.has(r.experienceId))
-    .map((r) => ({ role: [exps.get(r.experienceId).title, exps.get(r.experienceId).organization].filter(Boolean).join(', '), bullets: r.bullets.map((b) => b.text) }));
+  const doc = rec.builder && rec.builder.doc;
+  if (!doc) {
+    const bank = store.getBank();
+    if (!bank.bullets.length) return [];
+  }
+  const d = doc || currentDoc(rec);
+  return d.roles
+    .filter((r) => r.bullets.length)
+    .map((r) => ({ role: [r.title, r.organization].filter(Boolean).join(', '), bullets: r.bullets.map((b) => b.text).filter(Boolean) }));
 }
 
 function markBulletsUsed(roles) {
-  const ids = new Set(roles.flatMap((r) => r.bullets.map((b) => b.bulletId)).filter(Boolean));
+  const ids = new Set((roles || []).flatMap((r) => r.bullets.map((b) => b.bulletId)).filter(Boolean));
   const now = new Date().toISOString();
   store.updateBank((bank) => {
     for (const b of bank.bullets) if (ids.has(b.id)) Object.assign(b, { uses: (b.uses || 0) + 1, lastUsedAt: now });
@@ -698,12 +748,6 @@ function registerIpc() {
   });
   handle('job:scanScreen', () => scanNow());
   handle('app:get', (id) => withAts(store.getApplication(id)));
-  // Live re-score while the user edits the resume preview (nothing is saved).
-  handle('ats:rescore', (id, html) => {
-    const rec = store.getApplication(id);
-    if (!rec) throw new Error('Application not found.');
-    return atsScore(rec.job, htmlToText(html));
-  });
   handle('app:update', (id, patch) => {
     const allowed = {};
     for (const k of ['notes', 'followUpAt', 'appliedVia', 'contact', 'salaryNote']) if (patch[k] !== undefined) allowed[k] = patch[k];
@@ -796,52 +840,56 @@ function registerIpc() {
     });
   });
 
-  // ---- resume builder (per application) ----
+  // ---- resume editor (per application) ----
   handle('builder:get', (appId) => builderState(store.getApplication(appId)));
-  handle('builder:save', (appId, roles) => {
-    const clean = (roles || []).map((r) => ({
-      experienceId: String(r.experienceId),
-      bullets: (r.bullets || []).filter((b) => b.text && b.text.trim()).map((b) => ({ bulletId: b.bulletId || null, text: b.text.trim() })),
-    }));
-    store.updateApplication(appId, { builder: { roles: clean, savedAt: new Date().toISOString() } });
-    return builderState(store.getApplication(appId));
+  handle('builder:save', (appId, doc) => {
+    const rec = store.getApplication(appId);
+    const clean = saveDoc(appId, doc);
+    // Role facts (employer, title, dates, location) are the same on every resume: keep the bank in step.
+    store.updateBank((bank) => {
+      for (const r of clean.roles) {
+        const e = r.experienceId && bank.experiences.find((x) => x.id === r.experienceId);
+        if (!e) continue;
+        for (const k of ['organization', 'location', 'title', 'dates']) if (r[k] && r[k] !== e[k]) e[k] = r[k];
+      }
+    });
+    broadcast('app-updated', store.getApplication(appId));
+    return builderState(store.getApplication(rec.id));
   });
+  // Start over from the best bullets for this job (keeps your header).
   handle('builder:auto', (appId) => {
     const rec = store.getApplication(appId);
-    store.updateApplication(appId, { builder: { roles: bulletBank.selectBullets(rec.job, store.getBank()).roles, savedAt: new Date().toISOString() } });
+    const bank = store.getBank();
+    const { doc } = bulletBank.buildDoc({ profile: store.getProfile(), bank, job: rec.job, roles: bulletBank.selectBullets(rec.job, bank).roles });
+    if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
+    saveDoc(appId, doc, { resumeSource: 'bank' });
     return builderState(store.getApplication(appId));
   });
-  // Assemble a resume from the chosen bullets — free, no AI.
-  handle('builder:build', (appId) => {
+  // A role from the bank, with its best bullets for this job, ready to drop in.
+  handle('builder:roleFromBank', (appId, experienceId) => {
     const rec = store.getApplication(appId);
-    const roles = builderState(rec).roles.map((r) => ({ experienceId: r.experienceId, bullets: r.bullets.map(({ bulletId, text }) => ({ bulletId, text })) }));
-    const resume = bulletBank.buildResume({ profile: store.getProfile(), bank: store.getBank(), job: rec.job, roles });
-    store.updateApplication(appId, { resume, resumeHtml: renderResumeHtml(resume), resumeStatus: 'ready', resumeSource: 'bank', builder: { roles, savedAt: new Date().toISOString() } });
-    markBulletsUsed(roles);
-    const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
-    broadcast('app-updated', updated);
-    return updated;
+    const bank = store.getBank();
+    const e = bank.experiences.find((x) => x.id === experienceId);
+    if (!e) throw new Error('That role is no longer in your bank.');
+    const top = bulletBank.rankBullets(rec.job, bank).ranked.filter((r) => r.experienceId === experienceId).slice(0, 3);
+    return { experienceId: e.id, isProject: !!e.isProject, organization: e.organization, location: e.location, title: e.title, dates: e.dates, bullets: top.map((t) => ({ bulletId: t.id, text: t.text })) };
+  });
+  // Make parts of this resume your defaults for new ones.
+  handle('builder:saveDefault', (kind, value) => {
+    if (kind === 'header') store.updateProfile({ name: value.name || store.getProfile().name, resumeHeader: { line1: value.line1 || '', line2: value.line2 || '' } });
+    else if (kind === 'summary') store.updateBank((b) => void (b.summary = String(value || '')));
+    else if (kind === 'skills') store.updateBank((b) => void (b.skills = (value || []).filter(Boolean)));
+    else if (kind === 'education') store.updateBank((b) => void (b.education = (value || []).map((e) => ({ ...e, details: (e.lines || []).map((l) => (l.label ? `${l.label}: ${l.text}` : l.text)).join(' ') }))));
+    broadcast('state-changed');
   });
   handle('builder:polish', async (appId) => {
     const rec = store.getApplication(appId);
-    const st = builderState(rec);
-    const bullets = st.roles.flatMap((r) =>
-      r.bullets.map((b, i) => ({ id: `${r.experienceId}:${i}`, text: b.text, role: r.exp ? r.exp.title : '' }))
-    );
-    if (!bullets.length) throw new Error('Pick some bullets first.');
+    const doc = currentDoc(rec);
+    const bullets = doc.roles.flatMap((r, ri) => r.bullets.filter((b) => b.text).map((b, bi) => ({ id: `${ri}:${bi}`, text: b.text, role: r.title })));
+    if (!bullets.length) throw new Error('Add some bullets first.');
     const edits = await claude.polishBullets(claudeClient(), { job: rec.job, bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
     return edits.filter((e) => e.text.trim() && e.text.trim() !== bullets.find((b) => b.id === e.id).text);
   });
-  handle('bridge:status', () => ({
-    port: bridgePort,
-    folder: extensionDir(),
-    pairings: (store.getSettings().bridgePairings || []).map(({ origin, name, pairedAt, lastSeenAt }) => ({ origin, name, pairedAt, lastSeenAt })),
-  }));
-  handle('bridge:revoke', (origin) => {
-    store.updateSettings({ bridgePairings: (store.getSettings().bridgePairings || []).filter((p) => p.origin !== origin) });
-    broadcast('state-changed');
-  });
-  handle('bridge:showFolder', () => shell.openPath(extensionDir()));
   handle('shell:openExternal', (url) => {
     // Only real web links, never file:// or custom schemes.
     if (!/^https?:\/\//i.test(url || '')) throw new Error('That link doesn\'t look like a web address.');
@@ -912,7 +960,12 @@ function registerIpc() {
     if (res.canceled || !res.filePath) return null;
     if (ext === 'pdf') fs.writeFileSync(res.filePath, await htmlToPdf(html));
     else if (ext === 'html') fs.writeFileSync(res.filePath, html);
-    else fs.writeFileSync(res.filePath, isLetter ? letterToMarkdown(rec.letter) : resumeToMarkdown(rec.resume));
+    else fs.writeFileSync(res.filePath, isLetter ? letterToMarkdown(rec.letter) : resumeToMarkdown((rec.builder && rec.builder.doc) || rec.resume, store.getProfile()));
+    if (!isLetter && rec.status === 'scored') {
+      store.setStatus(id, 'resume-ready');
+      if (rec.builder && rec.builder.doc) markBulletsUsed(rec.builder.doc.roles);
+      broadcast('app-updated', store.getApplication(id));
+    }
     shell.showItemInFolder(res.filePath);
     return res.filePath;
   });

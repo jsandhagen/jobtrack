@@ -11,7 +11,7 @@
 // Dealbreakers from your profile (work mode, minimum salary, words to avoid)
 // cap the score so those roles never pop up as good matches.
 const { SKILLS, STOPWORDS, classifyLines, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
-const { degreeLevel } = require('./atsScore');
+const { degreeLevel, degreeRequirements } = require('./atsScore');
 
 const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
 
@@ -46,18 +46,20 @@ const NOT_TERMS = new Set(
     'proven demonstrated working work must should including include etc ideal ideally equivalent degree bachelor ' +
     'master bachelors masters years year what who why how join help build support manage develop create ensure ' +
     'january february march april may june july august september october november december monday friday ' +
-    'remote hybrid onsite full time part contract us usa eeo pto ceo ok i am new senior junior lead principal staff'
+    'remote hybrid onsite full time part contract us usa eeo pto ceo ok i am new senior junior lead principal staff ' +
+    // generic nouns that aren't skills on their own
+    'models model analysis dashboards dashboard tools systems system field fields solutions products data reports reporting processes process projects project platforms applications services teams environment stakeholders'
   ).split(' ')
 );
 
 const EDGE_WORDS = new Set(
-  'current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity'.split(' ')
+  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity'.split(' ')
 );
 
 // Terms a posting asks for that aren't in the skills dictionary: acronyms
 // (BLS, CPA, EHR), capitalised product names (Epic, Salesforce, AutoCAD) and
 // phrases after "experience with / knowledge of / certification in".
-function extractTerms(original, ignoreWords) {
+function extractTerms(original, ignoreWords, ignoreText = '') {
   const found = new Set();
   const add = (t) => {
     let words0 = t.replace(/^[\s,.;:()-]+|[\s,.;:()-]+$/g, '').split(/\s+/);
@@ -67,7 +69,11 @@ function extractTerms(original, ignoreWords) {
     const clean = words0.join(' ').replace(/[,.;:)]+$/, '');
     const words = lower(clean).split(/\s+/).filter(Boolean);
     if (!clean || clean.length < 2 || words.length > 4) return;
-    if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w) || ignoreWords.has(w))) return;
+    if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w))) return;
+    // Skip the job title / company repeated back ("Senior Analyst", "Acme"),
+    // but keep real skills that share words with them ("credit risk analysis").
+    if (words.length === 1 && ignoreWords.has(words[0])) return;
+    if (ignoreText && ignoreText.includes(words.join(' '))) return;
     if (isDictionarySkill(clean)) return;
     found.add(clean);
   };
@@ -104,7 +110,9 @@ function extractTerms(original, ignoreWords) {
   const cue = /(?:experience (?:with|in|using)|knowledge of|proficien(?:t|cy) (?:in|with)|familiar(?:ity)? with|certifi(?:ed|cation) in|expertise in|skilled in|background in)\s+([^.;]+)/gi;
   for (const m of body.matchAll(cue)) {
     for (const part of m[1].split(/,|\band\b|\bor\b|\//i)) {
-      const t = part.trim().split(/\s+/).slice(0, 3).join(' ');
+      const ws = part.trim().split(/\s+/);
+      while (ws.length && (EDGE_WORDS.has(lower(ws[0])) || STOPWORDS.has(lower(ws[0])))) ws.shift();
+      const t = ws.slice(0, 3).join(' ');
       if (t && !/^(a|an|the)$/i.test(t)) add(t.replace(/^(a|an|the)\s+/i, ''));
     }
   }
@@ -186,6 +194,8 @@ function dealbreakers(job, profile) {
  * @param {{text:string, kind?:string}[]} documents
  * @param {object} [profile]  { targetRoles, workModes, minSalary, avoidKeywords }
  */
+const DEGREE_LINE = /\b(bachelor|master|degree|ph\.?d|doctorate|diploma|b\.s\.|m\.s\.|mba)\b/i;
+
 // What the posting asks for, as a list of units, each able to say how well a
 // piece of text (your whole library, or a single resume bullet) covers it.
 // Shared by the fit score and the bullet bank so they agree.
@@ -205,9 +215,10 @@ function requirementUnits(job) {
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       if (patterns.some((p) => p.test(line))) addUnit('s:' + skill, skill, effKind, (t) => (patterns.some((p) => p.test(t)) ? 1 : 0));
     }
-    // Only mine free-form terms from qualification-ish lines, not the company blurb.
-    if (kind !== 'neutral' || !hasRequiredSection) {
-      for (const term of extractTerms(original, ignoreWords)) {
+    // Only mine free-form terms from qualification-ish lines, not the company
+    // blurb — and not degree lines, which count as one "degree" requirement.
+    if ((kind !== 'neutral' || !hasRequiredSection) && !DEGREE_LINE.test(line)) {
+      for (const term of extractTerms(original, ignoreWords, `${lower(job.title)} | ${lower(job.company)}`)) {
         const words = lower(term).split(/\s+/).filter((w) => !STOPWORDS.has(w));
         addUnit('t:' + lower(term), term, effKind, (t) => {
           if (hasTerm(t, term)) return 1;
@@ -216,13 +227,11 @@ function requirementUnits(job) {
       }
     }
   }
-  const need = degreeLevel(job.text);
-  if (need) {
-    const equivalentOk = /or equivalent/i.test(job.text);
-    addUnit('degree', ['', 'associate degree', "bachelor's degree", "master's degree", 'PhD'][need], 'required', (t) =>
-      degreeLevel(t) >= need ? 1 : equivalentOk ? 0.5 : 0
-    );
-  }
+  const DEGREE_NAMES = ['', 'associate degree', "bachelor's degree", "master's degree", 'PhD'];
+  const deg = degreeRequirements(job.text);
+  const equivalentOk = /or equivalent/i.test(job.text);
+  if (deg.required) addUnit('degree', DEGREE_NAMES[deg.required], 'required', (t) => (degreeLevel(t) >= deg.required ? 1 : equivalentOk ? 0.5 : 0));
+  if (deg.preferred) addUnit('degree-pref', DEGREE_NAMES[deg.preferred], 'preferred', (t) => (degreeLevel(t) >= deg.preferred ? 1 : 0));
   return { units: [...units.values()], lines, hasRequiredSection, ignoreWords };
 }
 

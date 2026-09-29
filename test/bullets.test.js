@@ -132,3 +132,19 @@ test('Claude resume writing is given the hand-picked bullets', async () => {
   await claude.generateResume(client, { job: POSTINGS.seniorFrontend, documents: [], profile: {}, bullets: [{ role: 'Engineer, Bloom Labs', bullets: ['Built a design system'] }] });
   assert.match(requests[0].messages[0].content, /hand-picked these bullets[\s\S]*Engineer, Bloom Labs:\n- Built a design system/);
 });
+
+test('parses a classic Word/Google-Docs resume exported to PDF (split dates, wrapped ● bullets, RELEVANT headings)', () => {
+  const p = parseResume(resume('classic.txt'));
+  assert.equal(p.experiences.length, 2);
+  const [a, b] = p.experiences;
+  assert.deepEqual([a.organization, a.location, a.title, a.dates], ['Northwind Insurance', 'Springfield, IL', 'Senior Data Analyst - Pricing and Claims Analytics', 'March 2021 – Current']);
+  assert.equal(a.bullets.length, 3);
+  assert.match(a.bullets[0].text, /^Built a claims triage model .* across a team of 40 adjusters\.$/);
+  assert.deepEqual([b.organization, b.location, b.title, b.dates], ['Contoso Bank', 'Chicago, IL', 'Data Analyst', 'June 2018 – February 2021']);
+  assert.equal(b.bullets.length, 2);
+  assert.deepEqual(p.skills, ['SQL', 'Python', 'Tableau', 'Statistics', 'Excel', 'Stakeholder Communication']);
+  const e = p.education[0];
+  assert.deepEqual([e.school, e.location, e.degree, e.dates], ['University of Illinois Springfield', 'Springfield, IL', 'Bachelor of Science in Economics, GPA: 3.6', 'May 2018']);
+  assert.deepEqual(e.lines, [{ label: 'Relevant Courses', text: 'Econometrics, Statistics, Data Visualization, Database Systems.' }]);
+  assert.match(p.summary, /^Detail-oriented Data Analyst .* business stakeholders$/);
+});

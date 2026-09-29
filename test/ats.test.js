@@ -126,7 +126,7 @@ test('our rendered resume template parses cleanly', () => {
     tailoring_notes: [],
   });
   const text = htmlToText(html);
-  assert.match(text, /^Experience$/m);
+  assert.match(text, /^Relevant Work Experience$/m);
   assert.match(text, /^- Cut load time 40%$/m);
   const r = atsScore(JOB, text);
   const failed = r.formatChecks.filter((c) => !c.ok).map((c) => c.id);
@@ -142,4 +142,11 @@ test('resume generation passes ATS guidance to Claude', async () => {
   assert.match(prompt, /Applicant tracking systems/);
   assert.match(prompt, /typescript/);
   assert.match(prompt, /"Senior Frontend Engineer"/);
+});
+
+test('a preferred advanced degree is not treated as required', () => {
+  const { degreeRequirements } = require('../src/main/atsScore');
+  assert.deepEqual(degreeRequirements("Requirements\n- Bachelor's degree in Economics\nNice to have\n- Master's degree"), { required: 2, preferred: 3 });
+  assert.deepEqual(degreeRequirements("- Bachelor's or Master's degree in Finance"), { required: 2, preferred: null });
+  assert.deepEqual(degreeRequirements('- MBA preferred'), { required: null, preferred: 3 });
 });
