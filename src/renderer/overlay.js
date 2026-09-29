@@ -1,4 +1,5 @@
-const { mascotSvg, moodForScore, encouragement, scoreRing, animateRings } = window.SproutMascot;
+const { mascotSvg, moodForScore, encouragement, say, scoreRing, animateRings, confetti } = window.SproutMascot;
+const { icon } = window.SproutIcons;
 const pop = document.getElementById('pop');
 const content = document.getElementById('content');
 let current = null;
@@ -32,16 +33,16 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     footer = `<div class="note">Heads up — ${esc(app.quick.dealbreakers.join('; '))}.</div>
       <div class="actions"><button class="ghost" data-act="open">Details</button><button class="soft" data-act="resume">Tailor a resume anyway</button><button class="ghost" data-act="dismiss">Skip it</button></div>`;
   } else {
-    footer = `${!a && !analyzing ? '<button class="ghost small ask-claude" data-act="analyze">🔎 Ask Claude for a deeper read</button>' : ''}
+    footer = `${!a && !analyzing ? `<button class="ghost small ask-claude" data-act="analyze">${icon('search', 15)} Ask Claude for a deeper read</button>` : ''}
       <div class="ask">Want me to tailor a resume for this role?</div>
       <div class="actions">
-        <button class="primary" data-act="resume">✨ Yes, make my resume!</button>
+        <button class="primary" data-act="resume">${icon('sparkle')} Yes, make my resume!</button>
         <button class="soft" data-act="both">Resume + cover letter</button>
         <button class="ghost" data-act="open">Details</button>
         <button class="ghost" data-act="dismiss">Not now</button>
       </div>`;
   }
-  return `<div class="top">${mascotSvg(mood, 64)}<div class="speech">${esc(speech)}</div></div>
+  return `<div class="top">${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click to say hi' })}<div class="speech">${esc(speech)}</div></div>
     <div class="role">${esc(app.job.title)}</div>
     <div class="company">${esc([app.job.company, app.job.location].filter(Boolean).join(' · ') || 'Job posting detected')}</div>
     <div class="scoreline">${scoreRing(score, 84)}
@@ -73,7 +74,7 @@ function workingView({ app }) {
 
 function doneView({ app }) {
   return `<div class="center">${mascotSvg('thrilled', 88)}
-    <h3>Your resume is ready! 🎉</h3>
+    <h3>Your resume is ready!</h3>
     <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : ''}. Give it a quick read, tweak anything you like, and export to PDF.</p>
     ${app.ats && app.ats.after ? `<div class="ats-compare">ATS match ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${app.ats.after.score}%</b> <span class="grade g-${app.ats.after.grade}">${app.ats.after.grade}</span></div>` : ''}
     <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="dismiss-quiet">Later</button></div></div>`;
@@ -85,12 +86,13 @@ function seenView({ app }) {
   const when = new Date(applied || app.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const statusLine = {
     applied: `You applied on ${when}.`,
-    interviewing: "You're interviewing for this one! 💪",
-    offer: 'You have an offer for this one! 🎉',
+    interviewing: "You're interviewing for this one — you've got this!",
+    offer: 'You have an offer for this one! So proud of you.',
     rejected: `You applied on ${when}; it didn't work out this time.`,
     skipped: `You skipped this one on ${when}.`,
   }[app.status] || `You checked this on ${when} but haven't applied yet.`;
-  return `<div class="center">${mascotSvg(applied ? 'happy' : 'curious', 76)}
+  const mood = { offer: 'thrilled', interviewing: 'cheer', rejected: 'hug', applied: 'proud' }[app.status] || (applied ? 'happy' : 'curious');
+  return `<div class="center">${mascotSvg(mood, 76)}
     <h3>You've seen this one before</h3>
     <p class="muted"><b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company)}` : ''}<br>${esc(statusLine)}</p>
     <div class="actions" style="justify-content:center"><button class="primary" data-act="open">Open it</button><button class="ghost" data-act="dismiss-quiet">OK</button></div></div>`;
@@ -98,7 +100,7 @@ function seenView({ app }) {
 
 // The browser extension asks to connect.
 function pairView({ name }) {
-  return `<div class="center">${mascotSvg('curious', 76)}
+  return `<div class="center">${mascotSvg('wave', 76)}
     <h3>Connect ${esc(name || 'your browser')}?</h3>
     <p class="muted">The Sprout browser extension wants to send job postings to this app. Only allow it if you just clicked <b>Connect</b> in your browser.</p>
     <div class="actions"><button class="primary" data-act="pair-allow">Allow</button><button class="ghost" data-act="pair-deny">Don't allow</button></div></div>`;
@@ -107,21 +109,6 @@ function pairView({ name }) {
 function messageView({ mood, title, text }) {
   return `<div class="center">${mascotSvg(mood || 'curious', 80)}<h3>${esc(title)}</h3><p class="muted">${esc(text)}</p>
     <div class="actions" style="justify-content:center"><button class="ghost" data-act="dismiss-quiet">OK</button></div></div>`;
-}
-
-function confetti() {
-  const box = document.createElement('div');
-  box.className = 'confetti';
-  const colors = ['#8fd0a6', '#f6b99a', '#b9a9e6', '#f6d78b', '#e98a8a'];
-  for (let i = 0; i < 36; i++) {
-    const p = document.createElement('i');
-    p.style.left = Math.random() * 100 + '%';
-    p.style.background = colors[i % colors.length];
-    p.style.animationDelay = Math.random() * 0.5 + 's';
-    box.appendChild(p);
-  }
-  pop.appendChild(box);
-  setTimeout(() => box.remove(), 2400);
 }
 
 function render(payload) {
@@ -134,11 +121,21 @@ function render(payload) {
   else if (payload.mode === 'pair') content.innerHTML = pairView(payload);
   else content.innerHTML = messageView(payload);
   animateRings(content);
-  if (payload.mode === 'done' || (payload.mode === 'score' && !payload.analyzing && payload.app.analysis && payload.app.analysis.score >= 80)) confetti();
+  if (payload.mode === 'done' || (payload.mode === 'score' && !payload.analyzing && payload.app.analysis && payload.app.analysis.score >= 80)) confetti(pop);
   fit();
 }
 
 content.addEventListener('click', (e) => {
+  // Poke Sprout and it says something nice.
+  const pet = e.target.closest('.sprout.pettable');
+  if (pet) {
+    const speech = content.querySelector('.speech');
+    if (speech) speech.textContent = say('pet');
+    pet.classList.remove('boing');
+    void pet.getBoundingClientRect();
+    pet.classList.add('boing');
+    return;
+  }
   const btn = e.target.closest('[data-act]');
   if (!btn) return;
   const appId = current && current.app ? current.app.id : null;

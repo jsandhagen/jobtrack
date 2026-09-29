@@ -98,7 +98,7 @@ async function renderEditor(appId, app) {
           <span class="faint">Click anywhere on the page to edit · Enter = new bullet</span>
           <span style="flex:1"></span>
           <button class="soft small" id="edMd">Markdown</button>
-          <button class="primary" id="edPdf">⬇ Export PDF</button>
+          <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
 
         </div>
         <div class="ed-desk" id="edDesk"><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
@@ -119,7 +119,7 @@ async function exportResume(btn, fmt) {
     await saveNow();
     const out = await S.exportDoc(ed.appId, 'resume', fmt, null);
     if (out) {
-      toast("Saved! Go get 'em 💪", 'good');
+      toast(say('exported'), 'good', 3800, 'cheer');
       if (!ed.app.appliedAt && fmt === 'pdf') offerMarkApplied(ed.app);
     }
   }, 'Saving…');
@@ -237,7 +237,9 @@ function renderTray() {
           ? (info.coverage.find((c) => c.key === ed.filter) || {}).covered
             ? `<p class="muted">✓ Already shown on the page${document.querySelector('#edPage li.lit') ? ' — highlighted in purple' : ''}. No other bullets in your bank mention it.</p>`
             : `<p class="muted">No bullet in your bank shows “${esc(filterLabel)}”. If you have that experience, click into a role on the page, press Enter, and write it — you can save it to your bank.</p>`
-          : `<p class="muted">${info.bankSize ? 'Every relevant bullet from your bank is already on the page. 🎉' : 'Your bullet bank is empty — add a resume to <a href="#library">My library</a>.'}</p>`)
+          : info.bankSize
+            ? sproutSays('proud', 'Every relevant bullet from your bank is already on the page!', 40, { cls: 'tight' })
+            : sproutSays('curious', 'Your bullet bank is empty — add a resume to <a href="#library">My library</a>.', 40, { cls: 'tight' }))
       }
       ${info.otherRoles.length ? `<div class="tray-role" style="margin-top:10px">Roles not on this resume</div>${info.otherRoles.map((o) => `<div class="cand slim"><span>${esc([o.title, o.organization].filter(Boolean).join(' · '))} <span class="faint">(${o.count})</span></span><button class="small soft" data-add-role-id="${o.id}">+ Add</button></div>`).join('')}` : ''}
     </div>
@@ -245,9 +247,9 @@ function renderTray() {
     <div class="tray-card">
       <h4>More</h4>
       <div class="tray-actions">
-        ${state.hasApiKey ? '<button class="soft" id="edPolish" title="One Claude call; you approve each change">✨ Polish wording for this job</button>' : ''}
-        ${state.hasApiKey ? '<button class="ghost" id="edClaude" title="Claude drafts the whole resume from your library, using these bullets as the backbone">✨ Have Claude write a draft</button>' : ''}
-        <button class="ghost" id="edAuto">↺ Start over with the best picks</button>
+        ${state.hasApiKey ? `<button class="soft" id="edPolish" title="One Claude call; you approve each change">${icon('sparkle')} Polish wording for this job</button>` : ''}
+        ${state.hasApiKey ? `<button class="ghost" id="edClaude" title="Claude drafts the whole resume from your library, using these bullets as the backbone">${icon('pencil')} Have Claude write a draft</button>` : ''}
+        <button class="ghost" id="edAuto">${icon('refresh')} Start over with the best picks</button>
       </div>
       <div class="faint" style="margin-top:10px">Make this resume's… <a href="#" data-default="header">header</a> · <a href="#" data-default="summary">summary</a> · <a href="#" data-default="skills">skills</a> · <a href="#" data-default="education">education</a> …your default for new resumes.</div>
     </div>
@@ -269,9 +271,9 @@ function focusPanel() {
   const sug = ed.polish.get(`${f.r}:${f.b}`);
   return `<div class="tray-card focus">
     <h4>This bullet</h4>
-    ${b.flag ? `<div class="flag-note">⚠️ Check this: ${esc(b.flag)} <button class="small ghost" data-clear-flag="${f.r}:${f.b}">It's accurate</button></div>` : ''}
+    ${b.flag ? `<div class="flag-note">${icon('warn', 15)} Check this: ${esc(b.flag)} <button class="small ghost" data-clear-flag="${f.r}:${f.b}">It's accurate</button></div>` : ''}
     ${meta && meta.covers.length ? `<div>${coverChips(meta.covers)}</div>` : ''}
-    ${sug ? `<div class="suggest"><b>✨ Suggested:</b> ${esc(sug.text)}${sug.why ? ` <span class="faint">(${esc(sug.why)})</span>` : ''}<div class="inline" style="margin-top:4px"><button class="small soft" data-use-sug>Use it</button><button class="small ghost" data-drop-sug>Keep mine</button></div></div>` : ''}
+    ${sug ? `<div class="suggest"><b>${icon('sparkle', 15)} Suggested:</b> ${esc(sug.text)}${sug.why ? ` <span class="faint">(${esc(sug.why)})</span>` : ''}<div class="inline" style="margin-top:4px"><button class="small soft" data-use-sug>Use it</button><button class="small ghost" data-drop-sug>Keep mine</button></div></div>` : ''}
     ${words.length ? `<div class="tray-role">Other wordings in your bank</div>${words.map((w, i) => `<div class="cand slim wording" data-wording="${i}">${esc(w)}</div>`).join('')}` : ''}
     ${
       b.bulletId && edited
@@ -293,7 +295,7 @@ function checksPanel() {
   if (!flagged.length && !checks.length && !notes.length) return '';
   const n = flagged.length + checks.length;
   return `<details class="tray-card checks" ${flagged.length ? 'open' : ''}>
-    <summary><b>${n ? `🔎 Check before sending (${n})` : '📝 Notes from Claude'}</b></summary>
+    <summary><b>${n ? `${icon('search', 16)} Check before sending (${n})` : `${icon('note', 16)} Notes from Claude`}</b></summary>
     ${flagged.length ? `<p class="faint" style="margin:6px 0">These bullets say something your documents don't show. Fix the wording, or confirm it's true.</p>` : ''}
     ${flagged
       .map(
@@ -323,7 +325,7 @@ function polishPanel() {
         <div class="inline"><button class="small soft" data-sug-use="${key}">Use</button><button class="small ghost" data-sug-drop="${key}">Dismiss</button><span class="faint">${esc(s.why || '')}</span></div></div>`;
     })
     .join('');
-  return `<div class="tray-card"><h4>✨ Suggestions (${ed.polish.size}) <button class="small ghost" id="sugAll">Use all</button></h4>${rows}</div>${held}`;
+  return `<div class="tray-card"><h4><span>${icon('sparkle', 16)} Suggestions (${ed.polish.size})</span> <button class="small ghost" id="sugAll">Use all</button></h4>${rows}</div>${held}`;
 }
 
 function highlightFilter() {
@@ -406,7 +408,7 @@ function wireTray() {
           const nb = await S.addBullet({ experienceId: role.experienceId, text: bullet.text });
           bullet.bulletId = nb.id;
         }
-        toast('Saved to your bullet bank 🧩', 'good');
+        toast('Saved to your bullet bank', 'good');
         await saveNow();
       })
     )
@@ -450,7 +452,7 @@ function wireTray() {
         ed.polish = new Map(edits.map((e) => [e.id, e]));
         ed.held = rejected || [];
         const heldMsg = ed.held.length ? ` (${ed.held.length} held back for adding facts)` : '';
-        toast(edits.length ? `${edits.length} suggestion${edits.length === 1 ? '' : 's'} — review them in the panel${heldMsg}` : `Your wording already fits this posting 👌${heldMsg}`, 'good', 4000);
+        toast(edits.length ? `${edits.length} suggestion${edits.length === 1 ? '' : 's'} — review them in the panel${heldMsg}` : `Your wording already fits this posting — nice!${heldMsg}`, 'good', 4000, edits.length ? 'happy' : 'proud');
         renderPaper();
         renderTray();
       }, 'Polishing…')
@@ -462,7 +464,7 @@ function wireTray() {
       await saveNow();
       const p = S.generateResume(ed.appId);
       renderApplication(ed.appId);
-      await run(null, () => p.then(() => toast('Draft ready — edit away ✨', 'good')));
+      await run(null, () => p.then(() => toast('Draft ready — edit away!', 'good')));
       renderApplication(ed.appId);
     });
   $('#edAuto', tray).addEventListener('click', () =>

@@ -1,5 +1,6 @@
 const S = window.sprout;
-const { mascotSvg, moodForScore, encouragement, scoreRing, animateRings } = window.SproutMascot;
+const { mascotSvg, sproutSays, moodForScore, encouragement, say, pick, scoreRing, animateRings, confetti } = window.SproutMascot;
+const { icon } = window.SproutIcons;
 const view = document.getElementById('view');
 let state = null;
 let currentAppId = null;
@@ -13,12 +14,52 @@ function esc(s) {
 const $ = (sel, root = view) => root.querySelector(sel);
 const $$ = (sel, root = view) => Array.from(root.querySelectorAll(sel));
 
-function toast(text, kind = 'info', ms = 3800) {
+// Sprout pops up with every toast; its mood follows the kind unless given.
+function toast(text, kind = 'info', ms = 3800, mood) {
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
-  el.textContent = text;
+  el.innerHTML = mascotSvg(mood || { good: 'happy', error: 'worried' }[kind] || 'curious', 34);
+  const span = document.createElement('span');
+  span.textContent = text;
+  el.appendChild(span);
   document.getElementById('toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
+}
+
+// Big moments: confetti and a delighted Sprout.
+function celebrate(text, mood = 'thrilled') {
+  const host = document.createElement('div');
+  host.className = 'confetti-host';
+  document.body.appendChild(host);
+  confetti(host, 60);
+  setTimeout(() => host.remove(), 2600);
+  toast(text, 'good', 5500, mood);
+}
+
+// Sprout says something nice when poked, anywhere in the app.
+function petSprout(svg) {
+  svg.classList.remove('boing');
+  void svg.getBoundingClientRect();
+  svg.classList.add('boing');
+  const bubble = svg.parentElement && svg.parentElement.querySelector(':scope > .bubble, :scope > div > .sprout-line');
+  if (!bubble) return;
+  // Say something sweet, then go back to the page's own line.
+  if (bubble.dataset.orig === undefined) bubble.dataset.orig = bubble.innerHTML;
+  bubble.textContent = say('pet');
+  clearTimeout(bubble._restore);
+  bubble._restore = setTimeout(() => {
+    bubble.innerHTML = bubble.dataset.orig;
+    delete bubble.dataset.orig;
+  }, 5000);
+}
+document.addEventListener('click', (e) => {
+  const svg = e.target.closest('.sprout.pettable');
+  if (svg) petSprout(svg);
+});
+
+// Page heading with Sprout explaining the page. line is HTML.
+function pageHead(title, mood, line, actions = '') {
+  return `<div class="page-head"><div><h1>${title}</h1>${sproutSays(mood, line, 46, { cls: 'head-says', svg: { cls: 'pettable' } })}</div>${actions ? `<div class="inline">${actions}</div>` : ''}</div>`;
 }
 
 async function run(btn, fn, busyText) {
@@ -55,19 +96,33 @@ function timeAgo(iso) {
 function greeting() {
   const h = new Date().getHours();
   const name = state.profile.name ? `, ${esc(state.profile.name.split(' ')[0])}` : '';
-  if (h < 12) return `Good morning${name}! ☀️`;
-  if (h < 18) return `Good afternoon${name}! 🌿`;
-  return `Good evening${name}! 🌙`;
+  if (h < 12) return `Good morning${name}!`;
+  if (h < 18) return `Good afternoon${name}!`;
+  return `Good evening${name}!`;
+}
+
+// What Sprout says on the home page, from how the search is going.
+function homeMood({ apps, appliedWeek, due, allDone }) {
+  const offers = apps.filter((a) => a.status === 'offer').length;
+  const interviews = apps.filter((a) => a.status === 'interviewing').length;
+  if (offers) return ['thrilled', `You have ${offers === 1 ? 'an offer' : `${offers} offers`} on the table! I'm beaming.`];
+  if (due.length) return ['curious', `${due.length === 1 ? 'One follow-up is' : `${due.length} follow-ups are`} due. A quick, friendly note can make a big difference.`];
+  if (interviews) return ['cheer', `${interviews === 1 ? 'An interview' : `${interviews} interviews`} in progress — you've got this!`];
+  if (appliedWeek >= 3) return ['proud', `${appliedWeek} applications this week! I'm so proud of you.`];
+  if (appliedWeek) return ['happy', `You applied to ${appliedWeek === 1 ? 'a role' : `${appliedWeek} roles`} this week. Lovely momentum!`];
+  if (!allDone) return ['wave', "Hi, I'm Sprout! Let's get you set up — it only takes a few minutes."];
+  if (!apps.length) return ['curious', "Let's find you something wonderful. Copy a job posting and I'll take a look."];
+  return ['happy', pick(["Let's find you something wonderful today.", "Ready when you are. Let's go find your next role.", 'New day, new postings. I’ll keep watch with you.'], new Date().getDate())];
 }
 
 const KIND_LABEL = {
-  resume: ['📄', 'Resume'],
-  'cover-letter': ['💌', 'Cover letter'],
-  project: ['🛠️', 'Project'],
-  certification: ['🏅', 'Certification'],
-  transcript: ['🎓', 'Transcript'],
-  recommendation: ['⭐', 'Recommendation'],
-  other: ['📝', 'Notes'],
+  resume: ['doc', 'Resume'],
+  'cover-letter': ['letter', 'Cover letter'],
+  project: ['wrench', 'Project'],
+  certification: ['medal', 'Certification'],
+  transcript: ['cap', 'Transcript'],
+  recommendation: ['star', 'Recommendation'],
+  other: ['note', 'Notes'],
 };
 const STATUSES = ['scored', 'resume-ready', 'applied', 'interviewing', 'offer', 'rejected', 'skipped', 'closed'];
 const STATUS_LABEL = {
@@ -75,7 +130,7 @@ const STATUS_LABEL = {
   'resume-ready': 'Resume ready',
   applied: 'Applied',
   interviewing: 'Interviewing',
-  offer: 'Offer 🎉',
+  offer: 'Offer!',
   rejected: 'Not selected',
   skipped: 'Skipped',
   closed: 'Closed',
@@ -135,22 +190,23 @@ const views = {
       [apps.length > 0, 'Check your first job posting', 'check'],
     ];
     const allDone = steps.every(([d]) => d);
+    const [mood, line] = homeMood({ apps, appliedWeek, due, allDone });
     return `<div class="page">
-      <div class="hero">${mascotSvg(allDone ? 'happy' : 'cheer', 84)}
-        <div><h1>${greeting()}</h1><p>${allDone ? "Let's find you something wonderful today." : "Let's get you set up — it only takes a few minutes."}</p></div>
+      <div class="hero">${mascotSvg(mood, 104, { cls: 'pettable', label: 'Sprout — click to say hi' })}
+        <div><h1>${greeting()}</h1><p class="sprout-line">${esc(line)}</p></div>
         <div class="actions">
-          <button class="primary" data-go="check">🔍 Check a job</button>
-          <button class="soft" id="scanBtn">📸 Scan my screen</button>
+          <button class="primary" data-go="check">${icon('search')} Check a job</button>
+          <button class="soft" id="scanBtn">${icon('camera')} Scan my screen</button>
         </div>
       </div>
       <div class="grid three" style="margin-bottom:16px">
-        <div class="card stat"><div class="emoji" style="background:var(--sage-soft)">🌱</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
-        <div class="card stat"><div class="emoji" style="background:var(--lavender-soft)">📮</div><div><b>${appliedWeek}</b><span>applied this week · ${appliedAll} total</span></div></div>
-        <div class="card stat"><div class="emoji" style="background:var(--peach-soft)">💬</div><div><b>${appliedAll ? Math.round((responses / appliedAll) * 100) + '%' : '–'}</b><span>got an interview or offer</span></div></div>
+        <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('seedling', 26)}</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
+        <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('send', 26)}</div><div><b>${appliedWeek}</b><span>applied this week · ${appliedAll} total</span></div></div>
+        <div class="card stat"><div class="stat-icon" style="background:var(--peach-soft);color:#b8653e">${icon('chat', 26)}</div><div><b>${appliedAll ? Math.round((responses / appliedAll) * 100) + '%' : '–'}</b><span>got an interview or offer</span></div></div>
       </div>
-      ${due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0"><h3>⏰ Follow-ups due</h3><div class="list">${due.map(appRow).join('')}</div></div>` : ''}
+      ${due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0"><h3 class="with-icon">${icon('clock', 20)} Follow-ups due</h3><div class="list">${due.map(appRow).join('')}</div></div>` : ''}
       <div class="grid two">
-        <div class="card"><h2>${allDone ? 'All set up! 🎉' : 'Getting started'}</h2>
+        <div class="card"><h2>${allDone ? 'All set up!' : 'Getting started'}</h2>
           <ul class="checklist">${steps
             .map(([done, what, go]) => `<li class="${done ? 'done' : ''}"><span class="tick">${done ? '✓' : ''}</span><span class="what">${what}</span>${done ? '' : `<button class="small soft" data-go="${go}">Go</button>`}</li>`)
             .join('')}</ul>
@@ -160,15 +216,17 @@ const views = {
         </div>
       </div>
       <div class="card" style="margin-top:16px"><h3>How I spot jobs for you</h3>
-        <p class="muted" style="margin:0">📋 <b>Copy</b> a job description anywhere and I'll pop up with a free score — no Claude usage.
-        &nbsp; ⌨️ Press <b>${esc(prettyHotkey())}</b> and I'll read the posting on your screen (free, on your computer).
-        &nbsp; 👀 Or turn on <b>screen watching</b> in Settings and I'll notice postings as you browse.</p></div>
+        <div class="spot-ways">
+          <div>${icon('clipboard', 28)}<p><b>Copy</b> a job description anywhere and I'll pop up with a free score — no Claude usage.</p></div>
+          <div>${icon('keyboard', 28)}<p>Press <b>${esc(prettyHotkey())}</b> and I'll read the posting on your screen (free, on your computer).</p></div>
+          <div>${icon('eye', 28)}<p>Or turn on <b>screen watching</b> in Settings and I'll notice postings as you browse.</p></div>
+        </div></div>
     </div>`;
   },
 
   check() {
     return `<div class="page">
-      <div class="page-head"><div><h1>Check a job</h1><p class="muted">Paste a job posting and I'll tell you how well you fit.</p></div></div>
+      ${pageHead('Check a job', 'curious', "Paste a job posting and I'll tell you how well you fit.")}
       <div class="grid sidebar">
         <div class="card">
           <div class="form-grid">
@@ -177,10 +235,10 @@ const views = {
             <div class="full"><label>Job link <span class="faint">(optional)</span></label><input id="jUrl" placeholder="https://…"></div>
             <div class="full"><label>Job description</label><textarea id="jText" style="min-height:340px" placeholder="Paste the whole posting here — responsibilities, requirements, the works."></textarea></div>
           </div>
-          <div class="inline" style="margin-top:14px"><button class="primary" id="analyzeBtn">✨ Check my fit</button>
-          <button class="ghost" id="scanBtn">📸 Or read it from my screen</button></div>
+          <div class="inline" style="margin-top:14px"><button class="primary" id="analyzeBtn">${icon('sparkle')} Check my fit</button>
+          <button class="ghost" id="scanBtn">${icon('camera')} Or read it from my screen</button></div>
         </div>
-        <div class="card">${mascotSvg('curious', 72)}
+        <div class="card">
           <h3>What you'll get</h3>
           <ul class="tidy muted"><li>An instant, free fit score (runs on your computer)</li><li>${state.hasApiKey ? "Optional: Claude's deeper read — strengths, gaps & a qualifications checklist" : '<a href="#settings">Add an API key</a> for Claude\'s optional deeper read'}</li><li>A one-click tailored resume & cover letter</li></ul>
           ${state.documents.length ? '' : '<p class="note-box">Tip: <a href="#library">add your documents</a> first so I have something to compare against!</p>'}
@@ -195,8 +253,7 @@ const views = {
     if (appSort === 'fit') apps = [...apps].sort((x, y) => y.score - x.score);
     if (appSort === 'applied') apps = [...apps].sort((x, y) => (y.appliedAt || '').localeCompare(x.appliedAt || ''));
     return `<div class="page">
-      <div class="page-head"><div><h1>Applications</h1><p class="muted">Everything you've checked and applied for, in one place.</p></div>
-      <div class="inline"><button class="soft" id="csvBtn">⬇ Export CSV</button><button class="primary" data-go="check">+ Check a job</button></div></div>
+      ${pageHead('Applications', applicationsMood(all), applicationsLine(all), `<button class="soft" id="csvBtn">${icon('download')} Export CSV</button><button class="primary" data-go="check">+ Check a job</button>`)}
       <div class="tabs">${FILTERS.map(([k, label, fn]) => `<button class="${appFilter === k ? 'on' : ''}" data-filter="${k}">${label} <span class="faint">${all.filter(fn).length}</span></button>`).join('')}</div>
       <div class="inline" style="margin-bottom:12px"><input id="appSearch" placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
         <select id="appSort" style="width:190px"><option value="recent">Newest first</option><option value="fit" ${appSort === 'fit' ? 'selected' : ''}>Best fit first</option><option value="applied" ${appSort === 'applied' ? 'selected' : ''}>Recently applied</option></select></div>
@@ -207,13 +264,13 @@ const views = {
   library() {
     const docs = state.documents;
     return `<div class="page">
-      <div class="page-head"><div><h1>My library</h1><p class="muted">Everything I can draw from when tailoring: resumes, old cover letters, project write-ups, performance reviews, certificates… The more, the merrier!</p></div></div>
-      <div class="dropzone" id="drop"><div class="big">📥</div><h3>Drop files here</h3><p class="muted">PDF, Word (.docx), text or Markdown</p>
+      ${pageHead('My library', docs.length ? 'happy' : 'wave', docs.length ? `I've got <b>${docs.length}</b> document${docs.length === 1 ? '' : 's'} to draw from when tailoring. Old cover letters, project write-ups, reviews, certificates — the more, the merrier!` : 'Everything I can draw from when tailoring goes here: resumes, old cover letters, project write-ups, performance reviews, certificates… The more, the merrier!')}
+      <div class="dropzone" id="drop"><div class="big">${icon('inbox', 44)}</div><h3>Drop files here</h3><p class="muted">PDF, Word (.docx), text or Markdown</p>
         <div class="inline" style="justify-content:center"><button class="primary" id="pickBtn">Choose files</button><button class="soft" id="pasteDocBtn">Paste text instead</button></div></div>
       <div class="list" style="margin-top:18px">${docs
         .map((d) => {
-          const [icon, label] = KIND_LABEL[d.kind] || KIND_LABEL.other;
-          return `<div class="row-item" data-doc="${d.id}"><div class="doc-icon">${icon}</div>
+          const [ic, label] = KIND_LABEL[d.kind] || KIND_LABEL.other;
+          return `<div class="row-item" data-doc="${d.id}"><div class="doc-icon">${icon(ic, 22)}</div>
           <div class="grow"><div class="title">${esc(d.name)}</div><div class="sub"><span class="doc-kind">${label}</span> · ${Math.round(d.chars / 5)} words · added ${timeAgo(d.addedAt)}</div></div>
           <select class="kindSel" data-id="${d.id}" style="width:150px">${Object.entries(KIND_LABEL)
             .map(([k, [, l]]) => `<option value="${k}" ${k === d.kind ? 'selected' : ''}>${l}</option>`)
@@ -229,7 +286,7 @@ const views = {
     const p = state.profile;
     const f = (k, label, ph, full) => `<div class="${full ? 'full' : ''}"><label>${label}</label><input data-k="${k}" value="${esc(p[k])}" placeholder="${ph}"></div>`;
     return `<div class="page">
-      <div class="page-head"><div><h1>Profile</h1><p class="muted">Used for your resume header. Only what you enter here ends up on it.</p></div></div>
+      ${pageHead('Profile', p.name ? 'happy' : 'curious', `${p.name ? `Nice to see you, <b>${esc(p.name.split(' ')[0])}</b>! ` : "What should I call you? "}This goes in your resume header — only what you enter here ends up on it.`)}
       <div class="card"><div class="form-grid">
         ${f('name', 'Full name', 'Jordan Rivera')}${f('email', 'Email', 'jordan@example.com')}
         ${f('phone', 'Phone', '(555) 123-4567')}${f('location', 'Location', 'Portland, OR · Open to remote')}
@@ -248,7 +305,7 @@ const views = {
   settings() {
     const s = state.settings;
     return `<div class="page">
-      <div class="page-head"><div><h1>Settings</h1></div></div>
+      ${pageHead('Settings', 'thinking', "Tweak how I work. Everything's free except Claude, and I'll only use Claude the way you say.")}
       <div class="grid two">
         <div class="card"><h2>Claude connection</h2>
           <p class="muted">Sprout uses the Claude API to read postings, score your fit, and write tailored resumes. Get a key at <b>console.anthropic.com</b>. It's stored encrypted on this computer.</p>
@@ -275,7 +332,7 @@ const views = {
           <div class="usage">${usageSummary()}</div>
           <button class="primary" id="saveClaudeUse" style="margin-top:10px">Save</button>
         </div>
-        <div class="card" id="extCard"><h2>🌐 Browser extension</h2><p class="muted"><span class="spinner"></span></p></div>
+        <div class="card" id="extCard"><h2 class="with-icon">${icon('globe', 22)} Browser extension</h2><p class="muted"><span class="spinner"></span></p></div>
         <div class="card"><h2>Tracking</h2>
           <label>Remind me to follow up after (days)</label>
           <input id="followUpDays" type="number" min="1" max="60" value="${s.followUpDays}" style="max-width:160px">
@@ -307,6 +364,19 @@ const views = {
   },
 };
 
+function applicationsMood(all) {
+  if (all.some((a) => a.status === 'offer')) return 'thrilled';
+  if (all.some((a) => a.appliedAt)) return 'proud';
+  return all.length ? 'happy' : 'curious';
+}
+
+function applicationsLine(all) {
+  const applied = all.filter((a) => a.appliedAt).length;
+  if (!all.length) return 'Every role you check lands here, so nothing slips through the cracks.';
+  if (!applied) return `You've checked <b>${all.length}</b> role${all.length === 1 ? '' : 's'} so far. Ready to send one out?`;
+  return `<b>${all.length}</b> role${all.length === 1 ? '' : 's'} checked, <b>${applied}</b> applied. Every one of those took effort — nice work.`;
+}
+
 function usageSummary() {
   const u = state.usage || { calls: 0, cost: 0, byKind: {} };
   const k = u.byKind || {};
@@ -323,10 +393,15 @@ function appRow(a) {
   const meta = [a.job.company, a.appliedAt ? `applied ${fmtDate(a.appliedAt)}` : `found ${timeAgo(a.createdAt)}`].filter(Boolean).join(' · ');
   return `<div class="row-item" data-app="${a.id}"><div class="pill ${a.dealbreaker ? 'lo' : pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
-    ${followUpDue(a) ? '<span class="chip due">⏰ follow up</span>' : ''}
+    ${followUpDue(a) ? `<span class="chip due">${icon('clock', 14)} follow up</span>` : ''}
     ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
-    ${a.hasResume ? '<span class="chip good">📄</span>' : ''}${a.hasLetter ? '<span class="chip lav">💌</span>' : ''}
+    ${a.hasResume || a.hasLetter ? `<span class="chip ic-only good" title="${[a.hasResume && 'Tailored resume', a.hasLetter && 'cover letter'].filter(Boolean).join(' + ')}">${a.hasResume ? icon('doc', 15) : ''}${a.hasLetter ? icon('letter', 15) : ''}</span>` : ''}
     <span class="status ${a.status}">${esc(STATUS_LABEL[a.status] || a.status)}</span></div>`;
+}
+
+function viaLabel(via) {
+  const [ic, text] = { screen: ['camera', 'spotted on screen'], clipboard: ['clipboard', 'from your clipboard'], browser: ['globe', 'from your browser'] }[via] || ['pencil', 'pasted in'];
+  return `${icon(ic, 14)} ${text}`;
 }
 
 function prettyHotkey() {
@@ -364,7 +439,7 @@ function atsPanel(ats) {
       : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Generate the tailored resume to see its ATS score here.</div></div>`;
   const stat = (label, value, hint) => `<div class="ats-stat" title="${esc(hint)}"><b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
   return `<div class="card ats-card" id="atsCard">
-    <div class="page-head" style="margin-bottom:10px"><div><h2 style="margin:0">📊 ATS check</h2>
+    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('chart', 22)} ATS check</h2>
       <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Aim for 75–80%+.</p></div>
       ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
@@ -380,7 +455,7 @@ function atsPanel(ats) {
         return `<div class="ats-bar" title="${esc(hint)}"><span>${label}</span><div class="track"><i style="width:${v}%;background:${barColor(v)}"></i></div><b>${v}</b></div>`;
       })
       .join('')}</div>
-    ${main.knockouts.length ? `<div class="section-title">Possible knockouts</div><div>${main.knockouts.map((k) => `<span class="chip grow">⚠ ${esc(k)}</span>`).join('')}</div>` : ''}
+    ${main.knockouts.length ? `<div class="section-title">Possible knockouts</div><div>${main.knockouts.map((k) => `<span class="chip grow">${icon('warn', 14)} ${esc(k)}</span>`).join('')}</div>` : ''}
     ${main.tips.length ? `<details ${a ? '' : 'open'}><summary class="section-title" style="cursor:pointer">How to raise it (${main.tips.length})</summary><ul class="tidy">${main.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>` : ''}
     <p class="faint" style="margin:10px 0 0">An estimate based on how Workday, Taleo, iCIMS and resume scanners like Jobscan are documented to work. Vendors keep their exact formulas private, and many companies (e.g. on Greenhouse) have people read every resume, so write for humans first.</p>
   </div>`;
@@ -427,7 +502,7 @@ async function renderApplication(id) {
         analyzing
           ? '<p class="muted"><span class="spinner"></span> Claude is reading the posting closely…</p>'
           : state.hasApiKey && state.documents.length
-            ? `${a.analysisError ? `<p style="color:var(--rose)">${esc(a.analysisError)}</p>` : ''}<button class="soft" id="askClaude">🔎 Ask Claude for a deeper read</button><p class="faint" style="margin-top:6px">One Claude call: strengths, gaps, talking points and a qualifications checklist.</p>`
+            ? `${a.analysisError ? `<p style="color:var(--rose)">${esc(a.analysisError)}</p>` : ''}<button class="soft" id="askClaude">${icon('search')} Ask Claude for a deeper read</button><p class="faint" style="margin-top:6px">One Claude call: strengths, gaps, talking points and a qualifications checklist.</p>`
             : state.hasApiKey
               ? '<p class="faint">Add documents to your library for a deeper analysis.</p>'
               : '<p class="faint"><a href="#settings">Add a Claude API key</a> for an optional deeper read.</p>'
@@ -440,7 +515,7 @@ async function renderApplication(id) {
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
 
-  const fitCard = `<div class="card">${mascotSvg(analyzing ? 'thinking' : moodForScore(score), 56)}${insight}${evidenceBlock(a)}${skills}
+  const fitCard = `<div class="card">${sproutSays(analyzing ? 'thinking' : moodForScore(score), esc(analyzing ? 'Reading the posting closely…' : encouragement(score, a.id.charCodeAt(2))), 56, { svg: { cls: 'pettable' } })}${insight}${evidenceBlock(a)}${skills}
         ${q.requiredYears ? `<div class="section-title">Experience</div><p class="muted" style="margin:0">Posting asks for ~${q.requiredYears}+ years${q.estimatedYears !== null ? `; your documents span about ${q.estimatedYears}.` : '.'}</p>` : ''}
       </div>`;
 
@@ -449,12 +524,12 @@ async function renderApplication(id) {
     if (!a.letterHtml)
       return `<div class="card empty">${mascotSvg('cheer', 80)}<h3>No cover letter yet</h3>
         ${a.letterError ? `<p style="color:var(--rose)">${esc(a.letterError)}</p>` : ''}
-        <button class="primary" id="genLetter" ${state.hasApiKey ? '' : 'disabled'}>✨ Write a cover letter with Claude</button>
+        <button class="primary" id="genLetter" ${state.hasApiKey ? '' : 'disabled'}>${icon('sparkle')} Write a cover letter with Claude</button>
         ${state.hasApiKey ? '<p class="faint" style="margin-top:8px">Uses the same letterhead as your resume.</p>' : '<p class="faint" style="margin-top:8px"><a href="#settings">Add an API key</a> for Claude to write it.</p>'}</div>`;
     return `<div class="inline" style="margin-bottom:10px">
-        <button class="primary exp" data-fmt="pdf">⬇ Export PDF</button><button class="soft exp" data-fmt="md">Markdown</button>
-        <button class="ghost" id="regenLetter">↻ Rewrite</button><span class="faint">✏️ Click on the page to tweak wording before exporting.</span></div>
-      ${(a.letterChecks || []).length ? `<div class="letter-checks"><b>🔎 Check before sending</b> — these mention things your documents don't show:<ul class="tidy">${a.letterChecks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
+        <button class="primary exp" data-fmt="pdf">${icon('download')} Export PDF</button><button class="soft exp" data-fmt="md">Markdown</button>
+        <button class="ghost" id="regenLetter">${icon('refresh', 16)} Rewrite</button><span class="faint">${icon('pencil', 14)} Click on the page to tweak wording before exporting.</span></div>
+      ${(a.letterChecks || []).length ? `<div class="letter-checks"><b>${icon('search', 16)} Check before sending</b> — these mention things your documents don't show:<ul class="tidy">${a.letterChecks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
       <div class="preview-wrap"><iframe class="preview-frame" id="preview"></iframe></div>`;
   };
 
@@ -469,23 +544,23 @@ async function renderApplication(id) {
 
   page.innerHTML = `
     <div class="card app-card"><div class="app-head">${scoreRing(score, 84)}
-      <div class="grow"><div class="faint">${esc(a.via === 'screen' ? '📸 spotted on screen' : a.via === 'clipboard' ? '📋 from your clipboard' : a.via === 'browser' ? '🌐 from your browser' : '✍️ pasted in')} · ${timeAgo(a.createdAt)}</div>
+      <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
         <div class="muted" style="font-weight:700">${esc([a.job.company, a.job.location].filter(Boolean).join(' · '))}</div>
         <div style="margin-top:6px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}
         <span class="faint">${esc(encouragement(score, a.id.charCodeAt(1)))}</span></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:170px">
-        ${a.appliedAt ? `<span class="chip good" style="justify-content:center">✅ Applied ${fmtDate(a.appliedAt)}</span>` : '<button class="primary" id="markApplied">✅ Mark as applied</button>'}
+        ${a.appliedAt ? `<span class="chip good" style="justify-content:center">${icon('check', 15)} Applied ${fmtDate(a.appliedAt)}</span>` : `<button class="primary" id="markApplied">${icon('send')} Mark as applied</button>`}
         <select id="statusSel">${STATUSES.map((s) => `<option ${s === a.status ? 'selected' : ''} value="${s}">${STATUS_LABEL[s]}</option>`).join('')}</select>
-        <div class="inline" style="justify-content:center"><button class="ghost small" id="editJob">✏️ Edit</button><button class="ghost danger small" id="delApp">Delete</button></div>
+        <div class="inline" style="justify-content:center"><button class="ghost small" id="editJob">${icon('pencil', 14)} Edit</button><button class="ghost danger small" id="delApp">Delete</button></div>
       </div></div></div>
     <div class="tabs">
-      <button class="${appTab === 'resume' ? 'on' : ''}" data-tab="resume">📝 Resume</button>
-      <button class="${appTab === 'fit' ? 'on' : ''}" data-tab="fit">🎯 Fit & ATS</button>
-      <button class="${appTab === 'letter' ? 'on' : ''}" data-tab="letter">💌 Cover letter</button>
-      <button class="${appTab === 'posting' ? 'on' : ''}" data-tab="posting">📰 Posting</button>
-      <button class="${appTab === 'tracking' ? 'on' : ''}" data-tab="tracking">📮 Tracking${followUpDue(a) ? ' ⏰' : ''}</button>
+      <button class="${appTab === 'resume' ? 'on' : ''}" data-tab="resume">${icon('doc', 17)} Resume</button>
+      <button class="${appTab === 'fit' ? 'on' : ''}" data-tab="fit">${icon('target', 17)} Fit & ATS</button>
+      <button class="${appTab === 'letter' ? 'on' : ''}" data-tab="letter">${icon('letter', 17)} Cover letter</button>
+      <button class="${appTab === 'posting' ? 'on' : ''}" data-tab="posting">${icon('news', 17)} Posting</button>
+      <button class="${appTab === 'tracking' ? 'on' : ''}" data-tab="tracking">${icon('send', 17)} Tracking${followUpDue(a) ? ` ${icon('clock', 15, 'due-ic')}` : ''}</button>
     </div>
     <div id="tabBody">${tabBody()}</div>`;
   animateRings(page);
@@ -508,7 +583,13 @@ async function renderApplication(id) {
   );
   $('#statusSel', page).addEventListener('change', (e) => {
     if (e.target.value === 'applied' && !a.appliedAt) return openApplyModal(a);
-    S.updateApplication(id, { status: e.target.value }).then(() => toast(e.target.value === 'offer' ? 'An offer!! So proud of you 🎉' : 'Status updated', 'good'));
+    const st = e.target.value;
+    S.updateApplication(id, { status: st }).then(() => {
+      if (st === 'offer') celebrate(say('offer'));
+      else if (st === 'interviewing') celebrate(say('interviewing'), 'cheer');
+      else if (st === 'rejected') toast(say('rejected'), 'info', 6500, 'hug');
+      else toast('Status updated', 'good');
+    });
   });
   const ma = $('#markApplied', page);
   if (ma) ma.addEventListener('click', () => openApplyModal(a));
@@ -540,7 +621,7 @@ async function renderApplication(id) {
   const genLetter = async () => {
     const p = S.generateCoverLetter(id);
     renderApplication(id);
-    await run(null, () => p.then(() => toast('Cover letter ready! 💌', 'good')));
+    await run(null, () => p.then(() => toast('Cover letter ready! Give it a read.', 'good', 3800, 'proud')));
     renderApplication(id);
   };
   const gl = $('#genLetter', page);
@@ -552,7 +633,7 @@ async function renderApplication(id) {
       run(b, async () => {
         const edited = frame && frame.contentDocument ? '<!doctype html>' + frame.contentDocument.documentElement.outerHTML : null;
         const out = await S.exportDoc(id, 'letter', b.dataset.fmt, b.dataset.fmt === 'md' ? null : edited);
-        if (out) toast('Saved! 💌', 'good');
+        if (out) toast(say('exported'), 'good');
       }, 'Saving…')
     )
   );
@@ -573,13 +654,13 @@ async function renderExtensionCard() {
         )
         .join('')}`
     : '';
-  card.innerHTML = `<h2>🌐 Browser extension</h2>
+  card.innerHTML = `<h2 class="with-icon">${icon('globe', 22)} Browser extension</h2>
     <p class="muted">Reads the whole job posting straight from the web page — no screenshots, no scrolling — and pops up your score automatically on LinkedIn, Indeed, Greenhouse, Lever, Workday and more.</p>
     ${st.port ? '' : '<div class="note-box" style="background:var(--peach-soft)">The connection for the extension couldn\'t start (another program may be using the port). Restart Sprout to try again.</div>'}
     <ol class="tidy muted" style="padding-left:20px">
       <li>In Chrome, Edge or Brave open <b>chrome://extensions</b> and turn on <b>Developer mode</b>.</li>
-      <li>Click <b>Load unpacked</b> and choose the extension folder: <button class="small soft" id="extFolder">📂 Show folder</button></li>
-      <li>Click the 🌱 Sprout icon in the toolbar → <b>Connect</b>, then choose <b>Allow</b> here.</li>
+      <li>Click <b>Load unpacked</b> and choose the extension folder: <button class="small soft" id="extFolder">${icon('folder', 15)} Show folder</button></li>
+      <li>Click the Sprout icon in the toolbar → <b>Connect</b>, then choose <b>Allow</b> here.</li>
     </ol>
     ${browsers}`;
   $('#extFolder', card).addEventListener('click', () => S.showExtensionFolder());
@@ -597,16 +678,16 @@ async function renderExtensionCard() {
 function trackingCard(a) {
   const history = (a.statusHistory || []).slice().reverse();
   const applied = !!a.appliedAt;
-  return `<div class="card"><h3>📮 Tracking</h3>
-    ${a.job.url ? `<p style="margin:0 0 8px"><a href="#" id="jobLink">🔗 Open job posting</a></p>` : ''}
+  return `<div class="card"><h3 class="with-icon">${icon('send', 20)} Tracking</h3>
+    ${a.job.url ? `<p style="margin:0 0 8px"><a href="#" id="jobLink">${icon('link', 15)} Open job posting</a></p>` : ''}
     ${
       applied
         ? `<div class="kv"><span>Applied</span><b>${fmtDate(a.appliedAt)}</b></div>
       <div class="kv"><span>Where</span><input id="appliedVia" value="${esc(a.appliedVia || '')}" placeholder="e.g. company site"></div>
       <div class="kv"><span>Resume sent</span><b>${esc(a.sent ? (a.sent.resume === 'tailored' ? 'Tailored resume' : a.sent.resume) : '—')}</b></div>
-      ${a.sent && a.sent.resumeHtml ? '<button class="small soft" id="viewSent" style="margin:4px 0 8px">👀 View what you sent</button>' : ''}
+      ${a.sent && a.sent.resumeHtml ? `<button class="small soft" id="viewSent" style="margin:4px 0 8px">${icon('eye', 15)} View what you sent</button>` : ''}
       ${a.status === 'applied' ? `<div class="kv"><span>Follow up on</span><input type="date" id="followUp" value="${dateInput(a.followUpAt)}"></div>` : ''}`
-        : `<p class="muted" style="margin:0 0 8px">Not applied yet. When you do, hit <b>Mark as applied</b> — I'll save exactly what you sent and remind you to follow up.</p>`
+        : sproutSays('curious', 'Not applied yet. When you do, hit <b>Mark as applied</b> — I’ll save exactly what you sent and remind you to follow up.', 44, { cls: 'tight' })
     }
     <label style="margin-top:10px">Notes</label>
     <textarea id="appNotes" style="min-height:70px" placeholder="Recruiter name, referral, interview prep…">${esc(a.notes || '')}</textarea>
@@ -617,7 +698,7 @@ function trackingCard(a) {
 function openApplyModal(a) {
   const days = Number(state.settings.followUpDays) || 7;
   const follow = new Date(Date.now() + days * 86400000);
-  const card = openModal(`<h2>🎉 You applied!</h2><p class="muted">Nice work. Let's record it so you can keep track.</p>
+  const card = openModal(`<div class="modal-hero">${mascotSvg('proud', 72)}<div><h2>You applied!</h2><p class="muted">That takes guts — I'm proud of you. Let's record it so we can keep track together.</p></div></div>
     <div class="form-grid">
       <div><label>Date applied</label><input type="date" id="mDate" value="${dateInput(new Date().toISOString())}"></div>
       <div><label>Where</label><input id="mVia" list="viaList" placeholder="Company site, LinkedIn…"><datalist id="viaList"><option>Company website</option><option>LinkedIn</option><option>Indeed</option><option>Referral</option><option>Recruiter</option><option>Email</option></datalist></div>
@@ -644,7 +725,7 @@ function openApplyModal(a) {
         notes: $('#mNotes', card).value,
       });
       closeModal();
-      toast("Applied! Fingers crossed 🤞 I'll remind you to follow up.", 'good', 5000);
+      celebrate(`${say('applied')} I'll remind you to follow up.`);
     }, 'Saving…')
   );
 }
@@ -652,7 +733,7 @@ function openApplyModal(a) {
 function offerMarkApplied(a) {
   const card = openModal(`<div class="center" style="text-align:center">${mascotSvg('happy', 72)}<h2>Applying now?</h2>
     <p class="muted">Mark it as applied and I'll keep a copy of this resume with the application.</p>
-    <div class="inline" style="justify-content:center"><button class="primary" id="mYes">✅ Mark as applied</button><button class="ghost" id="mNo">Not yet</button></div></div>`);
+    <div class="inline" style="justify-content:center"><button class="primary" id="mYes">${icon('send')} Mark as applied</button><button class="ghost" id="mNo">Not yet</button></div></div>`);
   $('#mNo', card).addEventListener('click', closeModal);
   $('#mYes', card).addEventListener('click', async () => {
     const fresh = await S.getApplication(a.id);
@@ -707,7 +788,7 @@ const binders = {
       el.setSelectionRange(el.value.length, el.value.length);
     });
     $('#appSort').addEventListener('change', (e) => ((appSort = e.target.value), route()));
-    $('#csvBtn').addEventListener('click', (e) => run(e.currentTarget, async () => (await S.exportCsv()) && toast('Exported 📄', 'good'), 'Exporting…'));
+    $('#csvBtn').addEventListener('click', (e) => run(e.currentTarget, async () => (await S.exportCsv()) && toast('Exported!', 'good'), 'Exporting…'));
   },
   library() {
     const drop = $('#drop');
@@ -728,7 +809,7 @@ const binders = {
         run(null, async () => {
           await S.addTextDocument({ name: $('#mName', card).value.trim() || 'Notes', text: $('#mText', card).value });
           closeModal();
-          toast('Added to your library 📚', 'good');
+          toast('Added to your library. More for me to work with!', 'good');
         })
       );
     });
@@ -760,7 +841,7 @@ const binders = {
         const patch = {};
         $$('[data-k]').forEach((i) => (patch[i.dataset.k] = i.value.trim()));
         await S.updateProfile(patch);
-        toast('Profile saved 🙂', 'good');
+        toast('Profile saved', 'good');
       }, 'Saving…')
     );
   },
@@ -771,7 +852,7 @@ const binders = {
         const v = $('#apiKey').value.trim();
         if (!v) throw new Error('Paste your API key first.');
         await S.setApiKey(v);
-        toast('Claude connected! ✨', 'good');
+        toast('Claude connected! Now I can dig deeper for you.', 'good', 3800, 'thrilled');
       }, 'Saving…')
     );
     const clear = $('#clearKey');
@@ -809,8 +890,8 @@ const binders = {
 
 function reportImport(res) {
   if (!res) return;
-  if (res.added && res.added.length) toast(`Added ${res.added.length} document${res.added.length > 1 ? 's' : ''} 📚`, 'good');
-  if (res.bullets && res.bullets.added) toast(`…and ${res.bullets.added} bullets to your bullet bank 🧩`, 'good', 5000);
+  if (res.added && res.added.length) toast(`Added ${res.added.length} document${res.added.length > 1 ? 's' : ''}. Yum, reading material!`, 'good');
+  if (res.bullets && res.bullets.added) toast(`…and ${res.bullets.added} bullets to your bullet bank`, 'good', 5000, 'proud');
   (res.errors || []).forEach((e) => toast(e, 'error', 7000));
 }
 
@@ -822,6 +903,25 @@ async function refreshState() {
     <div style="margin-top:4px"><span class="dot ${state.settings.clipboardWatch || state.settings.screenWatch ? 'on' : ''}"></span>${
       state.settings.screenWatch ? 'Watching screen & clipboard' : state.settings.clipboardWatch ? 'Watching clipboard' : 'Detection paused'
     }</div>`;
+  renderBuddy();
+}
+
+// Sprout in the sidebar: mood follows how things are going; poke it for a pep talk.
+let buddyKey = '';
+function renderBuddy() {
+  const watching = state.settings.clipboardWatch || state.settings.screenWatch;
+  const due = state.applications.filter(followUpDue).length;
+  const [mood, line] = !state.documents.length
+    ? ['wave', "Hi! Add your resume to My library and I'll get to work."]
+    : !watching
+      ? ['sleepy', 'Detection is paused… zzz. Wake me in Settings.']
+      : due
+        ? ['curious', `${due} follow-up${due === 1 ? '' : 's'} due. Want to check in?`]
+        : ['happy', "I'm keeping an eye out for job postings."];
+  const key = mood + line;
+  if (key === buddyKey) return;
+  buddyKey = key;
+  document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(line)}</div>`;
 }
 
 function route() {
@@ -858,5 +958,6 @@ S.onAppUpdated(async (app) => {
 S.onToast(({ text, kind }) => toast(text, kind));
 S.onNavigate(({ view: v, id }) => (location.hash = v === 'application' ? `#application/${id}` : `#${v}`));
 
-document.getElementById('brandMascot').innerHTML = mascotSvg('happy', 42);
+document.getElementById('brandMark').innerHTML = icon('seedling', 30);
+$$('.side a[data-icon]', document).forEach((a) => a.insertAdjacentHTML('afterbegin', icon(a.dataset.icon, 20)));
 refreshState().then(route);

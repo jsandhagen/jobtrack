@@ -38,10 +38,9 @@ body { padding: 10px; user-select: none; }
 .note { font-size: 12px; color: var(--ink-soft); background: var(--butter-soft); border-radius: 10px; padding: 7px 10px; margin: 6px 0 10px; }
 .center { text-align: center; }
 .center .sprout { margin: 4px auto 6px; display: block; }
-.confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 3; }
-.confetti i { position: absolute; top: -10px; width: 7px; height: 11px; border-radius: 2px; animation: fall 1.6s ease-in forwards; }
-@keyframes fall { to { transform: translateY(560px) rotate(540deg); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .confetti { display: none; } .pop { animation: none; } }
+.pop .sprout.pettable { -webkit-app-region: no-drag; }
+.pop > .confetti { position: absolute; z-index: 3; }
 .chips .chip { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
 .actions .soft { flex: 1; justify-content: center; }
 .actions .ghost { padding: 8px 10px; }

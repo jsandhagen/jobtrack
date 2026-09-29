@@ -1,12 +1,40 @@
-// Sprout, the mascot. A little seedling whose face (and leaves) change with
-// the mood. Shared by the dashboard and the overlay; loaded as a plain script.
+// Sprout, the mascot. A little seedling whose face, arms and leaves change
+// with the mood. Shared by the dashboard and the overlay; loaded as a plain script.
 (function () {
+  const ARC_EYES = 'M40 58 q3 -4 6 0 M58 58 q3 -4 6 0';
+  const BIG_ARC_EYES = 'M39 59 q4 -6 8 0 M57 59 q4 -6 8 0';
+  const DOT_EYES = 'M43 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M61 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0';
+
+  // eyes/mouth: face paths. dots: filled (round) eyes that blink.
+  // arms: 'down' | 'up' | 'wave' | 'pump' | 'hug'. extra: sparkles | dots | zzz | heart | sweat.
   const FACES = {
-    happy: { eyes: 'M40 58 q3 -4 6 0 M58 58 q3 -4 6 0', mouth: 'M44 68 q8 8 16 0', cheeks: true },
-    thrilled: { eyes: 'M39 59 q4 -6 8 0 M57 59 q4 -6 8 0', mouth: 'M42 66 q10 12 20 0 z', cheeks: true },
-    thinking: { eyes: 'M41 57 h5 M58 57 h5', mouth: 'M47 70 q5 -2 10 0', cheeks: false },
-    curious: { eyes: 'M43 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M61 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0', mouth: 'M49 70 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0', cheeks: true },
-    cheer: { eyes: 'M40 58 q3 -4 6 0 M58 58 q3 -4 6 0', mouth: 'M45 67 q7 6 14 0', cheeks: true },
+    happy: { eyes: ARC_EYES, mouth: 'M44 68 q8 8 16 0', cheeks: true, arms: 'down' },
+    thrilled: { eyes: BIG_ARC_EYES, mouth: 'M42 66 q10 12 20 0 z', mouthFill: true, cheeks: true, arms: 'up', extra: 'sparkles' },
+    thinking: { eyes: 'M41 57 h5 M58 57 h5', mouth: 'M47 70 q5 -2 10 0', cheeks: false, arms: 'down', extra: 'dots' },
+    curious: { eyes: DOT_EYES, dots: true, mouth: 'M49 70 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0', cheeks: true, arms: 'down' },
+    cheer: { eyes: ARC_EYES, mouth: 'M45 67 q7 6 14 0', cheeks: true, arms: 'pump' },
+    wave: { eyes: DOT_EYES, dots: true, mouth: 'M44 67 q8 8 16 0', cheeks: true, arms: 'wave' },
+    proud: { eyes: BIG_ARC_EYES, mouth: 'M44 67 q8 7 16 0', cheeks: true, arms: 'down', extra: 'sparkles' },
+    hug: { eyes: ARC_EYES, mouth: 'M47 67 q5 4 10 0', cheeks: true, arms: 'hug', extra: 'heart' },
+    sleepy: { eyes: 'M40 59 q3 2.5 6 0 M58 59 q3 2.5 6 0', mouth: 'M49 70 q3 1.6 6 0', cheeks: true, arms: 'down', extra: 'zzz' },
+    worried: { eyes: DOT_EYES, dots: true, brows: 'M38 51 q4 -3 8 -3 M66 51 q-4 -3 -8 -3', mouth: 'M45 71 q3.5 -3 7 0 q3.5 3 7 0', cheeks: false, arms: 'down', extra: 'sweat' },
+  };
+
+  const ARMS = {
+    down: ['M27 72 q-5 3 -7 8', 'M77 72 q5 3 7 8'],
+    up: ['M26 64 q-7 -4 -9 -12', 'M78 64 q7 -4 9 -12'],
+    pump: ['M27 72 q-5 3 -7 8', 'M78 66 q7 -3 8 -11'],
+    wave: ['M27 72 q-5 3 -7 8', 'M78 66 q7 -3 8 -11'],
+    hug: ['M27 70 q4 10 17 9', 'M77 70 q-4 10 -17 9'],
+  };
+
+  const EXTRAS = {
+    sparkles: `<g class="twinkle"><path d="M14 30 q1.2 5 5 6 q-3.8 1 -5 6 q-1.2 -5 -5 -6 q3.8 -1 5 -6z" fill="var(--butter, #f6d78b)"/>
+      <path d="M91 36 q.9 3.6 3.6 4.4 q-2.7 .8 -3.6 4.4 q-.9 -3.6 -3.6 -4.4 q2.7 -.8 3.6 -4.4z" fill="var(--lavender, #b9a9e6)"/></g>`,
+    dots: '<g class="think-dots" fill="var(--lavender, #b9a9e6)"><circle cx="85" cy="40" r="2"/><circle cx="91" cy="32" r="2.8"/><circle cx="97" cy="22" r="3.6"/></g>',
+    zzz: '<g class="zzz" fill="none" stroke="var(--ink-faint, #8f9a94)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M78 34 h6 l-6 7 h6"/><path d="M88 22 h4.5 l-4.5 5 h4.5"/></g>',
+    heart: '<path class="heart" d="M52 88 c-5 -3.4 -7.2 -6 -6.6 -8.6 .5 -2.3 3.5 -3 6.6 -.3 3.1 -2.7 6.1 -2 6.6 .3 .6 2.6 -1.6 5.2 -6.6 8.6z" fill="#f29b93" stroke="#e07f78" stroke-width="1.2"/>',
+    sweat: '<path d="M79 46 q-3.5 5 0 7 q3.5 -2 0 -7z" fill="#a9d6f0" stroke="#86bddd" stroke-width="1"/>',
   };
 
   function moodForScore(score) {
@@ -15,35 +43,93 @@
     return 'cheer';
   }
 
-  function mascotSvg(mood = 'happy', size = 96) {
+  function armPaths(kind) {
+    return ARMS[kind]
+      .map((d, i) => {
+        const cls = kind === 'wave' && i === 1 ? ' class="wave-arm"' : '';
+        return `<g${cls}><path d="${d}" stroke="var(--outline, #e9d6bb)" stroke-width="9" stroke-linecap="round" fill="none"/><path d="${d}" stroke="var(--body, #fff6e8)" stroke-width="5.4" stroke-linecap="round" fill="none"/></g>`;
+      })
+      .join('');
+  }
+
+  // opts.cls adds classes (e.g. "pettable"); opts.label overrides the accessible name.
+  function mascotSvg(mood = 'happy', size = 96, opts = {}) {
     const f = FACES[mood] || FACES.happy;
-    const bounce = mood === 'thinking' ? 'sprout-think' : 'sprout-bob';
-    return `<svg class="sprout ${bounce}" width="${size}" height="${size}" viewBox="0 0 104 104" role="img" aria-label="Sprout the mascot, feeling ${mood}">
+    const motion = mood === 'thinking' ? 'sprout-think' : mood === 'thrilled' ? 'sprout-bob sprout-hop' : mood === 'sleepy' ? 'sprout-sleep' : 'sprout-bob';
+    const arms = armPaths(f.arms);
+    const hugInFront = f.arms === 'hug';
+    return `<svg class="sprout ${motion} mood-${mood}${opts.cls ? ' ' + opts.cls : ''}" width="${size}" height="${size}" viewBox="0 0 104 104" role="img" aria-label="${opts.label || `Sprout the mascot, feeling ${mood}`}">
+  <g class="whole">
   <g class="leaves">
     <path d="M52 30 C 40 8, 16 14, 20 30 C 26 40, 44 38, 52 30 Z" fill="var(--leaf, #8fd0a6)"/>
     <path d="M52 30 C 62 6, 90 10, 86 28 C 80 40, 60 38, 52 30 Z" fill="var(--leaf-2, #a9dfb9)"/>
+    <path d="M35 24 q7 1 14 5 M69 22 q-7 2 -14 7" stroke="var(--stem, #5ea77a)" stroke-width="1.4" stroke-linecap="round" fill="none" opacity=".55"/>
     <path d="M52 30 v10" stroke="var(--stem, #5ea77a)" stroke-width="4" stroke-linecap="round"/>
   </g>
+  ${hugInFront ? '' : arms}
   <ellipse cx="52" cy="66" rx="30" ry="27" fill="var(--body, #fff6e8)" stroke="var(--outline, #e9d6bb)" stroke-width="2.5"/>
   ${f.cheeks ? '<ellipse cx="36" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/><ellipse cx="68" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/>' : ''}
-  <path d="${f.eyes}" stroke="#3b3a36" stroke-width="3" stroke-linecap="round" fill="${mood === 'curious' ? '#3b3a36' : 'none'}"/>
-  <path d="${f.mouth}" stroke="#3b3a36" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="${mood === 'thrilled' ? '#e88d86' : 'none'}"/>
+  ${f.brows ? `<path d="${f.brows}" stroke="#3b3a36" stroke-width="2" stroke-linecap="round" fill="none"/>` : ''}
+  <g class="eyes${f.dots ? ' blink' : ''}"><path d="${f.eyes}" stroke="#3b3a36" stroke-width="3" stroke-linecap="round" fill="${f.dots ? '#3b3a36' : 'none'}"/></g>
+  <path d="${f.mouth}" stroke="#3b3a36" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="${f.mouthFill ? '#e88d86' : 'none'}"/>
+  ${hugInFront ? arms : ''}
+  ${f.extra ? EXTRAS[f.extra] : ''}
+  </g>
 </svg>`;
+  }
+
+  // Sprout with a speech bubble. text is HTML (escape it before passing).
+  // opts.cls: classes on the wrapper; opts.svg: options for mascotSvg.
+  function sproutSays(mood, html, size = 56, opts = {}) {
+    return `<div class="sprout-says${opts.cls ? ' ' + opts.cls : ''}">${mascotSvg(mood, size, opts.svg)}<div class="bubble">${html}</div></div>`;
   }
 
   const LINES = {
     thrilled: ['This role has your name all over it!', "Oh, you're a fantastic fit for this one!", 'Wow — this is right in your wheelhouse!'],
-    happy: ["You've got a lot going for you here!", 'Solid match! Let\'s make it shine.', 'This one looks really promising.'],
+    happy: ["You've got a lot going for you here!", "Solid match! Let's make it shine.", 'This one looks really promising.'],
     cheer: [
-      "A stretch role — and stretching is how we grow! 🌱",
+      'A stretch role — and stretching is how we grow!',
       "Not a perfect match, but you bring real strengths. Let's highlight them.",
       'Every application is practice. Want to give it a go?',
     ],
   };
 
+  // Things Sprout says at moments that matter, and when you poke it.
+  const SAYINGS = {
+    pet: [
+      "Hi! I'm rooting for you. (Get it? Rooting?)",
+      "Boop! That tickles.",
+      "You're doing better than you think.",
+      "One posting at a time. We've got this.",
+      'Quick stretch and a sip of water? I’ll wait.',
+      'I believe in you — really, truly.',
+      "Every 'no' gets you closer to a 'yes'.",
+      "Proud of you for showing up today.",
+      'Job hunting is hard. You’re handling it.',
+      "I'm small, but my faith in you is enormous.",
+    ],
+    applied: ['You did it! Another one out into the world.', 'Applied! That took courage — I’m proud of you.', 'Sent! I’ll remind you to follow up.'],
+    interviewing: ['An interview! You’ve earned this.', 'Interview time! Jot some prep notes in Tracking — you’ve got this.'],
+    offer: ['AN OFFER!! I’m so, so proud of you.', 'You got an offer! Happy dance time!'],
+    rejected: [
+      'Their loss. I’m proud of you for putting yourself out there.',
+      'Not this one — the right role is still out there. I’m with you.',
+      'Rejections sting. Take a breather; we’ll try again together.',
+    ],
+    exported: ['Saved! Go get ’em.', 'Looking sharp! Saved.', 'All saved — that resume looks great.'],
+    error: ['Oops, something went sideways:', 'Hmm, that didn’t work:'],
+  };
+
+  function pick(list, seed = Date.now()) {
+    return list[Math.abs(seed) % list.length];
+  }
+
+  function say(key, seed) {
+    return pick(SAYINGS[key] || SAYINGS.pet, seed);
+  }
+
   function encouragement(score, seed = Date.now()) {
-    const list = LINES[moodForScore(score)];
-    return list[seed % list.length];
+    return pick(LINES[moodForScore(score)], seed);
   }
 
   function scoreColor(score) {
@@ -70,5 +156,22 @@
     );
   }
 
-  window.SproutMascot = { mascotSvg, moodForScore, encouragement, scoreRing, animateRings, scoreColor };
+  // Confetti burst inside `host` (which should be position:relative or fixed).
+  function confetti(host, count = 36) {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const box = document.createElement('div');
+    box.className = 'confetti';
+    const colors = ['#8fd0a6', '#f6b99a', '#b9a9e6', '#f6d78b', '#e98a8a'];
+    for (let i = 0; i < count; i++) {
+      const p = document.createElement('i');
+      p.style.left = Math.random() * 100 + '%';
+      p.style.background = colors[i % colors.length];
+      p.style.animationDelay = Math.random() * 0.5 + 's';
+      box.appendChild(p);
+    }
+    host.appendChild(box);
+    setTimeout(() => box.remove(), 2400);
+  }
+
+  window.SproutMascot = { mascotSvg, sproutSays, moodForScore, encouragement, say, pick, scoreRing, animateRings, scoreColor, confetti, moods: Object.keys(FACES) };
 })();
