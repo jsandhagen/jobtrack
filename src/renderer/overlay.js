@@ -21,7 +21,7 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
   const chips = a
     ? a.strengths.slice(0, 3).map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')
     : app.quick.matchedSkills.slice(0, 6).map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('');
-  const speech = analyzing ? 'Ooh, a new role! Let me take a closer look…' : encouragement(score, app.id.charCodeAt(0));
+  const speech = analyzing ? 'A new role — let me take a closer look…' : encouragement(score, app.id.charCodeAt(0));
   let footer;
   if (noDocs) {
     footer = `<div class="note">Add your resume and a few documents to your library so I can score you properly!</div>
@@ -82,7 +82,7 @@ function workingView({ app, engine, what }) {
   const letter = what === 'letter';
   return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thinking', 88)}
     <h3>${letter ? 'Root is writing your cover letter…' : claude ? 'Root is writing with Claude…' : 'Spike is picking your bullets…'}</h3>
-    <p class="muted">${claude ? `${letter ? 'Writing to' : 'Tailoring your resume for'} <b>${esc(app.job.title)}</b>. This usually takes under a minute — feel free to keep browsing!` : `Matching your best experience to <b>${esc(app.job.title)}</b>.`}</p>
+    <p class="muted">${claude ? `${letter ? 'Writing to' : 'Tailoring your resume for'} <b>${esc(app.job.title)}</b>. This usually takes under a minute. Keep browsing if you like.` : `Matching your best experience to <b>${esc(app.job.title)}</b>.`}</p>
     <span class="spinner" style="color: var(--sage)"></span></div>`;
 }
 
@@ -106,8 +106,8 @@ function seenView({ app }) {
   const when = new Date(applied || app.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const statusLine = {
     applied: `You applied on ${when}.`,
-    interviewing: "You're interviewing for this one — you've got this!",
-    offer: 'You have an offer for this one! So proud of you.',
+    interviewing: "You're interviewing for this one. Good luck!",
+    offer: 'You have an offer for this one. Congratulations!',
     rejected: `You applied on ${when}; it didn't work out this time.`,
     skipped: `You skipped this one on ${when}.`,
   }[app.status] || `You checked this on ${when} but haven't applied yet.`;

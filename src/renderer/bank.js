@@ -62,7 +62,7 @@ async function renderBankPage() {
     ${pageHead(
       'Bullet bank',
       total ? 'proud' : 'curious',
-      `${total ? `<b>${total}</b> accomplishments and counting! ` : ''}Every bullet you've written, filed under its role. For each job I pick the ones that fit best — reword, swap or add them anytime.`,
+      `${total ? `<b>${total}</b> accomplishments so far. ` : ''}Every bullet you've written, filed under its role. For each job I pick the ones that fit best — reword, swap or add them anytime.`,
       `<button class="soft" id="bankImport">${icon('inbox')} Import from my documents</button>
       ${state.hasApiKey ? `<button class="ghost" id="bankSuggest" title="Uses Claude">${icon('sparkle')} Find more with Claude</button>` : ''}
       <button class="primary" id="addRole">+ Add role</button>`

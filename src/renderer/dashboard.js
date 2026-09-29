@@ -129,13 +129,13 @@ function greeting() {
 function homeMood({ apps, appliedWeek, due, allDone }) {
   const offers = apps.filter((a) => a.status === 'offer').length;
   const interviews = apps.filter((a) => a.status === 'interviewing').length;
-  if (offers) return ['thrilled', `You have ${offers === 1 ? 'an offer' : `${offers} offers`} on the table! I'm beaming.`];
+  if (offers) return ['thrilled', `You have ${offers === 1 ? 'an offer' : `${offers} offers`} on the table. That's huge.`];
   if (due.length) return ['curious', `${due.length === 1 ? 'One follow-up is' : `${due.length} follow-ups are`} due. A quick, friendly note can make a big difference.`];
-  if (interviews) return ['cheer', `${interviews === 1 ? 'An interview' : `${interviews} interviews`} in progress — you've got this!`];
-  if (appliedWeek >= 3) return ['proud', `${appliedWeek} applications this week! I'm so proud of you.`];
-  if (appliedWeek) return ['happy', `You applied to ${appliedWeek === 1 ? 'a role' : `${appliedWeek} roles`} this week. Lovely momentum!`];
-  if (!allDone) return ['wave', "Hi, I'm Sprout! Let's get you set up — it only takes a few minutes."];
-  if (!apps.length) return ['curious', "Let's find you something wonderful. Copy a job posting and I'll take a look."];
+  if (interviews) return ['cheer', `${interviews === 1 ? 'An interview' : `${interviews} interviews`} in progress. Want to jot some prep notes?`];
+  if (appliedWeek >= 3) return ['proud', `${appliedWeek} applications this week. That's a real week's work.`];
+  if (appliedWeek) return ['happy', `You applied to ${appliedWeek === 1 ? 'a role' : `${appliedWeek} roles`} this week. Nice momentum.`];
+  if (!allDone) return ['wave', "Hi, I'm Sprout. Setup takes a few minutes — let's do it together."];
+  if (!apps.length) return ['curious', "Copy a job posting anywhere and I'll take a look."];
   // Stable for the hour, so the line doesn't change every time the page redraws.
   const d = new Date();
   const h = d.getHours();
@@ -303,7 +303,7 @@ const views = {
   library() {
     const docs = state.documents;
     return `<div class="page">
-      ${pageHead('My library', docs.length ? 'happy' : 'wave', docs.length ? `I've got <b>${docs.length}</b> document${docs.length === 1 ? '' : 's'} to draw from when tailoring. Old cover letters, project write-ups, reviews, certificates — the more, the merrier!` : 'Everything I can draw from when tailoring goes here: resumes, old cover letters, project write-ups, performance reviews, certificates… The more, the merrier!')}
+      ${pageHead('My library', docs.length ? 'happy' : 'wave', docs.length ? `I've got <b>${docs.length}</b> document${docs.length === 1 ? '' : 's'} to draw from when tailoring. Old cover letters, project write-ups and reviews all help.` : 'Everything I can draw from when tailoring goes here: resumes, old cover letters, project write-ups, performance reviews, certificates. The more I have, the better I can tailor.')}
       <div class="dropzone" id="drop"><div class="big">${icon('inbox', 44)}</div><h3>Drop files here</h3><p class="muted">PDF, Word (.docx), text or Markdown</p>
         <div class="inline" style="justify-content:center"><button class="primary" id="pickBtn">Choose files</button><button class="soft" id="pasteDocBtn">Paste text instead</button></div></div>
       <div class="list" style="margin-top:18px">${docs.filter((d) => d.kind !== 'writing-sample').map(docRow).join('')}</div>
@@ -322,7 +322,7 @@ const views = {
     const p = state.profile;
     const f = (k, label, ph, full) => `<div class="${full ? 'full' : ''}"><label>${label}</label><input data-k="${k}" value="${esc(p[k])}" placeholder="${ph}"></div>`;
     return `<div class="page">
-      ${pageHead('Profile', p.name ? 'happy' : 'curious', `${p.name ? `Nice to see you, <b>${esc(p.name.split(' ')[0])}</b>! ` : "What should I call you? "}This goes in your resume header — only what you enter here ends up on it.`)}
+      ${pageHead('Profile', p.name ? 'happy' : 'curious', `${p.name ? `Hi, <b>${esc(p.name.split(' ')[0])}</b>. ` : "What should I call you? "}This goes in your resume header — only what you enter here ends up on it.`)}
       <div class="card"><div class="form-grid">
         ${f('name', 'Full name', 'Jordan Rivera')}${f('email', 'Email', 'jordan@example.com')}
         ${f('phone', 'Phone', '(555) 123-4567')}${f('location', 'Location', 'Portland, OR · Open to remote')}
@@ -410,7 +410,7 @@ function applicationsLine(all) {
   const applied = all.filter((a) => a.appliedAt).length;
   if (!all.length) return 'Every role you check lands here, so nothing slips through the cracks.';
   if (!applied) return `You've checked <b>${all.length}</b> role${all.length === 1 ? '' : 's'} so far. Ready to send one out?`;
-  return `<b>${all.length}</b> role${all.length === 1 ? '' : 's'} checked, <b>${applied}</b> applied. Every one of those took effort — nice work.`;
+  return `<b>${all.length}</b> role${all.length === 1 ? '' : 's'} checked, <b>${applied}</b> applied. That's steady progress.`;
 }
 
 function usageSummary() {
@@ -659,7 +659,7 @@ async function renderApplication(id) {
   const genLetter = async () => {
     const p = S.generateCoverLetter(id);
     renderApplication(id);
-    await run(null, () => p.then(() => toast('Cover letter ready! Give it a read.', 'good', 3800, 'proud')));
+    await run(null, () => p.then(() => toast('Cover letter ready. Give it a read.', 'good', 3800, 'proud')));
     renderApplication(id);
   };
   const gl = $('#genLetter', page);
@@ -737,7 +737,7 @@ function trackingCard(a) {
 function openApplyModal(a) {
   const days = Number(state.settings.followUpDays) || 7;
   const follow = new Date(Date.now() + days * 86400000);
-  const card = openModal(`<div class="modal-hero">${mascotSvg('proud', 72)}<div><h2>You applied!</h2><p class="muted">That takes guts — I'm proud of you. Let's record it so we can keep track together.</p></div></div>
+  const card = openModal(`<div class="modal-hero">${mascotSvg('proud', 72)}<div><h2>You applied!</h2><p class="muted">Nicely done. Let’s note the details so following up is easy.</p></div></div>
     <div class="form-grid">
       <div><label>Date applied</label><input type="date" id="mDate" value="${dateInput(new Date().toISOString())}"></div>
       <div><label>Where</label><input id="mVia" list="viaList" placeholder="Company site, LinkedIn…"><datalist id="viaList"><option>Company website</option><option>LinkedIn</option><option>Indeed</option><option>Referral</option><option>Recruiter</option><option>Email</option></datalist></div>
@@ -831,7 +831,7 @@ const binders = {
       el.setSelectionRange(el.value.length, el.value.length);
     });
     $('#appSort').addEventListener('change', (e) => ((appSort = e.target.value), route()));
-    $('#csvBtn').addEventListener('click', (e) => run(e.currentTarget, async () => (await S.exportCsv()) && toast('Exported!', 'good'), 'Exporting…'));
+    $('#csvBtn').addEventListener('click', (e) => run(e.currentTarget, async () => (await S.exportCsv()) && toast('Exported.', 'good'), 'Exporting…'));
   },
   library() {
     const drop = $('#drop');
@@ -857,7 +857,7 @@ const binders = {
         run(null, async () => {
           await S.addTextDocument({ name: $('#mName', card).value.trim() || (sample ? 'Writing sample' : 'Notes'), text: $('#mText', card).value, kind: sample ? 'writing-sample' : undefined });
           closeModal();
-          toast(sample ? 'Sample added — I’ll help Claude match your voice.' : 'Added to your library. More for me to work with!', 'good');
+          toast(sample ? 'Sample added — I’ll help Claude match your voice.' : 'Added to your library.', 'good');
         })
       );
     };
@@ -906,7 +906,7 @@ const binders = {
         const v = $('#apiKey').value.trim();
         if (!v) throw new Error('Paste your API key first.');
         await S.setApiKey(v);
-        toast('Claude connected! Now I can dig deeper for you.', 'good', 3800, 'thrilled');
+        toast('Claude connected. Root and I can dig deeper now.', 'good', 3800, 'thrilled');
       }, 'Saving…')
     );
     const clear = $('#clearKey');
@@ -944,7 +944,7 @@ const binders = {
 
 function reportImport(res) {
   if (!res) return;
-  if (res.added && res.added.length) toast(`Added ${res.added.length} document${res.added.length > 1 ? 's' : ''}. Yum, reading material!`, 'good');
+  if (res.added && res.added.length) toast(`Added ${res.added.length} document${res.added.length > 1 ? 's' : ''}. More for me to learn from.`, 'good');
   if (res.bullets && res.bullets.added) toast(`…and ${res.bullets.added} bullets to your bullet bank`, 'good', 5000, 'proud');
   (res.errors || []).forEach((e) => toast(e, 'error', 7000));
 }

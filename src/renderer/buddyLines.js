@@ -1,140 +1,133 @@
-// Everything Sprout (and Spike and Root) says. Kept in one place so the
-// buddy's voice stays consistent: warm, encouraging, a little playful, and
-// honest — never promising outcomes. Loaded before mascot.js as a plain script.
+// Everything Sprout (and Spike and Root) says, in one place.
+//
+// How they talk:
+// - Warm and specific, not sugary. Cute comes from small, concrete touches
+//   (a sip of water, a plant detail), not puns or superlatives.
+// - At most one light plant touch per line, and never explain a joke.
+// - Exclamation marks are for real moments (an interview, an offer). Most
+//   lines end in a full stop.
+// - Honest: job hunting is hard, and we never promise outcomes.
+// - No platitudes ("every no is closer to a yes") and no ALL CAPS.
+// Loaded before mascot.js as a plain script.
 (function () {
   // Fit-score reactions, by mood (see moodForScore).
   const LINES = {
     thrilled: [
-      'This role has your name all over it!',
-      "Oh, you're a fantastic fit for this one!",
-      'Wow — this is right in your wheelhouse!',
-      'I got goosebumps. Well, leaf-bumps. This one fits you!',
-      "They'd be lucky to have you. Seriously.",
-      'This one reads like it was written about you.',
+      'This one fits you really well.',
+      'Oh, this is right up your alley.',
+      'This reads a lot like your resume. Good sign.',
+      'Strong match. I have a good feeling about this one.',
+      'You tick most of their boxes. Worth a look.',
     ],
     happy: [
-      "You've got a lot going for you here!",
-      "Solid match! Let's make it shine.",
-      'This one looks really promising.',
-      "Good fit! A little tailoring and you're golden.",
-      'Lots of overlap with what you do. Nice find!',
-      "I like this one for you. Let's give it a go.",
+      'Good match. A little tailoring and it’ll shine.',
+      "There's a lot of overlap with what you do.",
+      'This one looks promising.',
+      'Solid fit. Want me to tailor a resume?',
+      'You’d bring plenty to this one.',
     ],
     cheer: [
-      'A stretch role — and stretching is how we grow!',
-      "Not a perfect match, but you bring real strengths. Let's highlight them.",
-      'Every application is practice. Want to give it a go?',
-      "Plenty of people get hired without ticking every box. Your call!",
-      "A few gaps, sure. Your story can still land — let's lead with your strengths.",
+      "A bit of a stretch, but you've got real strengths here.",
+      "Not every box is ticked. That's normal — plenty of people apply anyway.",
+      'Some gaps, some strengths. Leading with the strengths could work.',
+      'A stretch role. Your call — I’m happy to help either way.',
     ],
   };
 
   const SAYINGS = {
     // Poking Sprout.
     pet: [
-      "Hi! I'm rooting for you. (Get it? Rooting?)",
-      'Boop! That tickles.',
+      "Hi. I'm rooting for you.",
+      'Oh! Hello.',
+      'Boop.',
       "You're doing better than you think.",
-      "One posting at a time. We've got this.",
+      'One posting at a time.',
       'Quick stretch and a sip of water? I’ll wait.',
-      'I believe in you — really, truly.',
-      "Every 'no' gets you closer to a 'yes'.",
-      'Proud of you for showing up today.',
-      'Job hunting is hard. You’re handling it.',
-      "I'm small, but my faith in you is enormous.",
-      'Hehe. Hi again!',
-      'You bring something no one else does.',
-      "Rest is part of the process too. Don't forget to take some.",
-      'Did you eat something today? Snacks are important.',
-      'Small steps still move you forward.',
-      "Whatever happens, you're more than a resume.",
-      "I'm growing a little every day. So are you.",
-      'Shoulders down, deep breath. There we go.',
-      'Your future team is out there. We’ll find them.',
-      'Photosynthesizing some good vibes your way.',
-      "Tough day? It's okay to just check one posting.",
+      'Showing up is the hard part, and you did.',
+      'Job hunting is tiring. Be gentle with yourself.',
+      'You bring things no one else does.',
+      "Rest counts as progress too.",
+      'Have you had a snack today?',
+      'Small steps still add up.',
+      "You're more than a resume.",
+      'Shoulders down, deep breath.',
+      "Tough day? Checking one posting is plenty.",
       "I'm glad I get to help with this.",
+      'I’ll be here whenever you’re ready.',
+      'Just soaking up some sun. And cheering you on.',
     ],
     // Poked a lot in a row.
-    petLots: [
-      'Hehe, okay okay — I’m getting dizzy!',
-      "You really like poking me, huh? I don't mind.",
-      'Wheee! Alright, back to work… maybe.',
-      'My leaves are all ruffled now!',
-    ],
+    petLots: ['Okay, okay, I’m getting dizzy.', 'My leaves are all ruffled now.', 'Hehe. Alright, back to work?'],
     // Spike (ATS mode) and Root (Claude mode) when poked.
     spike: [
-      'Keywords: sharp. Resume: sharper.',
-      'I read postings the way the scanners do. Prickly, but thorough.',
-      "No fluff, just your best matches. That's my thing.",
-      'Hands off the spines! …Kidding. Mostly.',
-      'I only use your own bullets. Your words, better arranged.',
-      'Free, fast, and a little pointy.',
+      'I read postings the way the scanners do.',
+      "No fluff. Just your best matches, up front.",
+      'Careful, I’m a little pointy.',
+      'Only your own bullets. Better arranged.',
+      'Free and fast. That’s my whole deal.',
+      'Keywords matched, format kept simple.',
     ],
     root: [
-      'I dig deep so your resume can stand tall.',
-      'Every line I write gets checked against your records. Promise.',
-      "I'll write it in your voice, not mine.",
-      'Crunchy on the outside, thoughtful on the inside.',
-      "Give me a minute and I'll tailor it just right.",
-      "Rooting through your experience for the good stuff!",
+      'I’ll write it in your voice, not mine.',
+      'Every line I write gets checked against your records.',
+      'I dig through your experience for the good bits.',
+      "Give me a minute and I'll tailor it properly.",
+      'Nothing made up. Just your work, told well.',
     ],
 
     // Home page, when nothing in particular is going on.
-    idleMorning: ['Good morning! Fresh postings, fresh start.', "Morning! Let's find something great today.", 'Coffee, water, or tea? Then postings.'],
-    idleAfternoon: ["Afternoon check-in: you're doing great.", 'Ready when you are. Let’s go find your next role.', "Let's find you something wonderful today."],
-    idleEvening: ['Evening! One more look, or call it a day?', "It's okay to log off. The postings will be here tomorrow.", 'New day, new postings. I’ll keep watch with you.'],
-    idleLate: ["It's late! Sleep helps interviews go better, you know.", "Night owl mode. Don't forget to rest.", "I'll keep watch. You get some sleep soon."],
+    idleMorning: ['Good morning. Want to look at a posting or two?', 'Morning. Fresh postings are out.', 'Morning. Coffee first, then postings.'],
+    idleAfternoon: ['Good afternoon. Ready when you are.', 'Afternoon. Copy a posting anywhere and I’ll take a look.', 'Hi again. Let’s find something good.'],
+    idleEvening: ['Evening. One more look, or call it a day?', "It's fine to log off. The postings will keep.", 'Evening. I’ll keep watch if you want to rest.'],
+    idleLate: ["It's late. Sleep does wonders for interviews.", 'Night owl, huh. Don’t forget to rest.', "I'll keep watch. Get some sleep soon."],
 
     // Sidebar Sprout, now and then, while watching for postings.
     buddy: [
       "I'm keeping an eye out for job postings.",
       'Copy a job description anywhere and I’ll score it.',
-      'Tip: your bullet bank is where the magic happens.',
-      'Tip: Spike’s ATS resumes are free. Try one!',
-      'Still here, still rooting for you.',
-      'Take a breather if you need one. I’ll keep watch.',
+      'Tip: your bullet bank is where tailoring starts.',
+      'Tip: Spike’s ATS resumes are free to try.',
+      'Still here. Still rooting for you.',
+      'Take a break if you need one. I’ll keep watch.',
       'Tip: add old cover letters to My library so Root can match your voice.',
-      'Tip: a quick follow-up note a week after applying goes a long way.',
+      'Tip: a short follow-up a week after applying often helps.',
       "You've been working hard. I noticed.",
-      'Tip: numbers in bullets (like “18% faster”) catch a recruiter’s eye.',
+      'Tip: numbers in bullets, like “18% faster”, stand out.',
     ],
 
     // Moments.
     applied: [
-      'You did it! Another one out into the world.',
-      'Applied! That took courage — I’m proud of you.',
-      'Sent! Fingers crossed. Well, leaves crossed.',
-      'Off it goes! That’s one more door you’ve knocked on.',
-      'Applied! Now for the best part: not thinking about it for a bit.',
-      'Another application out. Look at you go!',
+      'Sent! Nicely done.',
+      'Applied. That took some nerve — well done.',
+      'Off it goes. Now you get to not think about it for a bit.',
+      'Another one out there. Good work.',
+      'Applied. One more door knocked on.',
     ],
-    firstApplied: ['Your very first application with me! This is a big moment.', 'First one sent! The hardest step is the first one, and you took it.'],
-    milestone: ['{n} applications! That’s real persistence.', '{n} sent! Every one of those took effort. I see you.', 'Wow, {n} applications. You should be proud.'],
+    firstApplied: ['Your first application with me. That’s a big step.', 'First one sent. Starting is the hardest part.'],
+    milestone: ['{n} applications. That’s real persistence.', '{n} sent. Each of those took effort.', '{n} applications so far. You should be proud of that.'],
     interviewing: [
-      'An interview! You’ve earned this.',
-      'Interview time! Jot some prep notes in Tracking — you’ve got this.',
+      'An interview! You earned that.',
+      'Interview time! Jot some prep notes in Tracking.',
       'They want to talk to you! Of course they do.',
-      "An interview! Take a breath — they already like what they've seen.",
+      "An interview! They already like what they've seen.",
     ],
-    offer: ['AN OFFER!! I’m so, so proud of you.', 'You got an offer! Happy dance time!', 'An offer! All that work paid off. I knew it would.', 'OFFER!! I’m doing cartwheels. Sort of. I don’t have legs.'],
+    offer: ['You got an offer! I’m so proud of you.', 'An offer! All that work paid off.', 'An offer! This is huge. Take a moment to enjoy it.'],
     rejected: [
-      'Their loss. I’m proud of you for putting yourself out there.',
-      'Not this one — the right role is still out there. I’m with you.',
-      'Rejections sting. Take a breather; we’ll try again together.',
+      'Not this one. I’m sorry — that stings.',
       "That's a tough one. It says nothing about your worth.",
-      'Oof. Be kind to yourself today. We’ll keep going when you’re ready.',
+      'Be kind to yourself today. We’ll keep going when you’re ready.',
+      'Not the result you wanted. Putting yourself out there still counts.',
     ],
-    skipped: ['Not every role is for you. Good call.', 'Skipped! Saving your energy for the right ones.', 'Knowing what you don’t want is progress too.'],
-    exported: ['Saved! Go get ’em.', 'Looking sharp! Saved.', 'All saved — that resume looks great.', 'Saved and ready to send!', 'Done! That’s a resume to be proud of.'],
-    followUp: ['A friendly follow-up can make all the difference.', 'Time for a quick, kind follow-up note?', "It's been a little while — a short follow-up shows you're keen."],
-    saved: ['Saved!', 'Got it, saved.', 'All tucked away.'],
-    error: ['Oops, something went sideways:', 'Hmm, that didn’t work:', 'Uh oh, a little hiccup:'],
+    skipped: ['Not every role is for you. Good call.', 'Skipped. Saving your energy for the right ones.', 'Knowing what you don’t want helps too.'],
+    exported: ['Saved. Go get ’em.', 'Saved and ready to send.', 'All saved. It looks good.', 'Done. That’s a resume to be proud of.'],
+    followUp: ['A short, friendly follow-up can help.', 'Time for a quick follow-up note?', "It's been a little while. A short follow-up shows you're keen."],
+    saved: ['Saved.', 'Got it.', 'All tucked away.'],
+    error: ['Oops, something went sideways:', 'Hmm, that didn’t work:'],
 
-    // While a helper works.
-    atsDone: ['Spike optimized your resume for this posting.', 'Spike picked your best-matching bullets.', "Spike's done! Your strongest matches are up front now."],
-    claudeDone: ['Root wrote an updated version. Have a look! Undo is up top.', 'Root finished your draft — every line was checked against your records.', 'Fresh from Root! Tweak anything that doesn’t sound like you.'],
-    letterDone: ['Root finished your cover letter!', 'Your cover letter is ready. Give it a read!'],
+    // When a helper finishes.
+    atsDone: ['Spike moved your best matches up front.', 'Spike optimized your resume for this posting.', 'Done — Spike picked your strongest bullets for this one.'],
+    claudeDone: ['Root wrote an updated version. Have a look — Undo is up top.', 'Root’s draft is ready, checked against your records.', 'Here’s Root’s version. Change anything that doesn’t sound like you.'],
+    letterDone: ['Root finished your cover letter.', 'Your cover letter is ready for a read.'],
   };
 
   window.SproutLines = { LINES, SAYINGS };
