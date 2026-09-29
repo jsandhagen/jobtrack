@@ -103,7 +103,7 @@ class PostingWatcher extends EventEmitter {
         return null;
       }
       if (!force && !this._isNew(job.posting_text)) return null;
-      const posting = { text: job.posting_text, title: job.title, company: job.company, location: job.location, via: 'screen' };
+      const posting = { text: job.posting_text, title: job.title, company: job.company, location: job.location, url: job.page_url || '', via: 'screen' };
       this.emit('posting', posting);
       return posting;
     } catch (err) {
@@ -116,6 +116,7 @@ class PostingWatcher extends EventEmitter {
 
   async _screenTick() {
     if (this.busy) return;
+    if (this.deps.canAutoScan && !this.deps.canAutoScan()) return;
     if (this.deps.isAppFocused && this.deps.isAppFocused()) return;
     const thumb = await this.deps.captureScreen({ width: 160, height: 100 });
     if (!thumb) return;

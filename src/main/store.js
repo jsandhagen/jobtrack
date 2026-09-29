@@ -11,6 +11,14 @@ const DEFAULT_SETTINGS = {
   screenWatchIntervalSec: 20,
   hotkey: 'CommandOrControl+Shift+J',
   popupThreshold: 0, // show the popup for every detected posting
+  // When Claude does the deeper fit read: 'manual' (only when you ask),
+  // 'threshold' (automatically when the free score is at least claudeFitThreshold), or 'always'.
+  claudeFitMode: 'manual',
+  claudeFitThreshold: 65,
+  // Automatic Claude use (screen watching, automatic fit reads) pauses once
+  // this month's estimated spend reaches this many dollars. 0 = no limit.
+  autoBudgetUsd: 5,
+  followUpDays: 7,
 };
 
 const DEFAULT_PROFILE = {
@@ -20,6 +28,10 @@ const DEFAULT_PROFILE = {
   location: '',
   links: '',
   targetRoles: '',
+  // dealbreakers for the free fit score
+  workModes: '',
+  minSalary: '',
+  avoidKeywords: '',
 };
 
 class Store {
@@ -43,6 +55,7 @@ class Store {
       documents: raw.documents || [],
       applications: raw.applications || [],
       encryptedApiKey: raw.encryptedApiKey || null,
+      usage: raw.usage || {},
     };
   }
 
@@ -112,7 +125,8 @@ class Store {
     return this.data.applications.find((a) => a.id === id) || null;
   }
   addApplication(app) {
-    const rec = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), status: 'scored', ...app };
+    const now = new Date().toISOString();
+    const rec = { id: crypto.randomUUID(), createdAt: now, status: 'scored', statusHistory: [{ status: 'scored', at: now }], ...app };
     this.data.applications.push(rec);
     this.save();
     return rec;
@@ -124,9 +138,49 @@ class Store {
     this.save();
     return app;
   }
+  // Change status and keep a dated history, so the tracker can show a timeline.
+  setStatus(id, status, extra = {}) {
+    const app = this.getApplication(id);
+    if (!app) return null;
+    if (app.status !== status) {
+      app.statusHistory = [...(app.statusHistory || [{ status: app.status, at: app.createdAt }]), { status, at: new Date().toISOString() }];
+      app.status = status;
+    }
+    Object.assign(app, extra);
+    this.save();
+    return app;
+  }
+
+  // An earlier record of the same posting: same text, or same company + title.
+  findDuplicate({ fingerprint, company, title }) {
+    const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    return (
+      this.data.applications.find(
+        (a) => (fingerprint && a.fingerprint === fingerprint) || (norm(company) && norm(a.job.company) === norm(company) && norm(a.job.title) === norm(title))
+      ) || null
+    );
+  }
+
   removeApplication(id) {
     this.data.applications = this.data.applications.filter((a) => a.id !== id);
     this.save();
+  }
+
+  // ---- Claude usage, per calendar month ----
+  recordUsage({ kind, usage, cost }, date = new Date()) {
+    const month = date.toISOString().slice(0, 7);
+    const m = (this.data.usage[month] ||= { calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cost: 0, byKind: {} });
+    m.calls++;
+    m.inputTokens += (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
+    m.outputTokens += usage.output_tokens || 0;
+    m.cacheReadTokens += usage.cache_read_input_tokens || 0;
+    m.cost += cost || 0;
+    m.byKind[kind] = (m.byKind[kind] || 0) + 1;
+    this.save();
+    return m;
+  }
+  getUsage(date = new Date()) {
+    return this.data.usage[date.toISOString().slice(0, 7)] || { calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cost: 0, byKind: {} };
   }
 
   // ---- API key (stored encrypted by the caller via Electron safeStorage) ----

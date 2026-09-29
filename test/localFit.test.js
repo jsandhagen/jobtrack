@@ -1,0 +1,56 @@
+const test = require('node:test');
+const assert = require('node:assert');
+const { localFitScore, extractTerms, titleLevel, workMode, postingSalaryMax } = require('../src/main/localFit');
+const { CANDIDATES, POSTINGS, CASES, ORDERINGS } = require('./fixtures/fitCases');
+
+const score = (c, p) => localFitScore(POSTINGS[p], CANDIDATES[c].documents, CANDIDATES[c].profile);
+
+test('offline fit lands every benchmark case in the expected band', () => {
+  const misses = [];
+  for (const [c, p, band] of CASES) {
+    const r = score(c, p);
+    const ok =
+      band === 'strong' ? r.score >= 65 : band === 'possible' ? r.score >= 40 && r.score <= 72 : band === 'weak' ? r.score < 45 : r.dealbreakers.length > 0 && r.score <= 30;
+    if (!ok) misses.push(`${c}/${p}: expected ${band}, got ${r.score}`);
+  }
+  assert.deepEqual(misses, []);
+});
+
+test('offline fit ranks better matches above worse ones', () => {
+  for (const [c, better, worse] of ORDERINGS) {
+    assert.ok(score(c, better).score > score(c, worse).score, `${c}: ${better} should beat ${worse}`);
+  }
+});
+
+test('non-dictionary requirements are discovered (certifications, tools, phrases)', () => {
+  const r = score('nurse', 'icuRN');
+  assert.ok(r.matchedSkills.includes('BLS') && r.matchedSkills.includes('ACLS'));
+  assert.ok(r.missingSkills.includes('CCRN'));
+  assert.ok(r.missingSkills.includes('ventilator management'));
+  assert.deepEqual(extractTerms('- Current RN license', new Set()), ['RN']);
+  assert.ok(extractTerms('- Experience with Epic and Cerner', new Set()).includes('Cerner'));
+});
+
+test('dealbreakers: pay, work mode and avoided words', () => {
+  assert.equal(postingSalaryMax('Pay: $60,000 - $75,000'), 75000);
+  assert.equal(postingSalaryMax('$30 - $40 per hour'), 83200);
+  assert.equal(workMode('Frontend Engineer (Remote)'), 'remote');
+  assert.equal(workMode('3 days in-office'), 'onsite');
+  const r = score('frontend', 'clearance');
+  assert.equal(r.label, 'Dealbreaker');
+  assert.ok(r.dealbreakers.some((d) => /security clearance/.test(d)));
+});
+
+test('seniority is judged only when the title states a level', () => {
+  assert.equal(titleLevel('Principal Frontend Architect'), 4);
+  assert.equal(titleLevel('Registered Nurse'), null);
+  assert.equal(score('nurse', 'telemetryRN').components.seniority, null);
+  assert.ok(score('frontend', 'staffFrontend').concerns.some((c) => /years/.test(c)));
+});
+
+test('no documents means no score, and confidence reflects what was recognised', () => {
+  assert.equal(localFitScore(POSTINGS.seniorFrontend, [], {}).score, 0);
+  assert.equal(score('frontend', 'seniorFrontend').confidence, 'high');
+  const vague = localFitScore({ title: 'Team Member', text: 'Join our friendly team! Great culture.' }, CANDIDATES.frontend.documents, {});
+  assert.equal(vague.confidence, 'low');
+});

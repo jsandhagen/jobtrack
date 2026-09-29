@@ -69,7 +69,40 @@ const KIND_LABEL = {
   recommendation: ['⭐', 'Recommendation'],
   other: ['📝', 'Notes'],
 };
-const STATUSES = ['scored', 'resume-ready', 'applied', 'interviewing', 'offer', 'skipped', 'closed'];
+const STATUSES = ['scored', 'resume-ready', 'applied', 'interviewing', 'offer', 'rejected', 'skipped', 'closed'];
+const STATUS_LABEL = {
+  scored: 'Not applied',
+  'resume-ready': 'Resume ready',
+  applied: 'Applied',
+  interviewing: 'Interviewing',
+  offer: 'Offer 🎉',
+  rejected: 'Not selected',
+  skipped: 'Skipped',
+  closed: 'Closed',
+};
+const FILTERS = [
+  ['all', 'All', () => true],
+  ['todo', 'To apply', (a) => a.status === 'scored' || a.status === 'resume-ready'],
+  ['applied', 'Applied', (a) => a.status === 'applied'],
+  ['interviewing', 'Interviewing', (a) => a.status === 'interviewing'],
+  ['offer', 'Offers', (a) => a.status === 'offer'],
+  ['archived', 'Archived', (a) => ['rejected', 'skipped', 'closed'].includes(a.status)],
+];
+let appFilter = 'all';
+let appSearch = '';
+let appSort = 'recent';
+
+function fmtDate(iso) {
+  return iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: new Date(iso).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) : '';
+}
+function dateInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function followUpDue(a) {
+  return a.followUpAt && Date.parse(a.followUpAt) <= Date.now() + 86400000;
+}
 
 function openModal(html) {
   const m = document.getElementById('modal');
@@ -91,8 +124,10 @@ const views = {
     const apps = state.applications;
     const weekAgo = Date.now() - 7 * 86400000;
     const thisWeek = apps.filter((a) => new Date(a.createdAt).getTime() > weekAgo).length;
-    const resumes = apps.filter((a) => a.hasResume).length;
-    const avg = apps.length ? Math.round(apps.reduce((s, a) => s + a.score, 0) / apps.length) : 0;
+    const appliedWeek = apps.filter((a) => a.appliedAt && Date.parse(a.appliedAt) > weekAgo).length;
+    const appliedAll = apps.filter((a) => a.appliedAt).length;
+    const responses = apps.filter((a) => a.appliedAt && ['interviewing', 'offer'].includes(a.status)).length;
+    const due = apps.filter(followUpDue);
     const steps = [
       [state.documents.length > 0, 'Add your resume & documents to your library', 'library'],
       [!!state.profile.name && !!state.profile.email, 'Fill in your name and contact info', 'profile'],
@@ -110,9 +145,10 @@ const views = {
       </div>
       <div class="grid three" style="margin-bottom:16px">
         <div class="card stat"><div class="emoji" style="background:var(--sage-soft)">🌱</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
-        <div class="card stat"><div class="emoji" style="background:var(--lavender-soft)">📄</div><div><b>${resumes}</b><span>tailored resumes made</span></div></div>
-        <div class="card stat"><div class="emoji" style="background:var(--peach-soft)">💛</div><div><b>${apps.length ? avg : '–'}</b><span>average fit score</span></div></div>
+        <div class="card stat"><div class="emoji" style="background:var(--lavender-soft)">📮</div><div><b>${appliedWeek}</b><span>applied this week · ${appliedAll} total</span></div></div>
+        <div class="card stat"><div class="emoji" style="background:var(--peach-soft)">💬</div><div><b>${appliedAll ? Math.round((responses / appliedAll) * 100) + '%' : '–'}</b><span>got an interview or offer</span></div></div>
       </div>
+      ${due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0"><h3>⏰ Follow-ups due</h3><div class="list">${due.map(appRow).join('')}</div></div>` : ''}
       <div class="grid two">
         <div class="card"><h2>${allDone ? 'All set up! 🎉' : 'Getting started'}</h2>
           <ul class="checklist">${steps
@@ -124,7 +160,7 @@ const views = {
         </div>
       </div>
       <div class="card" style="margin-top:16px"><h3>How I spot jobs for you</h3>
-        <p class="muted" style="margin:0">📋 <b>Copy</b> a job description anywhere and I'll pop up with a quick score.
+        <p class="muted" style="margin:0">📋 <b>Copy</b> a job description anywhere and I'll pop up with a free score — no Claude usage.
         &nbsp; ⌨️ Press <b>${esc(prettyHotkey())}</b> and I'll read the posting on your screen.
         &nbsp; 👀 Or turn on <b>screen watching</b> in Settings and I'll notice postings as you browse.</p></div>
     </div>`;
@@ -138,6 +174,7 @@ const views = {
           <div class="form-grid">
             <div><label>Job title <span class="faint">(optional)</span></label><input id="jTitle" placeholder="e.g. Product Designer"></div>
             <div><label>Company <span class="faint">(optional)</span></label><input id="jCompany" placeholder="e.g. Acme Co."></div>
+            <div class="full"><label>Job link <span class="faint">(optional)</span></label><input id="jUrl" placeholder="https://…"></div>
             <div class="full"><label>Job description</label><textarea id="jText" style="min-height:340px" placeholder="Paste the whole posting here — responsibilities, requirements, the works."></textarea></div>
           </div>
           <div class="inline" style="margin-top:14px"><button class="primary" id="analyzeBtn">✨ Check my fit</button>
@@ -145,18 +182,25 @@ const views = {
         </div>
         <div class="card">${mascotSvg('curious', 72)}
           <h3>What you'll get</h3>
-          <ul class="tidy muted"><li>An instant keyword fit estimate</li><li>${state.hasApiKey ? "Claude's deeper read: strengths, gaps & talking points" : '<a href="#settings">Add an API key</a> for Claude\'s deeper read'}</li><li>A one-click tailored resume & cover letter</li></ul>
+          <ul class="tidy muted"><li>An instant, free fit score (runs on your computer)</li><li>${state.hasApiKey ? "Optional: Claude's deeper read — strengths, gaps & a qualifications checklist" : '<a href="#settings">Add an API key</a> for Claude\'s optional deeper read'}</li><li>A one-click tailored resume & cover letter</li></ul>
           ${state.documents.length ? '' : '<p class="note-box">Tip: <a href="#library">add your documents</a> first so I have something to compare against!</p>'}
         </div>
       </div></div>`;
   },
 
   applications() {
-    const apps = state.applications;
+    const all = state.applications;
+    const q = appSearch.toLowerCase();
+    let apps = all.filter(FILTERS.find(([k]) => k === appFilter)[2]).filter((a) => !q || `${a.job.title} ${a.job.company}`.toLowerCase().includes(q));
+    if (appSort === 'fit') apps = [...apps].sort((x, y) => y.score - x.score);
+    if (appSort === 'applied') apps = [...apps].sort((x, y) => (y.appliedAt || '').localeCompare(x.appliedAt || ''));
     return `<div class="page">
-      <div class="page-head"><div><h1>Applications</h1><p class="muted">Every role you've checked, with its fit score and status.</p></div>
-      <button class="primary" data-go="check">+ Check a job</button></div>
-      ${apps.length ? `<div class="list">${apps.map(appRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>Your checked roles will show up here.</p></div>`}
+      <div class="page-head"><div><h1>Applications</h1><p class="muted">Everything you've checked and applied for, in one place.</p></div>
+      <div class="inline"><button class="soft" id="csvBtn">⬇ Export CSV</button><button class="primary" data-go="check">+ Check a job</button></div></div>
+      <div class="tabs">${FILTERS.map(([k, label, fn]) => `<button class="${appFilter === k ? 'on' : ''}" data-filter="${k}">${label} <span class="faint">${all.filter(fn).length}</span></button>`).join('')}</div>
+      <div class="inline" style="margin-bottom:12px"><input id="appSearch" placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
+        <select id="appSort" style="width:190px"><option value="recent">Newest first</option><option value="fit" ${appSort === 'fit' ? 'selected' : ''}>Best fit first</option><option value="applied" ${appSort === 'applied' ? 'selected' : ''}>Recently applied</option></select></div>
+      ${apps.length ? `<div class="list">${apps.map(appRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>${all.length ? 'No roles match this filter.' : 'Your checked roles will show up here.'}</p></div>`}
     </div>`;
   },
 
@@ -191,6 +235,12 @@ const views = {
         ${f('phone', 'Phone', '(555) 123-4567')}${f('location', 'Location', 'Portland, OR · Open to remote')}
         ${f('links', 'Links', 'linkedin.com/in/jordan · jordan.dev', true)}
         ${f('targetRoles', 'Roles you are aiming for', 'Frontend engineer, design engineer', true)}
+      </div>
+      <h3 style="margin-top:22px">Dealbreakers <span class="faint">(for the free fit score)</span></h3>
+      <p class="faint" style="margin-top:0">Roles that hit one of these are capped at 30 and labelled "Dealbreaker", so they don't pop up as good matches.</p>
+      <div class="form-grid">
+        ${f('workModes', 'Work arrangements you want', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
+        ${f('avoidKeywords', 'Skip postings that mention', 'security clearance, 100% travel, commission only', true)}
       </div><div style="margin-top:16px"><button class="primary" id="saveProfile">Save profile</button></div></div>
     </div>`;
   },
@@ -208,6 +258,28 @@ const views = {
           <label style="margin-top:14px">Model</label>
           <input id="model" value="${esc(s.model)}">
           <p class="faint">Default: claude-opus-5-5.</p>
+        </div>
+        <div class="card"><h2>When to use Claude</h2>
+          <p class="muted">Every posting gets a <b>free fit score</b> computed on your computer. Claude only costs anything when it reads more closely, reads your screen, or writes for you.</p>
+          <label>Claude's deeper fit read</label>
+          <select id="claudeFitMode">
+            <option value="manual" ${s.claudeFitMode === 'manual' ? 'selected' : ''}>Only when I ask (recommended)</option>
+            <option value="threshold" ${s.claudeFitMode === 'threshold' ? 'selected' : ''}>Automatically for promising roles</option>
+            <option value="always" ${s.claudeFitMode === 'always' ? 'selected' : ''}>Automatically for every posting</option>
+          </select>
+          <div class="form-grid" style="margin-top:10px">
+            <div><label>"Promising" means free score ≥</label><input id="claudeFitThreshold" type="number" min="0" max="100" value="${s.claudeFitThreshold}"></div>
+            <div><label>Monthly budget for automatic use ($)</label><input id="autoBudgetUsd" type="number" min="0" step="1" value="${s.autoBudgetUsd}"></div>
+          </div>
+          <p class="faint">When the budget is reached, screen watching and automatic reads pause until next month. Buttons you press still work. 0 = no limit.</p>
+          <div class="usage">${usageSummary()}</div>
+          <button class="primary" id="saveClaudeUse" style="margin-top:10px">Save</button>
+        </div>
+        <div class="card"><h2>Tracking</h2>
+          <label>Remind me to follow up after (days)</label>
+          <input id="followUpDays" type="number" min="1" max="60" value="${s.followUpDays}" style="max-width:160px">
+          <p class="faint">Set when you mark a role as applied. You'll get a desktop notification when it's due.</p>
+          <button class="primary" id="saveTracking">Save</button>
         </div>
         <div class="card"><h2>Job detection</h2>
           <div class="toggle-row"><input type="checkbox" id="clipboardWatch" ${s.clipboardWatch ? 'checked' : ''}><div class="what"><b>Watch my clipboard</b><span>Copy a job description anywhere and I'll pop up with a score. Free — nothing is sent anywhere until you ask.</span></div></div>
@@ -227,12 +299,26 @@ const views = {
   },
 };
 
+function usageSummary() {
+  const u = state.usage || { calls: 0, cost: 0, byKind: {} };
+  const k = u.byKind || {};
+  const month = new Date().toLocaleDateString(undefined, { month: 'long' });
+  const budget = Number(state.settings.autoBudgetUsd) || 0;
+  const pct = budget ? Math.min(100, Math.round((u.cost / budget) * 100)) : 0;
+  return `<div class="section-title">${month} so far</div>
+    <p style="margin:0 0 6px"><b>${u.calls}</b> Claude calls · about <b>$${u.cost.toFixed(2)}</b>${budget ? ` of $${budget} automatic budget` : ''}</p>
+    ${budget ? `<div class="track" style="height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:${pct >= 100 ? 'var(--peach)' : 'var(--sage)'}"></i></div>` : ''}
+    <p class="faint" style="margin-top:6px">fit reads ${k.fit || 0} · screen reads ${k.screen || 0} · resumes ${k.resume || 0} · cover letters ${k.letter || 0}. Costs are estimates from token counts.</p>`;
+}
+
 function appRow(a) {
-  return `<div class="row-item" data-app="${a.id}"><div class="pill ${pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Quick estimate'}">${a.score}</div>
-    <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc([a.job.company, a.label, timeAgo(a.createdAt)].filter(Boolean).join(' · '))}</div></div>
-    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : a.atsBefore !== null && a.atsBefore !== undefined ? `<span class="chip" title="ATS match for your current resume">ATS ${a.atsBefore}%</span>` : ''}
-    ${a.hasResume ? '<span class="chip good">📄 resume</span>' : ''}${a.hasLetter ? '<span class="chip lav">💌 letter</span>' : ''}
-    <span class="status ${a.status}">${esc(a.status.replace('-', ' '))}</span></div>`;
+  const meta = [a.job.company, a.appliedAt ? `applied ${fmtDate(a.appliedAt)}` : `found ${timeAgo(a.createdAt)}`].filter(Boolean).join(' · ');
+  return `<div class="row-item" data-app="${a.id}"><div class="pill ${a.dealbreaker ? 'lo' : pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
+    <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
+    ${followUpDue(a) ? '<span class="chip due">⏰ follow up</span>' : ''}
+    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
+    ${a.hasResume ? '<span class="chip good">📄</span>' : ''}${a.hasLetter ? '<span class="chip lav">💌</span>' : ''}
+    <span class="status ${a.status}">${esc(STATUS_LABEL[a.status] || a.status)}</span></div>`;
 }
 
 function prettyHotkey() {
@@ -307,7 +393,8 @@ async function renderApplication(id) {
   const label = an ? an.label : a.quick.label;
   const busyResume = a.resumeStatus === 'working';
   const busyLetter = a.letterStatus === 'working';
-  const analyzing = !an && !a.analysisError && state.hasApiKey && state.documents.length > 0 && Date.now() - new Date(a.createdAt).getTime() < 180000;
+  const analyzing = a.analysisStatus === 'working';
+  const q = a.quick;
 
   const insight = an
     ? `<p style="font-weight:700">${esc(an.headline)}</p>
@@ -319,20 +406,30 @@ async function renderApplication(id) {
         .join('')}</ul>` : ''}
       <div class="section-title">Talking points</div><ul class="tidy">${an.talking_points.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>`
-    : `<p class="muted">${
+    : `<h3 style="margin-top:4px">Free fit score <span class="chip" title="How much of the posting the free scorer recognised">confidence: ${esc(q.confidence || 'medium')}</span></h3>
+      ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Dealbreaker:</b> ${q.dealbreakers.map(esc).join('; ')}</div>` : ''}
+      ${q.reasons && q.reasons.length ? `<ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${q.concerns && q.concerns.length ? `<ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${q.components ? `<div class="mini-bars">${[['required', 'Required quals'], ['preferred', 'Preferred'], ['role', 'Role match'], ['experience', 'Experience'], ['seniority', 'Seniority'], ['vocabulary', 'Vocabulary']]
+        .filter(([k]) => q.components[k] !== null && q.components[k] !== undefined)
+        .map(([k, l]) => `<div class="ats-bar"><span>${l}</span><div class="track"><i style="width:${q.components[k]}%;background:${barColor(q.components[k])}"></i></div><b>${q.components[k]}</b></div>`)
+        .join('')}</div>` : ''}
+      <div style="margin-top:12px">${
         analyzing
-          ? '<span class="spinner"></span> Claude is reading the posting closely…'
-          : a.analysisError
-            ? `Claude couldn't analyze this one: ${esc(a.analysisError)}`
+          ? '<p class="muted"><span class="spinner"></span> Claude is reading the posting closely…</p>'
+          : state.hasApiKey && state.documents.length
+            ? `${a.analysisError ? `<p style="color:var(--rose)">${esc(a.analysisError)}</p>` : ''}<button class="soft" id="askClaude">🔎 Ask Claude for a deeper read</button><p class="faint" style="margin-top:6px">One Claude call: strengths, gaps, talking points and a qualifications checklist.</p>`
             : state.hasApiKey
-              ? 'Add documents to your library for a deeper analysis.'
-              : 'This is a quick keyword estimate. <a href="#settings">Add a Claude API key</a> for strengths, gaps and talking points.'
-      }</p>`;
+              ? '<p class="faint">Add documents to your library for a deeper analysis.</p>'
+              : '<p class="faint"><a href="#settings">Add a Claude API key</a> for an optional deeper read.</p>'
+      }</div>`;
 
   const skills = `<div class="section-title">Skills from the posting</div><div>
-    ${a.quick.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
-    ${a.quick.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)}</span>`).join('')}
-    ${a.quick.matchedSkills.length + a.quick.missingSkills.length ? '' : '<span class="faint">No common skill keywords detected.</span>'}</div>`;
+    ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
+    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)}</span>`).join('')}
+    ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Preferred">✓ ${esc(s)} <em>(pref)</em></span>`).join('')}
+    ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
+    ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
 
   const tabBody = () => {
     if (appTab === 'posting') return `<div class="posting-text">${esc(a.job.text)}</div>`;
@@ -360,12 +457,13 @@ async function renderApplication(id) {
       <div class="grow"><div class="faint">${esc(a.via === 'screen' ? '📸 spotted on screen' : a.via === 'clipboard' ? '📋 from your clipboard' : '✍️ pasted in')} · ${timeAgo(a.createdAt)}</div>
         <h1 style="margin:2px 0">${esc(a.job.title)}</h1>
         <div class="muted" style="font-weight:700">${esc([a.job.company, a.job.location].filter(Boolean).join(' · '))}</div>
-        <div style="margin-top:8px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Quick estimate'}</span></div>
+        <div style="margin-top:8px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}</div>
         <p class="muted" style="margin:6px 0 0">${esc(encouragement(score, a.id.charCodeAt(1)))}</p>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
-        <select id="statusSel">${STATUSES.map((s) => `<option ${s === a.status ? 'selected' : ''} value="${s}">${s.replace('-', ' ')}</option>`).join('')}</select>
-        <button class="ghost danger small" id="delApp">Delete</button>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:170px">
+        ${a.appliedAt ? `<span class="chip good" style="justify-content:center">✅ Applied ${fmtDate(a.appliedAt)}</span>` : '<button class="primary" id="markApplied">✅ Mark as applied</button>'}
+        <select id="statusSel">${STATUSES.map((s) => `<option ${s === a.status ? 'selected' : ''} value="${s}">${STATUS_LABEL[s]}</option>`).join('')}</select>
+        <div class="inline" style="justify-content:center"><button class="ghost small" id="editJob">✏️ Edit</button><button class="ghost danger small" id="delApp">Delete</button></div>
       </div></div></div>
     <div id="atsSlot">${a.ats ? atsPanel(a.ats) : ''}</div>
     <div class="grid sidebar">
@@ -377,9 +475,11 @@ async function renderApplication(id) {
         </div>
         <div id="tabBody">${tabBody()}</div>
       </div>
+      <div class="grid" style="gap:16px">
+      ${trackingCard(a)}
       <div class="card">${mascotSvg(analyzing ? 'thinking' : moodForScore(score), 56)}${insight}${skills}
-        ${a.quick.requiredYears ? `<div class="section-title">Experience</div><p class="muted" style="margin:0">Posting asks for ~${a.quick.requiredYears}+ years${a.quick.estimatedYears !== null ? `; your documents span about ${a.quick.estimatedYears}.` : '.'}</p>` : ''}
-      </div>
+        ${q.requiredYears ? `<div class="section-title">Experience</div><p class="muted" style="margin:0">Posting asks for ~${q.requiredYears}+ years${q.estimatedYears !== null ? `; your documents span about ${q.estimatedYears}.` : '.'}</p>` : ''}
+      </div></div>
     </div>`;
   animateRings(page);
 
@@ -412,7 +512,32 @@ async function renderApplication(id) {
       renderApplication(id);
     })
   );
-  $('#statusSel', page).addEventListener('change', (e) => S.updateApplication(id, { status: e.target.value }).then(() => toast('Status updated', 'good')));
+  $('#statusSel', page).addEventListener('change', (e) => {
+    if (e.target.value === 'applied' && !a.appliedAt) return openApplyModal(a);
+    S.updateApplication(id, { status: e.target.value }).then(() => toast(e.target.value === 'offer' ? 'An offer!! So proud of you 🎉' : 'Status updated', 'good'));
+  });
+  const ma = $('#markApplied', page);
+  if (ma) ma.addEventListener('click', () => openApplyModal(a));
+  $('#editJob', page).addEventListener('click', () => openEditJobModal(a));
+  const ask = $('#askClaude', page);
+  if (ask) ask.addEventListener('click', () => run(ask, () => S.analyzeApplication(id), 'Asking Claude…'));
+  const fu = $('#followUp', page);
+  if (fu) fu.addEventListener('change', () => S.updateApplication(id, { followUpAt: fu.value ? new Date(fu.value + 'T09:00').toISOString() : null }).then(() => toast('Follow-up saved', 'good')));
+  const notes = $('#appNotes', page);
+  if (notes) notes.addEventListener('change', () => S.updateApplication(id, { notes: notes.value }).then(() => toast('Notes saved', 'good')));
+  const via = $('#appliedVia', page);
+  if (via) via.addEventListener('change', () => S.updateApplication(id, { appliedVia: via.value }));
+  const sent = $('#viewSent', page);
+  if (sent)
+    sent.addEventListener('click', () => {
+      const card = openModal(`<h2>What you sent</h2><p class="faint">Snapshot saved when you marked this as applied.</p>
+        <iframe class="preview-frame" id="sentFrame" style="height:70vh"></iframe>
+        <div class="inline" style="margin-top:12px"><button class="ghost" id="mClose">Close</button></div>`);
+      $('#sentFrame', card).srcdoc = a.sent.resumeHtml;
+      $('#mClose', card).addEventListener('click', closeModal);
+    });
+  const link = $('#jobLink', page);
+  if (link) link.addEventListener('click', (e) => (e.preventDefault(), S.openExternal(a.job.url)));
   $('#delApp', page).addEventListener('click', async () => {
     if (!confirm('Delete this application?')) return;
     await S.removeApplication(id);
@@ -436,9 +561,100 @@ async function renderApplication(id) {
       run(b, async () => {
         const edited = frame && frame.contentDocument ? '<!doctype html>' + frame.contentDocument.documentElement.outerHTML : null;
         const out = await S.exportDoc(id, appTab, b.dataset.fmt, b.dataset.fmt === 'md' ? null : edited);
-        if (out) toast('Saved! Go get \'em 💪', 'good');
+        if (out) {
+          toast('Saved! Go get \'em 💪', 'good');
+          if (!a.appliedAt && appTab === 'resume') offerMarkApplied(a);
+        }
       }, 'Saving…')
     )
+  );
+}
+
+// ---------------- tracking ----------------
+
+function trackingCard(a) {
+  const history = (a.statusHistory || []).slice().reverse();
+  const applied = !!a.appliedAt;
+  return `<div class="card"><h3>📮 Tracking</h3>
+    ${a.job.url ? `<p style="margin:0 0 8px"><a href="#" id="jobLink">🔗 Open job posting</a></p>` : ''}
+    ${
+      applied
+        ? `<div class="kv"><span>Applied</span><b>${fmtDate(a.appliedAt)}</b></div>
+      <div class="kv"><span>Where</span><input id="appliedVia" value="${esc(a.appliedVia || '')}" placeholder="e.g. company site"></div>
+      <div class="kv"><span>Resume sent</span><b>${esc(a.sent ? (a.sent.resume === 'tailored' ? 'Tailored resume' : a.sent.resume) : '—')}</b></div>
+      ${a.sent && a.sent.resumeHtml ? '<button class="small soft" id="viewSent" style="margin:4px 0 8px">👀 View what you sent</button>' : ''}
+      ${a.status === 'applied' ? `<div class="kv"><span>Follow up on</span><input type="date" id="followUp" value="${dateInput(a.followUpAt)}"></div>` : ''}`
+        : `<p class="muted" style="margin:0 0 8px">Not applied yet. When you do, hit <b>Mark as applied</b> — I'll save exactly what you sent and remind you to follow up.</p>`
+    }
+    <label style="margin-top:10px">Notes</label>
+    <textarea id="appNotes" style="min-height:70px" placeholder="Recruiter name, referral, interview prep…">${esc(a.notes || '')}</textarea>
+    ${history.length > 1 ? `<div class="section-title">Timeline</div><ul class="timeline">${history.map((h) => `<li><b>${esc(STATUS_LABEL[h.status] || h.status)}</b><span>${fmtDate(h.at)}</span></li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+
+function openApplyModal(a) {
+  const days = Number(state.settings.followUpDays) || 7;
+  const follow = new Date(Date.now() + days * 86400000);
+  const card = openModal(`<h2>🎉 You applied!</h2><p class="muted">Nice work. Let's record it so you can keep track.</p>
+    <div class="form-grid">
+      <div><label>Date applied</label><input type="date" id="mDate" value="${dateInput(new Date().toISOString())}"></div>
+      <div><label>Where</label><input id="mVia" list="viaList" placeholder="Company site, LinkedIn…"><datalist id="viaList"><option>Company website</option><option>LinkedIn</option><option>Indeed</option><option>Referral</option><option>Recruiter</option><option>Email</option></datalist></div>
+      <div class="full"><label>Job link</label><input id="mUrl" value="${esc(a.job.url || '')}" placeholder="https://…"></div>
+      <div><label>Resume you sent</label><select id="mResume">
+        ${a.resumeHtml ? '<option value="tailored">Tailored resume from Sprout</option>' : ''}
+        <option value="library">My usual resume</option><option value="other">Something else</option></select></div>
+      <div><label>Follow up on</label><input type="date" id="mFollow" value="${dateInput(follow.toISOString())}"></div>
+      ${a.letterHtml ? '<div class="full"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="mLetter" checked> Included the cover letter</label></div>' : ''}
+      <div class="full"><label>Notes</label><textarea id="mNotes" style="min-height:70px" placeholder="Referral, recruiter name…">${esc(a.notes || '')}</textarea></div>
+    </div>
+    <div class="inline" style="margin-top:14px"><button class="primary" id="mSave">Save</button><button class="ghost" id="mCancel">Cancel</button></div>`);
+  $('#mCancel', card).addEventListener('click', () => (closeModal(), renderApplication(a.id)));
+  $('#mSave', card).addEventListener('click', () =>
+    run($('#mSave', card), async () => {
+      const letter = $('#mLetter', card);
+      await S.markApplied(a.id, {
+        appliedAt: new Date($('#mDate', card).value + 'T12:00').toISOString(),
+        appliedVia: $('#mVia', card).value.trim(),
+        url: $('#mUrl', card).value.trim(),
+        resumeChoice: $('#mResume', card).value,
+        includeLetter: letter ? letter.checked : false,
+        followUpAt: $('#mFollow', card).value ? new Date($('#mFollow', card).value + 'T09:00').toISOString() : '',
+        notes: $('#mNotes', card).value,
+      });
+      closeModal();
+      toast("Applied! Fingers crossed 🤞 I'll remind you to follow up.", 'good', 5000);
+    }, 'Saving…')
+  );
+}
+
+function offerMarkApplied(a) {
+  const card = openModal(`<div class="center" style="text-align:center">${mascotSvg('happy', 72)}<h2>Applying now?</h2>
+    <p class="muted">Mark it as applied and I'll keep a copy of this resume with the application.</p>
+    <div class="inline" style="justify-content:center"><button class="primary" id="mYes">✅ Mark as applied</button><button class="ghost" id="mNo">Not yet</button></div></div>`);
+  $('#mNo', card).addEventListener('click', closeModal);
+  $('#mYes', card).addEventListener('click', async () => {
+    const fresh = await S.getApplication(a.id);
+    openApplyModal(fresh);
+  });
+}
+
+function openEditJobModal(a) {
+  const card = openModal(`<h2>Edit role details</h2>
+    <div class="form-grid">
+      <div><label>Job title</label><input id="mTitle" value="${esc(a.job.title)}"></div>
+      <div><label>Company</label><input id="mCompany" value="${esc(a.job.company)}"></div>
+      <div><label>Location</label><input id="mLoc" value="${esc(a.job.location)}"></div>
+      <div><label>Job link</label><input id="mUrl" value="${esc(a.job.url || '')}"></div>
+    </div>
+    <div class="inline" style="margin-top:14px"><button class="primary" id="mSave">Save</button><button class="ghost" id="mCancel">Cancel</button></div>`);
+  $('#mCancel', card).addEventListener('click', closeModal);
+  $('#mSave', card).addEventListener('click', () =>
+    run(null, async () => {
+      await S.updateApplication(a.id, { job: { title: $('#mTitle', card).value.trim(), company: $('#mCompany', card).value.trim(), location: $('#mLoc', card).value.trim(), url: $('#mUrl', card).value.trim() } });
+      await S.rescoreLocal(a.id); // the title feeds role and seniority matching
+      closeModal();
+      toast('Saved', 'good');
+    })
   );
 }
 
@@ -452,13 +668,25 @@ const binders = {
   check() {
     $('#analyzeBtn').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
-        const app = await S.analyzeJob({ title: $('#jTitle').value.trim(), company: $('#jCompany').value.trim(), text: $('#jText').value });
+        const app = await S.analyzeJob({ title: $('#jTitle').value.trim(), company: $('#jCompany').value.trim(), url: $('#jUrl').value.trim(), text: $('#jText').value });
         location.hash = `#application/${app.id}`;
       }, 'Checking…')
     );
     $('#scanBtn').addEventListener('click', () => S.scanScreen());
   },
-  applications() {},
+  applications() {
+    $$('[data-filter]').forEach((b) => b.addEventListener('click', () => ((appFilter = b.dataset.filter), route())));
+    const search = $('#appSearch');
+    search.addEventListener('input', () => {
+      appSearch = search.value;
+      route();
+      const el = $('#appSearch');
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+    $('#appSort').addEventListener('change', (e) => ((appSort = e.target.value), route()));
+    $('#csvBtn').addEventListener('click', (e) => run(e.currentTarget, async () => (await S.exportCsv()) && toast('Exported 📄', 'good'), 'Exporting…'));
+  },
   library() {
     const drop = $('#drop');
     ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => (e.preventDefault(), drop.classList.add('over'))));
@@ -526,6 +754,19 @@ const binders = {
     const clear = $('#clearKey');
     if (clear) clear.addEventListener('click', () => S.setApiKey('').then(() => toast('API key removed')));
     $('#model').addEventListener('change', (e) => S.updateSettings({ model: e.target.value.trim() || 'claude-opus-5-5' }).then(() => toast('Model saved', 'good')));
+    $('#saveClaudeUse').addEventListener('click', (e) =>
+      run(e.currentTarget, async () => {
+        await S.updateSettings({
+          claudeFitMode: $('#claudeFitMode').value,
+          claudeFitThreshold: Math.max(0, Math.min(100, parseInt($('#claudeFitThreshold').value, 10) || 65)),
+          autoBudgetUsd: Math.max(0, parseFloat($('#autoBudgetUsd').value) || 0),
+        });
+        toast('Saved', 'good');
+      }, 'Saving…')
+    );
+    $('#saveTracking').addEventListener('click', (e) =>
+      run(e.currentTarget, async () => (await S.updateSettings({ followUpDays: Math.max(1, parseInt($('#followUpDays').value, 10) || 7) }), toast('Saved', 'good')), 'Saving…')
+    );
     $('#saveSettings').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         await S.updateSettings({

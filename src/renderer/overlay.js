@@ -26,10 +26,14 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     footer = `<div class="note">Add your resume and a few documents to your library so I can score you properly!</div>
       <div class="actions"><button class="primary" data-act="open">Open my library</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
   } else if (noKey) {
-    footer = `<div class="note">This is a quick keyword estimate. Add a Claude API key in Settings for a deeper read and one-click resumes.</div>
+    footer = `<div class="note">This is the free score. Add a Claude API key in Settings for an optional deeper read and one-click resumes.</div>
       <div class="actions"><button class="primary" data-act="open">See details</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
+  } else if (app.quick.dealbreakers && app.quick.dealbreakers.length && !a) {
+    footer = `<div class="note">Heads up — ${esc(app.quick.dealbreakers.join('; '))}.</div>
+      <div class="actions"><button class="ghost" data-act="open">Details</button><button class="soft" data-act="resume">Tailor a resume anyway</button><button class="ghost" data-act="dismiss">Skip it</button></div>`;
   } else {
-    footer = `<div class="ask">Want me to tailor a resume for this role?</div>
+    footer = `${!a && !analyzing ? '<button class="ghost small ask-claude" data-act="analyze">🔎 Ask Claude for a deeper read</button>' : ''}
+      <div class="ask">Want me to tailor a resume for this role?</div>
       <div class="actions">
         <button class="primary" data-act="resume">✨ Yes, make my resume!</button>
         <button class="soft" data-act="both">Resume + cover letter</button>
@@ -42,7 +46,7 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     <div class="company">${esc([app.job.company, app.job.location].filter(Boolean).join(' · ') || 'Job posting detected')}</div>
     <div class="scoreline">${scoreRing(score, 84)}
       <div><div class="label">${esc(label)}</div>
-      <div class="src">${analyzing ? '<span class="spinner"></span> Claude is reading closely…' : a ? 'Scored by Claude' : 'Quick keyword estimate'}</div></div>
+      <div class="src">${analyzing ? '<span class="spinner"></span> Claude is reading closely…' : a ? 'Scored by Claude' : `Free score · ${esc(app.quick.confidence || 'medium')} confidence`}</div></div>
     </div>
     ${atsLine(app)}
     ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : ''}
@@ -75,6 +79,23 @@ function doneView({ app }) {
     <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="dismiss-quiet">Later</button></div></div>`;
 }
 
+// A posting we've already got a record of.
+function seenView({ app }) {
+  const applied = app.appliedAt;
+  const when = new Date(applied || app.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const statusLine = {
+    applied: `You applied on ${when}.`,
+    interviewing: "You're interviewing for this one! 💪",
+    offer: 'You have an offer for this one! 🎉',
+    rejected: `You applied on ${when}; it didn't work out this time.`,
+    skipped: `You skipped this one on ${when}.`,
+  }[app.status] || `You checked this on ${when} but haven't applied yet.`;
+  return `<div class="center">${mascotSvg(applied ? 'happy' : 'curious', 76)}
+    <h3>You've seen this one before</h3>
+    <p class="muted"><b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company)}` : ''}<br>${esc(statusLine)}</p>
+    <div class="actions" style="justify-content:center"><button class="primary" data-act="open">Open it</button><button class="ghost" data-act="dismiss-quiet">OK</button></div></div>`;
+}
+
 function messageView({ mood, title, text }) {
   return `<div class="center">${mascotSvg(mood || 'curious', 80)}<h3>${esc(title)}</h3><p class="muted">${esc(text)}</p>
     <div class="actions" style="justify-content:center"><button class="ghost" data-act="dismiss-quiet">OK</button></div></div>`;
@@ -101,6 +122,7 @@ function render(payload) {
   if (payload.mode === 'score') content.innerHTML = scoreView(payload);
   else if (payload.mode === 'working') content.innerHTML = workingView(payload);
   else if (payload.mode === 'done') content.innerHTML = doneView(payload);
+  else if (payload.mode === 'seen') content.innerHTML = seenView(payload);
   else content.innerHTML = messageView(payload);
   animateRings(content);
   if (payload.mode === 'done' || (payload.mode === 'score' && !payload.analyzing && payload.app.analysis && payload.app.analysis.score >= 80)) confetti();

@@ -1,5 +1,6 @@
-// Offline, instant fit estimate. No API calls, so it can run on every
-// clipboard copy and give the user a number before Claude weighs in.
+// Shared text helpers for the offline scorers (localFit.js, atsScore.js):
+// the skills dictionary, posting-line classification, years parsing, and
+// job-posting detection for the clipboard watcher.
 
 // canonical skill -> patterns that count as a mention
 const SKILLS = {
@@ -75,7 +76,7 @@ const SKILLS = {
   Security: [/\bsecurity\b/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
   Testing: [/\bunit tests?\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
   // human skills
-  Leadership: [/\bleadership\b/, /\bmentor(?:ing|ship)?\b/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
+  Leadership: [/\bleadership\b/, /\bmentor(?:ed|ing|ship|s)?\b/, /\bled (?:a |the )?(?:team|group|squad)/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
   Communication: [/\bcommunication skills\b/, /\bwritten and verbal\b/, /\bpresentations?\b/, /\bpublic speaking\b/],
   Collaboration: [/\bcross[-\s]functional\b/, /\bcollaborat(?:e|ion|ive)\b/, /\bteamwork\b/],
   'Problem Solving': [/\bproblem[-\s]solving\b/, /\banalytical skills\b/, /\bcritical thinking\b/],
@@ -115,17 +116,29 @@ function findSkills(text) {
 // exact wording the posting used, for strict (literal) keyword matching.
 const KIND_RANK = { preferred: 0, neutral: 1, required: 2 };
 
-function classifyJobSkills(jobText) {
-  const out = new Map(); // skill -> { kind, term }
+// Tag every non-empty posting line as required / preferred / neutral, using
+// both the line's own wording and the section heading it sits under.
+function classifyLines(jobText) {
+  const out = [];
   let section = 'neutral';
-  for (const rawLine of lower(jobText).split('\n')) {
-    const line = rawLine.trim();
+  for (const rawLine of String(jobText || '').split('\n')) {
+    const original = rawLine.trim();
+    const line = original.toLowerCase();
     if (!line) continue;
-    const isHeading = line.length < 60 && !/[.;]$/.test(line);
+    const isBullet = /^([-•*▪●◦]|\d+[.)])\s*/.test(line);
+    const isHeading = !isBullet && line.length < 60 && !/[.;]$/.test(line);
     let lineKind = section;
     if (PREFERRED_CUE.test(line)) lineKind = 'preferred';
     else if (REQUIRED_CUE.test(line)) lineKind = 'required';
     if (isHeading && lineKind !== section) section = lineKind;
+    out.push({ line, original, kind: lineKind, isHeading });
+  }
+  return out;
+}
+
+function classifyJobSkills(jobText) {
+  const out = new Map(); // skill -> { kind, term }
+  for (const { line, kind: lineKind } of classifyLines(jobText)) {
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       for (const p of patterns) {
         const m = line.match(p);
@@ -190,63 +203,6 @@ function fitLabel(score) {
   return 'Stretch role';
 }
 
-/**
- * @param {string} jobText  the posting
- * @param {string[]} docTexts  the user's library
- */
-function quickFitScore(jobText, docTexts) {
-  const corpus = docTexts.join('\n\n');
-  const corpusSkills = findSkills(corpus);
-  const jobSkills = weightedJobSkills(jobText);
-
-  const matched = [];
-  const missing = [];
-  let have = 0;
-  let total = 0;
-  for (const [skill, w] of jobSkills) {
-    total += w;
-    if (corpusSkills.has(skill)) {
-      have += w;
-      matched.push(skill);
-    } else {
-      missing.push(skill);
-    }
-  }
-  const skillCoverage = total ? have / total : null;
-
-  // Vocabulary overlap catches domain words the skills list doesn't know about.
-  const jobTerms = [...significantTerms(jobText).entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
-  const corpusLower = lower(corpus);
-  const termHits = jobTerms.filter(([t]) => corpusLower.includes(t)).length;
-  const termOverlap = jobTerms.length ? termHits / jobTerms.length : 0;
-
-  const needYears = requiredYears(jobText);
-  const haveYears = yearsOfExperience(corpus);
-  let yearsFit = null;
-  if (needYears !== null && haveYears !== null) yearsFit = Math.min(1, haveYears / Math.max(needYears, 1));
-
-  // Blend whatever signals we actually have.
-  const parts = [
-    [skillCoverage, 0.65],
-    [termOverlap, 0.25],
-    [yearsFit, 0.1],
-  ].filter(([v]) => v !== null);
-  const weightSum = parts.reduce((s, [, w]) => s + w, 0);
-  const raw = parts.reduce((s, [v, w]) => s + v * w, 0) / weightSum;
-  // Keyword overlap undersells real fit; stretch the curve so a solid match lands in the 70s-80s.
-  const score = docTexts.length ? Math.round(Math.min(100, Math.max(0, Math.pow(raw, 0.8) * 100))) : 0;
-
-  return {
-    score,
-    label: fitLabel(score),
-    matchedSkills: matched,
-    missingSkills: missing,
-    requiredYears: needYears,
-    estimatedYears: haveYears,
-    source: 'quick',
-  };
-}
-
 const POSTING_SIGNALS = [
   /\bresponsibilities\b/,
   /\bqualifications\b/,
@@ -277,8 +233,8 @@ module.exports = {
   SKILLS,
   STOPWORDS,
   classifyJobSkills,
+  classifyLines,
   significantTerms,
-  quickFitScore,
   looksLikeJobPosting,
   findSkills,
   weightedJobSkills,

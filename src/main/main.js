@@ -12,14 +12,15 @@ const {
   screen,
   globalShortcut,
   nativeImage,
+  Notification,
   safeStorage,
   shell,
 } = require('electron');
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
-const { quickFitScore } = require('./fitScore');
+const { localFitScore } = require('./localFit');
 const claude = require('./claude');
-const { PostingWatcher } = require('./watcher');
+const { PostingWatcher, fingerprint } = require('./watcher');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
 
@@ -59,6 +60,21 @@ function claudeClient() {
   const key = getApiKey();
   if (!key) throw new Error('Add your Claude API key in Settings to unlock this ✨');
   return claude.createClient(key);
+}
+
+// Automatic (unrequested) Claude use stops once the month's estimated spend
+// reaches the budget in Settings. Things you click always work.
+function autoBudgetOk() {
+  const budget = Number(store.getSettings().autoBudgetUsd) || 0;
+  return !budget || store.getUsage().cost < budget;
+}
+
+let budgetWarned = false;
+function noteBudget() {
+  if (!autoBudgetOk() && !budgetWarned) {
+    budgetWarned = true;
+    broadcast('toast', { kind: 'info', text: "This month's automatic Claude budget is used up — screen watching and auto fit reads are paused. You can still ask Claude manually." });
+  }
 }
 
 // ---------------- windows ----------------
@@ -198,6 +214,7 @@ function setupWatcher() {
     extractFromScreenshot: (pngBase64) =>
       claude.extractJobFromScreenshot(claudeClient(), { pngBase64, model: store.getSettings().model }),
     isAppFocused: () => BrowserWindow.getFocusedWindow() !== null,
+    canAutoScan: () => autoBudgetOk(),
   });
   watcher.on('posting', (posting) => handlePosting(posting).catch((e) => console.error(e)));
   watcher.on('scanning', ({ force }) => {
@@ -258,36 +275,71 @@ function docsForPrompt() {
   return store.allDocuments().map(({ name, kind, text }) => ({ name, kind, text }));
 }
 
+function scoreLocally(job) {
+  return localFitScore(job, store.allDocuments(), store.getProfile());
+}
+
+// Should Claude take a closer look automatically? Default: only when asked.
+function wantsAutoAnalysis(local) {
+  const s = store.getSettings();
+  if (!getApiKey() || !store.allDocuments().length || !autoBudgetOk()) return false;
+  if (s.claudeFitMode === 'always') return true;
+  if (s.claudeFitMode === 'threshold') return !local.dealbreakers.length && local.score >= (Number(s.claudeFitThreshold) || 0);
+  return false;
+}
+
 async function handlePosting(posting, { fromDashboard = false } = {}) {
   const docs = store.allDocuments();
-  const quick = quickFitScore(posting.text, docs.map((d) => d.text));
-  const rec = store.addApplication({
-    job: { title: posting.title || guessTitle(posting.text), company: posting.company || '', location: posting.location || '', text: posting.text },
-    via: posting.via,
-    quick,
-    analysis: null,
-  });
+  const job = { title: posting.title || guessTitle(posting.text), company: posting.company || '', location: posting.location || '', text: posting.text, url: posting.url || '' };
+  const fp = fingerprint(posting.text);
+  const s = store.getSettings();
+
+  // Seen this one before? Don't create a second record — remind instead.
+  const dup = store.findDuplicate({ fingerprint: fp, company: job.company, title: job.title });
+  if (dup) {
+    const updated = store.updateApplication(dup.id, { lastSeenAt: new Date().toISOString(), seenCount: (dup.seenCount || 1) + 1, ...(job.url && !dup.job.url ? { job: { ...dup.job, url: job.url } } : {}) });
+    broadcast('app-updated', updated);
+    if (!fromDashboard) showOverlay({ mode: 'seen', app: withAts(updated) });
+    return updated;
+  }
+
+  const quick = scoreLocally(job);
+  const rec = store.addApplication({ job, via: posting.via, fingerprint: fp, quick, analysis: null });
   broadcast('state-changed');
 
   const hasKey = !!getApiKey();
-  const s = store.getSettings();
+  const auto = wantsAutoAnalysis(quick);
   const showPopup = !fromDashboard && quick.score >= s.popupThreshold;
-  if (showPopup) showOverlay({ mode: 'score', app: withAts(rec), analyzing: hasKey && docs.length > 0, noDocs: docs.length === 0, noKey: !hasKey });
+  if (showPopup) showOverlay({ mode: 'score', app: withAts(rec), analyzing: auto, noDocs: docs.length === 0, noKey: !hasKey });
 
-  if (hasKey && docs.length) {
-    try {
-      const analysis = await claude.analyzeFit(claudeClient(), { job: rec.job, documents: docsForPrompt(), profile: store.getProfile(), model: s.model });
-      const patch = { analysis };
-      if (analysis.job_title && !posting.title) patch.job = { ...rec.job, title: analysis.job_title, company: rec.job.company || analysis.company };
-      const updated = store.updateApplication(rec.id, patch);
-      broadcast('app-updated', updated);
-      if (showPopup && overlay && overlay.isVisible()) overlay.webContents.send('overlay:show', { mode: 'score', app: withAts(updated), analyzing: false });
-    } catch (err) {
-      broadcast('app-updated', store.updateApplication(rec.id, { analysisError: err.message }));
-      if (showPopup && overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:show', { mode: 'score', app: withAts(store.getApplication(rec.id)), analyzing: false });
-    }
-  }
+  if (auto) await analyzeApp(rec.id, { popup: showPopup, keepTitle: !!posting.title }).catch(() => {});
   return store.getApplication(rec.id);
+}
+
+// Claude's deeper fit read. Runs automatically only if Settings say so.
+async function analyzeApp(appId, { popup = false, keepTitle = true } = {}) {
+  const rec = store.getApplication(appId);
+  if (!rec) throw new Error('That application no longer exists.');
+  if (!store.allDocuments().length) throw new Error('Add your resume to the library first.');
+  store.updateApplication(appId, { analysisStatus: 'working', analysisError: null });
+  broadcast('app-updated', store.getApplication(appId));
+  const showInPopup = (app) => {
+    if (popup && overlay && !overlay.isDestroyed() && overlay.isVisible()) overlay.webContents.send('overlay:show', { mode: 'score', app: withAts(app), analyzing: false });
+  };
+  try {
+    const analysis = await claude.analyzeFit(claudeClient(), { job: rec.job, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
+    const patch = { analysis, analysisStatus: 'ready' };
+    if (analysis.job_title && !keepTitle) patch.job = { ...rec.job, title: analysis.job_title, company: rec.job.company || analysis.company };
+    const updated = store.updateApplication(appId, patch);
+    broadcast('app-updated', updated);
+    showInPopup(updated);
+    return updated;
+  } catch (err) {
+    const updated = store.updateApplication(appId, { analysisStatus: 'error', analysisError: err.message });
+    broadcast('app-updated', updated);
+    showInPopup(updated);
+    throw err;
+  }
 }
 
 // ATS view of the application: the resume the user has today vs the tailored one.
@@ -319,7 +371,8 @@ async function makeResume(appId) {
       ats: libraryAtsScore(rec.job, store.allDocuments()),
       model: store.getSettings().model,
     });
-    const updated = store.updateApplication(appId, { resume, resumeHtml: renderResumeHtml(resume), resumeStatus: 'ready', status: 'resume-ready' });
+    store.updateApplication(appId, { resume, resumeHtml: renderResumeHtml(resume), resumeStatus: 'ready' });
+    const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
     broadcast('app-updated', updated);
     return updated;
   } catch (err) {
@@ -386,6 +439,8 @@ function registerIpc() {
     documents: store.listDocuments(),
     applications: store.listApplications().map(summarizeApp),
     hasApiKey: !!getApiKey(),
+    usage: store.getUsage(),
+    autoBudgetOk: autoBudgetOk(),
     platform: process.platform,
   }));
   handle('settings:update', (patch) => applySettings(patch));
@@ -443,10 +498,65 @@ function registerIpc() {
   });
   handle('app:update', (id, patch) => {
     const allowed = {};
-    for (const k of ['status', 'notes']) if (patch[k] !== undefined) allowed[k] = patch[k];
-    const updated = store.updateApplication(id, allowed);
+    for (const k of ['notes', 'followUpAt', 'appliedVia', 'contact', 'salaryNote']) if (patch[k] !== undefined) allowed[k] = patch[k];
+    if (patch.followUpAt !== undefined) allowed.followUpNotified = false;
+    if (patch.job) {
+      const rec = store.getApplication(id);
+      allowed.job = { ...rec.job, ...pick(patch.job, ['title', 'company', 'location', 'url']) };
+    }
+    let updated = store.updateApplication(id, allowed);
+    if (patch.status) updated = store.setStatus(id, patch.status);
     broadcast('app-updated', updated);
     return updated;
+  });
+  handle('app:analyze', (id) => analyzeApp(id));
+  handle('shell:openExternal', (url) => {
+    // Only real web links, never file:// or custom schemes.
+    if (!/^https?:\/\//i.test(url || '')) throw new Error('That link doesn\'t look like a web address.');
+    return shell.openExternal(url);
+  });
+  handle('app:rescoreLocal', (id) => {
+    const rec = store.getApplication(id);
+    const updated = store.updateApplication(id, { quick: scoreLocally(rec.job) });
+    broadcast('app-updated', updated);
+    return updated;
+  });
+  // Record an application: when, where, and a snapshot of exactly what was sent.
+  handle('app:markApplied', (id, info = {}) => {
+    const rec = store.getApplication(id);
+    if (!rec) throw new Error('Application not found.');
+    const days = Number(store.getSettings().followUpDays) || 7;
+    const appliedAt = info.appliedAt ? new Date(info.appliedAt).toISOString() : new Date().toISOString();
+    const followUpAt = info.followUpAt === '' ? null : info.followUpAt ? new Date(info.followUpAt).toISOString() : new Date(Date.parse(appliedAt) + days * 86400000).toISOString();
+    const best = libraryAtsScore(rec.job, store.allDocuments());
+    const sent =
+      info.resumeChoice === 'tailored' && rec.resumeHtml
+        ? { resume: 'tailored', resumeHtml: rec.resumeHtml, letterHtml: info.includeLetter && rec.letterHtml ? rec.letterHtml : null }
+        : info.resumeChoice === 'library'
+          ? { resume: best && best.basis ? best.basis : 'library resume', resumeHtml: null, letterHtml: null }
+          : { resume: info.resumeChoice || 'other', resumeHtml: null, letterHtml: null };
+    store.updateApplication(id, {
+      appliedAt,
+      appliedVia: info.appliedVia || '',
+      job: { ...rec.job, url: info.url || rec.job.url || '' },
+      followUpAt,
+      followUpNotified: false,
+      notes: info.notes !== undefined ? info.notes : rec.notes,
+      sent,
+    });
+    const updated = store.setStatus(id, 'applied');
+    broadcast('app-updated', updated);
+    return updated;
+  });
+  handle('apps:exportCsv', async () => {
+    const res = await dialog.showSaveDialog(dashboard, {
+      defaultPath: path.join(app.getPath('documents'), `job-applications-${new Date().toISOString().slice(0, 10)}.csv`),
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    });
+    if (res.canceled || !res.filePath) return null;
+    fs.writeFileSync(res.filePath, applicationsCsv(store.listApplications()));
+    shell.showItemInFolder(res.filePath);
+    return res.filePath;
   });
   handle('app:remove', (id) => {
     store.removeApplication(id);
@@ -477,9 +587,16 @@ function registerIpc() {
 
   // overlay → main
   handle('overlay:action', async ({ action, appId }) => {
-    if (action === 'dismiss') {
+    if (action === 'analyze') {
+      showOverlay({ mode: 'score', app: withAts(store.getApplication(appId)), analyzing: true });
+      await analyzeApp(appId, { popup: true }).catch((err) =>
+        showOverlay({ mode: 'message', mood: 'curious', title: 'Oops, a little hiccup', text: err.message })
+      );
+    } else if (action === 'dismiss') {
       hideOverlay();
-      if (appId) store.updateApplication(appId, { status: 'skipped' });
+      // "Not now" on a fresh posting files it as skipped; never downgrade one you applied to.
+      const rec = appId && store.getApplication(appId);
+      if (rec && rec.status === 'scored') store.setStatus(appId, 'skipped');
       broadcast('state-changed');
     } else if (action === 'open') {
       hideOverlay();
@@ -506,6 +623,56 @@ function registerIpc() {
   });
 }
 
+function pick(obj, keys) {
+  return Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]));
+}
+
+function csvCell(v) {
+  const s = v === null || v === undefined ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function applicationsCsv(apps) {
+  const cols = ['Company', 'Title', 'Location', 'Status', 'Fit', 'Fit source', 'Applied', 'Applied via', 'Resume sent', 'Follow up', 'URL', 'Found', 'Notes'];
+  const rows = apps.map((a) => [
+    a.job.company,
+    a.job.title,
+    a.job.location,
+    a.status,
+    a.analysis ? a.analysis.score : a.quick.score,
+    a.analysis ? 'claude' : 'free',
+    a.appliedAt ? a.appliedAt.slice(0, 10) : '',
+    a.appliedVia,
+    a.sent ? a.sent.resume : '',
+    a.followUpAt ? a.followUpAt.slice(0, 10) : '',
+    a.job.url,
+    a.createdAt.slice(0, 10),
+    a.notes,
+  ]);
+  return [cols, ...rows].map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
+}
+
+// Gentle nudges when a follow-up date arrives.
+function checkFollowUps() {
+  const now = Date.now();
+  for (const a of store.listApplications()) {
+    if (a.status !== 'applied' || !a.followUpAt || a.followUpNotified || Date.parse(a.followUpAt) > now) continue;
+    store.updateApplication(a.id, { followUpNotified: true });
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: `Time to follow up with ${a.job.company || 'them'} 🌱`,
+        body: `You applied for ${a.job.title}${a.appliedAt ? ` on ${new Date(a.appliedAt).toLocaleDateString()}` : ''}. A short, friendly check-in can make you stand out!`,
+      });
+      n.on('click', () => {
+        const w = createDashboard();
+        w.webContents.send('navigate', { view: 'application', id: a.id });
+      });
+      n.show();
+    }
+  }
+  broadcast('state-changed');
+}
+
 function letterToMarkdown(l) {
   return [l.greeting, ...l.paragraphs, `${l.closing}\n${l.signature}`].join('\n\n') + '\n';
 }
@@ -519,7 +686,12 @@ function summarizeApp(a) {
     job: { title: a.job.title, company: a.job.company, location: a.job.location },
     score: a.analysis ? a.analysis.score : a.quick.score,
     label: a.analysis ? a.analysis.label : a.quick.label,
-    scoreSource: a.analysis ? 'claude' : 'quick',
+    scoreSource: a.analysis ? 'claude' : 'free',
+    confidence: a.quick.confidence || null,
+    dealbreaker: !!(a.quick.dealbreakers && a.quick.dealbreakers.length),
+    appliedAt: a.appliedAt || null,
+    followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
+    url: a.job.url || '',
     atsBefore: (() => {
       const b = libraryAtsScore(a.job, store.allDocuments());
       return b ? b.score : null;
@@ -561,8 +733,15 @@ if (!app.requestSingleInstanceLock()) {
     } catch (e) {
       console.warn('Tray unavailable:', e.message);
     }
+    claude.onUsage((u) => {
+      store.recordUsage(u);
+      noteBudget();
+      broadcast('state-changed');
+    });
     setupWatcher();
     registerHotkey(store.getSettings().hotkey);
+    checkFollowUps();
+    setInterval(checkFollowUps, 60 * 60 * 1000);
   });
 
   // Keep running in the tray so detection keeps working after the dashboard closes.

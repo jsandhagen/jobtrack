@@ -11,6 +11,26 @@ const DEFAULT_MODEL = 'claude-opus-5-5';
 // Anthropic's recommended fallback model instead of failing outright.
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
+// Rough $/million-token prices for the usage meter (input, output, cache read, cache write).
+const PRICES = {
+  'claude-opus-5-5': [4, 20, 0.2, 5],
+  'claude-opus-5': [5, 25, 0.5, 6.25],
+  'claude-sonnet-5-5': [2, 10, 0.2, 2.5],
+  'claude-haiku-4-5': [1, 5, 0.1, 1.25],
+};
+
+function estimateCost(model, usage) {
+  const [i, o, cr, cw] = PRICES[model] || PRICES[DEFAULT_MODEL];
+  const u = usage || {};
+  return ((u.input_tokens || 0) * i + (u.output_tokens || 0) * o + (u.cache_read_input_tokens || 0) * cr + (u.cache_creation_input_tokens || 0) * cw) / 1e6;
+}
+
+let usageListener = null;
+// The app registers this to keep a running tally of calls and spend.
+function onUsage(fn) {
+  usageListener = fn;
+}
+
 function createClient(apiKey) {
   return new Anthropic({ apiKey });
 }
@@ -22,6 +42,7 @@ const ScreenJob = z.object({
   title: z.string().describe('Job title, or empty string'),
   company: z.string().describe('Company name, or empty string'),
   location: z.string().describe('Location / remote policy, or empty string'),
+  page_url: z.string().describe("The page URL if a browser address bar is visible, else empty string"),
   posting_text: z
     .string()
     .describe('The full visible text of the job posting (responsibilities, requirements, etc.), transcribed faithfully. Empty if not a posting.'),
@@ -122,7 +143,7 @@ function jobBlock(job) {
 
 // ---------- calls ----------
 
-async function structuredCall(client, { model, effort, system, content, schema, maxTokens = 16000 }) {
+async function structuredCall(client, { kind, model, effort, system, content, schema, maxTokens = 16000 }) {
   const response = await client.beta.messages.parse({
     model: model || DEFAULT_MODEL,
     max_tokens: maxTokens,
@@ -132,6 +153,10 @@ async function structuredCall(client, { model, effort, system, content, schema, 
     ...(system ? { system } : {}),
     messages: [{ role: 'user', content }],
   });
+  if (usageListener && response.usage) {
+    const served = response.model || model || DEFAULT_MODEL;
+    usageListener({ kind, model: served, usage: response.usage, cost: estimateCost(served, response.usage) });
+  }
   if (response.stop_reason === 'refusal') {
     const why = response.stop_details && response.stop_details.explanation;
     throw new Error(`Claude declined this request${why ? `: ${why}` : '.'}`);
@@ -145,6 +170,7 @@ async function structuredCall(client, { model, effort, system, content, schema, 
 
 async function extractJobFromScreenshot(client, { pngBase64, model }) {
   return structuredCall(client, {
+    kind: 'screen',
     model,
     effort: 'low',
     maxTokens: 8000,
@@ -161,6 +187,7 @@ async function extractJobFromScreenshot(client, { pngBase64, model }) {
 
 async function analyzeFit(client, { job, documents, profile, model }) {
   const result = await structuredCall(client, {
+    kind: 'fit',
     model,
     effort: 'medium',
     system: systemBlocks(documents, profile),
@@ -196,6 +223,7 @@ async function generateResume(client, { job, documents, profile, analysis, ats, 
       ? `\n\nEarlier fit analysis to build on:\nStrengths: ${analysis.strengths.join('; ')}\nTalking points: ${analysis.talking_points.join('; ')}\nKeywords: ${analysis.keywords.join(', ')}`
       : '') + atsGuidance(job, ats);
   return structuredCall(client, {
+    kind: 'resume',
     model,
     effort: 'high',
     system: systemBlocks(documents, profile),
@@ -209,6 +237,7 @@ Write a one-to-two page resume tailored to this posting using only facts from th
 async function generateCoverLetter(client, { job, documents, profile, analysis, model }) {
   const guidance = analysis ? `\n\nTalking points to weave in: ${analysis.talking_points.join('; ')}` : '';
   return structuredCall(client, {
+    kind: 'letter',
     model,
     effort: 'high',
     system: systemBlocks(documents, profile),
@@ -221,6 +250,8 @@ Write a warm, specific, confident cover letter for this role (under 350 words). 
 
 module.exports = {
   createClient,
+  onUsage,
+  estimateCost,
   extractJobFromScreenshot,
   analyzeFit,
   generateResume,

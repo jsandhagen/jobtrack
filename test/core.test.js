@@ -4,7 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { quickFitScore, looksLikeJobPosting, yearsOfExperience, requiredYears, weightedJobSkills } = require('../src/main/fitScore');
+const { localFitScore } = require('../src/main/localFit');
+const { looksLikeJobPosting, yearsOfExperience, requiredYears, weightedJobSkills } = require('../src/main/fitScore');
 const { Store } = require('../src/main/store');
 const { extractText, guessKind } = require('../src/main/documents');
 const { renderResumeHtml, resumeToMarkdown, renderCoverLetterHtml } = require('../src/main/resumeRender');
@@ -59,14 +60,15 @@ test('skills in "nice to have" sections weigh less than requirements', () => {
   assert.equal(w.get('AWS'), 0.6);
 });
 
-test('quickFitScore rewards matching documents', () => {
-  const good = quickFitScore(POSTING, [RESUME]);
-  const poor = quickFitScore(POSTING, ['Pastry chef. Croissants, laminated dough, sourdough, catering for weddings since 2015 - 2020.']);
-  const none = quickFitScore(POSTING, []);
+test('localFitScore rewards matching documents', () => {
+  const job = { title: 'Senior Frontend Engineer', company: 'Acme Co.', text: POSTING };
+  const good = localFitScore(job, [{ kind: 'resume', text: RESUME }]);
+  const poor = localFitScore(job, [{ kind: 'resume', text: 'Pastry chef. Croissants, laminated dough, sourdough, catering for weddings since 2015 - 2020.' }]);
+  const none = localFitScore(job, []);
   assert.ok(good.score >= 65, `expected strong score, got ${good.score}`);
   assert.ok(poor.score < 40, `expected low score, got ${poor.score}`);
   assert.ok(good.matchedSkills.includes('React'));
-  assert.ok(good.missingSkills.includes('AWS'));
+  assert.ok(good.missingPreferred.includes('AWS'));
   assert.equal(none.score, 0);
   assert.equal(typeof good.label, 'string');
 });
