@@ -3,17 +3,17 @@
 (function () {
   const ARC_EYES = 'M40 58 q3 -4 6 0 M58 58 q3 -4 6 0';
   const BIG_ARC_EYES = 'M39 59 q4 -6 8 0 M57 59 q4 -6 8 0';
-  // Four-point sparkle stars for starry-eyed excitement.
-  const star = (x, y, r, k = r * 0.3) =>
-    `M${x} ${y - r} Q${x + k} ${y - k} ${x + r} ${y} Q${x + k} ${y + k} ${x} ${y + r} Q${x - k} ${y + k} ${x - r} ${y} Q${x - k} ${y - k} ${x} ${y - r} Z`;
-  const STAR_EYES = `${star(43, 56.5, 5.8)} ${star(61, 56.5, 5.8)}`;
+  // Big glossy chibi eyes: a dark oval with a large and a small highlight.
+  const shiny = (x) => `<ellipse cx="${x}" cy="57" rx="4.6" ry="5.4" fill="#3b3a36"/><circle cx="${x + 1.5}" cy="54.8" r="1.9" fill="#fff"/><circle cx="${x - 1.7}" cy="59.4" r="0.95" fill="#fff"/>`;
+  const SHINY_EYES = `${shiny(42.5)}${shiny(61.5)}`;
   const DOT_EYES = 'M43 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M61 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0';
 
   // eyes/mouth: face paths. dots: filled (round) eyes that blink.
   // arms: 'down' | 'up' | 'wave' | 'pump' | 'hug'. extra: sparkles | dots | zzz | heart | sweat.
   const FACES = {
     happy: { eyes: ARC_EYES, mouth: 'M44 68 q8 8 16 0', cheeks: true, arms: 'down' },
-    thrilled: { eyes: STAR_EYES, stars: true, mouth: 'M40 64.5 q12 16 24 0 z', mouthFill: true, tongue: true, cheeks: 'big', arms: 'up', extra: 'buzz' },
+    // Chibi-style excitement: big glossy eyes, a small open mouth, blushing.
+    thrilled: { eyesSvg: SHINY_EYES, mouth: 'M46.5 65 h11 q0 6 -5.5 6 q-5.5 0 -5.5 -6z', mouthFill: true, tongue: 'M48.4 69.3 q3.6 -2.7 7.2 0 q-3.6 2 -7.2 0z', cheeks: 'blush', arms: 'up', extra: 'hearts' },
     thinking: { eyes: 'M41 57 h5 M58 57 h5', mouth: 'M47 70 q5 -2 10 0', cheeks: false, arms: 'down', extra: 'dots' },
     curious: { eyes: DOT_EYES, dots: true, mouth: 'M49 70 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0', cheeks: true, arms: 'down' },
     cheer: { eyes: ARC_EYES, mouth: 'M45 67 q7 6 14 0', cheeks: true, arms: 'pump' },
@@ -24,6 +24,10 @@
     worried: { eyes: DOT_EYES, dots: true, brows: 'M38 51 q4 -3 8 -3 M66 51 q-4 -3 -8 -3', mouth: 'M45 71 q3.5 -3 7 0 q3.5 3 7 0', cheeks: false, arms: 'down', extra: 'sweat' },
   };
 
+  // Rosy chibi blush with little "///" marks.
+  const BLUSH = `<ellipse cx="35" cy="67.5" rx="5.8" ry="3.6" fill="#f7a8a0" opacity=".8"/><ellipse cx="69" cy="67.5" rx="5.8" ry="3.6" fill="#f7a8a0" opacity=".8"/>
+  <path d="M32.2 69 l1.6 -3 M35.2 69 l1.6 -3 M66.2 69 l1.6 -3 M69.2 69 l1.6 -3" stroke="#e57f78" stroke-width="1.1" stroke-linecap="round"/>`;
+
   const ARMS = {
     down: ['M27 72 q-5 3 -7 8', 'M77 72 q5 3 7 8'],
     up: ['M26 64 q-7 -4 -9 -12', 'M78 64 q7 -4 9 -12'],
@@ -33,10 +37,10 @@
   };
 
   const EXTRAS = {
-    // Sparkles plus little excitement lines by the head.
-    buzz: `<g class="twinkle"><path d="M13 26 q1.2 5 5 6 q-3.8 1 -5 6 q-1.2 -5 -5 -6 q3.8 -1 5 -6z" fill="var(--butter, #f6d78b)"/>
-      <path d="M92 30 q.9 3.6 3.6 4.4 q-2.7 .8 -3.6 4.4 q-.9 -3.6 -3.6 -4.4 q2.7 -.8 3.6 -4.4z" fill="var(--lavender, #b9a9e6)"/></g>
-      <g class="buzz" stroke="var(--peach, #f6b99a)" stroke-width="2.4" stroke-linecap="round"><path d="M14 63 l-6 -2.5 M14.5 70 l-6 1.5"/><path d="M90 63 l6 -2.5 M89.5 70 l6 1.5"/></g>`,
+    // Little floating hearts and a sparkle, for big happy moments.
+    hearts: `<g class="float-hearts"><path d="M16 36 c-3 -2 -4.4 -3.7 -4 -5.3 .3 -1.4 2.1 -1.8 4 -.2 1.9 -1.6 3.7 -1.2 4 .2 .4 1.6 -1 3.3 -4 5.3z" fill="#f59aa8"/>
+      <path d="M90 30 c-2.2 -1.5 -3.2 -2.7 -2.9 -3.9 .2 -1 1.5 -1.3 2.9 -.2 1.4 -1.1 2.7 -.8 2.9 .2 .3 1.2 -.7 2.4 -2.9 3.9z" fill="#f59aa8"/></g>
+      <g class="twinkle"><path d="M88 44 q.8 3 3 3.6 q-2.2 .6 -3 3.6 q-.8 -3 -3 -3.6 q2.2 -.6 3 -3.6z" fill="var(--butter, #f6d78b)"/><path d="M18 46 q.6 2.4 2.4 2.9 q-1.8 .5 -2.4 2.9 q-.6 -2.4 -2.4 -2.9 q1.8 -.5 2.4 -2.9z" fill="var(--lavender, #b9a9e6)"/></g>`,
     sparkles: `<g class="twinkle"><path d="M14 30 q1.2 5 5 6 q-3.8 1 -5 6 q-1.2 -5 -5 -6 q3.8 -1 5 -6z" fill="var(--butter, #f6d78b)"/>
       <path d="M91 36 q.9 3.6 3.6 4.4 q-2.7 .8 -3.6 4.4 q-.9 -3.6 -3.6 -4.4 q2.7 -.8 3.6 -4.4z" fill="var(--lavender, #b9a9e6)"/></g>`,
     dots: '<g class="think-dots" fill="var(--lavender, #b9a9e6)"><circle cx="85" cy="40" r="2"/><circle cx="91" cy="32" r="2.8"/><circle cx="97" cy="22" r="3.6"/></g>',
@@ -127,11 +131,11 @@
   ${hugInFront ? '' : arms}
   ${cast.body}
   ${cast.front}
-  ${f.cheeks === 'big' ? '<ellipse cx="34.5" cy="67" rx="6.2" ry="4" fill="#f5a59c" opacity=".85"/><ellipse cx="69.5" cy="67" rx="6.2" ry="4" fill="#f5a59c" opacity=".85"/>' : f.cheeks ? '<ellipse cx="36" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/><ellipse cx="68" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/>' : ''}
+  ${f.cheeks === 'blush' ? BLUSH : f.cheeks ? '<ellipse cx="36" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/><ellipse cx="68" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/>' : ''}
   ${f.brows ? `<path d="${f.brows}" stroke="#3b3a36" stroke-width="2" stroke-linecap="round" fill="none"/>` : ''}
-  <g class="eyes${f.dots ? ' blink' : ''}${f.stars ? ' star-eyes' : ''}"><path d="${f.eyes}" stroke="#3b3a36" stroke-width="${f.stars ? 1.4 : 3}" stroke-linecap="round" stroke-linejoin="round" fill="${f.dots || f.stars ? '#3b3a36' : 'none'}"/>${f.stars ? '<circle cx="41.6" cy="55.6" r="1.25" fill="#fff"/><circle cx="59.6" cy="55.6" r="1.25" fill="#fff"/>' : ''}</g>
+  <g class="eyes${f.dots ? ' blink' : ''}">${f.eyesSvg || `<path d="${f.eyes}" stroke="#3b3a36" stroke-width="3" stroke-linecap="round" fill="${f.dots ? '#3b3a36' : 'none'}"/>`}</g>
   <path d="${f.mouth}" stroke="#3b3a36" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="${f.mouthFill ? (f.tongue ? '#8a3b36' : '#e88d86') : 'none'}"/>
-  ${f.tongue ? '<path d="M45.5 70.6 q6.5 -4.6 13 0 q-6.5 3.4 -13 0z" fill="#f29b93"/>' : ''}
+  ${f.tongue ? `<path d="${f.tongue}" fill="#f29b93"/>` : ''}
   ${hugInFront ? arms : ''}
   ${f.extra ? EXTRAS[f.extra] : ''}
   </g>
