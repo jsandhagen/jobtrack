@@ -24,6 +24,8 @@ const DEFAULT_SETTINGS = {
   screenReader: 'ocr',
   // Sprout's Garden, the optional game that rewards applying (off by default).
   gardenEnabled: false,
+  // 'spire' (Slay the Spire style card battles) or 'garden' (just the garden).
+  gameStyle: 'spire',
   weeklyGoal: 5,
   // Badges and level already celebrated, so each is celebrated once.
   gardenSeen: null,
@@ -64,6 +66,7 @@ class Store {
       applications: raw.applications || [],
       encryptedApiKey: raw.encryptedApiKey || null,
       usage: raw.usage || {},
+      spire: raw.spire || null,
       bank: raw.bank || { experiences: [], bullets: [], education: [], skills: [], summary: '' },
     };
   }
@@ -185,6 +188,15 @@ class Store {
     if (next) this.data.bank = next;
     this.save();
     return this.data.bank;
+  }
+
+  // ---- Sprout's Spire run (the game logic lives in src/shared/spire.js) ----
+  getSpire() {
+    return this.data.spire;
+  }
+  saveSpire(run) {
+    this.data.spire = run;
+    this.save();
   }
 
   // ---- Claude usage, per calendar month ----

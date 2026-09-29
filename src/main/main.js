@@ -782,6 +782,9 @@ function registerIpc() {
     return updated;
   });
   handle('app:analyze', (id) => analyzeApp(id));
+  handle('spire:get', () => store.getSpire());
+  // No broadcast: nothing else shows the run, and a re-render mid-fight would be jarring.
+  handle('spire:save', (run) => store.saveSpire(run && typeof run === 'object' ? run : null));
 
   // ---- bullet bank ----
   handle('bank:get', () => {

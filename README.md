@@ -23,7 +23,7 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - Each application shows its notes and a status timeline.
   - The tracker has filters (to apply / applied / interviewing / offers / archived), search, sorting and **CSV export**.
   - Postings you've already seen are recognised ("You applied on Sep 12") instead of duplicated.
-- **Sprout's garden (optional game)**: turn it on in Settings to make applying a game. See [Sprout's garden](#sprouts-garden).
+- **Optional game**: turn it on in Settings to make applying a game, either **Sprout's Spire** (turn-based card battles in the style of Slay the Spire) or just **Sprout's garden** (goals, streaks and badges). See [Sprout's Spire](#sprouts-spire) and [Sprout's garden](#sprouts-garden).
 
 ## Getting started
 
@@ -239,6 +239,20 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 - Claude only receives data when you (a) ask for a deeper read, or turn on automatic reads, (b) press the scan hotkey or turn on screen watching, or (c) generate a document. Screen watching sends a screenshot only after the screen changes and settles, at most once per interval.
 - Rough cost per call with Claude Opus 5.5: a fit read is a few cents, and a resume a few more. Your document library is cached, so repeat calls are cheaper. Settings → *When to use Claude* shows this month's estimated total.
 - Reading jobs **from the screen** is free by default (on-device OCR). Claude is only used for it if you pick that in Settings.
+
+## Sprout's Spire
+
+The default style of the optional game (Settings → *Sprout's garden* → *Game style*). Sprout climbs a tower of job-search monsters in turn-based card battles, but only as fast as you apply:
+
+- **One climb per application.** Each role you mark as applied this week lets Sprout take one floor. You can't play ahead of your search.
+- **Each week is an Act.** Your weekly goal sets how many floors come before the boss, *The Hiring Committee*. Reaching the boss is free, so hitting your goal is what earns the boss fight. A new Act starts each Monday at full HP.
+- **A map with choices**: pick a fight, an elite, a campfire rest (+30% HP) or treasure on each floor.
+- **Battles work like Slay the Spire**: 3 energy and 5 cards a turn, Block, Strength, Weak, a poison-like *Pressure*, and enemies that show their next move. Enemies include The Ghoster, the ATS Golem, the Lowball Goblin, the Take-home Hydra, and the elites Five-Round Gauntlet and The Unicorn Listing. Keys `1`–`9` play cards and `E` ends the turn.
+- **Your deck comes from your real search.** A tailored resume unlocks *Tailored Resume*, a cover letter unlocks *Cover Letter*, an interview unlocks *Nail the Interview*, a rejection unlocks *Resilience*, and an offer unlocks *Offer in Hand*. Every 5 applications upgrades a card, and each win offers a card to add.
+- **Garden badges become relics**, e.g. *Lucky Acorn* (first application: start fights with 4 Block) and *Busy Bee* (big week: draw an extra card).
+- **Losing never ends the run.** Sprout gets back up at half HP, and your next application is the next try. After the boss, each extra application opens a bonus card.
+
+The rules live in `src/shared/spire.js` (pure and seeded, tested in `test/spire.test.js`). The page is `src/renderer/spire.js`, and the run is saved in `jobtrack.json`.
 
 ## Sprout's garden
 

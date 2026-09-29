@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('sprout', {
 
   overlayAction: (action, appId, extra = {}) => call('overlay:action', { action, appId, ...extra }),
   bridgeStatus: () => call('bridge:status'),
+  getSpire: () => call('spire:get'),
+  saveSpire: (run) => call('spire:save', run),
   getBank: () => call('bank:get'),
   importBullets: () => call('bank:import'),
   updateBank: (patch) => call('bank:update', patch),

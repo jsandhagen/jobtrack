@@ -143,6 +143,7 @@ views.garden = () => {
     <div class="card" style="margin-top:16px"><h2 class="with-icon">${icon('medal', 22)} Badges <span class="faint" style="font-size:14px">${earned} of ${g.badges.length}</span></h2>
       <div class="badges">${g.badges
         .map((b) => `<div class="badge ${b.earned ? 'earned' : ''}"><div class="badge-ic">${icon(b.icon, 26)}</div><b>${esc(b.name)}</b><span>${esc(b.desc)}</span>
+          ${spireOn() && window.SproutSpire.RELICS[b.id] ? `<em class="faint" title="${esc(window.SproutSpire.RELICS[b.id].text)}">Spire relic: ${esc(window.SproutSpire.RELICS[b.id].name)}</em>` : ''}
           ${b.earned ? '<em class="chip good tiny">earned</em>' : b.need > 1 ? `<div class="track"><i style="width:${Math.round((b.have / b.need) * 100)}%"></i></div><em class="faint">${b.have} / ${b.need}</em>` : ''}</div>`)
         .join('')}</div></div>
     <details class="card" style="margin-top:16px"><summary class="section-title" style="cursor:pointer;margin:0">How points work</summary>
@@ -187,6 +188,7 @@ function gardenAppliedNote(appId) {
   const g = garden();
   const a = state.applications.find((x) => x.id === appId);
   const pts = a ? window.SproutGarden.pointsFor(a) - POINTS.checked : POINTS.applied;
+  if (spireOn()) return ` Sprout gets another climb up the Spire! ${g.week.count} of ${g.week.goal} this week.`;
   return ` +${pts} points · ${g.week.met ? `weekly goal done (${g.week.count}/${g.week.goal})!` : `${g.week.count} of ${g.week.goal} this week.`}`;
 }
 

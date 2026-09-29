@@ -210,7 +210,7 @@ const views = {
           <button class="soft" id="scanBtn">${icon('camera')} Scan my screen</button>
         </div>
       </div>
-      ${gardenHomeCard()}
+      ${spireHomeCard() || gardenHomeCard()}
       <div class="grid three" style="margin-bottom:16px">
         <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('seedling', 26)}</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
         <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('send', 26)}</div><div><b>${appliedWeek}</b><span>applied in the last 7 days · ${appliedAll} total</span></div></div>
@@ -350,6 +350,11 @@ const views = {
         </div>
         <div class="card"><h2 class="with-icon">${icon('seedling', 22)} Sprout's garden <span class="chip">optional game</span></h2>
           <div class="toggle-row"><input type="checkbox" id="gardenEnabled" ${s.gardenEnabled ? 'checked' : ''}><div class="what"><b>Make applying a game</b><span>Every application grows Sprout's garden. Set a weekly goal, keep streaks (weekends never break them) and earn badges. Nothing is shared or sent anywhere.</span></div></div>
+          <label style="margin-top:10px">Game style</label>
+          <select id="gameStyle">
+            <option value="spire" ${s.gameStyle !== 'garden' ? 'selected' : ''}>Sprout's Spire: turn-based card battles (Slay the Spire style)</option>
+            <option value="garden" ${s.gameStyle === 'garden' ? 'selected' : ''}>Just the garden: goals, streaks and badges</option>
+          </select>
           <label style="margin-top:10px">Weekly applications goal</label>
           <input id="weeklyGoal" type="number" min="1" max="100" value="${s.weeklyGoal}" style="max-width:160px">
           <div style="margin-top:10px"><button class="primary" id="saveGarden">Save</button></div>
@@ -901,7 +906,7 @@ const binders = {
     $('#saveGarden').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const on = $('#gardenEnabled').checked;
-        await S.updateSettings({ gardenEnabled: on, weeklyGoal: Math.max(1, Math.min(100, parseInt($('#weeklyGoal').value, 10) || 5)) });
+        await S.updateSettings({ gardenEnabled: on, gameStyle: $('#gameStyle').value, weeklyGoal: Math.max(1, Math.min(100, parseInt($('#weeklyGoal').value, 10) || 5)) });
         toast(on ? "Garden's on! Every application plants something." : 'Garden turned off. Your progress is kept if you turn it back on.', 'good', 4200, on ? 'thrilled' : 'happy');
       }, 'Saving…')
     );
@@ -938,6 +943,8 @@ async function refreshState() {
       state.settings.screenWatch ? 'Watching screen & clipboard' : state.settings.clipboardWatch ? 'Watching clipboard' : 'Detection paused'
     }</div>`;
   document.getElementById('navGarden').hidden = !state.settings.gardenEnabled;
+  document.getElementById('navSpire').hidden = !spireOn();
+  if (spireOn() && !spireRun) await loadSpire().catch(() => null);
   renderBuddy();
   checkGardenNews();
 }
