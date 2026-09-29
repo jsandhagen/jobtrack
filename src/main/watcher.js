@@ -30,7 +30,7 @@ class PostingWatcher extends EventEmitter {
    * @param {object} deps
    * @param {() => string|Promise<string>} deps.readClipboard
    * @param {(size:{width:number,height:number}) => Promise<{bitmap:Buffer, png:Buffer}|null>} deps.captureScreen
-   * @param {(pngBase64:string) => Promise<object>} deps.extractFromScreenshot
+   * @param {(png:Buffer, opts:{force:boolean}) => Promise<object>} deps.readScreen  OCR and/or Claude
    * @param {() => boolean} [deps.isAppFocused]
    */
   constructor(deps) {
@@ -94,10 +94,10 @@ class PostingWatcher extends EventEmitter {
     if (this.busy) return null;
     this.busy = true;
     try {
-      const shot = await this.deps.captureScreen({ width: 1600, height: 1000 });
+      const shot = await this.deps.captureScreen('full');
       if (!shot) return null;
       this.emit('scanning', { force });
-      const job = await this.deps.extractFromScreenshot(shot.png.toString('base64'));
+      const job = await this.deps.readScreen(shot.png, { force });
       if (!job.is_job_posting || !job.posting_text || job.posting_text.length < 200) {
         if (force) this.emit('no-posting');
         return null;

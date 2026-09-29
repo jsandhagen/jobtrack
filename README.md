@@ -5,8 +5,9 @@ A friendly desktop helper that notices when you're looking at a job posting, tel
 - **Document library**: drop in resumes, old cover letters, project write-ups, performance reviews and certificates (PDF, DOCX, TXT, MD), or paste text.
 - **Automatic job detection**:
   - 📋 **Clipboard**: copy a job description anywhere and a popup appears with a score. This runs locally and makes no API calls.
-  - ⌨️ **Hotkey** (`Ctrl/Cmd + Shift + J`): takes a screenshot and has Claude read the job posting on screen.
-  - 👀 **Screen watching** (off by default): takes a screenshot only after the screen changes and then stays still, and asks Claude whether it shows a job posting.
+  - ⌨️ **Hotkey** (`Ctrl/Cmd + Shift + J`): reads the job posting on your screen with free, on-device OCR.
+  - 👀 **Screen watching** (off by default): reads the screen with OCR whenever it changes and then stays still.
+  - Claude can optionally be used as a fallback or instead of OCR for unusual layouts (Settings → *Read the screen with*).
 - **Free fit score for every posting**: computed on your computer with no API calls. It checks required vs preferred qualifications (including certifications and tools it has never seen before), role match, seniority, years of experience and your dealbreakers. See [Free fit score](#free-fit-score).
 - **Claude only when you want it**: by default Claude's deeper read (strengths, gaps, a qualifications checklist) runs only when you press **Ask Claude**. You can switch it to run automatically for promising roles. A monthly budget pauses automatic use, and Settings shows this month's calls and estimated cost.
 - **ATS check (before → after)**: estimates how applicant tracking systems (ATS) will read your current resume and the tailored one, with an A–D grade, knockouts and tips. It updates live as you edit. [Details below](#ats-check).
@@ -48,6 +49,7 @@ Sprout keeps running in the system tray after you close the window, so detection
 | File | What it does |
 |---|---|
 | `src/main/main.js` | Electron app: windows, tray, hotkey, IPC, and the detect → score → generate pipeline |
+| `src/main/ocr.js`, `src/main/pageText.js` | Free on-device OCR, and finding the posting in the recognised text |
 | `src/main/watcher.js` | Clipboard polling, screen-change detection (screenshot diff + wait until settled), dedupe |
 | `src/main/atsScore.js` | ATS-style match score, A–D grade, knockouts, parse checks and tips |
 | `src/main/localFit.js` | Free offline fit score, confidence, dealbreakers |
@@ -65,6 +67,21 @@ Sprout keeps running in the system tray after you close the window, so detection
 - **Prompt caching**: the instructions and your whole document library form a stable, cached system prompt. After the first call, checking another posting only pays full price for the new posting text.
 - **Refusal fallback** (`fallbacks: "default"`) is turned on, so a request declined by a safety classifier is retried on Anthropic's recommended fallback model.
 - **No invention**: the prompt forbids made-up employers, dates, metrics or skills. The resume also comes with "Notes from Sprout" listing anything you should double-check.
+
+### Reading the screen without AI (OCR)
+
+The hotkey and screen watching use [Tesseract](https://github.com/naptha/tesseract.js), an open-source OCR engine that runs on your computer (`src/main/ocr.js`). It's free, works offline, and nothing leaves your machine. The English model (~3 MB) ships with the app.
+
+Plain OCR reads straight across the whole screen, so `src/main/pageText.js` works out where the posting is on the screen:
+
+1. **Split into columns**: a line is split wherever the gap between words is much wider than a space. That keeps LinkedIn's left-hand job list apart from the posting.
+2. **Find the posting**: it looks for a heading that only postings have ("About the job", "Requirements", "Responsibilities"…) and keeps only the text in that column.
+3. **Title, company, location**: the title is the largest clearly-read text above that heading. Company and location come from the short line under the title.
+4. **Remove clutter**: site menus, "Easy Apply" / "Save" buttons, URLs and OCR specks are dropped, and bullet symbols are tidied up.
+
+It captures at the screen's full resolution and enlarges standard-resolution screens 2× before reading, which noticeably improves accuracy. A full screen takes about 1–3 seconds. `test/fixtures/screens/` holds a LinkedIn-style split view and a careers page that the tests OCR for real.
+
+**Most accurate free option:** select the posting's text and copy it (Ctrl/⌘+C). The clipboard watcher picks it up with no OCR errors at all.
 
 ### Free fit score
 
@@ -109,7 +126,7 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 - Clipboard detection and the quick score never leave your computer.
 - Claude only receives data when you (a) ask for a deeper read, or turn on automatic reads, (b) press the scan hotkey or turn on screen watching, or (c) generate a document. Screen watching sends a screenshot only after the screen changes and settles, at most once per interval.
 - Rough cost per call with Claude Opus 5.5: a fit read is a few cents, and a resume a few more. Your document library is cached, so repeat calls are cheaper. Settings → *When to use Claude* shows this month's estimated total.
-- Reading jobs **from the screen** is the one detection mode that needs Claude, since it has to read an image. Copying the posting's text is always free.
+- Reading jobs **from the screen** is free by default (on-device OCR). Claude is only used for it if you pick that in Settings.
 
 ## Development
 
@@ -117,8 +134,11 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 npm test   # unit tests: scoring, detection, storage, rendering, Claude calls with a mocked client
 ```
 
+## Packaging note
+When packaging with `electron-builder`, unpack Tesseract's worker and model from the asar archive: `"asarUnpack": ["node_modules/tesseract.js/**", "node_modules/tesseract.js-core/**", "node_modules/@tesseract.js-data/**"]`.
+
 ## Ideas for next steps
 - Package installers with `electron-builder` (.dmg / .exe / AppImage).
-- A companion browser extension that reads the posting's text straight from the page (more reliable than screenshots and cheaper).
+- A companion browser extension that reads the posting's text straight from the web page. That would be exact rather than OCR'd, though OCR already covers every app and site.
 - DOCX export, several resume templates, and letting you pick a "base resume" per role family.
 - Tracking deadlines and follow-up reminders in the application tracker.

@@ -21,6 +21,8 @@ const { importFile, SUPPORTED } = require('./documents');
 const { localFitScore } = require('./localFit');
 const claude = require('./claude');
 const { PostingWatcher, fingerprint } = require('./watcher');
+const ocr = require('./ocr');
+const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
 
@@ -179,7 +181,7 @@ function buildTrayMenu() {
     { label: `Scan screen for a job (${s.hotkey.replace('CommandOrControl', 'Ctrl/Cmd')})`, click: () => scanNow() },
     { type: 'separator' },
     { label: 'Watch clipboard', type: 'checkbox', checked: s.clipboardWatch, click: (i) => applySettings({ clipboardWatch: i.checked }) },
-    { label: 'Watch screen (uses API)', type: 'checkbox', checked: s.screenWatch, click: (i) => applySettings({ screenWatch: i.checked }) },
+    { label: 'Watch screen', type: 'checkbox', checked: s.screenWatch, click: (i) => applySettings({ screenWatch: i.checked }) },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]);
@@ -194,27 +196,57 @@ function createTray() {
 
 // ---------------- detection ----------------
 
+// Grab the screen under the mouse. For reading (size = 'full') we capture at
+// the display's real pixel resolution — OCR needs sharp text.
 async function captureScreen(size) {
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
-  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: size });
+  const full = size === 'full';
+  const thumbnailSize = full
+    ? { width: Math.round(display.size.width * display.scaleFactor), height: Math.round(display.size.height * display.scaleFactor) }
+    : size;
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize });
   if (!sources.length) return null;
   const src = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
   const img = src.thumbnail;
   if (img.isEmpty()) return null;
+  if (full) return { png: img.toPNG(), image: img };
   // Normalise the thumbnail size so bitmap diffs compare like with like.
   const sized = img.resize({ width: size.width, height: size.height });
-  return { bitmap: sized.toBitmap(), png: size.width > 400 ? img.toPNG() : sized.toPNG() };
+  return { bitmap: sized.toBitmap(), png: sized.toPNG() };
+}
+
+// Read a job posting off a screenshot. Free OCR first; Claude only if the
+// settings allow it (and, for automatic scans, the monthly budget has room).
+async function readScreen(png, { force = false } = {}) {
+  const s = store.getSettings();
+  let img = nativeImage.createFromBuffer(png);
+  let ocrResult = null;
+  if (s.screenReader !== 'claude') {
+    // Standard-resolution screens: enlarging 2x makes small text much more readable.
+    const { width, height } = img.getSize();
+    const forOcr = width < 2000 ? img.resize({ width: width * 2, height: height * 2, quality: 'best' }) : img;
+    const { lines } = await ocr.recognizeLines(forOcr.toPNG(), { cachePath: path.join(app.getPath('userData'), 'ocr-cache') });
+    ocrResult = postingFromLines(lines);
+    if (ocrResult.is_job_posting || s.screenReader === 'ocr') return ocrResult;
+  }
+  const claudeOk = getApiKey() && (force || autoBudgetOk());
+  if (!claudeOk) return ocrResult || { is_job_posting: false, posting_text: '' };
+  // Claude doesn't need retina-size images; ~1600px wide keeps the cost down.
+  const { width } = img.getSize();
+  if (width > 1600) img = img.resize({ width: 1600, quality: 'best' });
+  const job = await claude.extractJobFromScreenshot(claudeClient(), { pngBase64: img.toPNG().toString('base64'), model: s.model });
+  return { ...job, method: 'claude' };
 }
 
 function setupWatcher() {
   watcher = new PostingWatcher({
     readClipboard: () => clipboard.readText(),
     captureScreen,
-    extractFromScreenshot: (pngBase64) =>
-      claude.extractJobFromScreenshot(claudeClient(), { pngBase64, model: store.getSettings().model }),
+    readScreen,
     isAppFocused: () => BrowserWindow.getFocusedWindow() !== null,
-    canAutoScan: () => autoBudgetOk(),
+    // OCR is free; only a Claude-only reader is limited by the budget.
+    canAutoScan: () => store.getSettings().screenReader !== 'claude' || autoBudgetOk(),
   });
   watcher.on('posting', (posting) => handlePosting(posting).catch((e) => console.error(e)));
   watcher.on('scanning', ({ force }) => {
@@ -235,7 +267,7 @@ function applyWatchSettings(s) {
   if (!watcher) return;
   if (s.clipboardWatch) watcher.startClipboard();
   else watcher.stopClipboard();
-  if (s.screenWatch && getApiKey()) watcher.startScreen(s.screenWatchIntervalSec);
+  if (s.screenWatch && (s.screenReader !== 'claude' || getApiKey())) watcher.startScreen(s.screenWatchIntervalSec);
   else watcher.stopScreen();
 }
 
@@ -259,8 +291,8 @@ function applySettings(patch) {
 }
 
 async function scanNow() {
-  if (!getApiKey()) {
-    showOverlay({ mode: 'message', mood: 'curious', title: 'I need a Claude API key first', text: 'Add it in Settings and I can read job postings right off your screen.' });
+  if (store.getSettings().screenReader === 'claude' && !getApiKey()) {
+    showOverlay({ mode: 'message', mood: 'curious', title: 'I need a Claude API key first', text: 'Or switch "Read the screen with" to free OCR in Settings.' });
     return;
   }
   // Hide ourselves so we don't end up in the screenshot.

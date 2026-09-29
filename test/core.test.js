@@ -158,7 +158,7 @@ test('watcher screen scan settles before calling Claude', async () => {
   const w = new PostingWatcher({
     readClipboard: () => '',
     captureScreen: async () => ({ bitmap: frame, png: Buffer.from('png') }),
-    extractFromScreenshot: async () => {
+    readScreen: async () => {
       calls++;
       return { is_job_posting: true, title: 'Engineer', company: 'Acme', location: '', posting_text: POSTING };
     },

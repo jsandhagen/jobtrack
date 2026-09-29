@@ -140,7 +140,7 @@ const views = {
         <div><h1>${greeting()}</h1><p>${allDone ? "Let's find you something wonderful today." : "Let's get you set up — it only takes a few minutes."}</p></div>
         <div class="actions">
           <button class="primary" data-go="check">🔍 Check a job</button>
-          <button class="soft" id="scanBtn" ${state.hasApiKey ? '' : 'disabled title="Add an API key first"'}>📸 Scan my screen</button>
+          <button class="soft" id="scanBtn">📸 Scan my screen</button>
         </div>
       </div>
       <div class="grid three" style="margin-bottom:16px">
@@ -161,7 +161,7 @@ const views = {
       </div>
       <div class="card" style="margin-top:16px"><h3>How I spot jobs for you</h3>
         <p class="muted" style="margin:0">📋 <b>Copy</b> a job description anywhere and I'll pop up with a free score — no Claude usage.
-        &nbsp; ⌨️ Press <b>${esc(prettyHotkey())}</b> and I'll read the posting on your screen.
+        &nbsp; ⌨️ Press <b>${esc(prettyHotkey())}</b> and I'll read the posting on your screen (free, on your computer).
         &nbsp; 👀 Or turn on <b>screen watching</b> in Settings and I'll notice postings as you browse.</p></div>
     </div>`;
   },
@@ -178,7 +178,7 @@ const views = {
             <div class="full"><label>Job description</label><textarea id="jText" style="min-height:340px" placeholder="Paste the whole posting here — responsibilities, requirements, the works."></textarea></div>
           </div>
           <div class="inline" style="margin-top:14px"><button class="primary" id="analyzeBtn">✨ Check my fit</button>
-          <button class="ghost" id="scanBtn" ${state.hasApiKey ? '' : 'disabled'}>📸 Or read it from my screen</button></div>
+          <button class="ghost" id="scanBtn">📸 Or read it from my screen</button></div>
         </div>
         <div class="card">${mascotSvg('curious', 72)}
           <h3>What you'll get</h3>
@@ -283,7 +283,14 @@ const views = {
         </div>
         <div class="card"><h2>Job detection</h2>
           <div class="toggle-row"><input type="checkbox" id="clipboardWatch" ${s.clipboardWatch ? 'checked' : ''}><div class="what"><b>Watch my clipboard</b><span>Copy a job description anywhere and I'll pop up with a score. Free — nothing is sent anywhere until you ask.</span></div></div>
-          <div class="toggle-row"><input type="checkbox" id="screenWatch" ${s.screenWatch ? 'checked' : ''} ${state.hasApiKey ? '' : 'disabled'}><div class="what"><b>Watch my screen</b><span>Every so often, if your screen changed and settled, I send a screenshot to Claude to check for a job posting. Uses API credits.${state.platform === 'darwin' ? ' macOS will ask for Screen Recording permission.' : ''}</span></div></div>
+          <div class="toggle-row"><input type="checkbox" id="screenWatch" ${s.screenWatch ? 'checked' : ''}><div class="what"><b>Watch my screen</b><span>When your screen changes and settles, I read it and check for a job posting. With free OCR, nothing leaves your computer.${state.platform === 'darwin' ? ' macOS will ask for Screen Recording permission.' : ''}</span></div></div>
+          <label style="margin-top:12px">Read the screen with</label>
+          <select id="screenReader">
+            <option value="ocr" ${s.screenReader === 'ocr' ? 'selected' : ''}>Free OCR on this computer (recommended)</option>
+            <option value="ocr-then-claude" ${s.screenReader === 'ocr-then-claude' ? 'selected' : ''} ${state.hasApiKey ? '' : 'disabled'}>Free OCR, then Claude if OCR finds nothing</option>
+            <option value="claude" ${s.screenReader === 'claude' ? 'selected' : ''} ${state.hasApiKey ? '' : 'disabled'}>Claude (most accurate on unusual layouts, uses credits)</option>
+          </select>
+          <p class="faint">OCR works best on a normal job page. Tip: selecting the posting's text and copying it (Ctrl/⌘+C) is always the most accurate free option.</p>
           <div class="form-grid" style="margin-top:10px">
             <div><label>Check screen every (seconds)</label><input id="screenWatchIntervalSec" type="number" min="5" value="${s.screenWatchIntervalSec}"></div>
             <div><label>Only pop up at fit ≥</label><input id="popupThreshold" type="number" min="0" max="100" value="${s.popupThreshold}"></div>
@@ -772,6 +779,7 @@ const binders = {
         await S.updateSettings({
           clipboardWatch: $('#clipboardWatch').checked,
           screenWatch: $('#screenWatch').checked,
+          screenReader: $('#screenReader').value,
           screenWatchIntervalSec: Math.max(5, parseInt($('#screenWatchIntervalSec').value, 10) || 20),
           popupThreshold: Math.max(0, Math.min(100, parseInt($('#popupThreshold').value, 10) || 0)),
           hotkey: $('#hotkey').value.trim(),

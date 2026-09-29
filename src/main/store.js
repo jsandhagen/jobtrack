@@ -19,6 +19,9 @@ const DEFAULT_SETTINGS = {
   // this month's estimated spend reaches this many dollars. 0 = no limit.
   autoBudgetUsd: 5,
   followUpDays: 7,
+  // How to read job postings off the screen: 'ocr' (free, on this computer),
+  // 'ocr-then-claude' (free first, Claude only if that finds nothing), or 'claude'.
+  screenReader: 'ocr',
 };
 
 const DEFAULT_PROFILE = {
