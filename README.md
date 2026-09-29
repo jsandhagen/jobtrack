@@ -4,6 +4,7 @@ A friendly desktop helper that notices when you're looking at a job posting, tel
 
 - **Document library**: drop in resumes, old cover letters, project write-ups, performance reviews and certificates (PDF, DOCX, TXT, MD), or paste text.
 - **Automatic job detection**:
+  - 🌐 **Browser extension** (recommended, Chrome/Edge/Brave): reads the whole posting straight from the page, including the parts you haven't scrolled to. It pops up your score automatically on LinkedIn, Indeed, Greenhouse, Lever, Workday and other job sites, and works on any other site with one click or `Alt+Shift+J`. See [Browser extension](#browser-extension).
   - 📋 **Clipboard**: copy a job description anywhere and a popup appears with a score. This runs locally and makes no API calls.
   - ⌨️ **Hotkey** (`Ctrl/Cmd + Shift + J`): reads the job posting on your screen with free, on-device OCR.
   - 👀 **Screen watching** (off by default): reads the screen with OCR whenever it changes and then stays still.
@@ -49,6 +50,8 @@ Sprout keeps running in the system tray after you close the window, so detection
 | File | What it does |
 |---|---|
 | `src/main/main.js` | Electron app: windows, tray, hotkey, IPC, and the detect → score → generate pipeline |
+| `browser-extension/` | Chrome/Edge/Brave extension: reads the posting from the page and sends it to the app |
+| `src/main/bridge.js` | Local, paired connection between the extension and the app |
 | `src/main/ocr.js`, `src/main/pageText.js` | Free on-device OCR, and finding the posting in the recognised text |
 | `src/main/watcher.js` | Clipboard polling, screen-change detection (screenshot diff + wait until settled), dedupe |
 | `src/main/atsScore.js` | ATS-style match score, A–D grade, knockouts, parse checks and tips |
@@ -67,6 +70,25 @@ Sprout keeps running in the system tray after you close the window, so detection
 - **Prompt caching**: the instructions and your whole document library form a stable, cached system prompt. After the first call, checking another posting only pays full price for the new posting text.
 - **Refusal fallback** (`fallbacks: "default"`) is turned on, so a request declined by a safety classifier is retried on Anthropic's recommended fallback model.
 - **No invention**: the prompt forbids made-up employers, dates, metrics or skills. The resume also comes with "Notes from Sprout" listing anything you should double-check.
+
+### Browser extension
+
+The extension in `browser-extension/` reads the job straight from the web page, so it gets the full description without scrolling and without OCR errors. It tries, in order:
+
+1. **The site's own job data** (schema.org `JobPosting`). Most job sites embed this for Google's job search, and it gives an exact title, company, location, pay and description.
+2. **Known layouts** for LinkedIn, Indeed, Greenhouse, Lever, Workday and Glassdoor. On sites where the page changes without reloading (LinkedIn, Indeed, Glassdoor) these are checked first, because the embedded data can be left over from the previous job. Clicking through LinkedIn's job list is followed live.
+3. **A general finder** for any other site. It starts at a heading like "Responsibilities" or "Qualifications" and widens to the smallest part of the page that reads like a whole posting, stopping before menus, sidebars ("Other openings") and footers.
+
+It runs automatically only on well-known job sites. Everywhere else it reads a page only when you click its icon or press `Alt+Shift+J`, so it isn't reading the rest of your browsing.
+
+**Install (developer mode):**
+1. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
+2. Click **Load unpacked** and choose the `browser-extension` folder. Settings → *Browser extension* has a button that opens it.
+3. Click the 🌱 icon → **Connect**, then press **Allow** in the Sprout popup.
+
+**How it connects to the app:** the app listens on `127.0.0.1` only (ports 47321–47325). It accepts requests only from browser extensions: every request is a POST, which makes Chrome include an `Origin` header that web pages can't fake. Each request also needs the secret token handed out when you pressed **Allow**. You can disconnect a browser in Settings at any time. The code is in `src/main/bridge.js`.
+
+Tests: `npm run test:browser` loads the real extension into Chromium and serves mock LinkedIn, Greenhouse and company-careers pages at their real addresses. It checks pairing, text far below the fold, LinkedIn's in-page navigation, structured data, and that menus and sidebars are left out. On Linux without a display, use `xvfb-run`, or it runs headless as-is.
 
 ### Reading the screen without AI (OCR)
 
@@ -135,10 +157,13 @@ npm test   # unit tests: scoring, detection, storage, rendering, Claude calls wi
 ```
 
 ## Packaging note
-When packaging with `electron-builder`, unpack Tesseract's worker and model from the asar archive: `"asarUnpack": ["node_modules/tesseract.js/**", "node_modules/tesseract.js-core/**", "node_modules/@tesseract.js-data/**"]`.
+When packaging with `electron-builder`:
+- Unpack Tesseract's worker and model from the asar archive: `"asarUnpack": ["node_modules/tesseract.js/**", "node_modules/tesseract.js-core/**", "node_modules/@tesseract.js-data/**"]`.
+- Ship the extension folder alongside the app: `"extraResources": [{ "from": "browser-extension", "to": "browser-extension" }]`.
+- To install the extension without developer mode, publish it to the Chrome Web Store (and Edge Add-ons).
 
 ## Ideas for next steps
 - Package installers with `electron-builder` (.dmg / .exe / AppImage).
-- A companion browser extension that reads the posting's text straight from the web page. That would be exact rather than OCR'd, though OCR already covers every app and site.
+- A Firefox build of the extension (Manifest V3 background scripts), and publishing to the Chrome Web Store.
 - DOCX export, several resume templates, and letting you pick a "base resume" per role family.
 - Tracking deadlines and follow-up reminders in the application tracker.

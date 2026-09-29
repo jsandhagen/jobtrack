@@ -275,6 +275,7 @@ const views = {
           <div class="usage">${usageSummary()}</div>
           <button class="primary" id="saveClaudeUse" style="margin-top:10px">Save</button>
         </div>
+        <div class="card" id="extCard"><h2>🌐 Browser extension</h2><p class="muted"><span class="spinner"></span></p></div>
         <div class="card"><h2>Tracking</h2>
           <label>Remind me to follow up after (days)</label>
           <input id="followUpDays" type="number" min="1" max="60" value="${s.followUpDays}" style="max-width:160px">
@@ -461,7 +462,7 @@ async function renderApplication(id) {
 
   page.innerHTML = `
     <div class="card" style="margin-bottom:16px"><div class="app-head">${scoreRing(score, 116)}
-      <div class="grow"><div class="faint">${esc(a.via === 'screen' ? '📸 spotted on screen' : a.via === 'clipboard' ? '📋 from your clipboard' : '✍️ pasted in')} · ${timeAgo(a.createdAt)}</div>
+      <div class="grow"><div class="faint">${esc(a.via === 'screen' ? '📸 spotted on screen' : a.via === 'clipboard' ? '📋 from your clipboard' : a.via === 'browser' ? '🌐 from your browser' : '✍️ pasted in')} · ${timeAgo(a.createdAt)}</div>
         <h1 style="margin:2px 0">${esc(a.job.title)}</h1>
         <div class="muted" style="font-weight:700">${esc([a.job.company, a.job.location].filter(Boolean).join(' · '))}</div>
         <div style="margin-top:8px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}</div>
@@ -574,6 +575,40 @@ async function renderApplication(id) {
         }
       }, 'Saving…')
     )
+  );
+}
+
+// ---------------- browser extension ----------------
+
+async function renderExtensionCard() {
+  const card = document.getElementById('extCard');
+  if (!card) return;
+  const st = await S.bridgeStatus().catch(() => null);
+  if (!st || !document.getElementById('extCard')) return;
+  const browsers = st.pairings.length
+    ? `<div class="section-title">Connected browsers</div>${st.pairings
+        .map(
+          (p) => `<div class="kv" style="grid-template-columns:1fr auto"><span><b style="color:var(--ink)">${esc(p.name)}</b><br><span class="faint">connected ${fmtDate(p.pairedAt)}${p.lastSeenAt ? ` · last used ${timeAgo(p.lastSeenAt)}` : ''}</span></span>
+          <button class="small ghost danger" data-revoke="${esc(p.origin)}">Disconnect</button></div>`
+        )
+        .join('')}`
+    : '';
+  card.innerHTML = `<h2>🌐 Browser extension</h2>
+    <p class="muted">Reads the whole job posting straight from the web page — no screenshots, no scrolling — and pops up your score automatically on LinkedIn, Indeed, Greenhouse, Lever, Workday and more.</p>
+    ${st.port ? '' : '<div class="note-box" style="background:var(--peach-soft)">The connection for the extension couldn\'t start (another program may be using the port). Restart Sprout to try again.</div>'}
+    <ol class="tidy muted" style="padding-left:20px">
+      <li>In Chrome, Edge or Brave open <b>chrome://extensions</b> and turn on <b>Developer mode</b>.</li>
+      <li>Click <b>Load unpacked</b> and choose the extension folder: <button class="small soft" id="extFolder">📂 Show folder</button></li>
+      <li>Click the 🌱 Sprout icon in the toolbar → <b>Connect</b>, then choose <b>Allow</b> here.</li>
+    </ol>
+    ${browsers}`;
+  $('#extFolder', card).addEventListener('click', () => S.showExtensionFolder());
+  $$('[data-revoke]', card).forEach((b) =>
+    b.addEventListener('click', async () => {
+      await S.bridgeRevoke(b.dataset.revoke);
+      toast('Disconnected');
+      renderExtensionCard();
+    })
   );
 }
 
@@ -750,6 +785,7 @@ const binders = {
     );
   },
   settings() {
+    renderExtensionCard();
     $('#saveKey').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const v = $('#apiKey').value.trim();

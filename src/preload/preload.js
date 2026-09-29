@@ -40,7 +40,10 @@ contextBridge.exposeInMainWorld('sprout', {
   generateCoverLetter: (id) => call('app:coverLetter', id),
   exportDoc: (id, which, format, editedHtml) => call('app:export', id, which, format, editedHtml),
 
-  overlayAction: (action, appId) => call('overlay:action', { action, appId }),
+  overlayAction: (action, appId, extra = {}) => call('overlay:action', { action, appId, ...extra }),
+  bridgeStatus: () => call('bridge:status'),
+  bridgeRevoke: (origin) => call('bridge:revoke', origin),
+  showExtensionFolder: () => call('bridge:showFolder'),
   overlayResize: (h) => call('overlay:resize', h),
 
   onStateChanged: (cb) => on('state-changed', cb),

@@ -22,9 +22,12 @@ const { localFitScore } = require('./localFit');
 const claude = require('./claude');
 const { PostingWatcher, fingerprint } = require('./watcher');
 const ocr = require('./ocr');
+const { createBridge } = require('./bridge');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
+
+const crypto = require('crypto');
 
 const RENDERER = path.join(__dirname, '..', 'renderer');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.js');
@@ -35,6 +38,9 @@ let overlay = null;
 let tray = null;
 let watcher = null;
 let overlayHideTimer = null;
+let bridge = null;
+let bridgePort = null;
+const pairRequests = new Map(); // key -> resolve(boolean)
 
 // ---------------- API key ----------------
 
@@ -320,7 +326,7 @@ function wantsAutoAnalysis(local) {
   return false;
 }
 
-async function handlePosting(posting, { fromDashboard = false } = {}) {
+async function handlePosting(posting, { fromDashboard = false, waitForAnalysis = true, quietDuplicate = false } = {}) {
   const docs = store.allDocuments();
   const job = { title: posting.title || guessTitle(posting.text), company: posting.company || '', location: posting.location || '', text: posting.text, url: posting.url || '' };
   const fp = fingerprint(posting.text);
@@ -331,7 +337,9 @@ async function handlePosting(posting, { fromDashboard = false } = {}) {
   if (dup) {
     const updated = store.updateApplication(dup.id, { lastSeenAt: new Date().toISOString(), seenCount: (dup.seenCount || 1) + 1, ...(job.url && !dup.job.url ? { job: { ...dup.job, url: job.url } } : {}) });
     broadcast('app-updated', updated);
-    if (!fromDashboard) showOverlay({ mode: 'seen', app: withAts(updated) });
+    // Browsing past a job again: only speak up if it matters (you applied, etc.).
+    const worthMentioning = !['scored', 'skipped'].includes(updated.status);
+    if (!fromDashboard && (!quietDuplicate || worthMentioning)) showOverlay({ mode: 'seen', app: withAts(updated) });
     return updated;
   }
 
@@ -344,7 +352,10 @@ async function handlePosting(posting, { fromDashboard = false } = {}) {
   const showPopup = !fromDashboard && quick.score >= s.popupThreshold;
   if (showPopup) showOverlay({ mode: 'score', app: withAts(rec), analyzing: auto, noDocs: docs.length === 0, noKey: !hasKey });
 
-  if (auto) await analyzeApp(rec.id, { popup: showPopup, keepTitle: !!posting.title }).catch(() => {});
+  if (auto) {
+    const p = analyzeApp(rec.id, { popup: showPopup, keepTitle: !!posting.title }).catch(() => {});
+    if (waitForAnalysis) await p;
+  }
   return store.getApplication(rec.id);
 }
 
@@ -452,6 +463,80 @@ function safeFileName(s) {
   return String(s || 'resume').replace(/[^\w\s.-]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'resume';
 }
 
+// ---------------- browser extension bridge ----------------
+
+function extensionDir() {
+  return app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(__dirname, '..', '..', 'browser-extension');
+}
+
+function askToPair({ origin, name }) {
+  return new Promise((resolve) => {
+    const key = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      pairRequests.delete(key);
+      resolve(false);
+    }, 2 * 60 * 1000);
+    pairRequests.set(key, (ok) => {
+      clearTimeout(timer);
+      pairRequests.delete(key);
+      resolve(ok);
+    });
+    showOverlay({ mode: 'pair', key, name, origin });
+  });
+}
+
+async function startBridge() {
+  bridge = createBridge({
+    version: app.getVersion(),
+    getPairings: () => store.getSettings().bridgePairings || [],
+    savePairing: (p) => {
+      const others = (store.getSettings().bridgePairings || []).filter((x) => x.origin !== p.origin);
+      store.updateSettings({ bridgePairings: [...others, p] });
+      broadcast('state-changed');
+    },
+    askToPair,
+    onSeen: (origin) => {
+      const list = store.getSettings().bridgePairings || [];
+      const hit = list.find((x) => x.origin === origin);
+      if (hit && (!hit.lastSeenAt || Date.now() - Date.parse(hit.lastSeenAt) > 60000)) {
+        hit.lastSeenAt = new Date().toISOString();
+        store.updateSettings({ bridgePairings: list });
+      }
+    },
+    onPosting: async (p) => {
+      const job = { title: p.title, company: p.company, text: p.text };
+      const before = store.findDuplicate({ fingerprint: fingerprint(p.text), company: job.company, title: job.title });
+      const text = p.salary && !p.text.includes(p.salary) ? `${p.text}\n\nPay: ${p.salary}` : p.text;
+      const rec = await handlePosting(
+        { text, title: p.title, company: p.company, location: p.location, url: p.url, via: 'browser' },
+        { waitForAnalysis: false, quietDuplicate: p.auto }
+      );
+      const score = rec.analysis ? rec.analysis.score : rec.quick.score;
+      return {
+        id: rec.id,
+        score,
+        label: rec.analysis ? rec.analysis.label : rec.quick.label,
+        dealbreaker: !!(rec.quick.dealbreakers && rec.quick.dealbreakers.length),
+        status: rec.status,
+        appliedAt: rec.appliedAt || null,
+        seen: !!before,
+      };
+    },
+    onOpen: (id) => {
+      const w = createDashboard();
+      const go = () => w.webContents.send('navigate', { view: 'application', id });
+      if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go);
+      else go();
+    },
+  });
+  try {
+    bridgePort = await bridge.listen(Number(process.env.JOBTRACK_BRIDGE_PORT) || undefined);
+  } catch (err) {
+    console.warn('Browser extension bridge unavailable:', err.message);
+    bridgePort = null;
+  }
+}
+
 // ---------------- IPC ----------------
 
 function handle(channel, fn) {
@@ -466,7 +551,7 @@ function handle(channel, fn) {
 
 function registerIpc() {
   handle('state:get', () => ({
-    settings: store.getSettings(),
+    settings: { ...store.getSettings(), bridgePairings: undefined },
     profile: store.getProfile(),
     documents: store.listDocuments(),
     applications: store.listApplications().map(summarizeApp),
@@ -542,6 +627,16 @@ function registerIpc() {
     return updated;
   });
   handle('app:analyze', (id) => analyzeApp(id));
+  handle('bridge:status', () => ({
+    port: bridgePort,
+    folder: extensionDir(),
+    pairings: (store.getSettings().bridgePairings || []).map(({ origin, name, pairedAt, lastSeenAt }) => ({ origin, name, pairedAt, lastSeenAt })),
+  }));
+  handle('bridge:revoke', (origin) => {
+    store.updateSettings({ bridgePairings: (store.getSettings().bridgePairings || []).filter((p) => p.origin !== origin) });
+    broadcast('state-changed');
+  });
+  handle('bridge:showFolder', () => shell.openPath(extensionDir()));
   handle('shell:openExternal', (url) => {
     // Only real web links, never file:// or custom schemes.
     if (!/^https?:\/\//i.test(url || '')) throw new Error('That link doesn\'t look like a web address.');
@@ -618,7 +713,15 @@ function registerIpc() {
   });
 
   // overlay → main
-  handle('overlay:action', async ({ action, appId }) => {
+  handle('overlay:action', async ({ action, appId, key }) => {
+    if (action === 'pair-allow' || action === 'pair-deny') {
+      const resolve = pairRequests.get(key);
+      if (resolve) resolve(action === 'pair-allow');
+      if (action === 'pair-allow') showOverlay({ mode: 'message', mood: 'happy', title: 'Connected! 🎉', text: "Open a job posting in your browser and I'll score it right away." });
+      else hideOverlay();
+      broadcast('state-changed');
+      return;
+    }
     if (action === 'analyze') {
       showOverlay({ mode: 'score', app: withAts(store.getApplication(appId)), analyzing: true });
       await analyzeApp(appId, { popup: true }).catch((err) =>
@@ -774,6 +877,7 @@ if (!app.requestSingleInstanceLock()) {
     registerHotkey(store.getSettings().hotkey);
     checkFollowUps();
     setInterval(checkFollowUps, 60 * 60 * 1000);
+    startBridge();
   });
 
   // Keep running in the tray so detection keeps working after the dashboard closes.
@@ -783,6 +887,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('activate', () => createDashboard());
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
+    if (bridge) bridge.close();
     if (watcher) watcher.stopAll();
   });
 }

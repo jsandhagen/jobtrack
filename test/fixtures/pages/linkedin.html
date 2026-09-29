@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Senior Frontend Engineer | Acme Co. | LinkedIn</title>
+<!-- Stale embedded data for a previously viewed job: the extension must trust the visible layout on LinkedIn -->
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Old Stale Job","description":"<p>Responsibilities: stale. Requirements: stale. Qualifications: stale. Benefits: stale. Full-time. Remote. Preferred: stale. Experience with nothing.</p>","hiringOrganization":{"name":"Stale Corp"}}</script>
+<style>body{font-family:Arial;margin:0}.nav{height:50px}.wrap{display:flex}.list{width:380px}.post{flex:1;padding:20px}.spacer{height:1400px}</style></head>
+<body>
+<div class="nav">Home My Network Jobs Messaging Notifications</div>
+<div class="wrap">
+  <ul class="list">
+    <li><a href="#" data-job="data">Data Engineer — Globex Corporation — Austin, TX</a></li>
+    <li><a href="#" data-job="fe">Senior Frontend Engineer — Acme Co.</a></li>
+    <li><a href="#" data-job="pm">Product Manager — Initech — Remote</a></li>
+  </ul>
+  <div class="post">
+    <h1 class="job-details-jobs-unified-top-card__job-title">Senior Frontend Engineer</h1>
+    <div class="job-details-jobs-unified-top-card__company-name"><a>Acme Co.</a></div>
+    <div class="job-details-jobs-unified-top-card__primary-description-container"><span class="tvm__text">United States (Remote)</span></div>
+    <button>Easy Apply</button><button>Save</button>
+    <div id="job-details">
+      <h2>About the job</h2>
+      <p>We're looking for a frontend engineer to build delightful product experiences.</p>
+      <h3>Requirements</h3>
+      <ul><li>5+ years of professional experience building web applications</li><li>Expert in React and TypeScript</li><li>Experience with GraphQL and REST APIs</li></ul>
+      <div class="spacer"></div>
+      <h3>Nice to have</h3>
+      <ul><li>Next.js</li><li>Experience with Storybook (text far below the fold)</li></ul>
+      <p>Salary range: $150,000 - $185,000. Full-time. Benefits: health, 401k. Equal opportunity employer.</p>
+    </div>
+  </div>
+</div>
+<script>
+// Simulate LinkedIn's single-page navigation: clicking a job swaps the details without a reload.
+document.querySelector('[data-job="pm"]').addEventListener('click', (e) => {
+  e.preventDefault();
+  history.pushState({}, '', '/jobs/view/222');
+  document.querySelector('.job-details-jobs-unified-top-card__job-title').textContent = 'Product Manager';
+  document.querySelector('.job-details-jobs-unified-top-card__company-name a').textContent = 'Initech';
+  document.querySelector('#job-details').innerHTML = '<h2>About the job</h2><p>Own the roadmap for our payments product. You will partner with engineering, design and finance to ship features that help small businesses get paid faster, and you will talk to customers every week.</p><h3>Qualifications</h3><ul><li>4+ years of product management experience</li><li>Experience with Agile and roadmaps</li><li>Excellent communication skills</li></ul><h3>Preferred</h3><ul><li>Fintech background</li></ul><p>Remote, full-time. Benefits include health and 401k.</p>';
+});
+</script>
+</body></html>

@@ -96,6 +96,14 @@ function seenView({ app }) {
     <div class="actions" style="justify-content:center"><button class="primary" data-act="open">Open it</button><button class="ghost" data-act="dismiss-quiet">OK</button></div></div>`;
 }
 
+// The browser extension asks to connect.
+function pairView({ name }) {
+  return `<div class="center">${mascotSvg('curious', 76)}
+    <h3>Connect ${esc(name || 'your browser')}?</h3>
+    <p class="muted">The Sprout browser extension wants to send job postings to this app. Only allow it if you just clicked <b>Connect</b> in your browser.</p>
+    <div class="actions"><button class="primary" data-act="pair-allow">Allow</button><button class="ghost" data-act="pair-deny">Don't allow</button></div></div>`;
+}
+
 function messageView({ mood, title, text }) {
   return `<div class="center">${mascotSvg(mood || 'curious', 80)}<h3>${esc(title)}</h3><p class="muted">${esc(text)}</p>
     <div class="actions" style="justify-content:center"><button class="ghost" data-act="dismiss-quiet">OK</button></div></div>`;
@@ -123,6 +131,7 @@ function render(payload) {
   else if (payload.mode === 'working') content.innerHTML = workingView(payload);
   else if (payload.mode === 'done') content.innerHTML = doneView(payload);
   else if (payload.mode === 'seen') content.innerHTML = seenView(payload);
+  else if (payload.mode === 'pair') content.innerHTML = pairView(payload);
   else content.innerHTML = messageView(payload);
   animateRings(content);
   if (payload.mode === 'done' || (payload.mode === 'score' && !payload.analyzing && payload.app.analysis && payload.app.analysis.score >= 80)) confetti();
@@ -135,6 +144,7 @@ content.addEventListener('click', (e) => {
   const appId = current && current.app ? current.app.id : null;
   const act = btn.dataset.act;
   if (act === 'dismiss-quiet') return window.sprout.overlayAction('dismiss', null);
+  if (act.startsWith('pair-')) return window.sprout.overlayAction(act, null, { key: current.key });
   window.sprout.overlayAction(act, appId);
 });
 document.getElementById('close').addEventListener('click', () => window.sprout.overlayAction('dismiss', null));
