@@ -127,20 +127,19 @@ const BASE = 64; // room below floor 1 for the starting camp
 
 function mapLayout(run) {
   const n = run.map.length;
-  const height = BASE + ROW * n + 24;
+  const height = BASE + ROW * n + 30;
   const y = (f) => height - BASE - (f + 0.5) * ROW;
   // Two choices sit left and right with a little per-floor wobble, so it
   // reads like a hand-drawn trail instead of a table.
-  const x = (f, k, count) => (count === 1 ? 50 : (k === 0 ? 30 : 70) + ((run.act * 37 + f * 53 + k * 19) % 13) - 6);
+  const x = (f, k, count) => (count === 1 ? 50 : (k === 0 ? 34 : 66) + ((run.act * 37 + f * 53 + k * 19) % 9) - 4);
   const pos = run.map.map((floor, f) => floor.map((_, k) => ({ x: x(f, k, floor.length), y: y(f) })));
-  return { height, pos, base: { x: 50, y: height - 30 } };
+  return { height, pos, base: { x: 50, y: height - 40 } };
 }
 
 function mapBoard(run, can) {
   const { height, pos, base } = mapLayout(run);
   const n = run.map.length;
   const reached = run.cleared ? n : run.floor; // floors fully behind you
-  const at = (f) => (f < 0 ? base : pos[f][run.path[f]]); // where the route passed on floor f
   const lines = [];
   for (let f = -1; f < n - 1; f++) {
     const from = f < 0 ? [base] : pos[f];
@@ -166,18 +165,20 @@ function mapBoard(run, can) {
           const now = f === reached && !run.cleared;
           const state = f < reached ? (run.path[f] === k ? 'taken' : 'skipped') : now ? 'now' : 'ahead';
           const p = pos[f][k];
-          return `<button class="mnode n-${node.type} ${state}" style="left:${p.x}%;top:${p.y}px" ${now && can ? `data-node="${k}"` : 'disabled'} title="${esc(name)}">
-            <span class="mdot">${icon(ic, node.type === 'boss' ? 36 : 24)}</span><span class="mlabel">${esc(name)}</span></button>`;
+          // Sprout stands in the last node you reached.
+          const here = state === 'taken' && f === reached - 1;
+          // Names go on the outer side (or above the boss), where no trails run.
+          const side = floor.length === 1 ? 'side-t' : k === 0 ? 'side-l' : 'side-r';
+          return `<button class="mnode ${side} n-${node.type} ${state}${here ? ' here' : ''}" style="left:${p.x}%;top:${p.y}px" ${now && can ? `data-node="${k}"` : 'disabled'} title="${esc(here ? `Sprout is here · ${name}` : name)}">
+            <span class="mdot">${here ? mascotSvg(run.knocked ? 'hug' : 'happy', node.type === 'boss' ? 62 : 40) : icon(ic, node.type === 'boss' ? 36 : 24)}</span><span class="mlabel">${esc(name)}</span></button>`;
         })
         .join('')
     )
     .join('');
-  const here = run.cleared ? pos[n - 1][0] : at(reached - 1);
   return `<div class="tower" style="height:${height}px">${bands}
     <svg class="trails" viewBox="0 0 100 ${height}" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>
-    <div class="camp" style="left:${base.x}%;top:${base.y}px">${icon('flame', 18)}<span>Start</span></div>
+    <div class="camp${reached === 0 ? ' here' : ''}" style="left:${base.x}%;top:${base.y}px" title="${reached === 0 ? 'Sprout is here' : 'Start'}"><span class="mdot">${reached === 0 ? mascotSvg(run.knocked ? 'hug' : 'happy', 34) : icon('flame', 18)}</span><span class="mlabel">Start</span></div>
     ${nodes}
-    <div class="you" style="left:${here.x}%;top:${here.y}px" title="Sprout is here">${mascotSvg(run.knocked ? 'hug' : 'happy', 38)}</div>
   </div>`;
 }
 

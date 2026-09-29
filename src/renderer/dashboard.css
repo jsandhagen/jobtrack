@@ -317,7 +317,8 @@ details.tray-card summary { cursor: pointer; }
 .trails .next { stroke: var(--sage-deep); stroke-width: 3; stroke-dasharray: 2 8; animation: march 1s linear infinite; }
 .trails .taken { stroke: var(--sage); stroke-width: 4.5; }
 @keyframes march { to { stroke-dashoffset: -20; } }
-.mnode { position: absolute; translate: -50% -50%; /* not transform: the theme sets that on buttons */ width: 120px; padding: 0; border: 0; background: none; box-shadow: none; display: flex; flex-direction: column; align-items: center; gap: 3px; color: #6e5232; font-weight: 800; }
+/* The circle is the anchor: centred on the node's point so trails meet it; the label hangs below. */
+.mnode, .camp { position: absolute; translate: -50% -50%; /* not transform: the theme sets that on buttons */ padding: 0; border: 0; background: none; box-shadow: none; display: block; color: #6e5232; font-weight: 800; }
 .mnode:hover { border: 0; }
 .mnode:disabled { cursor: default; opacity: 1; } /* the theme dims disabled buttons; nodes stay solid so trails don't show through */
 .mdot { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; background: #fffaf0; border: 2.5px solid #c9ae80; box-shadow: 0 2px 0 #dcc59c; transition: transform .15s; }
@@ -325,7 +326,13 @@ details.tray-card summary { cursor: pointer; }
 .mnode.n-elite .mdot { color: #c2703f; border-color: #e0a07a; }
 .mnode.n-rest .mdot { color: #e08a4a; }
 .mnode.n-treasure .mdot { color: #a07a1c; }
-.mlabel { font-size: 11.5px; line-height: 1.2; text-align: center; padding: 1px 6px; border-radius: 6px; background: rgba(255, 250, 240, .85); }
+.mlabel { position: absolute; width: max-content; max-width: 96px; white-space: normal; /* buttons are nowrap in the theme */ font-size: 11.5px; line-height: 1.2; padding: 1px 6px; border-radius: 6px; background: rgba(255, 250, 240, .85); }
+.side-l .mlabel { right: 100%; top: 50%; translate: -6px -50%; text-align: right; }
+.side-r .mlabel { left: 100%; top: 50%; translate: 6px -50%; text-align: left; }
+.side-t .mlabel { bottom: 100%; left: 50%; translate: -50% -4px; max-width: none; white-space: nowrap; }
+.camp .mlabel { top: 100%; left: 50%; translate: -50% 3px; }
+.mnode.here .mdot, .camp.here .mdot { overflow: hidden; background: var(--sage-soft); }
+.mnode.here .mdot .sprout, .camp.here .mdot .sprout { margin-top: 6px; }
 .mnode.skipped .mdot { background: #efe3c8; border-color: #dccaa6; color: #c4ad84; box-shadow: none; }
 .mnode.skipped .mlabel { color: #c4ad84; background: none; }
 .mnode.taken .mdot { background: var(--sage-soft); border-color: var(--sage); color: var(--sage-deep); }
@@ -334,14 +341,14 @@ details.tray-card summary { cursor: pointer; }
 .mnode.now:not(:disabled) .mdot { animation: node-pulse 1.8s ease-in-out infinite; }
 .mnode.now:not(:disabled):hover .mdot { transform: scale(1.12); background: var(--sage-soft); }
 @keyframes node-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(111, 178, 138, .5); } 50% { box-shadow: 0 0 0 9px rgba(111, 178, 138, 0); } }
-.camp { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #a8895a; }
-.camp .ic { color: #e08a4a; }
-.you { position: absolute; transform: translate(12px, -44px); pointer-events: none; filter: drop-shadow(0 2px 2px rgba(60, 40, 10, .25)); }
+.camp .mdot { width: 38px; height: 38px; color: #e08a4a; }
+.camp .mlabel { font-size: 10.5px; text-transform: uppercase; color: #a8895a; background: none; }
+.camp.here .mdot { width: 50px; height: 50px; border-color: var(--sage); }
 @media (prefers-color-scheme: dark) {
   .spire-map { background: #2e2a22; }
   .tower { background: radial-gradient(ellipse at 50% 0%, rgba(233, 138, 138, .12) 0, transparent 45%), linear-gradient(180deg, #3a3428, #332e24); box-shadow: inset 0 0 0 2px #4d4433, inset 0 0 40px rgba(0, 0, 0, .3); }
   .band { border-top-color: rgba(220, 190, 140, .14); }
-  .band span, .camp { color: #b39c74; }
+  .band span, .camp .mlabel { color: #b39c74; }
   .trails .future { stroke: #7d6c4e; } .trails .faded { stroke: #5c5140; }
   .mnode { color: #e8dcc4; }
   .mdot { background: #2b2720; border-color: #7d6c4e; box-shadow: 0 2px 0 #1e1b16; }
