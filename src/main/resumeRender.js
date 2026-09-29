@@ -123,4 +123,27 @@ function resumeToMarkdown(r) {
   return out.filter((l) => l !== '' && l != null).join('\n\n') + '\n';
 }
 
-module.exports = { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, esc };
+
+
+// Plain text the way a resume parser would read our rendered HTML (bullets as
+// "- ", headings on their own lines). Used to ATS-score edited resumes.
+function htmlToText(html) {
+  return String(html || '')
+    .replace(/<(style|script|title)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<li[^>]*>/gi, '\n- ')
+    .replace(/<\/(h[1-6]|p|div|li|header|ul|section)>/gi, '\n')
+    .replace(/<(br|h[1-6])[^>]*>/gi, '\n')
+    .replace(/<span[^>]*>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+module.exports = { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText, esc };

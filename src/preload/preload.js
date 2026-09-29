@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('sprout', {
   analyzeJob: (posting) => call('job:analyze', posting),
   scanScreen: () => call('job:scanScreen'),
   getApplication: (id) => call('app:get', id),
+  rescoreAts: (id, html) => call('ats:rescore', id, html),
   updateApplication: (id, patch) => call('app:update', id, patch),
   removeApplication: (id) => call('app:remove', id),
   generateResume: (id) => call('app:resume', id),

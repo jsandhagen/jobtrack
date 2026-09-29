@@ -44,9 +44,20 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
       <div><div class="label">${esc(label)}</div>
       <div class="src">${analyzing ? '<span class="spinner"></span> Claude is reading closely…' : a ? 'Scored by Claude' : 'Quick keyword estimate'}</div></div>
     </div>
+    ${atsLine(app)}
     ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : ''}
     <div class="chips">${chips}</div>
     ${footer}`;
+}
+
+// "How an ATS would see the resume you have today", Workday-style grade included.
+function atsLine(app) {
+  const b = app.ats && app.ats.before;
+  if (!b) return '';
+  const grade = (app.analysis && app.analysis.grade) || b.grade;
+  return `<div class="ats-line" title="Estimated applicant-tracking-system match for your current resume">
+    <span class="grade g-${grade}">${grade}</span>
+    <span>ATS match for your current resume: <b>${b.score}%</b>${b.skillsMatch ? ` · skills ${esc(b.skillsMatch.toLowerCase())}` : ''}</span></div>`;
 }
 
 function workingView({ app }) {
@@ -59,7 +70,8 @@ function workingView({ app }) {
 function doneView({ app }) {
   return `<div class="center">${mascotSvg('thrilled', 88)}
     <h3>Your resume is ready! 🎉</h3>
-    <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company)}` : ''}. Give it a quick read, tweak anything you like, and export to PDF.</p>
+    <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : ''}. Give it a quick read, tweak anything you like, and export to PDF.</p>
+    ${app.ats && app.ats.after ? `<div class="ats-compare">ATS match ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${app.ats.after.score}%</b> <span class="grade g-${app.ats.after.grade}">${app.ats.after.grade}</span></div>` : ''}
     <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="dismiss-quiet">Later</button></div></div>`;
 }
 

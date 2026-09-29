@@ -110,10 +110,13 @@ function findSkills(text) {
   return found;
 }
 
-// Weight each skill by where it shows up in the posting: required-sounding
-// lines count more than nice-to-haves.
-function weightedJobSkills(jobText) {
-  const weights = new Map();
+// Classify each skill the posting mentions by where it shows up: in a
+// required-sounding line/section, a nice-to-have one, or neither. Also keep the
+// exact wording the posting used, for strict (literal) keyword matching.
+const KIND_RANK = { preferred: 0, neutral: 1, required: 2 };
+
+function classifyJobSkills(jobText) {
+  const out = new Map(); // skill -> { kind, term }
   let section = 'neutral';
   for (const rawLine of lower(jobText).split('\n')) {
     const line = rawLine.trim();
@@ -123,12 +126,27 @@ function weightedJobSkills(jobText) {
     if (PREFERRED_CUE.test(line)) lineKind = 'preferred';
     else if (REQUIRED_CUE.test(line)) lineKind = 'required';
     if (isHeading && lineKind !== section) section = lineKind;
-    const w = lineKind === 'required' ? 1.5 : lineKind === 'preferred' ? 0.6 : 1;
     for (const [skill, patterns] of Object.entries(SKILLS)) {
-      if (patterns.some((p) => p.test(line))) {
-        weights.set(skill, Math.max(weights.get(skill) || 0, w));
+      for (const p of patterns) {
+        const m = line.match(p);
+        if (!m) continue;
+        // Extend to the whole word so "rest api" becomes "rest apis", as written.
+        const tail = line.slice(m.index + m[0].length).match(/^[a-z0-9+#]*/)[0];
+        const term = (m[0] + tail).trim();
+        const prev = out.get(skill);
+        if (!prev || KIND_RANK[lineKind] > KIND_RANK[prev.kind]) out.set(skill, { kind: lineKind, term });
+        break;
       }
     }
+  }
+  return out;
+}
+
+// Required-sounding mentions count more than nice-to-haves.
+function weightedJobSkills(jobText) {
+  const weights = new Map();
+  for (const [skill, { kind }] of classifyJobSkills(jobText)) {
+    weights.set(skill, kind === 'required' ? 1.5 : kind === 'preferred' ? 0.6 : 1);
   }
   return weights;
 }
@@ -256,6 +274,10 @@ function looksLikeJobPosting(text) {
 }
 
 module.exports = {
+  SKILLS,
+  STOPWORDS,
+  classifyJobSkills,
+  significantTerms,
   quickFitScore,
   looksLikeJobPosting,
   findSkills,

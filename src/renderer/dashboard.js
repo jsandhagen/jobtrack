@@ -230,6 +230,7 @@ const views = {
 function appRow(a) {
   return `<div class="row-item" data-app="${a.id}"><div class="pill ${pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Quick estimate'}">${a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc([a.job.company, a.label, timeAgo(a.createdAt)].filter(Boolean).join(' · '))}</div></div>
+    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : a.atsBefore !== null && a.atsBefore !== undefined ? `<span class="chip" title="ATS match for your current resume">ATS ${a.atsBefore}%</span>` : ''}
     ${a.hasResume ? '<span class="chip good">📄 resume</span>' : ''}${a.hasLetter ? '<span class="chip lav">💌 letter</span>' : ''}
     <span class="status ${a.status}">${esc(a.status.replace('-', ' '))}</span></div>`;
 }
@@ -237,6 +238,58 @@ function appRow(a) {
 function prettyHotkey() {
   const mac = state.platform === 'darwin';
   return state.settings.hotkey.replace('CommandOrControl', mac ? '⌘' : 'Ctrl').replace(/\+/g, mac ? '' : '+').replace('Shift', mac ? '⇧' : 'Shift');
+}
+
+// ---------------- ATS panel ----------------
+
+const COMPONENT_LABELS = [
+  ['hardSkills', 'Hard skills', 'Weighted most heavily; required skills count double'],
+  ['jobTitle', 'Job title', 'Recruiters and ATS searches often filter by title'],
+  ['experience', 'Years of experience', 'Compared with the years the posting asks for'],
+  ['education', 'Education', 'Degree level vs. what the posting asks for'],
+  ['keywords', 'Other keywords', 'Domain vocabulary from the posting'],
+  ['softSkills', 'Soft skills', 'Counted, but weighted lightly'],
+  ['parseability', 'Parse-ready format', 'Contact info, standard headings, dates, length, quantified bullets'],
+];
+
+function barColor(v) {
+  return v >= 75 ? 'var(--sage)' : v >= 50 ? 'var(--butter)' : 'var(--peach)';
+}
+
+function atsPanel(ats) {
+  const b = ats.before;
+  const a = ats.after;
+  const main = a || b;
+  if (!main) return '';
+  const delta = a && b ? a.score - b.score : null;
+  const side = (r, caption) =>
+    r
+      ? `<div class="ats-side">${scoreRing(r.score, 84, 'ATS')}<div><div class="faint">${caption}</div>
+        <div class="inline" style="gap:6px;margin-top:4px"><span class="grade big g-${r.grade}" title="Workday HiredScore-style grade">${r.grade}</span>
+        <div class="faint" style="line-height:1.35">basic quals ${r.basic.met}/${r.basic.total}<br>preferred ${r.preferred.met}/${r.preferred.total}</div></div></div></div>`
+      : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Generate the tailored resume to see its ATS score here.</div></div>`;
+  const stat = (label, value, hint) => `<div class="ats-stat" title="${esc(hint)}"><b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
+  return `<div class="card ats-card" id="atsCard">
+    <div class="page-head" style="margin-bottom:10px"><div><h2 style="margin:0">📊 ATS check</h2>
+      <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Aim for 75–80%+.</p></div>
+      ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
+    <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
+    <div class="ats-stats">
+      ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more')}
+      ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search")}
+      ${stat('Smart keywords', main.normalizedKeywordRate === null ? null : main.normalizedKeywordRate + '%', 'Synonym-aware matches (AWS = Amazon Web Services), like iCIMS / SuccessFactors semantic matching')}
+      ${stat('Knockouts', main.knockouts.length, 'Required qualifications not found. Systems like Taleo can auto-filter on these')}
+    </div>
+    <div class="ats-bars">${COMPONENT_LABELS.filter(([k]) => main.components[k] !== null)
+      .map(([k, label, hint]) => {
+        const v = main.components[k];
+        return `<div class="ats-bar" title="${esc(hint)}"><span>${label}</span><div class="track"><i style="width:${v}%;background:${barColor(v)}"></i></div><b>${v}</b></div>`;
+      })
+      .join('')}</div>
+    ${main.knockouts.length ? `<div class="section-title">Possible knockouts</div><div>${main.knockouts.map((k) => `<span class="chip grow">⚠ ${esc(k)}</span>`).join('')}</div>` : ''}
+    ${main.tips.length ? `<details ${a ? '' : 'open'}><summary class="section-title" style="cursor:pointer">How to raise it (${main.tips.length})</summary><ul class="tidy">${main.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>` : ''}
+    <p class="faint" style="margin:10px 0 0">An estimate based on how Workday, Taleo, iCIMS and resume scanners like Jobscan are documented to work. Vendors keep their exact formulas private, and many companies (e.g. on Greenhouse) have people read every resume, so write for humans first.</p>
+  </div>`;
 }
 
 // ---------------- application detail ----------------
@@ -260,6 +313,10 @@ async function renderApplication(id) {
     ? `<p style="font-weight:700">${esc(an.headline)}</p>
       <div class="section-title">Why you fit</div><ul class="tidy">${an.strengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       ${an.gaps.length ? `<div class="section-title">Room to grow</div><ul class="tidy muted">${an.gaps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
+      ${an.qualifications && an.qualifications.length ? `<div class="section-title">Qualifications checklist ${an.grade ? `<span class="grade g-${an.grade}" title="HiredScore-style grade from Claude's checklist">${an.grade}</span>` : ''}</div>
+      <ul class="quals">${an.qualifications
+        .map((q) => `<li class="q-${q.status}" title="${esc(q.evidence)}"><span class="qi">${q.status === 'met' ? '✓' : q.status === 'partial' ? '½' : '·'}</span><span>${esc(q.requirement)}${q.type === 'preferred' ? ' <em class="faint">(preferred)</em>' : ''}</span></li>`)
+        .join('')}</ul>` : ''}
       <div class="section-title">Talking points</div><ul class="tidy">${an.talking_points.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>`
     : `<p class="muted">${
@@ -310,6 +367,7 @@ async function renderApplication(id) {
         <select id="statusSel">${STATUSES.map((s) => `<option ${s === a.status ? 'selected' : ''} value="${s}">${s.replace('-', ' ')}</option>`).join('')}</select>
         <button class="ghost danger small" id="delApp">Delete</button>
       </div></div></div>
+    <div id="atsSlot">${a.ats ? atsPanel(a.ats) : ''}</div>
     <div class="grid sidebar">
       <div>
         <div class="tabs">
@@ -331,6 +389,20 @@ async function renderApplication(id) {
     frame.addEventListener('load', () => {
       frame.contentDocument.designMode = 'on';
       frame.style.height = Math.max(900, frame.contentDocument.documentElement.scrollHeight + 40) + 'px';
+      if (appTab !== 'resume') return;
+      // Re-score as the user edits, so they can see which changes help.
+      let t = null;
+      frame.contentDocument.addEventListener('input', () => {
+        clearTimeout(t);
+        t = setTimeout(async () => {
+          const after = await S.rescoreAts(id, '<!doctype html>' + frame.contentDocument.documentElement.outerHTML).catch(() => null);
+          const slot = document.getElementById('atsSlot');
+          if (after && slot) {
+            slot.innerHTML = atsPanel({ before: a.ats.before, after });
+            animateRings(slot);
+          }
+        }, 500);
+      });
     });
   }
 

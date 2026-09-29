@@ -45,3 +45,6 @@ body { padding: 10px; user-select: none; }
 .chips .chip { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
 .actions .soft { flex: 1; justify-content: center; }
 .actions .ghost { padding: 8px 10px; }
+.ats-line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-soft); background: var(--surface-2); border-radius: 10px; padding: 6px 10px; margin: -2px 0 10px; }
+.ats-compare { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; background: var(--sage-soft); border-radius: 12px; padding: 6px 12px; margin-bottom: 12px; }
+.ats-compare .was { color: var(--ink-faint); text-decoration: line-through; }

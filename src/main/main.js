@@ -20,7 +20,8 @@ const { importFile, SUPPORTED } = require('./documents');
 const { quickFitScore } = require('./fitScore');
 const claude = require('./claude');
 const { PostingWatcher } = require('./watcher');
-const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown } = require('./resumeRender');
+const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
+const { atsScore, libraryAtsScore } = require('./atsScore');
 
 const RENDERER = path.join(__dirname, '..', 'renderer');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.js');
@@ -271,7 +272,7 @@ async function handlePosting(posting, { fromDashboard = false } = {}) {
   const hasKey = !!getApiKey();
   const s = store.getSettings();
   const showPopup = !fromDashboard && quick.score >= s.popupThreshold;
-  if (showPopup) showOverlay({ mode: 'score', app: rec, analyzing: hasKey && docs.length > 0, noDocs: docs.length === 0, noKey: !hasKey });
+  if (showPopup) showOverlay({ mode: 'score', app: withAts(rec), analyzing: hasKey && docs.length > 0, noDocs: docs.length === 0, noKey: !hasKey });
 
   if (hasKey && docs.length) {
     try {
@@ -280,13 +281,22 @@ async function handlePosting(posting, { fromDashboard = false } = {}) {
       if (analysis.job_title && !posting.title) patch.job = { ...rec.job, title: analysis.job_title, company: rec.job.company || analysis.company };
       const updated = store.updateApplication(rec.id, patch);
       broadcast('app-updated', updated);
-      if (showPopup && overlay && overlay.isVisible()) overlay.webContents.send('overlay:show', { mode: 'score', app: updated, analyzing: false });
+      if (showPopup && overlay && overlay.isVisible()) overlay.webContents.send('overlay:show', { mode: 'score', app: withAts(updated), analyzing: false });
     } catch (err) {
       broadcast('app-updated', store.updateApplication(rec.id, { analysisError: err.message }));
-      if (showPopup && overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:show', { mode: 'score', app: store.getApplication(rec.id), analyzing: false });
+      if (showPopup && overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:show', { mode: 'score', app: withAts(store.getApplication(rec.id)), analyzing: false });
     }
   }
   return store.getApplication(rec.id);
+}
+
+// ATS view of the application: the resume the user has today vs the tailored one.
+// Computed on read so it stays current as the library or the resume is edited.
+function withAts(rec) {
+  if (!rec) return rec;
+  const before = libraryAtsScore(rec.job, store.allDocuments());
+  const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml)) : null;
+  return { ...rec, ats: { before, after } };
 }
 
 function guessTitle(text) {
@@ -306,6 +316,7 @@ async function makeResume(appId) {
       documents: docsForPrompt(),
       profile: store.getProfile(),
       analysis: rec.analysis,
+      ats: libraryAtsScore(rec.job, store.allDocuments()),
       model: store.getSettings().model,
     });
     const updated = store.updateApplication(appId, { resume, resumeHtml: renderResumeHtml(resume), resumeStatus: 'ready', status: 'resume-ready' });
@@ -423,7 +434,13 @@ function registerIpc() {
     return handlePosting({ ...posting, text: posting.text.trim(), via: 'manual' }, { fromDashboard: true });
   });
   handle('job:scanScreen', () => scanNow());
-  handle('app:get', (id) => store.getApplication(id));
+  handle('app:get', (id) => withAts(store.getApplication(id)));
+  // Live re-score while the user edits the resume preview (nothing is saved).
+  handle('ats:rescore', (id, html) => {
+    const rec = store.getApplication(id);
+    if (!rec) throw new Error('Application not found.');
+    return atsScore(rec.job, htmlToText(html));
+  });
   handle('app:update', (id, patch) => {
     const allowed = {};
     for (const k of ['status', 'notes']) if (patch[k] !== undefined) allowed[k] = patch[k];
@@ -471,11 +488,11 @@ function registerIpc() {
       if (w.webContents.isLoading()) w.webContents.once('did-finish-load', send);
       else send();
     } else if (action === 'resume' || action === 'both') {
-      showOverlay({ mode: 'working', app: store.getApplication(appId) });
+      showOverlay({ mode: 'working', app: withAts(store.getApplication(appId)) });
       try {
         if (action === 'both') await Promise.all([makeResume(appId), makeCoverLetter(appId)]);
         else await makeResume(appId);
-        showOverlay({ mode: 'done', app: store.getApplication(appId) });
+        showOverlay({ mode: 'done', app: withAts(store.getApplication(appId)) });
         overlayHideTimer = setTimeout(hideOverlay, 30000);
       } catch (err) {
         showOverlay({ mode: 'message', mood: 'curious', title: 'Oops, a little hiccup', text: err.message });
@@ -503,6 +520,11 @@ function summarizeApp(a) {
     score: a.analysis ? a.analysis.score : a.quick.score,
     label: a.analysis ? a.analysis.label : a.quick.label,
     scoreSource: a.analysis ? 'claude' : 'quick',
+    atsBefore: (() => {
+      const b = libraryAtsScore(a.job, store.allDocuments());
+      return b ? b.score : null;
+    })(),
+    atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml)).score : null,
     hasResume: !!a.resume,
     hasLetter: !!a.letter,
   };

@@ -137,3 +137,11 @@ input[type="checkbox"] { width: auto; accent-color: var(--sage); transform: scal
 
 ul.tidy { margin: 0; padding-left: 18px; }
 ul.tidy li { margin-bottom: 5px; }
+
+/* ATS grade badges (A–D, Workday HiredScore-style) */
+.grade { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; font-weight: 900; font-size: 13px; flex: none; }
+.grade.g-A { background: var(--sage); color: #fff; }
+.grade.g-B { background: var(--sage-soft); color: var(--sage-deep); }
+.grade.g-C { background: var(--butter-soft); color: #a07a1c; }
+.grade.g-D { background: var(--peach-soft); color: #b8653e; }
+.grade.big { width: 40px; height: 40px; font-size: 20px; border-radius: 12px; }

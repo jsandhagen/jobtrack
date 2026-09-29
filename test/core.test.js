@@ -196,10 +196,14 @@ function fakeClient(output, extra = {}) {
 const DOCS = [{ name: 'resume.md', kind: 'resume', text: RESUME }];
 
 test('analyzeFit sends documents in a cached system prompt and clamps the score', async () => {
-  const client = fakeClient({ score: 130, headline: 'Great', strengths: ['React'], gaps: [], talking_points: ['x'], keywords: ['React'], job_title: 'FE', company: 'Acme' });
+  const client = fakeClient({
+    score: 130, headline: 'Great', strengths: ['React'], gaps: [], talking_points: ['x'], keywords: ['React'], job_title: 'FE', company: 'Acme',
+    qualifications: [{ requirement: 'React', type: 'basic', status: 'met', evidence: 'Bloom Labs' }],
+  });
   const res = await claude.analyzeFit(client, { job: { title: 'FE', text: POSTING }, documents: DOCS, profile: { name: 'Jordan' } });
   assert.equal(res.score, 100);
   assert.equal(res.label, 'Excellent match');
+  assert.equal(res.grade, 'A');
   const req = client.requests[0];
   assert.equal(req.model, 'claude-opus-5-5');
   assert.equal(req.fallbacks, 'default');

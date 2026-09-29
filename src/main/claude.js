@@ -4,6 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { betaZodOutputFormat } = require('@anthropic-ai/sdk/helpers/beta/zod');
 const { z } = require('zod');
 const { fitLabel } = require('./fitScore');
+const { gradeFromQualifications } = require('./atsScore');
 
 const DEFAULT_MODEL = 'claude-opus-5-5';
 // If a request is declined by a safety classifier, let the API re-run it on
@@ -33,6 +34,16 @@ const FitAnalysis = z.object({
   gaps: z.array(z.string()).describe('0-5 requirements the documents do not clearly show, phrased constructively'),
   talking_points: z.array(z.string()).describe('2-4 things to emphasise in the application'),
   keywords: z.array(z.string()).describe('Important keywords from the posting that the resume should include where truthful'),
+  qualifications: z
+    .array(
+      z.object({
+        requirement: z.string().describe('One qualification from the posting, briefly'),
+        type: z.enum(['basic', 'preferred']).describe('basic = required / minimum qualification; preferred = nice-to-have'),
+        status: z.enum(['met', 'partial', 'not_met']),
+        evidence: z.string().describe('Where the documents show it, or what is missing'),
+      })
+    )
+    .describe("Every distinct qualification the posting lists, checked against the candidate's documents the way a recruiter screening against basic and preferred qualifications would"),
   job_title: z.string().describe('Job title from the posting'),
   company: z.string().describe('Company from the posting, or empty string'),
 });
@@ -159,13 +170,31 @@ Assess how well the candidate fits this role based on their documents. Score 0-1
     schema: FitAnalysis,
   });
   const score = Math.max(0, Math.min(100, Math.round(result.score)));
-  return { ...result, score, label: fitLabel(score), source: 'claude' };
+  return { ...result, score, label: fitLabel(score), grade: gradeFromQualifications(result.qualifications, score), source: 'claude' };
 }
 
-async function generateResume(client, { job, documents, profile, analysis, model }) {
-  const guidance = analysis
-    ? `\n\nEarlier fit analysis to build on:\nStrengths: ${analysis.strengths.join('; ')}\nTalking points: ${analysis.talking_points.join('; ')}\nKeywords: ${analysis.keywords.join(', ')}`
-    : '';
+// Tell Claude what an applicant tracking system will look for, so the
+// resume uses the posting's exact wording wherever it's truthful.
+function atsGuidance(job, ats) {
+  if (!ats) return '';
+  const terms = [
+    ...ats.missingSkills.map((m) => m.term),
+    ...(ats.wordingTerms || []),
+  ];
+  const lines = [
+    `\n\nApplicant tracking systems will scan this resume. Many match keywords literally, weight required skills most, and look for the job title.`,
+    terms.length ? `- Posting terms the candidate's current resume lacks or words differently: ${[...new Set(terms)].join(', ')}. Use the posting's exact wording for any of these the documents genuinely support; leave out the rest.` : '',
+    job.title ? `- If it accurately describes the candidate, echo the job title "${job.title}" in the headline.` : '',
+    `- Give every role clear dates, and put concrete numbers in bullets wherever the documents provide them.`,
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
+async function generateResume(client, { job, documents, profile, analysis, ats, model }) {
+  const guidance =
+    (analysis
+      ? `\n\nEarlier fit analysis to build on:\nStrengths: ${analysis.strengths.join('; ')}\nTalking points: ${analysis.talking_points.join('; ')}\nKeywords: ${analysis.keywords.join(', ')}`
+      : '') + atsGuidance(job, ats);
   return structuredCall(client, {
     model,
     effort: 'high',
