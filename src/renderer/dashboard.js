@@ -411,7 +411,7 @@ async function renderApplication(id) {
       ${an.gaps.length ? `<div class="section-title">Room to grow</div><ul class="tidy muted">${an.gaps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
       ${an.qualifications && an.qualifications.length ? `<div class="section-title">Qualifications checklist ${an.grade ? `<span class="grade g-${an.grade}" title="HiredScore-style grade from Claude's checklist">${an.grade}</span>` : ''}</div>
       <ul class="quals">${an.qualifications
-        .map((q) => `<li class="q-${q.status}" title="${esc(q.evidence)}"><span class="qi">${q.status === 'met' ? '✓' : q.status === 'partial' ? '½' : '·'}</span><span>${esc(q.requirement)}${q.type === 'preferred' ? ' <em class="faint">(preferred)</em>' : ''}</span></li>`)
+        .map((q) => `<li class="q-${q.status}" title="${esc(q.evidence)}"><span class="qi">${q.status === 'met' ? '✓' : q.status === 'partial' ? '½' : '·'}</span><span>${esc(q.requirement)}${q.type === 'preferred' ? ' <em class="faint">(preferred)</em>' : ''}${q.verified === false ? ' <em class="faint" title="Claude quoted something that isn\'t in your documents, so this was marked down">(unverified)</em>' : ''}</span></li>`)
         .join('')}</ul>` : ''}
       <div class="section-title">Talking points</div><ul class="tidy">${an.talking_points.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>`
@@ -454,6 +454,7 @@ async function renderApplication(id) {
     return `<div class="inline" style="margin-bottom:10px">
         <button class="primary exp" data-fmt="pdf">⬇ Export PDF</button><button class="soft exp" data-fmt="md">Markdown</button>
         <button class="ghost" id="regenLetter">↻ Rewrite</button><span class="faint">✏️ Click on the page to tweak wording before exporting.</span></div>
+      ${(a.letterChecks || []).length ? `<div class="letter-checks"><b>🔎 Check before sending</b> — these mention things your documents don't show:<ul class="tidy">${a.letterChecks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
       <div class="preview-wrap"><iframe class="preview-frame" id="preview"></iframe></div>`;
   };
 

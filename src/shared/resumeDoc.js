@@ -80,7 +80,7 @@
     const bullets = (r.bullets || [])
       .map((b, j) =>
         editable
-          ? field('li', 'rs-bullet', `${P}.bullets.${j}.text`, b.text, 'Describe an accomplishment…', true, ` data-role="${i}" data-bullet="${j}"`)
+          ? field('li', b.flag ? 'rs-bullet flagged' : 'rs-bullet', `${P}.bullets.${j}.text`, b.text, 'Describe an accomplishment…', true, ` data-role="${i}" data-bullet="${j}"${b.flag ? ` title="Check this: ${esc(b.flag)}"` : ''}`)
           : b.text && b.text.trim()
             ? `<li>${esc(b.text)}</li>`
             : ''
@@ -265,7 +265,8 @@
         location: str(r.location),
         title: str(r.title),
         dates: str(r.dates),
-        bullets: (r.bullets || []).map((b) => ({ bulletId: b.bulletId || null, text: str(b.text) })),
+        // `flag`: a check on Claude's wording that the candidate hasn't cleared yet.
+        bullets: (r.bullets || []).map((b) => ({ bulletId: b.bulletId || null, text: str(b.text), ...(b.flag ? { flag: str(b.flag) } : {}) })),
       })),
       skills: (doc.skills || []).map(str),
       education: (doc.education || []).map((e) => ({

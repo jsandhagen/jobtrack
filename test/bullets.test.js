@@ -107,30 +107,55 @@ test('an edited bullet is used as written', () => {
   assert.ok(!r.tailoring_notes.some((n) => /Not shown anywhere: .*Storybook/.test(n)));
 });
 
-test('Claude polish: only edits for known bullets come back, and the prompt forbids new facts', async () => {
+test('Claude polish: only real rewordings of known bullets come back; added facts are held back', async () => {
   const claude = require('../src/main/claude');
   const requests = [];
+  const edit = (id, text, changed = true) => ({ id, changed, text, change_summary: 'uses the posting wording' });
   const client = {
     beta: {
       messages: {
         parse: async (p) => (
           requests.push(p),
-          { stop_reason: 'end_turn', parsed_output: { edits: [{ id: 'r1:0', text: 'Built a React design system (Storybook)', why: 'mirrors posting' }, { id: 'bogus', text: 'x', why: '' }] } }
+          {
+            stop_reason: 'end_turn',
+            parsed_output: {
+              edits: [
+                edit('0:0', 'Built a React component library and design system'),
+                edit('0:1', 'Cut page load time 45% using Next.js'), // adds a number and a tool
+                edit('0:2', 'Mentored two junior engineers', false),
+                edit('bogus', 'x'),
+              ],
+            },
+          }
         ),
       },
     },
   };
-  const edits = await claude.polishBullets(client, { job: POSTINGS.seniorFrontend, bullets: [{ id: 'r1:0', text: 'Built a React design system', role: 'Engineer' }], documents: [], profile: {} });
-  assert.deepEqual(edits.map((e) => e.id), ['r1:0']);
-  assert.match(requests[0].messages[0].content, /never add tools, results or responsibilities/);
+  const bullets = [
+    { id: '0:0', text: 'Built a React design system', role: 'Engineer' },
+    { id: '0:1', text: 'Improved page load time', role: 'Engineer' },
+    { id: '0:2', text: 'Mentored two junior engineers', role: 'Engineer' },
+  ];
+  const { edits, rejected } = await claude.polishBullets(client, { job: POSTINGS.seniorFrontend, bullets, documents: [{ name: 'r', text: 'Built a React design system' }], profile: {} });
+  assert.deepEqual(edits.map((e) => e.id), ['0:0']);
+  assert.deepEqual(rejected.map((e) => e.id), ['0:1']);
+  assert.match(rejected[0].why, /45/);
+  const content = requests[0].messages[0].content;
+  assert.match(content, /<bullet id="0:1" role="Engineer">Improved page load time<\/bullet>/);
+  assert.match(content, /Keep every fact, number, tool and the level of ownership exactly as written/);
 });
 
-test('Claude resume writing is given the hand-picked bullets', async () => {
+test('Claude resume writing is given the bank by id and the hand-picked bullets', async () => {
   const claude = require('../src/main/claude');
+  const draft = require('../src/main/draft');
+  const bank = { experiences: [{ id: 'e1', title: 'Engineer', organization: 'Bloom Labs', dates: '2020 – Present' }], bullets: [{ id: 'b1', experienceId: 'e1', text: 'Built a design system' }, { id: 'b2', experienceId: 'e1', text: 'Ran on-call' }] };
+  const ids = draft.promptIds(bank, [{ experienceId: 'e1', bullets: [{ bulletId: 'b1', text: 'Built a design system' }] }]);
   const requests = [];
   const client = { beta: { messages: { parse: async (p) => (requests.push(p), { stop_reason: 'end_turn', parsed_output: {} }) } } };
-  await claude.generateResume(client, { job: POSTINGS.seniorFrontend, documents: [], profile: {}, bullets: [{ role: 'Engineer, Bloom Labs', bullets: ['Built a design system'] }] });
-  assert.match(requests[0].messages[0].content, /hand-picked these bullets[\s\S]*Engineer, Bloom Labs:\n- Built a design system/);
+  await claude.generateResume(client, { job: POSTINGS.seniorFrontend, documents: [], profile: {}, roles: ids.roles, picked: ids.picked });
+  const c = requests[0].messages[0].content;
+  assert.match(c, /<role id="R1" kind="job" title="Engineer" organization="Bloom Labs"[^>]*>\n<bullet id="B1">Built a design system<\/bullet>\n<bullet id="B2">Ran on-call<\/bullet>/);
+  assert.match(c, /<picked_bullets>\n<role id="R1">\n<bullet_ref id="B1"\/>\n<\/role>/);
 });
 
 test('parses a classic Word/Google-Docs resume exported to PDF (split dates, wrapped ● bullets, RELEVANT headings)', () => {
@@ -147,4 +172,10 @@ test('parses a classic Word/Google-Docs resume exported to PDF (split dates, wra
   assert.deepEqual([e.school, e.location, e.degree, e.dates], ['University of Illinois Springfield', 'Springfield, IL', 'Bachelor of Science in Economics, GPA: 3.6', 'May 2018']);
   assert.deepEqual(e.lines, [{ label: 'Relevant Courses', text: 'Econometrics, Statistics, Data Visualization, Database Systems.' }]);
   assert.match(p.summary, /^Detail-oriented Data Analyst .* business stakeholders$/);
+});
+
+test('an inline "Skills:" line is a skills list, not part of the last bullet', () => {
+  const p = parseResume('Experience\nWeb Developer, Pine Studio, 2016 - 2019\n- Shipped JavaScript apps for 30+ clients\nSkills: JavaScript, TypeScript, React');
+  assert.equal(p.experiences[0].bullets[0].text, 'Shipped JavaScript apps for 30+ clients');
+  assert.deepEqual(p.skills, ['JavaScript', 'TypeScript', 'React']);
 });

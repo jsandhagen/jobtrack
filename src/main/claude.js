@@ -5,6 +5,8 @@ const { betaZodOutputFormat } = require('@anthropic-ai/sdk/helpers/beta/zod');
 const { z } = require('zod');
 const { fitLabel } = require('./fitScore');
 const { gradeFromQualifications } = require('./atsScore');
+const P = require('./prompts');
+const { quoteFound, checkRewrite, checkNewText, norm } = require('./grounding');
 
 const DEFAULT_MODEL = 'claude-opus-5-5';
 // If a request is declined by a safety classifier, let the API re-run it on
@@ -36,130 +38,91 @@ function createClient(apiKey) {
 }
 
 // ---------- schemas ----------
+// Field descriptions repeat the key rules from the task prompts (prompts.js),
+// because the model reads them right where it fills each field.
 
 const ScreenJob = z.object({
-  is_job_posting: z.boolean().describe('True only if the screen prominently shows a single job posting / job description.'),
-  title: z.string().describe('Job title, or empty string'),
-  company: z.string().describe('Company name, or empty string'),
-  location: z.string().describe('Location / remote policy, or empty string'),
-  page_url: z.string().describe("The page URL if a browser address bar is visible, else empty string"),
-  posting_text: z
-    .string()
-    .describe('The full visible text of the job posting (responsibilities, requirements, etc.), transcribed faithfully. Empty if not a posting.'),
+  is_job_posting: z.boolean().describe('True only when the screen shows the details of one specific job posting.'),
+  title: z.string().describe('Job title as shown; empty string if not visible or not a posting.'),
+  company: z.string().describe('Company as shown; empty string if not visible or not a posting.'),
+  location: z.string().describe('Location including any remote/hybrid/on-site label; empty string if not visible.'),
+  page_url: z.string().describe("The browser address bar's URL if visible; otherwise empty string."),
+  posting_text: z.string().describe('The posting only, transcribed verbatim in reading order; headings on their own lines; list items as "- " lines. Empty if not a posting.'),
 });
 
 const FitAnalysis = z.object({
-  score: z.number().int().describe('Overall fit from 0 to 100'),
-  headline: z.string().describe('One upbeat, honest sentence summarising the fit, addressed to the candidate ("you")'),
-  strengths: z.array(z.string()).describe('3-6 concrete reasons the candidate fits, each citing evidence from their documents'),
-  gaps: z.array(z.string()).describe('0-5 requirements the documents do not clearly show, phrased constructively'),
-  talking_points: z.array(z.string()).describe('2-4 things to emphasise in the application'),
-  keywords: z.array(z.string()).describe('Important keywords from the posting that the resume should include where truthful'),
   qualifications: z
     .array(
       z.object({
-        requirement: z.string().describe('One qualification from the posting, briefly'),
-        type: z.enum(['basic', 'preferred']).describe('basic = required / minimum qualification; preferred = nice-to-have'),
-        status: z.enum(['met', 'partial', 'not_met']),
-        evidence: z.string().describe('Where the documents show it, or what is missing'),
+        requirement: z.string().describe("One distinct requirement, in the posting's own words, trimmed to the essential phrase."),
+        type: z.enum(['basic', 'preferred']).describe('basic = required/minimum; preferred = preferred, nice to have, bonus, a plus, ideally, desired.'),
+        status: z.enum(['met', 'partial', 'not_met']).describe('met = documents directly show it; partial = adjacent or less than asked; not_met = nothing shows it.'),
+        evidence_quote: z.string().describe('For met/partial: shortest verbatim excerpt (about 3-25 words) from the candidate documents that shows it. Empty for not_met.'),
       })
     )
-    .describe("Every distinct qualification the posting lists, checked against the candidate's documents the way a recruiter screening against basic and preferred qualifications would"),
-  job_title: z.string().describe('Job title from the posting'),
-  company: z.string().describe('Company from the posting, or empty string'),
+    .describe('Every distinct requirement the posting states, one entry each.'),
+  headline: z.string().describe('One honest sentence to the candidate ("you"), specific to this role; acknowledges the most important unmet basic requirement if any.'),
+  strengths: z.array(z.string()).describe('3-5 items, each naming a posting requirement and the concrete evidence for it.'),
+  gaps: z.array(z.string()).describe('Every basic requirement that is partial or not met, plus important preferred ones; what is missing and any adjacent experience.'),
+  talking_points: z.array(z.string()).describe('2-4 specific things to emphasise, drawn from the strengths.'),
+  keywords: z.array(z.string()).describe('5-12 terms copied exactly as the posting writes them that the candidate can truthfully use.'),
+  job_title: z.string().describe('Job title as the posting states it; empty if absent.'),
+  company: z.string().describe('Company as the posting states it; empty if absent.'),
 });
 
-const Resume = z.object({
-  name: z.string(),
-  headline: z.string().describe('Short professional headline tailored to the role'),
-  contact: z.array(z.string()).describe('Email, phone, location, links - only ones present in the profile or documents'),
-  summary: z.string().describe('2-3 sentence professional summary tailored to the role'),
-  skills: z
-    .array(z.object({ category: z.string(), items: z.array(z.string()) }))
-    .describe('Grouped skills, most relevant to the posting first'),
-  experience: z.array(
-    z.object({
-      title: z.string(),
-      organization: z.string(),
-      location: z.string(),
-      dates: z.string(),
-      bullets: z.array(z.string()).describe('Achievement-focused bullets, strongest and most relevant first'),
-    })
-  ),
-  projects: z.array(z.object({ name: z.string(), description: z.string(), bullets: z.array(z.string()) })),
-  education: z.array(z.object({ degree: z.string(), school: z.string(), dates: z.string(), details: z.string() })),
-  certifications: z.array(z.string()),
-  tailoring_notes: z
-    .array(z.string())
-    .describe('Notes for the candidate (not printed): what was emphasised and anything they should double-check'),
+const ResumeDraft = z.object({
+  summary: z.string().describe('Two or three sentences, no first person, no clichés; identity and years only as the documents support; names 2-3 key requirements the candidate meets in the posting\'s wording.'),
+  experience: z
+    .array(
+      z.object({
+        role_id: z.string().describe('A role id from <role_list> (e.g. "R1"). Never a role that is not in the list.'),
+        bullets: z.array(
+          z.object({
+            text: z.string().describe('The bullet: action verb first, one accomplishment, at most two printed lines (about 190 characters), numbers only as documented.'),
+            from_bullet: z.string().describe('The id of the bank bullet this is based on (e.g. "B7"), or "" for a new bullet written from the documents.'),
+            source_quote: z.string().describe('For a new bullet (from_bullet ""): shortest verbatim excerpt from the documents supporting its key fact. Otherwise "".'),
+          })
+        ),
+      })
+    )
+    .describe('Roles in the order of <role_list>: every job, plus projects that show something the posting asks for.'),
+  skills: z.array(z.string()).describe('9-12 skills the documents show, most important to the posting first, 1-4 words each, posting wording where it is the same skill.'),
+  notes: z.array(z.string()).describe('For the candidate (not printed): unevidenced basic requirements, preferred ones worth adding, judgement calls made.'),
 });
 
 const BulletEdits = z.object({
-  edits: z.array(
-    z.object({
-      id: z.string().describe('The id of the bullet being reworded, exactly as given'),
-      text: z.string().describe('The reworded bullet (or the original, unchanged, if it is already right)'),
-      why: z.string().describe('A few words on what changed, e.g. "mirrors the posting\'s \'design systems\'"; empty if unchanged'),
-    })
-  ),
+  edits: z
+    .array(
+      z.object({
+        id: z.string().describe('The bullet id exactly as given.'),
+        changed: z.boolean().describe('false when the bullet already reads well for this posting.'),
+        text: z.string().describe('The edited bullet, or the original text exactly as given when changed is false.'),
+        change_summary: z.string().describe('A few words on what changed and why; empty when unchanged.'),
+      })
+    )
+    .describe('One entry for every bullet id, in the order given.'),
 });
 
 const SuggestedBullets = z.object({
-  bullets: z.array(
-    z.object({
-      role: z.string().describe('Which of the candidate\'s roles this belongs to: its title and organization as they appear in the documents, or "Projects" / "Other"'),
-      text: z.string().describe('One resume bullet: starts with a strong past-tense verb, one line, concrete, with numbers only if the document gives them'),
-      source: z.string().describe('The document name it came from'),
-    })
-  ),
+  bullets: z
+    .array(
+      z.object({
+        role_id: z.string().describe('Role id from <role_list>, or "" if it does not clearly belong to one.'),
+        role_hint: z.string().describe('When role_id is "": what it is, e.g. "Projects" or "Volunteer". Otherwise "".'),
+        text: z.string().describe('One new bullet in the house style, using only that document\'s facts and numbers.'),
+        source_document: z.string().describe('The document name exactly as given.'),
+        source_quote: z.string().describe('Shortest verbatim excerpt from that document supporting the key fact.'),
+      })
+    )
+    .describe('At most 12 new accomplishments, strongest first; fewer is fine.'),
 });
 
 const CoverLetter = z.object({
-  greeting: z.string(),
-  paragraphs: z.array(z.string()).describe('3-4 paragraphs'),
-  closing: z.string().describe('e.g. "Warmly," or "Sincerely,"'),
-  signature: z.string(),
+  greeting: z.string().describe('"Dear <name>," only if the posting names the hiring manager; otherwise "Dear Hiring Manager,".'),
+  paragraphs: z.array(z.string()).describe('3 or 4 paragraphs, about 250-350 words in total.'),
+  closing: z.string().describe('"Sincerely,"'),
+  signature: z.string().describe("The candidate's name from their profile."),
 });
-
-// ---------- prompt pieces ----------
-
-const GROUND_RULES = `You help a job seeker put their best foot forward. You work only from the candidate's own documents and profile, provided below.
-
-Ground rules:
-- Never invent employers, titles, dates, degrees, certifications, metrics, or skills. If something isn't in the documents, leave it out.
-- You may rephrase, reorder, merge, and emphasise real experience so it speaks to the target role, and you may mirror the posting's vocabulary when it truthfully describes what the candidate did.
-- Be warm and encouraging, but honest: a candidate is better served by an accurate picture than by flattery.`;
-
-function libraryBlock(documents, profile) {
-  const docs = documents
-    .map((d) => `<document name="${escapeAttr(d.name)}" kind="${escapeAttr(d.kind)}">\n${d.text}\n</document>`)
-    .join('\n\n');
-  const profileLines = Object.entries(profile || {})
-    .filter(([, v]) => v && String(v).trim())
-    .map(([k, v]) => `${k}: ${v}`)
-    .join('\n');
-  return `<candidate_profile>\n${profileLines || '(not filled in)'}\n</candidate_profile>\n\n<candidate_documents>\n${docs || '(no documents uploaded)'}\n</candidate_documents>`;
-}
-
-function escapeAttr(s) {
-  return String(s).replace(/"/g, '&quot;');
-}
-
-// Stable instructions + the document library go first and are cached, so
-// scoring a second posting only pays full price for the new posting text.
-function systemBlocks(documents, profile) {
-  return [
-    { type: 'text', text: GROUND_RULES },
-    { type: 'text', text: libraryBlock(documents, profile), cache_control: { type: 'ephemeral' } },
-  ];
-}
-
-function jobBlock(job) {
-  const header = [job.title && `Title: ${job.title}`, job.company && `Company: ${job.company}`, job.location && `Location: ${job.location}`]
-    .filter(Boolean)
-    .join('\n');
-  return `<job_posting>\n${header ? header + '\n\n' : ''}${job.text}\n</job_posting>`;
-}
 
 // ---------- calls ----------
 
@@ -188,6 +151,11 @@ async function structuredCall(client, { kind, model, effort, system, content, sc
   return response.parsed_output;
 }
 
+// All the candidate's text the checks compare against.
+function libraryText(documents, profile) {
+  return [...(documents || []).map((d) => d.text), ...Object.values(profile || {}).filter((v) => typeof v === 'string')].join('\n');
+}
+
 async function extractJobFromScreenshot(client, { pngBase64, model }) {
   return structuredCall(client, {
     kind: 'screen',
@@ -196,123 +164,156 @@ async function extractJobFromScreenshot(client, { pngBase64, model }) {
     maxTokens: 8000,
     content: [
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: pngBase64 } },
-      {
-        type: 'text',
-        text: 'This is a screenshot of the user\'s screen. If it shows a job posting, transcribe it. If it shows anything else (a job search results list, email, code, social media...), set is_job_posting to false and leave the other fields empty.',
-      },
+      { type: 'text', text: P.TASKS.screen },
     ],
     schema: ScreenJob,
   });
 }
 
+// The score comes from the checklist, computed here: required items count
+// double, partial counts half. The same checklist always gives the same score.
+function scoreFromQualifications(quals) {
+  if (!quals.length) return 50;
+  let got = 0;
+  let total = 0;
+  for (const q of quals) {
+    const w = q.type === 'basic' ? 2 : 1;
+    total += w;
+    got += w * (q.status === 'met' ? 1 : q.status === 'partial' ? 0.5 : 0);
+  }
+  return Math.round((got / total) * 100);
+}
+
 async function analyzeFit(client, { job, documents, profile, model }) {
-  const result = await structuredCall(client, {
+  const out = await structuredCall(client, {
     kind: 'fit',
     model,
     effort: 'medium',
-    system: systemBlocks(documents, profile),
-    content: `${jobBlock(job)}
-
-Assess how well the candidate fits this role based on their documents. Score 0-100 where 50 means "plausible but missing several stated requirements" and 85+ means "meets essentially every requirement with direct evidence".`,
+    system: P.systemBlocks(documents, profile),
+    content: `${P.jobBlock(job)}\n\n${P.TASKS.fit}`,
     schema: FitAnalysis,
   });
-  const score = Math.max(0, Math.min(100, Math.round(result.score)));
-  return { ...result, score, label: fitLabel(score), grade: gradeFromQualifications(result.qualifications, score), source: 'claude' };
+  const library = libraryText(documents, profile);
+  // Evidence must really be in the documents; unverifiable claims drop a level.
+  const qualifications = out.qualifications.map((q) => {
+    if (q.status === 'not_met') return { ...q, evidence: 'Not shown in your documents', verified: true };
+    const ok = quoteFound(q.evidence_quote, library);
+    return {
+      ...q,
+      status: ok ? q.status : q.status === 'met' ? 'partial' : 'not_met',
+      evidence: ok ? q.evidence_quote : `Claude cited “${q.evidence_quote}”, which isn't in your documents`,
+      verified: ok,
+    };
+  });
+  const postingNorm = norm(job.text);
+  const keywords = out.keywords.filter((k) => postingNorm.includes(norm(k)));
+  const score = scoreFromQualifications(qualifications);
+  return {
+    ...out,
+    qualifications,
+    keywords,
+    score,
+    label: fitLabel(score),
+    grade: gradeFromQualifications(qualifications, score),
+    source: 'claude',
+    promptVersion: P.PROMPT_VERSION,
+  };
 }
 
-// Tell Claude what an applicant tracking system will look for, so the
-// resume uses the posting's exact wording wherever it's truthful.
-function atsGuidance(job, ats) {
-  if (!ats) return '';
-  const terms = [
-    ...ats.missingSkills.map((m) => m.term),
-    ...(ats.wordingTerms || []),
-  ];
-  const lines = [
-    `\n\nApplicant tracking systems will scan this resume. Many match keywords literally, weight required skills most, and look for the job title.`,
-    terms.length ? `- Posting terms the candidate's current resume lacks or words differently: ${[...new Set(terms)].join(', ')}. Use the posting's exact wording for any of these the documents genuinely support; leave out the rest.` : '',
-    job.title ? `- If it accurately describes the candidate, echo the job title "${job.title}" in the headline.` : '',
-    `- Give every role clear dates, and put concrete numbers in bullets wherever the documents provide them.`,
-  ];
-  return lines.filter(Boolean).join('\n');
-}
-
-async function generateResume(client, { job, documents, profile, analysis, ats, bullets, model }) {
-  const chosen =
-    bullets && bullets.length
-      ? `\n\nThe candidate hand-picked these bullets from their bullet bank for this role. Use them as the backbone of the experience section, under the roles shown. Keep their wording unless a small tweak mirrors the posting better; don't add new claims:\n${bullets
-          .map((r) => `${r.role}:\n${r.bullets.map((b) => `- ${b}`).join('\n')}`)
-          .join('\n')}`
-      : '';
-  const guidance =
-    chosen +
-    (analysis
-      ? `\n\nEarlier fit analysis to build on:\nStrengths: ${analysis.strengths.join('; ')}\nTalking points: ${analysis.talking_points.join('; ')}\nKeywords: ${analysis.keywords.join(', ')}`
-      : '') + atsGuidance(job, ats);
-  return structuredCall(client, {
+/**
+ * Draft a resume. `roles` and `picked` come from draft.promptIds(); the
+ * caller turns the result into an editor document with draft.draftToDoc().
+ */
+async function generateResume(client, { job, documents, profile, analysis, ats, roles, picked, model }) {
+  const out = await structuredCall(client, {
     kind: 'resume',
     model,
     effort: 'high',
-    system: systemBlocks(documents, profile),
-    content: `${jobBlock(job)}${guidance}
-
-Write a one-to-two page resume tailored to this posting using only facts from the candidate's documents and profile. Lead with the most relevant experience, quantify impact where the documents give numbers, and keep bullets crisp (one line each where possible). Omit sections that would be empty.`,
-    schema: Resume,
+    system: P.systemBlocks(documents, profile),
+    content: [P.jobBlock(job), P.roleListBlock(roles), P.pickedBlock(picked), P.fitBlock(analysis), P.atsBlock(job, ats), P.TASKS.resume].filter(Boolean).join('\n\n'),
+    schema: ResumeDraft,
   });
+  return { ...out, promptVersion: P.PROMPT_VERSION };
 }
 
-// Light rewording of chosen bullets for one posting. Facts stay the same.
+// Light, fact-preserving edits. Anything that adds a number or named detail
+// the documents don't have is held back.
 async function polishBullets(client, { job, bullets, documents, profile, model }) {
-  const list = bullets.map((b) => `<bullet id="${escapeAttr(b.id)}" role="${escapeAttr(b.role)}">${b.text}</bullet>`).join('\n');
+  const list = bullets.map((b) => `<bullet id="${P.escapeAttr(b.id)}" role="${P.escapeAttr(b.role)}">${b.text}</bullet>`).join('\n');
   const out = await structuredCall(client, {
     kind: 'polish',
     model,
     effort: 'medium',
-    system: systemBlocks(documents, profile),
-    content: `${jobBlock(job)}
-
-<bullets>
-${list}
-</bullets>
-
-Lightly tailor each bullet's wording for this posting: use the posting's own terms where they truthfully describe the same work, lead with the most relevant part, and keep each to one line. Keep every fact, number and scope exactly as it is — never add tools, results or responsibilities that aren't in the bullet or the documents. If a bullet is already right, return it unchanged.`,
+    system: P.systemBlocks(documents, profile),
+    content: `${P.jobBlock(job)}\n\n<bullets>\n${list}\n</bullets>\n\n${P.TASKS.polish}`,
     schema: BulletEdits,
   });
+  const library = libraryText(documents, profile);
   const byId = new Map(bullets.map((b) => [b.id, b]));
-  return out.edits.filter((e) => byId.has(e.id));
+  const edits = [];
+  const rejected = [];
+  for (const e of out.edits) {
+    const orig = byId.get(e.id);
+    const text = String(e.text || '').trim();
+    if (!orig || !e.changed || !text || text === orig.text) continue;
+    const problems = checkRewrite(orig.text, text, library);
+    if (text.length > Math.max(200, orig.text.length * 1.3)) problems.push('makes the bullet much longer');
+    if (problems.length) rejected.push({ id: e.id, text, why: problems.join('; ') });
+    else edits.push({ id: e.id, text, why: e.change_summary });
+  }
+  return { edits, rejected, promptVersion: P.PROMPT_VERSION };
 }
 
-// Turn documents without bullet lists (project write-ups, reviews, brag docs)
-// into suggested bullets for the bank. The user reviews every one.
+// New bullets from prose documents. Each must quote its source document; the
+// ones that can't be traced, or that repeat the bank, are dropped.
 async function suggestBullets(client, { documents, profile, roles, existing, model }) {
   const out = await structuredCall(client, {
     kind: 'suggest',
     model,
     effort: 'medium',
-    system: systemBlocks(documents, profile),
-    content: `The candidate keeps a "bullet bank" of resume bullets. Their roles: ${roles.map((r) => `"${r}"`).join(', ') || '(none yet)'}.
-
-They already have these bullets (don't repeat them or reword them):
-${existing.map((t) => `- ${t}`).join('\n') || '(none)'}
-
-Read the documents and suggest up to 15 NEW bullets for accomplishments the documents describe but the bank doesn't have yet — especially from project write-ups, performance reviews, and notes. Every bullet must be directly supported by a document.`,
+    system: P.systemBlocks(documents, profile),
+    content: `${P.roleListBlock(roles.map((r) => ({ ...r, bullets: [] })))}\n\n<existing_bullets>\n${existing.map((t) => `- ${t}`).join('\n') || '(none)'}\n</existing_bullets>\n\n${P.TASKS.suggest}`,
     schema: SuggestedBullets,
   });
-  return out.bullets;
+  const { similarity, SAME_BULLET } = require('./bullets');
+  const suggestions = [];
+  let dropped = 0;
+  for (const b of out.bullets) {
+    const doc = documents.find((d) => d.name === b.source_document);
+    const source = doc ? doc.text : libraryText(documents, profile);
+    const traced = quoteFound(b.source_quote, source) && !checkNewText(b.text, source + '\n' + libraryText([], profile)).length;
+    const repeat = [...existing, ...suggestions.map((x) => x.text)].some((t) => similarity(t, b.text) >= SAME_BULLET);
+    if (!traced || repeat) {
+      dropped++;
+      continue;
+    }
+    suggestions.push({ roleId: b.role_id, role: b.role_hint, text: b.text.trim(), source: b.source_document, quote: b.source_quote });
+  }
+  return { suggestions, dropped, promptVersion: P.PROMPT_VERSION };
 }
 
 async function generateCoverLetter(client, { job, documents, profile, analysis, model }) {
-  const guidance = analysis ? `\n\nTalking points to weave in: ${analysis.talking_points.join('; ')}` : '';
-  return structuredCall(client, {
+  const out = await structuredCall(client, {
     kind: 'letter',
     model,
     effort: 'high',
-    system: systemBlocks(documents, profile),
-    content: `${jobBlock(job)}${guidance}
-
-Write a warm, specific, confident cover letter for this role (under 350 words). Connect two or three real accomplishments from the documents to what the posting asks for. No clichés like "I am writing to express my interest".`,
+    system: P.systemBlocks(documents, profile),
+    content: [P.jobBlock(job), P.fitBlock(analysis), P.TASKS.letter].filter(Boolean).join('\n\n'),
     schema: CoverLetter,
   });
+  const library = libraryText(documents, profile);
+  const checks = [];
+  out.paragraphs.forEach((para, i) => {
+    const problems = checkNewText(para, library, job.text);
+    if (problems.length) checks.push(`Paragraph ${i + 1}: ${problems.join('; ')}`);
+  });
+  return {
+    ...out,
+    closing: out.closing || 'Sincerely,',
+    signature: (profile && profile.name) || out.signature,
+    checks,
+    promptVersion: P.PROMPT_VERSION,
+  };
 }
 
 module.exports = {
@@ -325,6 +326,8 @@ module.exports = {
   generateCoverLetter,
   polishBullets,
   suggestBullets,
-  schemas: { ScreenJob, FitAnalysis, Resume, CoverLetter, BulletEdits, SuggestedBullets },
+  scoreFromQualifications,
+  libraryText,
+  schemas: { ScreenJob, FitAnalysis, ResumeDraft, CoverLetter, BulletEdits, SuggestedBullets },
   DEFAULT_MODEL,
 };

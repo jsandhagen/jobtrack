@@ -198,15 +198,22 @@ function fakeClient(output, extra = {}) {
 
 const DOCS = [{ name: 'resume.md', kind: 'resume', text: RESUME }];
 
-test('analyzeFit sends documents in a cached system prompt and clamps the score', async () => {
+test('analyzeFit scores from its own checklist, verifies every quote, and caches the library', async () => {
+  const q = (requirement, type, status, evidence_quote) => ({ requirement, type, status, evidence_quote });
   const client = fakeClient({
-    score: 130, headline: 'Great', strengths: ['React'], gaps: [], talking_points: ['x'], keywords: ['React'], job_title: 'FE', company: 'Acme',
-    qualifications: [{ requirement: 'React', type: 'basic', status: 'met', evidence: 'Bloom Labs' }],
+    headline: 'Great', strengths: ['React'], gaps: [], talking_points: ['x'], keywords: ['React', 'Kubernetes'], job_title: 'FE', company: 'Acme',
+    qualifications: [
+      q('React and TypeScript', 'basic', 'met', 'Built a React + TypeScript design system'),
+      q('GraphQL', 'basic', 'met', 'GraphQL schema with the platform team at Initech'), // not in the documents
+      q('AWS', 'preferred', 'not_met', ''),
+    ],
   });
   const res = await claude.analyzeFit(client, { job: { title: 'FE', text: POSTING }, documents: DOCS, profile: { name: 'Jordan' } });
-  assert.equal(res.score, 100);
-  assert.equal(res.label, 'Excellent match');
-  assert.equal(res.grade, 'A');
+  // A made-up quote drops "met" to "partial"; the score is basic×2 + preferred×1.
+  assert.deepEqual(res.qualifications.map((x) => [x.status, x.verified]), [['met', true], ['partial', false], ['not_met', true]]);
+  assert.equal(res.score, Math.round(((2 + 1 + 0) / 5) * 100));
+  assert.deepEqual(res.keywords, ['React']); // Kubernetes isn't in the posting
+  assert.ok(res.promptVersion);
   const req = client.requests[0];
   assert.equal(req.model, 'claude-opus-5-5');
   assert.equal(req.fallbacks, 'default');
@@ -218,12 +225,13 @@ test('analyzeFit sends documents in a cached system prompt and clamps the score'
   assert.match(req.system[1].text, /Bloom Labs/);
   assert.match(req.system[1].text, /name: Jordan/);
   assert.match(req.messages[0].content, /<job_posting>/);
+  assert.ok(req.messages[0].content.trim().endsWith('</task>'), 'the task comes last, after the long material');
 });
 
 test('generateResume and screenshot extraction pass through structured output', async () => {
-  const client = fakeClient(SAMPLE_RESUME);
-  const r = await claude.generateResume(client, { job: { text: POSTING }, documents: DOCS, profile: {}, analysis: null, model: 'claude-sonnet-5-5' });
-  assert.equal(r.name, 'Jordan Rivera');
+  const client = fakeClient({ summary: 'S', experience: [], skills: [], notes: [] });
+  const r = await claude.generateResume(client, { job: { text: POSTING }, documents: DOCS, profile: {}, analysis: null, roles: [], picked: [], model: 'claude-sonnet-5-5' });
+  assert.equal(r.summary, 'S');
   assert.equal(client.requests[0].model, 'claude-sonnet-5-5');
   assert.equal(client.requests[0].output_config.effort, 'high');
 
@@ -237,7 +245,7 @@ test('refusals and truncation surface as friendly errors', async () => {
   const refused = fakeClient(null, { stop_reason: 'refusal', stop_details: { explanation: 'nope' } });
   await assert.rejects(claude.analyzeFit(refused, { job: { text: POSTING }, documents: DOCS, profile: {} }), /declined.*nope/);
   const cut = fakeClient(null, { stop_reason: 'max_tokens' });
-  await assert.rejects(claude.generateResume(cut, { job: { text: POSTING }, documents: DOCS, profile: {} }), /cut off/);
+  await assert.rejects(claude.generateResume(cut, { job: { text: POSTING }, documents: DOCS, profile: {}, roles: [], picked: [] }), /cut off/);
 });
 
 test('output schemas convert to JSON schema for structured outputs', () => {

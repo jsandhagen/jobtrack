@@ -20,6 +20,7 @@ const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
 const { localFitScore } = require('./localFit');
 const claude = require('./claude');
+const draft = require('./draft');
 const { PostingWatcher, fingerprint } = require('./watcher');
 const ocr = require('./ocr');
 const { createBridge } = require('./bridge');
@@ -420,17 +421,27 @@ async function makeResume(appId) {
   store.updateApplication(appId, { resumeStatus: 'working' });
   broadcast('app-updated', store.getApplication(appId));
   try {
-    const resume = await claude.generateResume(claudeClient(), {
+    // Claude works from the bullet bank by id, so every job's facts come from your records.
+    if (!store.getBank().experiences.length) importBullets(store.allDocuments());
+    const bank = store.getBank();
+    if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add them on the Bullet bank page first.");
+    const profile = store.getProfile();
+    const documents = docsForPrompt();
+    const ids = draft.promptIds(bank, currentDoc(rec).roles);
+    const out = await claude.generateResume(claudeClient(), {
       job: rec.job,
-      documents: docsForPrompt(),
-      profile: store.getProfile(),
+      documents,
+      profile,
       analysis: rec.analysis,
       ats: libraryAtsScore(rec.job, store.allDocuments()),
-      bullets: chosenBulletsForClaude(rec),
+      roles: ids.roles,
+      picked: ids.picked,
       model: store.getSettings().model,
     });
-    store.updateApplication(appId, { resume });
-    saveDoc(appId, bulletBank.linkDocToBank(ResumeDoc.fromResume(resume, store.getProfile()), store.getBank()), { resumeSource: 'claude' });
+    const { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: rec.job.text, ids });
+    const prev = rec.builder && rec.builder.doc;
+    if (prev && prev.header && prev.header.name) doc.header = prev.header;
+    saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
     broadcast('app-updated', updated);
     return updated;
@@ -456,7 +467,7 @@ async function makeCoverLetter(appId) {
     });
     const header = (rec.builder && rec.builder.doc && rec.builder.doc.header) || ResumeDoc.headerFromProfile(profile);
     const letterHtml = renderCoverLetterHtml(letter, { header: { ...header, name: header.name || letter.signature } });
-    const updated = store.updateApplication(appId, { letter, letterHtml, letterStatus: 'ready' });
+    const updated = store.updateApplication(appId, { letter, letterHtml, letterChecks: letter.checks || [], letterStatus: 'ready' });
     broadcast('app-updated', updated);
     return updated;
   } catch (err) {
@@ -580,19 +591,11 @@ function builderState(rec) {
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 5) },
     bankSize: bank.bullets.length,
     resumeSource: rec.resumeSource || 'bank',
+    // What the code-side checks found in Claude's draft, and Claude's own notes.
+    checks: rec.resumeSource === 'claude' ? rec.resumeChecks || [] : [],
+    notes: rec.resumeSource === 'claude' ? rec.resumeNotes || [] : [],
+    flagged: doc.roles.flatMap((r) => r.bullets.filter((b) => b.flag).map((b) => ({ role: r.title || r.organization, text: b.text, flag: b.flag }))),
   };
-}
-
-function chosenBulletsForClaude(rec) {
-  const doc = rec.builder && rec.builder.doc;
-  if (!doc) {
-    const bank = store.getBank();
-    if (!bank.bullets.length) return [];
-  }
-  const d = doc || currentDoc(rec);
-  return d.roles
-    .filter((r) => r.bullets.length)
-    .map((r) => ({ role: [r.title, r.organization].filter(Boolean).join(', '), bullets: r.bullets.map((b) => b.text).filter(Boolean) }));
 }
 
 function markBulletsUsed(roles) {
@@ -831,13 +834,20 @@ function registerIpc() {
     const bank = store.getBank();
     const docs = docsForPrompt();
     if (!docs.length) throw new Error('Add some documents to your library first.');
-    return claude.suggestBullets(claudeClient(), {
+    const ids = draft.promptIds(bank, []);
+    const out = await claude.suggestBullets(claudeClient(), {
       documents: docs,
       profile: store.getProfile(),
-      roles: bank.experiences.map((e) => [e.title, e.organization].filter(Boolean).join(', ')),
+      roles: ids.roles,
       existing: bank.bullets.map((b) => b.text),
       model: store.getSettings().model,
     });
+    // Role ids in the prompt (R1…) back to the bank's roles.
+    const suggestions = out.suggestions.map((s) => {
+      const e = s.roleId && ids.roleById.get(s.roleId);
+      return { ...s, experienceId: e ? e.id : null, role: e ? [e.title, e.organization].filter(Boolean).join(', ') : s.role };
+    });
+    return { suggestions, dropped: out.dropped };
   });
 
   // ---- resume editor (per application) ----
@@ -887,8 +897,8 @@ function registerIpc() {
     const doc = currentDoc(rec);
     const bullets = doc.roles.flatMap((r, ri) => r.bullets.filter((b) => b.text).map((b, bi) => ({ id: `${ri}:${bi}`, text: b.text, role: r.title })));
     if (!bullets.length) throw new Error('Add some bullets first.');
-    const edits = await claude.polishBullets(claudeClient(), { job: rec.job, bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
-    return edits.filter((e) => e.text.trim() && e.text.trim() !== bullets.find((b) => b.id === e.id).text);
+    const { edits, rejected } = await claude.polishBullets(claudeClient(), { job: rec.job, bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
+    return { edits, rejected };
   });
   handle('shell:openExternal', (url) => {
     // Only real web links, never file:// or custom schemes.

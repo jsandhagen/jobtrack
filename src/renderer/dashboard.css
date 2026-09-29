@@ -224,3 +224,10 @@ body.dragging .ed-page .rs-bullets { outline: 1.5px dashed rgba(111, 178, 138, 0
 .sug-row { border-top: 1px dashed var(--line); padding: 6px 0; font-size: 13px; }
 details.tray-card summary { cursor: pointer; }
 .ed-page .rs-detail span[data-path] { display: inline; min-width: 0; }
+
+/* Claude-written bullets the fact checks couldn't confirm */
+.ed-page li.rs-bullet.flagged { background: rgba(255, 196, 120, 0.28); box-shadow: inset 2px 0 0 #e6a04a; border-radius: 2px; }
+.flag-note { font-size: 12.5px; background: #fff1de; border-radius: 10px; padding: 6px 10px; margin: 6px 0; }
+.tray-card.checks summary { cursor: pointer; }
+.letter-checks { background: #fff1de; border-radius: 12px; padding: 10px 14px; margin: 10px 0; font-size: 13px; }
+@media print { .ed-page li.rs-bullet.flagged { background: none; box-shadow: none; } }

@@ -62,7 +62,10 @@ Sprout keeps running in the system tray after you close the window, so detection
 | `src/main/bullets.js` | Bullet bank: parsing resumes into roles and bullets, merging rewordings, ranking bullets for a posting, picking and assembling a resume |
 | `src/main/localFit.js` | Free offline fit score, confidence, dealbreakers, and the requirement detection shared with the bullet bank |
 | `src/main/fitScore.js` | Shared helpers: skill dictionary, posting-line classification, years parsing, posting detection |
-| `src/main/claude.js` | Claude API calls using structured outputs (Zod schemas): screenshot → posting, fit analysis, resume, cover letter |
+| `src/main/claude.js` | Claude API calls using structured outputs (Zod schemas): screenshot → posting, fit analysis, resume, polish, bullet suggestions, cover letter |
+| `src/main/prompts.js` | Every prompt Sprout sends to Claude, with a version number |
+| `src/main/grounding.js` | Checks Claude's output against your documents: quotes, numbers and named tools |
+| `src/main/draft.js` | Turns Claude's resume draft into an editor document, with facts taken from your bullet bank |
 | `src/main/documents.js` | PDF, DOCX and text extraction |
 | `src/main/resumeRender.js` | Resume / cover letter JSON → print-ready HTML and Markdown |
 | `src/main/store.js` | JSON persistence in the app's user-data folder |
@@ -74,7 +77,22 @@ Sprout keeps running in the system tray after you close the window, so detection
 - **Effort** is matched to each task: `low` for reading screenshots, `medium` for fit scoring, `high` for writing.
 - **Prompt caching**: the instructions and your whole document library form a stable, cached system prompt. After the first call, checking another posting only pays full price for the new posting text.
 - **Refusal fallback** (`fallbacks: "default"`) is turned on, so a request declined by a safety classifier is retried on Anthropic's recommended fallback model.
-- **No invention**: the prompt forbids made-up employers, dates, metrics or skills. The resume also comes with "Notes from Sprout" listing anything you should double-check.
+- **No invention**: the prompts forbid made-up employers, dates, metrics or skills, and the app checks for them itself (see below).
+
+### Claude prompts
+Every Claude button uses a prompt written for consistent, checkable results. They're all in `src/main/prompts.js`.
+
+- **One shared system prompt** explains who reads the output (recruiters, applicant tracking systems and you), sets out the truthfulness rules with the reason for each, and gives a house style for resume writing. It names the filler and clichés to avoid and includes worked examples from different fields, including one bad rewrite with the reason it's wrong. It never changes between calls, so it's cached together with your document library.
+- **Each button then adds a task prompt** after the posting and your data (long material first, the instructions last), which says exactly what to produce and how the app will use it.
+- **Claude refers to your roles and bullets by id** (`R1`, `B4`) instead of retyping them. Employers, titles, dates, locations, contact details and education always come from your own records, so they can't drift.
+- **Enforced in code, not only asked for:**
+  - *Fit read*: Claude fills in a requirement-by-requirement checklist with a verbatim quote for each claim. The score is calculated from that checklist, not guessed by Claude. A quote that can't be found in your documents downgrades that requirement, and keywords must appear in the posting.
+  - *Resume draft*: a bank bullet Claude edited may not add numbers or named tools that its original wordings and your documents don't have. A new bullet needs a quote from your documents. Anything that fails is highlighted on the page and listed under **🔎 Check before sending**, together with skills that were left out because your documents don't show them, and jobs that were put back so your work history has no gap. Claude's tailoring notes appear in the same place.
+  - *Polish wording*: suggestions that add a fact or make a bullet much longer are held back and shown separately, not offered.
+  - *Find more bullets*: every suggestion must quote the document it came from. Suggestions that repeat your bank are dropped.
+  - *Cover letter*: the letter is signed with your profile name, and paragraphs with numbers or tools your documents don't show are listed for you to check.
+- **Versioned**: each result stores the prompt version it was made with (`PROMPT_VERSION`).
+- **Evals**: `ANTHROPIC_API_KEY=... npm run eval:prompts -- --runs 3` runs every task several times against synthetic candidates and reports score spread, verified-quote rate, flagged bullets, and how often polish picks the same bullets and letters stay within length. Run it after changing a prompt.
 
 ### Resume editor
 
@@ -99,7 +117,7 @@ The editor, PDF export, Markdown export and ATS check all render from this same 
 - **Live ATS score** for the page.
 - **Slot in a bullet:** drag from your bank onto the page, or click *+ Add*. Roles not yet on the resume can be added from here too.
 - **This bullet:** swap in another wording from the bank, or save your rewording back (*another wording* / *replace original*). New bullets can be added to the bank.
-- **Optional Claude help:** *Polish wording* marks suggested rewordings with a wavy underline for you to accept or dismiss. *Have Claude write a draft* fills the page, linking its bullets back to your bank.
+- **Optional Claude help:** *Polish wording* marks suggested rewordings with a wavy underline for you to accept or dismiss. *Have Claude write a draft* fills the page from your bank. Any wording it couldn't trace to your documents is highlighted for you to check.
 - Make this resume's header, summary, skills or education the default for new resumes.
 
 The resume reader handles resumes exported from Word or Google Docs:
@@ -220,7 +238,9 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 ## Development
 
 ```bash
-npm test   # unit tests: scoring, detection, storage, rendering, Claude calls with a mocked client
+npm test              # unit tests: scoring, detection, storage, rendering, prompts and output checks with a mocked client
+npm run test:browser  # browser-extension tests in Chromium
+npm run eval:prompts  # real Claude calls: consistency and fact-check pass rates (needs ANTHROPIC_API_KEY)
 ```
 
 ## Packaging note

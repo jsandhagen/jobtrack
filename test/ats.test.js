@@ -137,9 +137,9 @@ test('resume generation passes ATS guidance to Claude', async () => {
   const requests = [];
   const client = { beta: { messages: { parse: async (p) => (requests.push(p), { stop_reason: 'end_turn', parsed_output: {} }) } } };
   const ats = atsScore(JOB, WEAK);
-  await claude.generateResume(client, { job: JOB, documents: [{ name: 'r', kind: 'resume', text: WEAK }], profile: {}, analysis: null, ats });
+  await claude.generateResume(client, { job: JOB, documents: [{ name: 'r', kind: 'resume', text: WEAK }], profile: {}, analysis: null, ats, roles: [], picked: [] });
   const prompt = requests[0].messages[0].content;
-  assert.match(prompt, /Applicant tracking systems/);
+  assert.match(prompt, /<ats_notes>/);
   assert.match(prompt, /typescript/);
   assert.match(prompt, /"Senior Frontend Engineer"/);
 });

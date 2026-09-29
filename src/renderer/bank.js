@@ -191,19 +191,22 @@ function openRoleModal(role) {
 
 // Claude's suggestions from documents without bullet lists. Nothing is added
 // until the user ticks it.
-function openSuggestModal(suggestions, bank) {
-  if (!suggestions.length) return toast("Claude didn't find anything new — your bank already covers your documents. 🎉", 'good', 5000);
-  const guessRole = (label) => {
-    const l = label.toLowerCase();
+function openSuggestModal({ suggestions, dropped }, bank) {
+  const droppedNote = dropped ? ` ${dropped} more ${dropped === 1 ? 'was' : 'were'} left out because ${dropped === 1 ? 'it' : 'they'} repeated your bank or couldn't be traced to a document.` : '';
+  if (!suggestions.length) return toast(`Claude didn't find anything new — your bank already covers your documents. 🎉${droppedNote}`, 'good', 6000);
+  const guessRole = (sg) => {
+    if (sg.experienceId && bank.experiences.some((e) => e.id === sg.experienceId)) return sg.experienceId;
+    const l = String(sg.role || '').toLowerCase();
     const hit = bank.experiences.find((e) => (e.organization && l.includes(e.organization.toLowerCase())) || (e.title && l.includes(e.title.toLowerCase())));
     return hit ? hit.id : bank.experiences[0] && bank.experiences[0].id;
   };
   const opts = (sel) => bank.experiences.map((e) => `<option value="${e.id}" ${e.id === sel ? 'selected' : ''}>${esc([e.title, e.organization].filter(Boolean).join(' · '))}</option>`).join('');
-  const card = openModal(`<h2>✨ Suggested bullets</h2><p class="muted">Found in your documents. Tick the ones you want, fix any wording, and pick the role.</p>
+  const card = openModal(`<h2>✨ Suggested bullets</h2><p class="muted">Found in your documents. Tick the ones you want, fix any wording, and pick the role.${esc(droppedNote)}</p>
     <div class="list">${suggestions
       .map(
         (sg, i) => `<div class="sugg"><input type="checkbox" data-i="${i}" checked><div style="flex:1"><textarea rows="2" data-t="${i}">${esc(sg.text)}</textarea>
-        <div class="inline" style="margin-top:4px"><select data-r="${i}" class="small-select">${opts(guessRole(sg.role))}</select><span class="faint">from ${esc(sg.source)}</span></div></div></div>`
+        <div class="inline" style="margin-top:4px"><select data-r="${i}" class="small-select">${opts(guessRole(sg))}</select><span class="faint">from ${esc(sg.source)}</span></div>
+        ${sg.quote ? `<div class="faint" style="margin-top:3px">Source: “${esc(sg.quote)}”</div>` : ''}</div></div>`
       )
       .join('')}</div>
     ${bank.experiences.length ? '' : '<p class="note-box">Add a role first so these have somewhere to go.</p>'}

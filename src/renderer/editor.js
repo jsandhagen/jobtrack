@@ -14,6 +14,7 @@ const ed = {
   focus: null, // {kind:'bullet', r, b} | {kind:'skill', i} | null
   filter: null, // requirement key the tray is filtered to
   polish: new Map(), // "r:b" -> {text, why}
+  held: [], // polish edits the fact checks held back: {id, text, why}
   timer: null,
   saving: null,
 };
@@ -78,6 +79,7 @@ async function renderEditor(appId, app) {
   injectResumeCss();
   if (ed.appId !== appId) {
     ed.polish = new Map();
+    ed.held = [];
     ed.filter = null;
     ed.focus = null;
   }
@@ -225,6 +227,7 @@ function renderTray() {
       <div class="req-list">${req.map(chip).join('')}${pref.map(chip).join('')}</div>
       <p class="faint" style="margin:6px 0 0">Tap a requirement to see bullets that prove it.</p>
     </div>
+    ${checksPanel()}
     ${focusPanel()}
     <div class="tray-card">
       <h4>${ed.filter ? `Bullets that show “${esc(filterLabel)}”` : 'Slot in a bullet'}${ed.filter ? ' <button class="small ghost" id="clearFilter">show all</button>' : ''}</h4>
@@ -266,6 +269,7 @@ function focusPanel() {
   const sug = ed.polish.get(`${f.r}:${f.b}`);
   return `<div class="tray-card focus">
     <h4>This bullet</h4>
+    ${b.flag ? `<div class="flag-note">⚠️ Check this: ${esc(b.flag)} <button class="small ghost" data-clear-flag="${f.r}:${f.b}">It's accurate</button></div>` : ''}
     ${meta && meta.covers.length ? `<div>${coverChips(meta.covers)}</div>` : ''}
     ${sug ? `<div class="suggest"><b>✨ Suggested:</b> ${esc(sug.text)}${sug.why ? ` <span class="faint">(${esc(sug.why)})</span>` : ''}<div class="inline" style="margin-top:4px"><button class="small soft" data-use-sug>Use it</button><button class="small ghost" data-drop-sug>Keep mine</button></div></div>` : ''}
     ${words.length ? `<div class="tray-role">Other wordings in your bank</div>${words.map((w, i) => `<div class="cand slim wording" data-wording="${i}">${esc(w)}</div>`).join('')}` : ''}
@@ -279,8 +283,37 @@ function focusPanel() {
   </div>`;
 }
 
+// What the fact checks found in Claude's draft: bullets to verify, other
+// changes to know about, and Claude's own tailoring notes.
+function checksPanel() {
+  const flagged = [];
+  ed.doc.roles.forEach((role, r) => role.bullets.forEach((b, i) => b.flag && flagged.push({ r, b: i, role, bullet: b })));
+  const checks = ed.info.checks || [];
+  const notes = ed.info.notes || [];
+  if (!flagged.length && !checks.length && !notes.length) return '';
+  const n = flagged.length + checks.length;
+  return `<details class="tray-card checks" ${flagged.length ? 'open' : ''}>
+    <summary><b>${n ? `🔎 Check before sending (${n})` : '📝 Notes from Claude'}</b></summary>
+    ${flagged.length ? `<p class="faint" style="margin:6px 0">These bullets say something your documents don't show. Fix the wording, or confirm it's true.</p>` : ''}
+    ${flagged
+      .map(
+        (f) => `<div class="sug-row"><div><b>${esc(f.role.title || f.role.organization || 'Role')}:</b> ${esc(f.bullet.text)}</div>
+          <div class="faint">${esc(f.bullet.flag)}</div>
+          <div class="inline"><button class="small ghost" data-goto-flag="${f.r}:${f.b}">Show me</button><button class="small ghost" data-clear-flag="${f.r}:${f.b}">It's accurate</button></div></div>`
+      )
+      .join('')}
+    ${checks.length ? `<ul class="tidy" style="margin-top:6px">${checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+    ${notes.length ? `<div class="tray-role" style="margin-top:8px">Claude's tailoring notes</div><ul class="tidy">${notes.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+  </details>`;
+}
+
 function polishPanel() {
-  if (!ed.polish.size) return '';
+  const held = ed.held.length
+    ? `<details class="tray-card"><summary><b>Held back (${ed.held.length})</b> <span class="faint">— suggestions that added facts</span></summary>${ed.held
+        .map((h) => `<div class="sug-row"><div>${esc(h.text)}</div><div class="faint">${esc(h.why)}</div></div>`)
+        .join('')}</details>`
+    : '';
+  if (!ed.polish.size) return held;
   const rows = [...ed.polish.entries()]
     .map(([key, s]) => {
       const [r, b] = key.split(':').map(Number);
@@ -290,7 +323,7 @@ function polishPanel() {
         <div class="inline"><button class="small soft" data-sug-use="${key}">Use</button><button class="small ghost" data-sug-drop="${key}">Dismiss</button><span class="faint">${esc(s.why || '')}</span></div></div>`;
     })
     .join('');
-  return `<div class="tray-card"><h4>✨ Suggestions (${ed.polish.size}) <button class="small ghost" id="sugAll">Use all</button></h4>${rows}</div>`;
+  return `<div class="tray-card"><h4>✨ Suggestions (${ed.polish.size}) <button class="small ghost" id="sugAll">Use all</button></h4>${rows}</div>${held}`;
 }
 
 function highlightFilter() {
@@ -390,6 +423,22 @@ function wireTray() {
   if (ds) ds.addEventListener('click', () => (ed.polish.delete(`${ed.focus.r}:${ed.focus.b}`), renderPaper(), renderTray()));
   $$('[data-sug-use]', tray).forEach((b) => b.addEventListener('click', () => (useSug(b.dataset.sugUse), renderPaper(), saveNow())));
   $$('[data-sug-drop]', tray).forEach((b) => b.addEventListener('click', () => (ed.polish.delete(b.dataset.sugDrop), renderPaper(), renderTray())));
+  $$('[data-clear-flag]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [r, b] = btn.dataset.clearFlag.split(':').map(Number);
+      const bl = ed.doc.roles[r] && ed.doc.roles[r].bullets[b];
+      if (bl) delete bl.flag;
+      renderPaper();
+      saveNow();
+    })
+  );
+  $$('[data-goto-flag]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [r, b] = btn.dataset.gotoFlag.split(':').map(Number);
+      const li = document.querySelector(`#edPage li[data-role="${r}"][data-bullet="${b}"]`);
+      if (li) (li.scrollIntoView({ block: 'center', behavior: 'smooth' }), li.focus());
+    })
+  );
   const all = $('#sugAll', tray);
   if (all) all.addEventListener('click', () => ([...ed.polish.keys()].forEach(useSug), renderPaper(), saveNow()));
   const pol = $('#edPolish', tray);
@@ -397,9 +446,11 @@ function wireTray() {
     pol.addEventListener('click', () =>
       run(pol, async () => {
         await saveNow();
-        const edits = await S.polishBullets(ed.appId);
+        const { edits, rejected } = await S.polishBullets(ed.appId);
         ed.polish = new Map(edits.map((e) => [e.id, e]));
-        toast(edits.length ? `${edits.length} suggestions — review them in the panel` : 'Your wording already fits this posting 👌', 'good', 4000);
+        ed.held = rejected || [];
+        const heldMsg = ed.held.length ? ` (${ed.held.length} held back for adding facts)` : '';
+        toast(edits.length ? `${edits.length} suggestion${edits.length === 1 ? '' : 's'} — review them in the panel${heldMsg}` : `Your wording already fits this posting 👌${heldMsg}`, 'good', 4000);
         renderPaper();
         renderTray();
       }, 'Polishing…')
@@ -418,6 +469,7 @@ function wireTray() {
     confirm('Start over with the best bullets for this job? Your edits on this page will be replaced (your bank is untouched).') &&
     run(null, async () => {
       ed.polish = new Map();
+      ed.held = [];
       await S.autoEditor(ed.appId);
       renderEditor(ed.appId, ed.app);
     })
@@ -458,6 +510,7 @@ function moveBullet(from, to) {
   if (from.r === to.r && from.b < to.b) idx--;
   ed.doc.roles[to.r].bullets.splice(idx, 0, item);
   ed.polish = new Map();
+  ed.held = [];
   ed.focus = { kind: 'bullet', r: to.r, b: idx };
   renderPaper(`li[data-role="${to.r}"][data-bullet="${idx}"]`);
   saveNow();
@@ -478,6 +531,7 @@ function insertRole(role) {
   const at = role.isProject ? ed.doc.roles.length : jobs;
   ed.doc.roles.splice(at, 0, role);
   ed.polish = new Map();
+  ed.held = [];
   renderPaper(`[data-path="roles.${at}.${role.isProject ? 'title' : 'organization'}"]`);
   saveNow();
 }
@@ -569,6 +623,7 @@ function wirePaper() {
       if (roleTool.dataset.roleTool === 'remove' && confirm('Take this role off this resume? (It stays in your bullet bank.)')) {
         ed.doc.roles.splice(r, 1);
         ed.polish = new Map();
+        ed.held = [];
         ed.focus = null;
         renderPaper();
         saveNow();
@@ -576,6 +631,7 @@ function wirePaper() {
       if (roleTool.dataset.roleTool === 'up' && r > 0) {
         [ed.doc.roles[r - 1], ed.doc.roles[r]] = [ed.doc.roles[r], ed.doc.roles[r - 1]];
         ed.polish = new Map();
+        ed.held = [];
         renderPaper();
         saveNow();
       }

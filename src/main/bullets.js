@@ -220,7 +220,10 @@ function parseResume(text) {
   sections.push(cur);
   for (const l of all) {
     const sec = l.trim() && sectionOf(l.trim());
+    // An inline list heading: "Skills: JavaScript, React, …"
+    const inline = !sec && l.trim().match(/^([A-Za-z &]{3,40}):\s+(\S.*)$/);
     if (sec) sections.push((cur = { name: sec, lines: [] }));
+    else if (inline && sectionOf(inline[1]) === 'skills') sections.push((cur = { name: 'skills', lines: [inline[2]] }));
     else cur.lines.push(l);
   }
 
