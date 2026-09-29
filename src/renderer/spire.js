@@ -119,33 +119,79 @@ function spireTopBar(run, c) {
 
 // ---------------- screens ----------------
 
+// The tower as a map: floors stacked bottom to top, a dotted trail from
+// every node to every node on the floor above, the route taken drawn solid,
+// and a little Sprout standing where you are.
+const ROW = 96;
+const BASE = 64; // room below floor 1 for the starting camp
+
+function mapLayout(run) {
+  const n = run.map.length;
+  const height = BASE + ROW * n + 24;
+  const y = (f) => height - BASE - (f + 0.5) * ROW;
+  // Two choices sit left and right with a little per-floor wobble, so it
+  // reads like a hand-drawn trail instead of a table.
+  const x = (f, k, count) => (count === 1 ? 50 : (k === 0 ? 30 : 70) + ((run.act * 37 + f * 53 + k * 19) % 13) - 6);
+  const pos = run.map.map((floor, f) => floor.map((_, k) => ({ x: x(f, k, floor.length), y: y(f) })));
+  return { height, pos, base: { x: 50, y: height - 30 } };
+}
+
+function mapBoard(run, can) {
+  const { height, pos, base } = mapLayout(run);
+  const n = run.map.length;
+  const reached = run.cleared ? n : run.floor; // floors fully behind you
+  const at = (f) => (f < 0 ? base : pos[f][run.path[f]]); // where the route passed on floor f
+  const lines = [];
+  for (let f = -1; f < n - 1; f++) {
+    const from = f < 0 ? [base] : pos[f];
+    from.forEach((a, i) => {
+      const onRoute = f < 0 || run.path[f] === i;
+      pos[f + 1].forEach((b, k) => {
+        // Behind you: your route solid, the rest faded. The floor you're on:
+        // dotted trails from where you stand. Ahead: faint dotted trails.
+        const cls = f + 1 < reached ? (onRoute && run.path[f + 1] === k ? 'taken' : 'faded') : f + 1 === reached ? (onRoute ? 'next' : 'faded') : 'future';
+        lines.push(`<line class="${cls}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
+      });
+    });
+  }
+  const bands = run.map
+    .map((_, f) => `<div class="band${f === n - 1 ? ' boss' : ''}${f === reached && !run.cleared ? ' now' : ''}" style="top:${height - BASE - (f + 1) * ROW}px;height:${ROW}px"><span>${f === n - 1 ? 'Top' : `Floor ${f + 1}`}</span></div>`)
+    .join('');
+  const nodes = run.map
+    .map((floor, f) =>
+      floor
+        .map((node, k) => {
+          const [ic, label] = NODE[node.type];
+          const name = node.enemy ? Spire.ENEMIES[node.enemy].name : label;
+          const now = f === reached && !run.cleared;
+          const state = f < reached ? (run.path[f] === k ? 'taken' : 'skipped') : now ? 'now' : 'ahead';
+          const p = pos[f][k];
+          return `<button class="mnode n-${node.type} ${state}" style="left:${p.x}%;top:${p.y}px" ${now && can ? `data-node="${k}"` : 'disabled'} title="${esc(name)}">
+            <span class="mdot">${icon(ic, node.type === 'boss' ? 36 : 24)}</span><span class="mlabel">${esc(name)}</span></button>`;
+        })
+        .join('')
+    )
+    .join('');
+  const here = run.cleared ? pos[n - 1][0] : at(reached - 1);
+  return `<div class="tower" style="height:${height}px">${bands}
+    <svg class="trails" viewBox="0 0 100 ${height}" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>
+    <div class="camp" style="left:${base.x}%;top:${base.y}px">${icon('flame', 18)}<span>Start</span></div>
+    ${nodes}
+    <div class="you" style="left:${here.x}%;top:${here.y}px" title="Sprout is here">${mascotSvg(run.knocked ? 'hug' : 'happy', 38)}</div>
+  </div>`;
+}
+
 function mapHtml(run, c) {
   const left = Spire.climbsLeft(run, c);
   const can = Spire.canEnter(run, c);
-  const rows = run.map
-    .map((floor, f) => {
-      const past = f < run.floor || run.cleared;
-      const now = f === run.floor && !run.cleared;
-      const nodes = floor
-        .map((n, k) => {
-          const [ic, label] = NODE[n.type];
-          const chosen = past && run.path[f] === k;
-          const name = n.enemy ? Spire.ENEMIES[n.enemy].name : label;
-          return `<button class="node n-${n.type}${chosen ? ' chosen' : ''}${now ? ' now' : ''}" ${now && can ? `data-node="${k}"` : 'disabled'} title="${esc(name)}">
-            ${icon(ic, n.type === 'boss' ? 34 : 26)}<span>${esc(n.type === 'fight' || n.type === 'elite' || n.type === 'boss' ? name : label)}</span></button>`;
-        })
-        .join(`<span class="or">or</span>`);
-      return `<div class="floor${past ? ' past' : ''}${now ? ' now' : ''}"><span class="fnum">${f === run.map.length - 1 ? 'Boss' : f + 1}</span><div class="nodes">${nodes}</div></div>`;
-    })
-    .reverse()
-    .join('');
+  const map = mapBoard(run, can);
   let line;
   if (run.cleared) line = left ? `Act cleared! You still have ${left} climb${left === 1 ? '' : 's'}: each one opens a bonus card.` : "Act cleared! A new Act starts Monday. Every application you send before then earns a bonus card.";
   else if (run.knocked && Spire.needsClimb(run) && !left) line = 'Sprout got knocked down, but is back up at half HP. Send an application to try again.';
   else if (can) line = run.map[run.floor][0].type === 'boss' ? 'You hit your weekly goal! The Crow Council is waiting at the top. Good luck!' : run.map[run.floor].length > 1 ? 'Choose your path.' : 'Onward!';
   else line = `No climbs left. Every application you send this week is one more floor${c.climbs < c.goal ? ` — ${c.goal - c.climbs} more reach the boss` : ''}.`;
   return `<div class="grid spire-main">
-    <div class="card spire-map">${rows}</div>
+    <div class="card spire-map">${map}</div>
     <div class="card spire-side">${mascotSvg(run.knocked ? 'hug' : can ? 'cheer' : 'wave', 110, { cls: 'pettable' })}
       <p class="sprout-line">${esc(line)}</p>
       ${run.cleared && left ? `<button class="primary" id="bonusBtn">${icon('chest')} Open a bonus card</button>` : ''}
