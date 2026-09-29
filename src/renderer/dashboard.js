@@ -19,7 +19,7 @@ const $$ = (sel, root = view) => Array.from(root.querySelectorAll(sel));
 function toast(text, kind = 'info', ms = 3800, mood) {
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
-  el.innerHTML = mascotSvg(mood || { good: 'happy', error: 'worried' }[kind] || 'curious', 34);
+  el.innerHTML = mascotSvg(mood || { good: 'happy', error: 'worried' }[kind] || 'curious', 34, { variant: 'random' });
   const span = document.createElement('span');
   span.textContent = text;
   el.appendChild(span);
@@ -37,16 +37,39 @@ function celebrate(text, mood = 'thrilled') {
   toast(text, 'good', 5500, mood);
 }
 
-// Sprout says something nice when poked, anywhere in the app.
+// Sprout says something nice when poked, anywhere in the app, and pulls a
+// happy face for a moment. Spike and Root answer in their own voices. Poke
+// a lot and they get a little dizzy.
+const PET_FACES = ['happy', 'thrilled', 'wave', 'proud', 'hug', 'cheer'];
+let pets = [];
+let lastPetFace = null;
 function petSprout(svg) {
-  svg.classList.remove('boing');
-  void svg.getBoundingClientRect();
-  svg.classList.add('boing');
-  const bubble = svg.parentElement && svg.parentElement.querySelector(':scope > .bubble, :scope > div > .sprout-line');
+  const kind = svg.classList.contains('cast-cactus') ? 'cactus' : svg.classList.contains('cast-carrot') ? 'carrot' : 'sprout';
+  const now = Date.now();
+  pets = pets.filter((t) => now - t < 4000).concat(now);
+  // Swap in a reaction face, keeping size and classes; restore it after a moment.
+  const orig = svg._orig || svg.outerHTML;
+  const keep = [...svg.classList].filter((c) => c === 'pettable' || c === 'pal-idle' || c === 'pal-up').join(' ');
+  const tmp = document.createElement('div');
+  let face = PET_FACES[Math.floor(Math.random() * PET_FACES.length)];
+  if (face === lastPetFace) face = PET_FACES[(PET_FACES.indexOf(face) + 1) % PET_FACES.length];
+  lastPetFace = face;
+  tmp.innerHTML = mascotSvg(face, +svg.getAttribute('width'), { kind, cls: `${keep} boing`, variant: 'random', label: svg.getAttribute('aria-label') });
+  const next = tmp.firstElementChild;
+  next._orig = orig;
+  svg.replaceWith(next);
+  clearTimeout(svg._restoreFace);
+  next._restoreFace = setTimeout(() => {
+    if (!next.isConnected) return;
+    tmp.innerHTML = orig;
+    next.replaceWith(tmp.firstElementChild);
+  }, 4200);
+
+  const bubble = next.parentElement && next.parentElement.querySelector(':scope > .bubble, :scope > div > .sprout-line');
   if (!bubble) return;
-  // Say something sweet, then go back to the page's own line.
+  // Say something, then go back to the page's own line.
   if (bubble.dataset.orig === undefined) bubble.dataset.orig = bubble.innerHTML;
-  bubble.textContent = say('pet');
+  bubble.textContent = pets.length >= 4 ? say('petLots') : say(kind === 'cactus' ? 'spike' : kind === 'carrot' ? 'root' : 'pet');
   clearTimeout(bubble._restore);
   bubble._restore = setTimeout(() => {
     bubble.innerHTML = bubble.dataset.orig;
@@ -113,7 +136,11 @@ function homeMood({ apps, appliedWeek, due, allDone }) {
   if (appliedWeek) return ['happy', `You applied to ${appliedWeek === 1 ? 'a role' : `${appliedWeek} roles`} this week. Lovely momentum!`];
   if (!allDone) return ['wave', "Hi, I'm Sprout! Let's get you set up — it only takes a few minutes."];
   if (!apps.length) return ['curious', "Let's find you something wonderful. Copy a job posting and I'll take a look."];
-  return ['happy', pick(["Let's find you something wonderful today.", "Ready when you are. Let's go find your next role.", 'New day, new postings. I’ll keep watch with you.'], new Date().getDate())];
+  // Stable for the hour, so the line doesn't change every time the page redraws.
+  const d = new Date();
+  const h = d.getHours();
+  const key = h < 5 || h >= 23 ? 'idleLate' : h < 12 ? 'idleMorning' : h < 18 ? 'idleAfternoon' : 'idleEvening';
+  return [h < 5 || h >= 23 ? 'sleepy' : 'happy', say(key, d.getDate() * 24 + h)];
 }
 
 const KIND_LABEL = {
@@ -598,6 +625,7 @@ async function renderApplication(id) {
       if (st === 'offer') celebrate(say('offer'));
       else if (st === 'interviewing') celebrate(say('interviewing'), 'cheer');
       else if (st === 'rejected') toast(say('rejected'), 'info', 6500, 'hug');
+      else if (st === 'skipped') toast(say('skipped'), 'good', 3800, 'proud');
       else toast('Status updated', 'good');
     });
   });
@@ -736,7 +764,11 @@ function openApplyModal(a) {
         notes: $('#mNotes', card).value,
       });
       closeModal();
-      celebrate(`${say('applied')} I'll remind you to follow up.`);
+      // Count this one too: state refreshes after the save lands.
+      const n = state.applications.filter((x) => x.appliedAt && x.id !== a.id).length + 1;
+      if (n === 1) celebrate(say('firstApplied'));
+      else if ([5, 10, 15, 20, 25, 30, 40, 50, 75, 100].includes(n)) celebrate(say('milestone', null, { n }));
+      else celebrate(`${say('applied')} I'll remind you to follow up.`);
     }, 'Saving…')
   );
 }
@@ -767,7 +799,7 @@ function openEditJobModal(a) {
       await S.updateApplication(a.id, { job: { title: $('#mTitle', card).value.trim(), company: $('#mCompany', card).value.trim(), location: $('#mLoc', card).value.trim(), url: $('#mUrl', card).value.trim() } });
       await S.rescoreLocal(a.id); // the title feeds role and seniority matching
       closeModal();
-      toast('Saved', 'good');
+      toast(say('saved'), 'good');
     })
   );
 }
@@ -853,7 +885,7 @@ const binders = {
           <textarea id="mText" style="min-height:420px">${esc(d.text)}</textarea>
           <div class="inline" style="margin-top:12px"><button class="primary" id="mSave">Save</button><button class="ghost" id="mCancel">Close</button></div>`);
         $('#mCancel', card).addEventListener('click', closeModal);
-        $('#mSave', card).addEventListener('click', () => run(null, async () => (await S.updateDocument(d.id, { text: $('#mText', card).value }), closeModal(), toast('Saved', 'good'))));
+        $('#mSave', card).addEventListener('click', () => run(null, async () => (await S.updateDocument(d.id, { text: $('#mText', card).value }), closeModal(), toast(say('saved'), 'good'))));
       })
     );
   },
@@ -887,11 +919,11 @@ const binders = {
           claudeFitThreshold: Math.max(0, Math.min(100, parseInt($('#claudeFitThreshold').value, 10) || 65)),
           autoBudgetUsd: Math.max(0, parseFloat($('#autoBudgetUsd').value) || 0),
         });
-        toast('Saved', 'good');
+        toast(say('saved'), 'good');
       }, 'Saving…')
     );
     $('#saveTracking').addEventListener('click', (e) =>
-      run(e.currentTarget, async () => (await S.updateSettings({ followUpDays: Math.max(1, parseInt($('#followUpDays').value, 10) || 7) }), toast('Saved', 'good')), 'Saving…')
+      run(e.currentTarget, async () => (await S.updateSettings({ followUpDays: Math.max(1, parseInt($('#followUpDays').value, 10) || 7) }), toast(say('saved'), 'good')), 'Saving…')
     );
     $('#saveSettings').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
@@ -943,8 +975,20 @@ function renderBuddy() {
   const key = mood + line;
   if (key === buddyKey) return;
   buddyKey = key;
+  buddyChatty = mood === 'happy' && !due;
   document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(line)}</div>`;
 }
+
+// While all is calm, sidebar Sprout says something new every couple of
+// minutes (a tip, a kind word), with a fresh face. Never mid-pet.
+let buddyChatty = false;
+setInterval(() => {
+  const box = document.getElementById('buddy');
+  const bubble = box && box.querySelector('.bubble');
+  if (!buddyChatty || !bubble || bubble.dataset.orig !== undefined || document.hidden) return;
+  const mood = ['happy', 'wave', 'curious', 'proud', 'cheer'][Math.floor(Math.random() * 5)];
+  box.innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', variant: 'random', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(say('buddy'))}</div>`;
+}, 150000);
 
 function route() {
   const [name, id] = (location.hash.slice(1) || 'home').split('/');

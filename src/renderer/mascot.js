@@ -6,7 +6,14 @@
   // Big glossy chibi eyes: a dark oval with a large and a small highlight.
   const shiny = (x) => `<ellipse cx="${x}" cy="57" rx="4.6" ry="5.4" fill="#3b3a36"/><circle cx="${x + 1.5}" cy="54.8" r="1.9" fill="#fff"/><circle cx="${x - 1.7}" cy="59.4" r="0.95" fill="#fff"/>`;
   const SHINY_EYES = `${shiny(42.5)}${shiny(61.5)}`;
-  // Happy squeezed "> <" eyes.
+  // A wink: left eye a happy arc, right eye a dot.
+  const WINK_EYES = '<path d="M39.5 58 q3.5 -4.5 7 0" stroke="#3b3a36" stroke-width="3" stroke-linecap="round" fill="none"/><circle cx="61" cy="57" r="2.8" fill="#3b3a36"/>';
+  // Eyes glancing up while thinking.
+  const LOOK_UP_EYES = '<circle cx="42" cy="55" r="2.6" fill="#3b3a36"/><circle cx="60" cy="55" r="2.6" fill="#3b3a36"/>';
+  // Little happy tears.
+  const TEARS = '<path d="M37.4 62 q-1.8 2.8 0 4.1 q1.8 -1.3 0 -4.1z M66.6 62 q-1.8 2.8 0 4.1 q1.8 -1.3 0 -4.1z" fill="#a9d6f0" stroke="#86bddd" stroke-width=".8"/>';
+  // Happy squeezed "> <" eyes (and a slightly smaller pair for cheering).
+  const SQUEEZE_EYES_2 = '<path d="M39.5 53.5 l6 3.5 l-6 3.5 M64.5 53.5 l-6 3.5 l6 3.5" stroke="#3b3a36" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>';
   const SQUEEZE_EYES = '<path d="M38.5 53 l7 4 l-7 4 M65.5 53 l-7 4 l7 4" stroke="#3b3a36" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>';
   const DOT_EYES = 'M43 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M61 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0';
 
@@ -32,17 +39,71 @@
 
   // Moods with more than one drawing take turns, so the same moment doesn't
   // always look identical. Excited alternates shiny eyes and squeezed "> <" eyes.
+  const O_MOUTH = 'M49 70 a3 3.4 0 1 0 6 0 a3 3.4 0 1 0 -6 0';
+  const D_MOUTH = 'M47 65.5 h10 q0 5.5 -5 5.5 q-5 0 -5 -5.5z';
+  const D_TONGUE = 'M48.8 69.4 q3.2 -2.4 6.4 0 q-3.2 1.8 -6.4 0z';
   const VARIANTS = {
+    happy: [
+      null,
+      { eyesSvg: SHINY_EYES, mouth: 'M46 67 q6 5 12 0', cheeks: 'blush', arms: 'down' },
+      { eyes: ARC_EYES, mouth: D_MOUTH, mouthFill: true, tongue: D_TONGUE, cheeks: 'blush', arms: 'down', extra: 'note' },
+    ],
+    proud: [
+      null,
+      { eyesSvg: WINK_EYES, mouth: 'M45 67 q7 6 14 0', cheeks: 'blush', arms: 'down', extra: 'sparkles' },
+      { eyesSvg: SHINY_EYES, mouth: 'M46 67 q6 5 12 0', cheeks: 'blush', arms: 'up', extra: 'sparkles' },
+    ],
+    cheer: [
+      null,
+      { eyesSvg: SQUEEZE_EYES_2, mouth: D_MOUTH, mouthFill: true, tongue: D_TONGUE, cheeks: 'blush', arms: 'pump' },
+      { eyesSvg: SHINY_EYES, mouth: D_MOUTH, mouthFill: true, tongue: D_TONGUE, cheeks: true, arms: 'pump', extra: 'sparkles' },
+    ],
+    wave: [
+      null,
+      { eyesSvg: WINK_EYES, mouth: D_MOUTH, mouthFill: true, tongue: D_TONGUE, cheeks: 'blush', arms: 'wave' },
+      { eyesSvg: SHINY_EYES, mouth: 'M45 67 q7 7 14 0', cheeks: 'blush', arms: 'wave' },
+    ],
+    curious: [
+      null,
+      { eyesSvg: SHINY_EYES, mouth: O_MOUTH, cheeks: 'blush', arms: 'down', extra: 'question' },
+      { eyes: DOT_EYES, dots: true, mouth: 'M48 69 q4 2 8 -1', cheeks: true, arms: 'down', extra: 'question' },
+    ],
+    hug: [
+      null,
+      { eyesSvg: `${SHINY_EYES}${TEARS}`, mouth: 'M47 68 q5 4 10 0', cheeks: 'blush', arms: 'hug', extra: 'heart' },
+    ],
+    worried: [
+      null,
+      { eyesSvg: `${SHINY_EYES}${TEARS}`, brows: 'M38 50 q4 -3 8 -2 M66 50 q-4 -3 -8 -2', mouth: 'M46 71 q3 -2.5 6 0 q3 2.5 6 0', cheeks: 'blush', arms: 'down' },
+    ],
+    sleepy: [
+      null,
+      { eyes: 'M40 59 q3 2.5 6 0 M58 59 q3 2.5 6 0', mouth: 'M50 69.5 a2.2 2.6 0 1 0 4.4 0 a2.2 2.6 0 1 0 -4.4 0', cheeks: 'blush', arms: 'down', extra: 'zzz' },
+    ],
+    thinking: [
+      null,
+      { eyesSvg: LOOK_UP_EYES, mouth: 'M47 70 q5 -2 10 0', cheeks: false, arms: 'down', extra: 'dots' },
+    ],
     thrilled: [
       null, // FACES.thrilled
       { eyesSvg: SQUEEZE_EYES, mouth: 'M45 64.5 h14 q0 7 -7 7 q-7 0 -7 -7z', mouthFill: true, tongue: 'M47.3 69.7 q4.7 -3.1 9.4 0 q-4.7 2.2 -9.4 0z', cheeks: 'blush', arms: 'up', extra: 'hearts' },
     ],
   };
-  const turns = {};
+  // Which drawing to use: a number pins one; 'random' picks a fresh one (for
+  // new moments like pets and toasts, never the same twice in a row);
+  // otherwise it holds steady for a little while, so a page that redraws
+  // doesn't twitch, and changes over time.
+  const lastPick = {};
   function faceFor(mood, variant) {
     const list = VARIANTS[mood];
     if (!list) return FACES[mood] || FACES.happy;
-    const i = Number.isInteger(variant) ? variant % list.length : (turns[mood] = ((turns[mood] ?? -1) + 1) % list.length);
+    let i;
+    if (Number.isInteger(variant)) i = variant % list.length;
+    else if (variant === 'random') {
+      i = Math.floor(Math.random() * list.length);
+      if (i === lastPick[mood]) i = (i + 1) % list.length;
+    } else i = (Math.floor(Date.now() / 45000) + mood.length) % list.length;
+    lastPick[mood] = i;
     return list[i] || FACES[mood];
   }
 
@@ -55,6 +116,8 @@
   };
 
   const EXTRAS = {
+    question: `<g class="twinkle"><path d="M84 29 q0 -5 5 -5 q5 0 5 4.4 q0 3 -4.2 4.6 v2.6" stroke="var(--lavender, #b9a9e6)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="89.8" cy="41" r="1.6" fill="var(--lavender, #b9a9e6)"/></g>`,
+    note: `<g class="float-hearts" fill="var(--lavender, #b9a9e6)" stroke="var(--lavender, #b9a9e6)"><path d="M86.5 38 v-11 l7.5 -2.2 v11" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="84.8" cy="38.4" rx="2.6" ry="2" stroke="none"/><ellipse cx="92.3" cy="36.2" rx="2.6" ry="2" stroke="none"/></g>`,
     // Little floating hearts and a sparkle, for big happy moments.
     hearts: `<g class="float-hearts"><path d="M16 36 c-3 -2 -4.4 -3.7 -4 -5.3 .3 -1.4 2.1 -1.8 4 -.2 1.9 -1.6 3.7 -1.2 4 .2 .4 1.6 -1 3.3 -4 5.3z" fill="#f59aa8"/>
       <path d="M90 30 c-2.2 -1.5 -3.2 -2.7 -2.9 -3.9 .2 -1 1.5 -1.3 2.9 -.2 1.4 -1.1 2.7 -.8 2.9 .2 .3 1.2 -.7 2.4 -2.9 3.9z" fill="#f59aa8"/></g>
@@ -167,41 +230,8 @@
     return `<div class="sprout-says${opts.cls ? ' ' + opts.cls : ''}">${mascotSvg(mood, size, opts.svg)}<div class="bubble">${html}</div></div>`;
   }
 
-  const LINES = {
-    thrilled: ['This role has your name all over it!', "Oh, you're a fantastic fit for this one!", 'Wow — this is right in your wheelhouse!'],
-    happy: ["You've got a lot going for you here!", "Solid match! Let's make it shine.", 'This one looks really promising.'],
-    cheer: [
-      'A stretch role — and stretching is how we grow!',
-      "Not a perfect match, but you bring real strengths. Let's highlight them.",
-      'Every application is practice. Want to give it a go?',
-    ],
-  };
-
-  // Things Sprout says at moments that matter, and when you poke it.
-  const SAYINGS = {
-    pet: [
-      "Hi! I'm rooting for you. (Get it? Rooting?)",
-      "Boop! That tickles.",
-      "You're doing better than you think.",
-      "One posting at a time. We've got this.",
-      'Quick stretch and a sip of water? I’ll wait.',
-      'I believe in you — really, truly.',
-      "Every 'no' gets you closer to a 'yes'.",
-      "Proud of you for showing up today.",
-      'Job hunting is hard. You’re handling it.',
-      "I'm small, but my faith in you is enormous.",
-    ],
-    applied: ['You did it! Another one out into the world.', 'Applied! That took courage — I’m proud of you.', 'Sent! I’ll remind you to follow up.'],
-    interviewing: ['An interview! You’ve earned this.', 'Interview time! Jot some prep notes in Tracking — you’ve got this.'],
-    offer: ['AN OFFER!! I’m so, so proud of you.', 'You got an offer! Happy dance time!'],
-    rejected: [
-      'Their loss. I’m proud of you for putting yourself out there.',
-      'Not this one — the right role is still out there. I’m with you.',
-      'Rejections sting. Take a breather; we’ll try again together.',
-    ],
-    exported: ['Saved! Go get ’em.', 'Looking sharp! Saved.', 'All saved — that resume looks great.'],
-    error: ['Oops, something went sideways:', 'Hmm, that didn’t work:'],
-  };
+  // What they say lives in buddyLines.js.
+  const { LINES, SAYINGS } = window.SproutLines || { LINES: { thrilled: [''], happy: [''], cheer: [''] }, SAYINGS: {} };
 
   // The helper for a resume mode ('ats' | 'claude'), drawn in a mood.
   function helperSvg(mode, mood = 'happy', size = 56, opts = {}) {
@@ -225,8 +255,26 @@
     return list[Math.abs(seed) % list.length];
   }
 
-  function say(key, seed) {
-    return pick(SAYINGS[key] || SAYINGS.pet, seed);
+  // A "shuffle bag" per key: every line comes up once before any repeats,
+  // and never the same line twice in a row.
+  const bags = {};
+  function draw(key, list) {
+    let bag = bags[key];
+    if (!bag || !bag.left.length) {
+      const left = list.map((_, i) => i).sort(() => Math.random() - 0.5);
+      if (bag && left.length > 1 && left[left.length - 1] === bag.last) left.unshift(left.pop());
+      bag = bags[key] = { left, last: bag ? bag.last : -1 };
+    }
+    bag.last = bag.left.pop();
+    return list[bag.last];
+  }
+
+  // A line for a moment. With a seed the choice is stable (e.g. per job);
+  // without one it varies. vars fill {placeholders}, e.g. {n}.
+  function say(key, seed, vars) {
+    const list = SAYINGS[key] || SAYINGS.pet || [''];
+    const line = seed === undefined || seed === null ? draw(key, list) : pick(list, seed);
+    return vars ? line.replace(/\{(\w+)\}/g, (m, k) => (vars[k] ?? m)) : line;
   }
 
   function encouragement(score, seed = Date.now()) {

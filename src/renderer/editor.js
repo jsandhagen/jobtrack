@@ -122,7 +122,7 @@ async function switchMode(mode) {
     renderApplication(appId); // shows Root at work
     const ok = await run(null, () => p.then(() => true));
     await renderApplication(appId);
-    if (ok) (previewFresh(), toast('Root wrote an updated version. Have a look! Undo is up top.', 'good', 5000, 'proud'));
+    if (ok) (previewFresh(), toast(say('claudeDone'), 'good', 5000, 'proud'));
     return;
   }
   const done = await run(null, async () => {
@@ -134,7 +134,7 @@ async function switchMode(mode) {
   if (!done || ed.appId !== appId) return;
   await renderEditor(appId, ed.app);
   previewFresh();
-  if (mode === 'ats') toast('Spike optimized your resume for this posting.', 'good', 3800, 'proud');
+  if (mode === 'ats') toast(say('atsDone'), 'good', 3800, 'proud');
 }
 
 document.addEventListener('click', (e) => {

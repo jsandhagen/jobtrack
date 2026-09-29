@@ -44,7 +44,7 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
         <button class="ghost" data-act="dismiss">Not now</button>
       </div>`;
   }
-  return `<div class="top">${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click to say hi' })}<div class="speech">${esc(speech)}</div></div>
+  return `<div class="top">${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click to say hi', variant: 'random' })}<div class="speech">${esc(speech)}</div></div>
     <div class="role">${esc(app.job.title)}</div>
     <div class="company">${esc([app.job.company, app.job.location].filter(Boolean).join(' · ') || 'Job posting detected')}</div>
     <div class="scoreline">${scoreRing(score, 84)}
@@ -150,7 +150,7 @@ content.addEventListener('click', (e) => {
   const pet = e.target.closest('.sprout.pettable');
   if (pet) {
     const speech = content.querySelector('.speech');
-    if (speech) speech.textContent = say('pet');
+    if (speech) speech.textContent = say(pet.classList.contains('cast-cactus') ? 'spike' : pet.classList.contains('cast-carrot') ? 'root' : 'pet');
     pet.classList.remove('boing');
     void pet.getBoundingClientRect();
     pet.classList.add('boing');
