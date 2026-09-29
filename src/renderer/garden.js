@@ -173,7 +173,7 @@ function openGoalModal() {
   $('#mCancel', card).addEventListener('click', closeModal);
   $('#mSave', card).addEventListener('click', () =>
     run(null, async () => {
-      await S.updateSettings({ weeklyGoal: Math.max(1, Math.min(100, parseInt($('#mGoal', card).value, 10) || 5)) });
+      await S.updateSettings({ weeklyGoal: Math.max(1, Math.min(100, parseInt($('#mGoal', card).value, 10) || 7)) });
       closeModal();
       toast('Goal saved. You’ve got this!', 'good', 3800, 'cheer');
     })

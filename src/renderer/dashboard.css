@@ -323,18 +323,18 @@ details.tray-card summary { cursor: pointer; }
 .mnode:disabled { cursor: default; opacity: 1; } /* the theme dims disabled buttons; nodes stay solid so trails don't show through */
 .mdot { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; background: #fffaf0; border: 2.5px solid #c9ae80; box-shadow: 0 2px 0 #dcc59c; transition: transform .15s; }
 .mnode.n-boss .mdot { width: 76px; height: 76px; border-color: var(--rose); color: #c25454; background: #fff5f3; }
-.mnode.n-elite .mdot { color: #c2703f; border-color: #e0a07a; }
-.mnode.n-rest .mdot { color: #e08a4a; }
-.mnode.n-treasure .mdot { color: #a07a1c; }
+.n-elite .mdot { color: #c2703f; border-color: #e0a07a; }
+.n-rest .mdot { color: #e08a4a; }
+.n-treasure .mdot { color: #a07a1c; }
 .mlabel { position: absolute; width: max-content; max-width: 96px; white-space: normal; /* buttons are nowrap in the theme */ font-size: 11.5px; line-height: 1.2; padding: 1px 6px; border-radius: 6px; background: rgba(255, 250, 240, .85); }
-.side-l .mlabel { right: 100%; top: 50%; translate: -6px -50%; text-align: right; }
-.side-r .mlabel { left: 100%; top: 50%; translate: 6px -50%; text-align: left; }
-.side-t .mlabel { bottom: 100%; left: 50%; translate: -50% -4px; max-width: none; white-space: nowrap; }
+.mnode .mlabel { bottom: 100%; left: 50%; translate: -50% -4px; max-width: none; white-space: nowrap; } /* only the boss is named on the map */
+.n-boss .mdot { border-color: var(--rose); color: #c25454; background: #fff5f3; }
 .camp .mlabel { top: 100%; left: 50%; translate: -50% 3px; }
 .mnode.here .mdot, .camp.here .mdot { overflow: hidden; background: var(--sage-soft); }
 .mnode.here .mdot .sprout, .camp.here .mdot .sprout { margin-top: 6px; }
 .mnode.skipped .mdot { background: #efe3c8; border-color: #dccaa6; color: #c4ad84; box-shadow: none; }
-.mnode.skipped .mlabel { color: #c4ad84; background: none; }
+.mnode.cutoff .mdot { background: #f3e9d4; border-color: #e1d1b0; color: #cdb892; box-shadow: none; }
+.mnode.hl .mdot { transform: scale(1.15); background: var(--sage-soft); }
 .mnode.taken .mdot { background: var(--sage-soft); border-color: var(--sage); color: var(--sage-deep); }
 .mnode.now .mdot { border-color: var(--sage-deep); border-width: 3px; }
 .mnode.now:not(:disabled) { cursor: pointer; }
@@ -354,7 +354,7 @@ details.tray-card summary { cursor: pointer; }
   .mdot { background: #2b2720; border-color: #7d6c4e; box-shadow: 0 2px 0 #1e1b16; }
   .mnode.n-boss .mdot { background: #3a2a2a; }
   .mnode.skipped .mdot { background: #332e24; border-color: #4d4433; color: #6b5f4a; }
-  .mnode.skipped .mlabel { color: #6b5f4a; }
+  .mnode.cutoff .mdot { background: #302b22; border-color: #463e30; color: #5f5442; }
   .mlabel { background: rgba(43, 39, 32, .85); }
 }
 @media (prefers-reduced-motion: reduce) { .trails .next, .mnode.now:not(:disabled) .mdot { animation: none; } }
@@ -411,3 +411,13 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .campfire-scene .ic-flame { color: #e08a4a; animation: flicker 1.6s ease-in-out infinite; transform-origin: bottom center; }
 @keyframes flicker { 0%, 100% { transform: scale(1) rotate(-2deg); } 50% { transform: scale(1.08, 1.14) rotate(2deg); } }
 @media (prefers-reduced-motion: reduce) { .campfire-scene .ic-flame { animation: none; } }
+.map-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+.map-legend .lg { display: inline-flex; align-items: center; gap: 5px; }
+.map-legend .mdot, .choice .mdot { width: 24px; height: 24px; border-width: 2px; box-shadow: none; }
+.choices { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.choice { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; text-align: left; white-space: normal; }
+.choice .mdot { width: 34px; height: 34px; flex: none; }
+.choice b { display: block; } .choice small { color: var(--ink-soft); font-weight: 600; }
+.choice:not(:disabled):hover { background: var(--sage-soft); }
+.spire-side .how { text-align: left; margin-top: 12px; }
+.spire-side .how summary { cursor: pointer; }

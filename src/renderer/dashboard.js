@@ -906,7 +906,7 @@ const binders = {
     $('#saveGarden').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const on = $('#gardenEnabled').checked;
-        await S.updateSettings({ gardenEnabled: on, gameStyle: $('#gameStyle').value, weeklyGoal: Math.max(1, Math.min(100, parseInt($('#weeklyGoal').value, 10) || 5)) });
+        await S.updateSettings({ gardenEnabled: on, gameStyle: $('#gameStyle').value, weeklyGoal: Math.max(1, Math.min(100, parseInt($('#weeklyGoal').value, 10) || 7)) });
         toast(on ? "Garden's on! Every application plants something." : 'Garden turned off. Your progress is kept if you turn it back on.', 'good', 4200, on ? 'thrilled' : 'happy');
       }, 'Saving…')
     );

@@ -6,6 +6,11 @@ const NOW = new Date(2026, 8, 30, 15); // Wednesday
 const at = (d, h = 12) => new Date(2026, 8, d, h).toISOString();
 let n = 0;
 const app = (appliedAt, extra = {}) => ({ id: `a${n++}`, createdAt: appliedAt, status: 'applied', appliedAt, job: { title: 'Engineer', company: 'Acme' }, ...extra });
+// Put a single node on floor f, linked to whatever is around it.
+function setFloor(s, f, node) {
+  s.map[f] = [{ ...node, next: f + 1 < s.map.length ? s.map[f + 1].map((_, k) => k) : [] }];
+  if (f > 0) s.map[f - 1].forEach((nd) => (nd.next = [0]));
+}
 const ids = (deck) => deck.map((c) => c.id + (c.up ? '+' : ''));
 
 // Play every affordable card, attacks and draws first, then end the turn.
@@ -50,7 +55,7 @@ test('each application this week is one climb; the boss is free once reached', (
   assert.equal(s.cards.length, 1);
   assert.equal(s.floor, 1);
   assert.equal(Sp.climbsLeft(s, c), 1);
-  s.map[1] = [{ type: 'rest' }];
+  setFloor(s, 1, { type: 'rest' });
   s.hp = 10;
   assert.equal(Sp.enter(s, c, 0).event, 'rest');
   assert.equal(Sp.canEnter(s, c), false, 'choose at the campfire first');
@@ -72,7 +77,7 @@ test('without climbs you cannot enter a floor', () => {
 test('cards cost energy; block soaks damage; intents are telegraphed', () => {
   const c = Sp.career([app(at(29))], { now: NOW });
   const s = Sp.sync(null, c);
-  s.map[0] = [{ type: 'fight', enemy: 'ghoster' }];
+  setFloor(s, 0, { type: 'fight', enemy: 'ghoster' });
   Sp.enter(s, c, 0);
   const cb = s.combat;
   assert.equal(cb.player.block, 4, 'Lucky Acorn (first application badge) starts fights with 4 Block');
@@ -98,7 +103,7 @@ test('cards cost energy; block soaks damage; intents are telegraphed', () => {
 test('weak, strength and nettle (poison) work like the real thing', () => {
   const c = Sp.career([app(at(29))], { now: NOW });
   const s = Sp.sync(null, c);
-  s.map[0] = [{ type: 'fight', enemy: 'golem' }];
+  setFloor(s, 0, { type: 'fight', enemy: 'golem' });
   Sp.enter(s, c, 0);
   const cb = s.combat;
   cb.player.strength = 2;
@@ -117,7 +122,7 @@ test('weak, strength and nettle (poison) work like the real thing', () => {
 test('losing never ends the run: back up at half HP, and the next application retries', () => {
   const c = Sp.career([app(at(29)), app(at(30))], { now: NOW });
   const s = Sp.sync(null, c);
-  s.map[0] = [{ type: 'elite', enemy: 'gauntlet' }];
+  setFloor(s, 0, { type: 'elite', enemy: 'gauntlet' });
   Sp.enter(s, c, 0);
   s.hp = 1;
   s.combat.hand = [];
@@ -134,7 +139,7 @@ test('losing never ends the run: back up at half HP, and the next application re
 test('tending a card at the campfire upgrades one copy for the rest of the climb', () => {
   const c = Sp.career([app(at(29))], { now: NOW });
   const s = Sp.sync(null, c);
-  s.map[0] = [{ type: 'rest' }];
+  setFloor(s, 0, { type: 'rest' });
   Sp.enter(s, c, 0);
   assert.throws(() => Sp.rest(s, c, 'tend', 'offer'), /can’t be upgraded/);
   Sp.rest(s, c, 'tend', 'pitch');
@@ -149,6 +154,52 @@ test('tending a card at the campfire upgrades one copy for the rest of the climb
 
 test('every card says where it comes from, or is a reward', () => {
   for (const [id, def] of Object.entries(Sp.CARDS)) assert.ok(def.from || Sp.REWARD_POOL.includes(id), id);
+});
+
+test('the map branches like Slay the Spire: no crossings, and choices close paths off', () => {
+  const c = Sp.career([app(at(29))], { now: NOW });
+  let forks = 0;
+  let closed = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const s = Sp.sync(Sp.newState(seed), c);
+    assert.equal(s.map.length, 8, 'seven floors, then the boss');
+    assert.equal(s.map[7][0].type, 'boss');
+    assert.ok(s.map[0].every((nd) => nd.type === 'fight'));
+    for (let f = 0; f < 7; f++) {
+      const up = s.map[f + 1];
+      const edges = s.map[f].flatMap((nd, i) => nd.next.map((k) => [i, k]));
+      s.map[f].forEach((nd) => assert.ok(nd.next.length >= 1 && nd.next.every((k) => k >= 0 && k < up.length)));
+      up.forEach((_, k) => assert.ok(edges.some(([, t]) => t === k), `floor ${f + 2} node ${k} can be reached`));
+      for (const [a, b] of edges) for (const [x, y] of edges) assert.ok(!(a < x && b > y), `trails cross on floor ${f + 1}`);
+      if (s.map[f].some((nd) => nd.next.length > 1)) forks++;
+      if (s.map[f].some((nd) => nd.next.length < up.length)) closed++;
+    }
+  }
+  assert.ok(forks > 400 && closed > 700, `real choices (${forks} forks, ${closed} partial links)`);
+});
+
+test('you can only enter nodes linked to where Sprout stands', () => {
+  const c = Sp.career([app(at(28)), app(at(29)), app(at(30))], { weeklyGoal: 7, now: NOW });
+  const s = Sp.sync(Sp.newState(3), c);
+  assert.deepEqual(Sp.choices(s), [0, 1, 2]);
+  s.map[1] = [{ type: 'treasure', next: [0] }, { type: 'rest', next: [0] }, { type: 'treasure', next: [0] }];
+  s.map[0].forEach((nd, i) => (nd.next = i === 0 ? [0, 1] : [2]));
+  Sp.enter(s, c, 0);
+  autoFight(s, c);
+  Sp.closeCombat(s);
+  Sp.takeReward(s, -1);
+  assert.deepEqual(Sp.choices(s), [0, 1]);
+  assert.throws(() => Sp.enter(s, c, 2), /isn’t connected/);
+  assert.ok(Sp.reachable(s).has('1:1') && !Sp.reachable(s).has('1:2'));
+  assert.equal(Sp.enter(s, c, 1).event, 'rest');
+});
+
+test('runs saved before maps branched still work', () => {
+  const c = Sp.career([app(at(29))], { now: NOW });
+  const s = Sp.sync(Sp.newState(5), c);
+  s.map.forEach((floor) => floor.forEach((nd) => delete nd.next));
+  Sp.sync(s, c);
+  assert.deepEqual(s.map[0][0].next, s.map[1].map((_, k) => k));
 });
 
 test('a new week starts a new act at full HP, keeping picked cards', () => {

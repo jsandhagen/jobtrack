@@ -101,7 +101,7 @@
   // ---------------- from your real search ----------------
 
   // Deck, relics, max HP and this week's climbs, from the application history.
-  function career(apps, { weeklyGoal = 5, now = new Date() } = {}) {
+  function career(apps, { weeklyGoal = 7, now = new Date() } = {}) {
     const g = Garden.gardenStats(apps, { weeklyGoal, now });
     const applied = apps.filter((a) => a.appliedAt);
     const reached = (s) => apps.some((a) => a.status === s || (a.statusHistory || []).some((h) => h.status === s));
@@ -136,36 +136,80 @@
 
   // ---------------- the run ----------------
 
+  // The week's map, like Slay the Spire's: 2–3 nodes per floor, each linked
+  // to only one or two nodes on the floor above, with no crossing trails, so
+  // every choice closes some paths off. Each node lists the nodes it leads to
+  // in `next` (indices on the floor above). The start links to every node on
+  // floor 1, and every node on the last floor leads to the boss.
   function makeMap(state, goal) {
-    const floors = [];
     const n = Math.max(1, goal);
-    for (let i = 0; i < n; i++) {
+    const floors = [];
+    for (let f = 0; f < n; f++) {
+      const width = f === 0 ? 3 : f === n - 1 && n >= 3 ? 2 : 2 + (rand(state) < 0.5 ? 1 : 0);
+      const used = [];
+      const node = (type) => {
+        if (type !== 'fight' && type !== 'elite') return { type };
+        const all = type === 'elite' ? ELITES : FIGHTS;
+        const pool = all.filter((e) => !used.includes(e));
+        const enemy = pickOne(state, pool.length ? pool : all);
+        used.push(enemy);
+        return { type, enemy };
+      };
       let types;
-      if (i === 0) types = ['fight', 'fight'];
-      else if (i === n - 1 && n >= 3) types = ['rest', 'treasure'];
+      if (f === 0) types = Array(width).fill('fight');
+      else if (f === n - 1 && n >= 3) types = ['rest', 'treasure'];
       else {
         const bag = ['fight', 'fight', 'fight', 'treasure', 'rest'];
-        if (i >= 2) bag.push('elite', 'elite');
-        const a = pickOne(state, bag);
-        let b = pickOne(state, bag.filter((t) => t !== a));
-        if (a !== 'fight' && b !== 'fight' && rand(state) < 0.5) b = 'fight';
-        types = [a, b];
+        if (f >= 2) bag.push('elite', 'elite');
+        types = Array.from({ length: width }, () => pickOne(state, bag));
+        // At least one fight per floor, and never a floor of all the same thing.
+        if (!types.includes('fight')) types[Math.floor(rand(state) * width)] = 'fight';
+        if (types.every((t) => t === types[0])) types[width - 1] = types[0] === 'fight' ? pickOne(state, bag.filter((t) => t !== 'fight')) : 'fight';
       }
-      const used = [];
-      floors.push(
-        types.map((type) => {
-          if (type === 'fight' || type === 'elite') {
-            const pool = (type === 'elite' ? ELITES : FIGHTS).filter((e) => !used.includes(e));
-            const enemy = pickOne(state, pool);
-            used.push(enemy);
-            return { type, enemy };
-          }
-          return { type };
-        })
-      );
+      floors.push(types.map(node));
     }
-    floors.push([{ type: 'boss', enemy: 'committee' }]);
+    floors.push([{ type: 'boss', enemy: 'committee', next: [] }]);
+    for (let f = 0; f < n; f++) link(state, floors[f], floors[f + 1]);
     return floors;
+  }
+
+  // Non-crossing links between two floors (nodes ordered left to right):
+  // walk both floors together, sometimes stepping one side only, which makes
+  // a fork. Every node gets at least one link in and out.
+  function link(state, lower, upper) {
+    lower.forEach((nd) => (nd.next = []));
+    let i = 0;
+    let j = 0;
+    lower[0].next.push(0);
+    while (i < lower.length - 1 || j < upper.length - 1) {
+      const canI = i < lower.length - 1;
+      const canJ = j < upper.length - 1;
+      const r = rand(state);
+      if (canI && canJ && r < 0.5) (i++, j++);
+      else if (canI && (!canJ || r < 0.75)) i++;
+      else j++;
+      lower[i].next.push(j);
+    }
+  }
+
+  // Nodes you can pick on the current floor: all of floor 1 from the start,
+  // then only the ones linked from the node you're standing on.
+  function choices(s) {
+    if (!s.map[s.floor]) return [];
+    if (s.floor === 0) return s.map[0].map((_, k) => k);
+    const from = s.map[s.floor - 1][s.path[s.floor - 1]];
+    return from && from.next ? from.next : s.map[s.floor].map((_, k) => k);
+  }
+
+  // Every node still reachable from where you stand, as "floor:index" keys.
+  function reachable(s) {
+    const out = new Set();
+    let frontier = choices(s);
+    for (let f = s.floor; f < s.map.length && frontier.length; f++) {
+      frontier.forEach((k) => out.add(`${f}:${k}`));
+      frontier = [...new Set(frontier.flatMap((k) => s.map[f][k].next || []))];
+    }
+    return out;
   }
 
   function newState(seed = Date.now()) {
@@ -191,6 +235,8 @@
       s.reward = null;
       s.campfire = false;
     }
+    // Runs saved before maps branched: link everything, as it was then.
+    s.map.forEach((floor, f) => floor.forEach((nd) => (nd.next ||= f + 1 < s.map.length ? s.map[f + 1].map((_, k) => k) : [])));
     s.maxHp = c.maxHp;
     s.tended ||= [];
     s.hp = Math.min(s.hp, c.maxHp);
@@ -210,9 +256,10 @@
     return !s.combat && !s.reward && !s.campfire && !s.cleared && (!needsClimb(s) || climbsLeft(s, c) > 0);
   }
 
-  function enter(s, c, choice = 0) {
+  function enter(s, c, choice = choices(s)[0]) {
     if (!canEnter(s, c)) throw new Error('No climbs left: send an application to climb again.');
-    const node = s.map[s.floor][choice] || s.map[s.floor][0];
+    if (!choices(s).includes(choice)) throw new Error('That path isn’t connected to where Sprout is.');
+    const node = s.map[s.floor][choice];
     if (needsClimb(s)) s.used++;
     s.knocked = false;
     if (node.type === 'rest') {
@@ -456,5 +503,5 @@
     return s;
   }
 
-  return { CARDS, RELICS, ENEMIES, REWARD_POOL, BASE_HP, ENERGY, career, newState, sync, climbsLeft, needsClimb, canEnter, enter, rest, campfireHeal, fullDeck, tendable, bonus, takeReward, play, playable, endTurn, closeCombat, intent, stat, cardText, attackValue };
+  return { CARDS, RELICS, ENEMIES, REWARD_POOL, BASE_HP, ENERGY, career, newState, sync, climbsLeft, needsClimb, canEnter, choices, reachable, enter, rest, campfireHeal, fullDeck, tendable, bonus, takeReward, play, playable, endTurn, closeCombat, intent, stat, cardText, attackValue };
 });

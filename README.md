@@ -245,8 +245,8 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 The default style of the optional game (Settings → *Sprout's garden* → *Game style*). Sprout, a thorny little seedling, climbs a tower of woodland creatures in turn-based card battles, but only as fast as you apply:
 
 - **One climb per application.** Each role you mark as applied this week lets Sprout take one floor. You can't play ahead of your search.
-- **Each week is an Act.** Your weekly goal sets how many floors come before the boss, *the Crow Council*. Reaching the boss is free, so hitting your goal is what earns the boss fight. A new Act starts each Monday at full HP.
-- **A map with choices**: pick a fight, an elite, a campfire or treasure on each floor. At a campfire, rest (heal 30%) or tend a card to upgrade it for the rest of the climb.
+- **Each week is an Act.** Your weekly goal (default 7 applications) is how many floors come before the boss, *the Crow Council*. Reaching the boss is free, so hitting your goal is what earns the boss fight. A new Act starts each Monday at full HP.
+- **A branching map**, like Slay the Spire's: 2–3 nodes per floor (fights, elites, campfires, treasure), each linked to only one or two nodes above it, so every choice closes some paths off. Paths you can no longer reach fade out, and the side panel lists your current choices by name. At a campfire, rest (heal 30%) or tend a card to upgrade it for the rest of the climb.
 - **Battles work like Slay the Spire**: 3 energy and 5 cards a turn, Block, Strength, Weak, poison-like *Nettle*, and enemies that show their next move. You'll meet the Hollow Wisp, the Gatekeeper Golem, the Pinchpenny Goblin and the Tangle Hydra, plus the elites Knight of Five Trials and Mirage Unicorn. Keys `1`–`9` play cards and `E` ends the turn.
 - **Your deck grows with your real search.** Applying with a tailored resume unlocks *Bramble Lash*, a cover letter unlocks *Petal Shield*, an interview unlocks *Sunburst*, carrying on after a "no" unlocks *Regrowth*, and an offer unlocks *Golden Bloom*. Every 5 applications upgrades a card, each win offers a card to add, and the deck view notes how each card was earned.
 - **Garden badges become relics**, e.g. *Lucky Acorn* (first application: start fights with 4 Block) and *Busy Bee* (big week: draw an extra card).
@@ -258,7 +258,7 @@ The rules live in `src/shared/spire.js` (pure and seeded, tested in `test/spire.
 
 An optional game, off by default (Settings → *Sprout's garden*), that rewards sending applications:
 
-- **Weekly goal** (default 5, Monday to Sunday), shown as a ring on the home page, with a streak of weeks you hit it. A week in progress never breaks the streak.
+- **Weekly goal** (default 7, Monday to Sunday), shown as a ring on the home page, with a streak of weeks you hit it. A week in progress never breaks the streak.
 - **Day streak** for applying on consecutive days. Weekends without an application are skipped, so they never break it.
 - **Points** grow Sprout's plant through nine stages, from a seed to an old oak: +10 for each application, +4 with a tailored resume, +3 with a cover letter, +15 for an interview, +40 for an offer, +5 when a role says no (it still took effort), +1 for each role you check.
 - **Garden bed**: one plant per application. It buds when you apply, blooms at an interview, turns gold with an offer, and becomes a clover if it doesn't work out. Click a plant to open that application.

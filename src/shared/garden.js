@@ -137,8 +137,8 @@
 
   const PLANT = { applied: 'bud', interviewing: 'bloom', offer: 'golden', rejected: 'clover', closed: 'clover', skipped: 'clover' };
 
-  function gardenStats(apps, { weeklyGoal = 5, now = new Date() } = {}) {
-    const goal = Math.max(1, Math.round(Number(weeklyGoal) || 5));
+  function gardenStats(apps, { weeklyGoal = 7, now = new Date() } = {}) {
+    const goal = Math.max(1, Math.round(Number(weeklyGoal) || 7));
     const applied = apps.filter((a) => a.appliedAt).sort((x, y) => x.appliedAt.localeCompare(y.appliedAt));
     const points = apps.reduce((s, a) => s + pointsFor(a), 0);
 

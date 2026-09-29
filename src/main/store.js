@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS = {
   gardenEnabled: false,
   // 'spire' (Slay the Spire style card battles) or 'garden' (just the garden).
   gameStyle: 'spire',
-  weeklyGoal: 5,
+  weeklyGoal: 7,
   // Badges and level already celebrated, so each is celebrated once.
   gardenSeen: null,
 };

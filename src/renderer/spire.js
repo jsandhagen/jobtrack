@@ -122,16 +122,29 @@ function spireTopBar(run, c) {
 // The tower as a map: floors stacked bottom to top, a dotted trail from
 // every node to every node on the floor above, the route taken drawn solid,
 // and a little Sprout standing where you are.
-const ROW = 96;
+const ROW = 82;
 const BASE = 64; // room below floor 1 for the starting camp
+
+const NODE_HINT = {
+  fight: 'a fight, then pick a card',
+  elite: 'a tougher fight, with an upgraded card',
+  rest: 'heal, or upgrade a card',
+  treasure: 'pick an upgraded card',
+  boss: 'the boss of the week',
+};
+
+function nodeName(node) {
+  return node.enemy ? Spire.ENEMIES[node.enemy].name : NODE[node.type][1];
+}
 
 function mapLayout(run) {
   const n = run.map.length;
-  const height = BASE + ROW * n + 30;
+  const height = BASE + ROW * n + 34;
   const y = (f) => height - BASE - (f + 0.5) * ROW;
-  // Two choices sit left and right with a little per-floor wobble, so it
-  // reads like a hand-drawn trail instead of a table.
-  const x = (f, k, count) => (count === 1 ? 50 : (k === 0 ? 34 : 66) + ((run.act * 37 + f * 53 + k * 19) % 9) - 4);
+  // Spread across the floor with a little wobble, so it reads like a
+  // hand-drawn map instead of a grid.
+  const slots = { 1: [50], 2: [33, 67], 3: [18, 50, 82] };
+  const x = (f, k, count) => slots[count][k] + (count === 1 ? 0 : ((run.act * 37 + f * 53 + k * 19) % 9) - 4);
   const pos = run.map.map((floor, f) => floor.map((_, k) => ({ x: x(f, k, floor.length), y: y(f) })));
   return { height, pos, base: { x: 50, y: height - 40 } };
 }
@@ -140,46 +153,64 @@ function mapBoard(run, can) {
   const { height, pos, base } = mapLayout(run);
   const n = run.map.length;
   const reached = run.cleared ? n : run.floor; // floors fully behind you
+  const open = new Set(Spire.choices(run));
+  const ahead = Spire.reachable(run);
   const lines = [];
+  // Only the trails that exist: start → floor 1, then each node's links.
   for (let f = -1; f < n - 1; f++) {
-    const from = f < 0 ? [base] : pos[f];
-    from.forEach((a, i) => {
+    const from = f < 0 ? [{ next: run.map[0].map((_, k) => k) }] : run.map[f];
+    from.forEach((nd, i) => {
+      const a = f < 0 ? base : pos[f][i];
       const onRoute = f < 0 || run.path[f] === i;
-      pos[f + 1].forEach((b, k) => {
-        // Behind you: your route solid, the rest faded. The floor you're on:
-        // dotted trails from where you stand. Ahead: faint dotted trails.
-        const cls = f + 1 < reached ? (onRoute && run.path[f + 1] === k ? 'taken' : 'faded') : f + 1 === reached ? (onRoute ? 'next' : 'faded') : 'future';
+      nd.next.forEach((k) => {
+        const b = pos[f + 1][k];
+        // Behind you: your route solid, the rest faded. From where you stand:
+        // marching trails to your choices. Ahead: dotted where you can still
+        // go, faded where an earlier choice closed the path off.
+        const cls = f + 1 < reached ? (onRoute && run.path[f + 1] === k ? 'taken' : 'faded') : f + 1 === reached ? (onRoute ? 'next' : 'faded') : f < 0 || ahead.has(`${f}:${i}`) ? 'future' : 'faded';
         lines.push(`<line class="${cls}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
       });
     });
   }
   const bands = run.map
-    .map((_, f) => `<div class="band${f === n - 1 ? ' boss' : ''}${f === reached && !run.cleared ? ' now' : ''}" style="top:${height - BASE - (f + 1) * ROW}px;height:${ROW}px"><span>${f === n - 1 ? 'Top' : `Floor ${f + 1}`}</span></div>`)
+    .map((_, f) => `<div class="band${f === n - 1 ? ' boss' : ''}${f === reached && !run.cleared ? ' now' : ''}" style="top:${height - BASE - (f + 1) * ROW}px;height:${ROW}px"><span>${f === n - 1 ? 'Top' : f + 1}</span></div>`)
     .join('');
   const nodes = run.map
     .map((floor, f) =>
       floor
         .map((node, k) => {
-          const [ic, label] = NODE[node.type];
-          const name = node.enemy ? Spire.ENEMIES[node.enemy].name : label;
-          const now = f === reached && !run.cleared;
-          const state = f < reached ? (run.path[f] === k ? 'taken' : 'skipped') : now ? 'now' : 'ahead';
+          const name = nodeName(node);
+          const state = f < reached ? (run.path[f] === k ? 'taken' : 'skipped') : f === reached ? (open.has(k) ? 'now' : 'cutoff') : ahead.has(`${f}:${k}`) ? 'ahead' : 'cutoff';
           const p = pos[f][k];
-          // Sprout stands in the last node you reached.
-          const here = state === 'taken' && f === reached - 1;
-          // Names go on the outer side (or above the boss), where no trails run.
-          const side = floor.length === 1 ? 'side-t' : k === 0 ? 'side-l' : 'side-r';
-          return `<button class="mnode ${side} n-${node.type} ${state}${here ? ' here' : ''}" style="left:${p.x}%;top:${p.y}px" ${now && can ? `data-node="${k}"` : 'disabled'} title="${esc(here ? `Sprout is here · ${name}` : name)}">
-            <span class="mdot">${here ? mascotSvg(run.knocked ? 'hug' : 'happy', node.type === 'boss' ? 62 : 40) : icon(ic, node.type === 'boss' ? 36 : 24)}</span><span class="mlabel">${esc(name)}</span></button>`;
+          const here = state === 'taken' && f === reached - 1; // Sprout stands in the last node reached
+          const tip = `${here ? 'Sprout is here · ' : ''}${name}${node.type === 'fight' || node.type === 'elite' ? ` (${NODE[node.type][1].toLowerCase()})` : ''}${state === 'cutoff' ? ' · not on your path any more' : ''}`;
+          return `<button class="mnode n-${node.type} ${state}${here ? ' here' : ''}" data-at="${f}:${k}" style="left:${p.x}%;top:${p.y}px" ${state === 'now' && can ? `data-node="${k}"` : 'disabled'} title="${esc(tip)}" aria-label="${esc(tip)}">
+            <span class="mdot">${here ? mascotSvg(run.knocked ? 'hug' : 'happy', node.type === 'boss' ? 62 : 40) : icon(NODE[node.type][0], node.type === 'boss' ? 36 : 24)}</span>${node.type === 'boss' ? `<span class="mlabel">${esc(name)}</span>` : ''}</button>`;
         })
         .join('')
     )
     .join('');
+  const legend = ['fight', 'elite', 'rest', 'treasure', 'boss'].map((t) => `<span class="lg n-${t}"><span class="mdot">${icon(NODE[t][0], 14)}</span>${NODE[t][1]}</span>`).join('');
   return `<div class="tower" style="height:${height}px">${bands}
     <svg class="trails" viewBox="0 0 100 ${height}" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>
     <div class="camp${reached === 0 ? ' here' : ''}" style="left:${base.x}%;top:${base.y}px" title="${reached === 0 ? 'Sprout is here' : 'Start'}"><span class="mdot">${reached === 0 ? mascotSvg(run.knocked ? 'hug' : 'happy', 34) : icon('flame', 18)}</span><span class="mlabel">Start</span></div>
     ${nodes}
-  </div>`;
+  </div><div class="map-legend">${legend}</div>`;
+}
+
+// The current choices as a list, with names and what each one gives.
+function choiceList(run, can) {
+  if (run.cleared) return '';
+  const floor = run.map[run.floor];
+  const ids = Spire.choices(run);
+  return `<div class="section-title">${can ? (ids.length > 1 ? 'Choose your path' : 'Next') : 'Next up'}</div>
+    <div class="choices">${ids
+      .map((k) => {
+        const node = floor[k];
+        return `<button class="choice n-${node.type}" data-at="${run.floor}:${k}" ${can ? `data-node="${k}"` : 'disabled'}>
+          <span class="mdot">${icon(NODE[node.type][0], 18)}</span><span><b>${esc(nodeName(node))}</b><small>${esc(NODE_HINT[node.type])}</small></span></button>`;
+      })
+      .join('')}</div>`;
 }
 
 function mapHtml(run, c) {
@@ -189,19 +220,21 @@ function mapHtml(run, c) {
   let line;
   if (run.cleared) line = left ? `Act cleared! You still have ${left} climb${left === 1 ? '' : 's'}: each one opens a bonus card.` : "Act cleared! A new Act starts Monday. Every application you send before then earns a bonus card.";
   else if (run.knocked && Spire.needsClimb(run) && !left) line = 'Sprout got knocked down, but is back up at half HP. Send an application to try again.';
-  else if (can) line = run.map[run.floor][0].type === 'boss' ? 'You hit your weekly goal! The Crow Council is waiting at the top. Good luck!' : run.map[run.floor].length > 1 ? 'Choose your path.' : 'Onward!';
+  else if (can) line = run.map[run.floor][0].type === 'boss' ? 'You hit your weekly goal! The Crow Council is waiting at the top. Good luck!' : Spire.choices(run).length > 1 ? 'Where to next? Each path leads somewhere different.' : 'Onward!';
   else line = `No climbs left. Every application you send this week is one more floor${c.climbs < c.goal ? ` — ${c.goal - c.climbs} more reach the boss` : ''}.`;
   return `<div class="grid spire-main">
     <div class="card spire-map">${map}</div>
-    <div class="card spire-side">${mascotSvg(run.knocked ? 'hug' : can ? 'cheer' : 'wave', 110, { cls: 'pettable' })}
+    <div class="card spire-side">${mascotSvg(run.knocked ? 'hug' : can ? 'cheer' : 'wave', 96, { cls: 'pettable' })}
       <p class="sprout-line">${esc(line)}</p>
       ${run.cleared && left ? `<button class="primary" id="bonusBtn">${icon('chest')} Open a bonus card</button>` : ''}
-      <div class="section-title">How climbing works</div>
+      ${choiceList(run, can)}
+      <details class="how"><summary class="section-title">How climbing works</summary>
       <ul class="tidy muted"><li>Each application you mark as applied this week gives Sprout one climb.</li>
-      <li>Your weekly goal (${c.goal}) sets the floors before the boss. The boss is free once you get there.</li>
+      <li>Your weekly goal (${c.goal}) is the number of floors before the boss. The boss is free once you get there.</li>
+      <li>Paths branch: each node only leads to some of the nodes above it, so plan your route.</li>
       <li>Your deck grows from your real search: tailored resumes, cover letters, interviews and offers unlock cards, and every 5 applications upgrades one.</li>
       <li>Garden badges become relics.</li>
-      <li>Losing never ends the run. Sprout gets back up at half HP.</li></ul>
+      <li>Losing never ends the run. Sprout gets back up at half HP.</li></ul></details>
       <p class="faint">Won ${run.stats.won} · bosses beaten ${run.stats.bosses}</p>
     </div></div>`;
 }
@@ -302,6 +335,13 @@ function bindSpire(page, c) {
       after(null);
     })
   );
+  // Hovering a choice in the list lights up its node on the map.
+  $$('.choice[data-at]', page).forEach((b) => {
+    const node = page.querySelector(`.mnode[data-at="${b.dataset.at}"]`);
+    if (!node) return;
+    b.addEventListener('mouseenter', () => node.classList.add('hl'));
+    b.addEventListener('mouseleave', () => node.classList.remove('hl'));
+  });
   $$('[data-hand]', page).forEach((b) => b.addEventListener('click', () => playCard(Number(b.dataset.hand))));
   const end = $('#endTurn', page);
   if (end) end.addEventListener('click', () => endSpireTurn(c));
