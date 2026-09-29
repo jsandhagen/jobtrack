@@ -465,6 +465,28 @@ async function makeResume(appId) {
   }
 }
 
+// ATS mode: free, no AI. Picks the bank bullets that cover the most posting
+// requirements, puts the posting's skills you can back up first, and keeps the
+// scanner-friendly template. Keeps the header you already set for this job.
+function makeAtsResume(appId) {
+  const rec = store.getApplication(appId);
+  if (!rec) throw new Error('That application no longer exists.');
+  if (!store.getBank().experiences.length && store.allDocuments().length) importBullets(store.allDocuments());
+  const bank = store.getBank();
+  if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add your resume to My library first.");
+  const { doc } = bulletBank.buildDoc({ profile: store.getProfile(), bank, job: rec.job, roles: bulletBank.selectBullets(rec.job, bank).roles });
+  if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
+  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null });
+  const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
+  broadcast('app-updated', updated);
+  return updated;
+}
+
+// Older saves call the free picker's resumes 'bank'.
+function resumeMode(rec) {
+  return rec.resumeSource === 'claude' ? 'claude' : 'ats';
+}
+
 async function makeCoverLetter(appId) {
   const rec = store.getApplication(appId);
   if (!rec) throw new Error('That application no longer exists.');
@@ -555,7 +577,7 @@ function saveDoc(appId, doc, extra = {}) {
 function builderState(rec) {
   let doc = currentDoc(rec);
   if (!rec.builder || !rec.builder.doc) {
-    doc = saveDoc(rec.id, doc, { resumeSource: rec.resumeSource || 'bank' });
+    doc = saveDoc(rec.id, doc, { resumeSource: resumeMode(rec) });
     rec = store.getApplication(rec.id);
   }
   const bank = store.getBank();
@@ -605,7 +627,7 @@ function builderState(rec) {
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 5) },
     bankSize: bank.bullets.length,
-    resumeSource: rec.resumeSource || 'bank',
+    resumeSource: resumeMode(rec),
     // What the code-side checks found in Claude's draft, and Claude's own notes.
     checks: rec.resumeSource === 'claude' ? rec.resumeChecks || [] : [],
     notes: rec.resumeSource === 'claude' ? rec.resumeNotes || [] : [],
@@ -885,11 +907,7 @@ function registerIpc() {
   });
   // Start over from the best bullets for this job (keeps your header).
   handle('builder:auto', (appId) => {
-    const rec = store.getApplication(appId);
-    const bank = store.getBank();
-    const { doc } = bulletBank.buildDoc({ profile: store.getProfile(), bank, job: rec.job, roles: bulletBank.selectBullets(rec.job, bank).roles });
-    if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
-    saveDoc(appId, doc, { resumeSource: 'bank' });
+    makeAtsResume(appId);
     return builderState(store.getApplication(appId));
   });
   // A role from the bank, with its best bullets for this job, ready to drop in.
@@ -970,6 +988,7 @@ function registerIpc() {
     broadcast('state-changed');
   });
   handle('app:resume', (id) => makeResume(id));
+  handle('app:atsResume', (id) => makeAtsResume(id));
   handle('app:coverLetter', (id) => makeCoverLetter(id));
   handle('app:export', async (id, which, format, editedHtml) => {
     const rec = store.getApplication(id);
@@ -1024,12 +1043,14 @@ function registerIpc() {
       const send = () => w.webContents.send('navigate', { view: 'application', id: appId });
       if (w.webContents.isLoading()) w.webContents.once('did-finish-load', send);
       else send();
-    } else if (action === 'resume' || action === 'both') {
-      showOverlay({ mode: 'working', app: withAts(store.getApplication(appId)) });
+    } else if (action === 'resume' || action === 'both' || action === 'resume-ats') {
+      const engine = action === 'resume-ats' ? 'ats' : 'claude';
+      showOverlay({ mode: 'working', engine, app: withAts(store.getApplication(appId)) });
       try {
         if (action === 'both') await Promise.all([makeResume(appId), makeCoverLetter(appId)]);
+        else if (engine === 'ats') makeAtsResume(appId);
         else await makeResume(appId);
-        showOverlay({ mode: 'done', app: withAts(store.getApplication(appId)) });
+        showOverlay({ mode: 'done', engine, app: withAts(store.getApplication(appId)) });
         overlayHideTimer = setTimeout(hideOverlay, 30000);
       } catch (err) {
         showOverlay({ mode: 'message', mood: 'worried', title: 'Oops, a little hiccup', text: err.message });

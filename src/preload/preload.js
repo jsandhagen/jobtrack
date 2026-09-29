@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('sprout', {
   updateApplication: (id, patch) => call('app:update', id, patch),
   removeApplication: (id) => call('app:remove', id),
   generateResume: (id) => call('app:resume', id),
+  atsResume: (id) => call('app:atsResume', id),
   generateCoverLetter: (id) => call('app:coverLetter', id),
   exportDoc: (id, which, format, editedHtml) => call('app:export', id, which, format, editedHtml),
 

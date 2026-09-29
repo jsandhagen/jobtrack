@@ -1,4 +1,4 @@
-const { mascotSvg, moodForScore, encouragement, say, scoreRing, animateRings, confetti } = window.SproutMascot;
+const { mascotSvg, helperSvg, moodForScore, encouragement, say, scoreRing, animateRings, confetti } = window.SproutMascot;
 const { icon } = window.SproutIcons;
 const pop = document.getElementById('pop');
 const content = document.getElementById('content');
@@ -27,17 +27,19 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     footer = `<div class="note">Add your resume and a few documents to your library so I can score you properly!</div>
       <div class="actions"><button class="primary" data-act="open">Open my library</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
   } else if (noKey) {
-    footer = `<div class="note">This is the free score. Add a Claude API key in Settings for an optional deeper read and one-click resumes.</div>
-      <div class="actions"><button class="primary" data-act="open">See details</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
+    footer = `<div class="ask">Want an ATS resume for this role? It's free.</div>
+      ${modeChoice(false)}
+      <div class="note">Add a Claude API key in Settings for a deeper read and Claude-written resumes.</div>
+      <div class="actions minor"><button class="ghost" data-act="open">Details</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
   } else if (app.quick.dealbreakers && app.quick.dealbreakers.length && !a) {
     footer = `<div class="note">Heads up — ${esc(app.quick.dealbreakers.join('; '))}.</div>
       <div class="actions"><button class="ghost" data-act="open">Details</button><button class="soft" data-act="resume">Tailor a resume anyway</button><button class="ghost" data-act="dismiss">Skip it</button></div>`;
   } else {
     footer = `${!a && !analyzing ? `<button class="ghost small ask-claude" data-act="analyze">${icon('search', 15)} Ask Claude for a deeper read</button>` : ''}
       <div class="ask">Want me to tailor a resume for this role?</div>
-      <div class="actions">
-        <button class="primary" data-act="resume">${icon('sparkle')} Yes, make my resume!</button>
-        <button class="soft" data-act="both">Resume + cover letter</button>
+      ${modeChoice(true)}
+      <div class="actions minor">
+        <button class="ghost" data-act="both">${icon('letter', 15)} Claude resume + cover letter</button>
         <button class="ghost" data-act="open">Details</button>
         <button class="ghost" data-act="dismiss">Not now</button>
       </div>`;
@@ -55,6 +57,15 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     ${footer}`;
 }
 
+// Two ways to tailor: Spike's free ATS picks, or Root's Claude rewrite.
+function modeChoice(claude) {
+  const opt = (mode, act, title, sub) => `<button class="mode-pick mode-${mode}" data-act="${act}">${helperSvg(mode, 'happy', 44)}<span><b>${title}</b><small>${sub}</small></span></button>`;
+  return `<div class="mode-picks${claude ? '' : ' single'}">
+    ${opt('ats', 'resume-ats', 'ATS resume', 'Free · your best keyword matches')}
+    ${claude ? opt('claude', 'resume', 'Claude resume', 'Rewritten for this job, fact-checked') : ''}
+  </div>`;
+}
+
 // "How an ATS would see the resume you have today", Workday-style grade included.
 function atsLine(app) {
   const b = app.ats && app.ats.before;
@@ -65,16 +76,18 @@ function atsLine(app) {
     <span>ATS match for your current resume: <b>${b.score}%</b>${b.skillsMatch ? ` · skills ${esc(b.skillsMatch.toLowerCase())}` : ''}</span></div>`;
 }
 
-function workingView({ app }) {
-  return `<div class="center">${mascotSvg('thinking', 88)}
-    <h3>Tailoring your resume…</h3>
-    <p class="muted">Picking your best experience for <b>${esc(app.job.title)}</b>. This usually takes under a minute — feel free to keep browsing!</p>
+function workingView({ app, engine }) {
+  const claude = engine !== 'ats';
+  return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thinking', 88)}
+    <h3>${claude ? 'Root is writing with Claude…' : 'Spike is picking your bullets…'}</h3>
+    <p class="muted">${claude ? `Tailoring your resume for <b>${esc(app.job.title)}</b>. This usually takes under a minute — feel free to keep browsing!` : `Matching your best experience to <b>${esc(app.job.title)}</b>.`}</p>
     <span class="spinner" style="color: var(--sage)"></span></div>`;
 }
 
-function doneView({ app }) {
-  return `<div class="center">${mascotSvg('thrilled', 88)}
-    <h3>Your resume is ready!</h3>
+function doneView({ app, engine }) {
+  const claude = engine !== 'ats';
+  return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thrilled', 88)}
+    <h3>Your ${claude ? 'Claude' : 'ATS'} resume is ready!</h3>
     <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : ''}. Give it a quick read, tweak anything you like, and export to PDF.</p>
     ${app.ats && app.ats.after ? `<div class="ats-compare">ATS match ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${app.ats.after.score}%</b> <span class="grade g-${app.ats.after.grade}">${app.ats.after.grade}</span></div>` : ''}
     <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="dismiss-quiet">Later</button></div></div>`;

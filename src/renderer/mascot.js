@@ -43,31 +43,82 @@
     return 'cheer';
   }
 
-  function armPaths(kind) {
-    return ARMS[kind]
-      .map((d, i) => {
-        const cls = kind === 'wave' && i === 1 ? ' class="wave-arm"' : '';
-        return `<g${cls}><path d="${d}" stroke="var(--outline, #e9d6bb)" stroke-width="9" stroke-linecap="round" fill="none"/><path d="${d}" stroke="var(--body, #fff6e8)" stroke-width="5.4" stroke-linecap="round" fill="none"/></g>`;
-      })
-      .join('');
-  }
-
-  // opts.cls adds classes (e.g. "pettable"); opts.label overrides the accessible name.
-  function mascotSvg(mood = 'happy', size = 96, opts = {}) {
-    const f = FACES[mood] || FACES.happy;
-    const motion = mood === 'thinking' ? 'sprout-think' : mood === 'thrilled' ? 'sprout-bob sprout-hop' : mood === 'sleepy' ? 'sprout-sleep' : 'sprout-bob';
-    const arms = armPaths(f.arms);
-    const hugInFront = f.arms === 'hug';
-    return `<svg class="sprout ${motion} mood-${mood}${opts.cls ? ' ' + opts.cls : ''}" width="${size}" height="${size}" viewBox="0 0 104 104" role="img" aria-label="${opts.label || `Sprout the mascot, feeling ${mood}`}">
-  <g class="whole">
-  <g class="leaves">
+  // The cast. Sprout is the buddy; Spike the cactus makes ATS resumes and
+  // Root the carrot makes Claude resumes. They share faces and moods, and
+  // differ in body, colours and what grows on top.
+  const SPROUT_TOP = `<g class="leaves">
     <path d="M52 30 C 40 8, 16 14, 20 30 C 26 40, 44 38, 52 30 Z" fill="var(--leaf, #8fd0a6)"/>
     <path d="M52 30 C 62 6, 90 10, 86 28 C 80 40, 60 38, 52 30 Z" fill="var(--leaf-2, #a9dfb9)"/>
     <path d="M35 24 q7 1 14 5 M69 22 q-7 2 -14 7" stroke="var(--stem, #5ea77a)" stroke-width="1.4" stroke-linecap="round" fill="none" opacity=".55"/>
     <path d="M52 30 v10" stroke="var(--stem, #5ea77a)" stroke-width="4" stroke-linecap="round"/>
-  </g>
+  </g>`;
+  const CAST = {
+    sprout: {
+      name: 'Sprout',
+      what: 'the mascot',
+      fill: 'var(--body, #fff6e8)',
+      line: 'var(--outline, #e9d6bb)',
+      back: SPROUT_TOP,
+      body: '<ellipse cx="52" cy="66" rx="30" ry="27" fill="var(--body, #fff6e8)" stroke="var(--outline, #e9d6bb)" stroke-width="2.5"/>',
+      front: '',
+    },
+    carrot: {
+      name: 'Root',
+      what: 'the carrot',
+      fill: '#f9a65a',
+      line: '#e0823e',
+      back: `<g class="leaves">
+    <path d="M52 41 C 44 32, 34 24, 36 12 C 46 16, 52 28, 52 41 Z" fill="#7cc47f"/>
+    <path d="M52 41 C 68 30, 72 24, 72 13 C 60 16, 54 28, 52 41 Z" fill="#6bb56f"/>
+    <path d="M52 41 C 48 26, 48 14, 54 5 C 61 15, 58 29, 52 41 Z" fill="#93d494"/>
+  </g>`,
+      body: `<path d="M52 38 C 70 38, 82 44, 81 56 C 80 70, 64 88, 54 99 C 53 100.4, 51 100.4, 50 99 C 40 88, 24 70, 23 56 C 22 44, 34 38, 52 38 Z" fill="#f9a65a" stroke="#e0823e" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M31 77 q5 1.6 9 -.6 M65 84 q-4 1.4 -8 -.4 M47 90 q3 1 6 0" stroke="#e0823e" stroke-width="1.8" stroke-linecap="round" fill="none" opacity=".7"/>`,
+      front: '',
+    },
+    cactus: {
+      name: 'Spike',
+      what: 'the cactus',
+      fill: '#93d09a',
+      line: '#5fa86a',
+      back: '',
+      body: `<rect x="28" y="33" width="48" height="64" rx="24" fill="#93d09a" stroke="#5fa86a" stroke-width="2.5"/>
+  <path d="M29 46 l-3 -1.5 M75 46 l3 -1.5 M29 76 l-3 1 M75 76 l3 1 M40 38 l-1.5 -2.5 M64 38 l1.5 -2.5" stroke="#5fa86a" stroke-width="1.8" stroke-linecap="round"/>`,
+      front: `<g class="leaves"><g fill="#f6a3bf" stroke="#e7849f" stroke-width="1"><circle cx="46.5" cy="30" r="4.2"/><circle cx="57.5" cy="30" r="4.2"/><circle cx="52" cy="25" r="4.2"/><circle cx="52" cy="34" r="3.6"/></g><circle cx="52" cy="30" r="3" fill="#f6d78b"/></g>
+  <path d="M26 83 h52 a2 2 0 0 1 2 2 v4 a2 2 0 0 1 -2 2 h-52 a2 2 0 0 1 -2 -2 v-4 a2 2 0 0 1 2 -2 z" fill="#e8a077" stroke="#c97a52" stroke-width="2"/>
+  <path d="M29 91 h46 l-3.5 10 h-39 z" fill="#e8a077" stroke="#c97a52" stroke-width="2" stroke-linejoin="round"/>`,
+    },
+  };
+  // Which helper makes which kind of tailored resume.
+  const HELPERS = {
+    ats: { kind: 'cactus', name: 'Spike', title: 'ATS resume' },
+    claude: { kind: 'carrot', name: 'Root', title: 'Claude resume' },
+  };
+
+  function armPaths(kind, cast = CAST.sprout) {
+    return ARMS[kind]
+      .map((d, i) => {
+        const cls = kind === 'wave' && i === 1 ? ' class="wave-arm"' : '';
+        return `<g${cls}><path d="${d}" stroke="${cast.line}" stroke-width="9" stroke-linecap="round" fill="none"/><path d="${d}" stroke="${cast.fill}" stroke-width="5.4" stroke-linecap="round" fill="none"/></g>`;
+      })
+      .join('');
+  }
+
+  // opts.cls adds classes (e.g. "pettable"); opts.label overrides the accessible name;
+  // opts.kind picks the character: 'sprout' (default), 'carrot' or 'cactus'.
+  function mascotSvg(mood = 'happy', size = 96, opts = {}) {
+    const f = FACES[mood] || FACES.happy;
+    const kind = CAST[opts.kind] ? opts.kind : 'sprout';
+    const cast = CAST[kind];
+    const motion = mood === 'thinking' ? 'sprout-think' : mood === 'thrilled' ? 'sprout-bob sprout-hop' : mood === 'sleepy' ? 'sprout-sleep' : 'sprout-bob';
+    const arms = armPaths(f.arms, cast);
+    const hugInFront = f.arms === 'hug';
+    return `<svg class="sprout ${motion} mood-${mood} cast-${kind}${opts.cls ? ' ' + opts.cls : ''}" width="${size}" height="${size}" viewBox="0 0 104 104" role="img" aria-label="${opts.label || `${cast.name} ${cast.what}, feeling ${mood}`}">
+  <g class="whole">
+  ${cast.back}
   ${hugInFront ? '' : arms}
-  <ellipse cx="52" cy="66" rx="30" ry="27" fill="var(--body, #fff6e8)" stroke="var(--outline, #e9d6bb)" stroke-width="2.5"/>
+  ${cast.body}
+  ${cast.front}
   ${f.cheeks ? '<ellipse cx="36" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/><ellipse cx="68" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/>' : ''}
   ${f.brows ? `<path d="${f.brows}" stroke="#3b3a36" stroke-width="2" stroke-linecap="round" fill="none"/>` : ''}
   <g class="eyes${f.dots ? ' blink' : ''}"><path d="${f.eyes}" stroke="#3b3a36" stroke-width="3" stroke-linecap="round" fill="${f.dots ? '#3b3a36' : 'none'}"/></g>
@@ -119,6 +170,12 @@
     exported: ['Saved! Go get ’em.', 'Looking sharp! Saved.', 'All saved — that resume looks great.'],
     error: ['Oops, something went sideways:', 'Hmm, that didn’t work:'],
   };
+
+  // The helper for a resume mode ('ats' | 'claude'), drawn in a mood.
+  function helperSvg(mode, mood = 'happy', size = 56, opts = {}) {
+    const h = HELPERS[mode] || HELPERS.ats;
+    return mascotSvg(mood, size, { ...opts, kind: h.kind });
+  }
 
   function pick(list, seed = Date.now()) {
     return list[Math.abs(seed) % list.length];
@@ -173,5 +230,5 @@
     setTimeout(() => box.remove(), 2400);
   }
 
-  window.SproutMascot = { mascotSvg, sproutSays, moodForScore, encouragement, say, pick, scoreRing, animateRings, scoreColor, confetti, moods: Object.keys(FACES) };
+  window.SproutMascot = { mascotSvg, helperSvg, HELPERS, sproutSays, moodForScore, encouragement, say, pick, scoreRing, animateRings, scoreColor, confetti, moods: Object.keys(FACES) };
 })();

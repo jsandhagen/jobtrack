@@ -546,7 +546,7 @@ async function renderApplication(id) {
     if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}</div>`;
     if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel(a.ats) : '<div></div>'}${fitCard}</div>`;
     if (appTab === 'letter') return letterBody();
-    if (busyResume) return `<div class="empty">${mascotSvg('thinking', 80)}<h3>Claude is writing your resume…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
+    if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
     return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';
   };
 

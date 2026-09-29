@@ -73,6 +73,70 @@ async function saveNow() {
 
 // ---------- rendering ----------
 
+// The two ways to tailor: Spike's free ATS picks, or Root's Claude rewrite.
+const MODES = {
+  ats: {
+    title: 'ATS mode',
+    tag: 'free · instant',
+    who: 'Spike',
+    blurb: 'Picks the bullets from your bank that match the most posting keywords, and puts the skills you can back up first. Your own words, laid out for applicant tracking systems.',
+  },
+  claude: {
+    title: 'Claude mode',
+    tag: 'uses Claude',
+    who: 'Root',
+    blurb: 'Claude rewrites the resume for this job from your bank and documents, in your voice, then every line is fact-checked against your records.',
+  },
+};
+
+function modeBar(current) {
+  const card = (mode) => {
+    const m = MODES[mode];
+    const on = current === mode;
+    const locked = mode === 'claude' && !state.hasApiKey;
+    const action = on
+      ? `<button class="small ghost" data-mode-go="${mode}" title="Build it again from scratch">${icon('refresh', 14)} Redo</button>`
+      : locked
+        ? '<a class="small-link" href="#settings">Add an API key</a>'
+        : `<button class="small soft" data-mode-go="${mode}">${mode === 'claude' ? 'Write it with Claude' : 'Switch to ATS picks'}</button>`;
+    return `<div class="mode-card mode-${mode}${on ? ' on' : ''}${locked ? ' locked' : ''}">
+      ${window.SproutMascot.helperSvg(mode, on ? 'happy' : 'curious', 58, { cls: 'pettable' })}
+      <div class="mode-text"><div class="mode-head"><b>${m.title}</b><span class="mode-tag">${m.tag}</span>${on ? `<span class="mode-now">${icon('check', 13)} this resume</span>` : ''}</div>
+        <p>${m.blurb}</p><div class="mode-foot"><span class="faint">with ${m.who} the ${mode === 'claude' ? 'carrot' : 'cactus'}</span>${action}</div></div>
+    </div>`;
+  };
+  return `<div class="mode-bar">${card('ats')}${card('claude')}</div>`;
+}
+
+async function switchMode(mode) {
+  const again = ed.info && ed.info.resumeSource === mode;
+  const msg =
+    mode === 'claude'
+      ? `${again ? 'Have Claude write a fresh draft?' : 'Switch to a Claude-written resume?'} It replaces what is on the page (your bullet bank is untouched).`
+      : `${again ? 'Start over with the best ATS picks for this job?' : 'Switch to ATS picks from your bullet bank?'} Your edits on this page will be replaced (your bank is untouched).`;
+  if (!confirm(msg)) return;
+  await saveNow();
+  ed.polish = new Map();
+  ed.held = [];
+  if (mode === 'claude') {
+    const p = S.generateResume(ed.appId);
+    renderApplication(ed.appId);
+    await run(null, () => p.then(() => toast('Root finished your draft — edit away!', 'good', 3800, 'proud')));
+    renderApplication(ed.appId);
+  } else {
+    await run(null, async () => {
+      await S.atsResume(ed.appId);
+      toast('Spike picked your best-matching bullets.', 'good', 3800, 'proud');
+    });
+    renderEditor(ed.appId, ed.app);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mode-go]');
+  if (b && document.getElementById('editorSlot')) switchMode(b.dataset.modeGo);
+});
+
 async function renderEditor(appId, app) {
   const slot = document.getElementById('editorSlot');
   if (!slot) return;
@@ -91,6 +155,7 @@ async function renderEditor(appId, app) {
   ed.doc = JSON.parse(JSON.stringify(info.doc));
 
   slot.innerHTML = `
+    ${modeBar(info.resumeSource)}
     <div class="ed">
       <div class="ed-main">
         <div class="ed-bar">
@@ -246,8 +311,6 @@ function renderTray() {
       <h4>More</h4>
       <div class="tray-actions">
         ${state.hasApiKey ? `<button class="soft" id="edPolish" title="One Claude call; you approve each change">${icon('sparkle')} Polish wording for this job</button>` : ''}
-        ${state.hasApiKey ? `<button class="ghost" id="edClaude" title="Claude drafts the whole resume from your library, using these bullets as the backbone">${icon('pencil')} Have Claude write a draft</button>` : ''}
-        <button class="ghost" id="edAuto">${icon('refresh')} Start over with the best picks</button>
       </div>
       <div class="faint" style="margin-top:10px">Make this resume's… <a href="#" data-default="header">header</a> · <a href="#" data-default="summary">summary</a> · <a href="#" data-default="skills">skills</a> · <a href="#" data-default="education">education</a> …your default for new resumes.</div>
     </div>
@@ -293,7 +356,7 @@ function checksPanel() {
   if (!flagged.length && !checks.length && !notes.length) return '';
   const n = flagged.length + checks.length;
   return `<details class="tray-card checks" ${flagged.length ? 'open' : ''}>
-    <summary><b>${n ? `${icon('search', 16)} Check before sending (${n})` : `${icon('note', 16)} Notes from Claude`}</b></summary>
+    <summary><b>${n ? `${icon('search', 16)} Check before sending (${n})` : `${icon('note', 16)} Notes from Root`}</b></summary>
     ${flagged.length ? `<p class="faint" style="margin:6px 0">These bullets say something your documents don't show. Fix the wording, or confirm it's true.</p>` : ''}
     ${flagged
       .map(
@@ -455,25 +518,6 @@ function wireTray() {
         renderTray();
       }, 'Polishing…')
     );
-  const cl = $('#edClaude', tray);
-  if (cl)
-    cl.addEventListener('click', async () => {
-      if (!confirm('Have Claude write a fresh draft? It replaces what is on the page (your bullet bank is untouched).')) return;
-      await saveNow();
-      const p = S.generateResume(ed.appId);
-      renderApplication(ed.appId);
-      await run(null, () => p.then(() => toast('Draft ready — edit away!', 'good')));
-      renderApplication(ed.appId);
-    });
-  $('#edAuto', tray).addEventListener('click', () =>
-    confirm('Start over with the best bullets for this job? Your edits on this page will be replaced (your bank is untouched).') &&
-    run(null, async () => {
-      ed.polish = new Map();
-      ed.held = [];
-      await S.autoEditor(ed.appId);
-      renderEditor(ed.appId, ed.app);
-    })
-  );
   $$('[data-default]', tray).forEach((a) =>
     a.addEventListener('click', (e) => {
       e.preventDefault();
