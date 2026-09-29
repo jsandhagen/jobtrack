@@ -22,7 +22,7 @@ async function render(extra = '') {
   const s = st.value || {};
   if (!st.ok || !s.running) {
     statusEl.textContent = "App isn't running";
-    main.innerHTML = `<p class="note">Start the Sprout desktop app, then try again. 🌱</p><button id="retry">Try again</button>${extra}`;
+    main.innerHTML = `<p class="note">Start the Sprout desktop app, then try again.</p><button id="retry">Try again</button>${extra}`;
     document.getElementById('retry').onclick = () => render();
     return;
   }

@@ -10,20 +10,22 @@
 <body>
   <div class="shell">
     <nav class="side">
-      <div class="brand"><span id="brandMascot"></span><div><b>Sprout</b><small>job application buddy</small></div></div>
-      <a href="#home" data-view="home">🏡 <span>Home</span></a>
-      <a href="#check" data-view="check">🔍 <span>Check a job</span></a>
-      <a href="#applications" data-view="applications">📋 <span>Applications</span></a>
-      <a href="#library" data-view="library">📚 <span>My library</span></a>
-      <a href="#bank" data-view="bank">🧩 <span>Bullet bank</span></a>
-      <a href="#profile" data-view="profile">🙂 <span>Profile</span></a>
-      <a href="#settings" data-view="settings">⚙️ <span>Settings</span></a>
+      <div class="brand"><span class="brand-mark" id="brandMark"></span><div><b>Sprout</b><small>job application buddy</small></div></div>
+      <a href="#home" data-view="home" data-icon="home"><span>Home</span></a>
+      <a href="#check" data-view="check" data-icon="search"><span>Check a job</span></a>
+      <a href="#applications" data-view="applications" data-icon="clipboard"><span>Applications</span></a>
+      <a href="#library" data-view="library" data-icon="books"><span>My library</span></a>
+      <a href="#bank" data-view="bank" data-icon="stack"><span>Bullet bank</span></a>
+      <a href="#profile" data-view="profile" data-icon="user"><span>Profile</span></a>
+      <a href="#settings" data-view="settings" data-icon="sliders"><span>Settings</span></a>
+      <div class="buddy" id="buddy"></div>
       <div class="side-foot" id="sideFoot"></div>
     </nav>
     <main id="view"></main>
   </div>
   <div class="toasts" id="toasts"></div>
   <div class="modal" id="modal" hidden><div class="modal-card card" id="modalCard"></div></div>
+  <script src="icons.js"></script>
   <script src="mascot.js"></script>
   <script src="../shared/resumeDoc.js"></script>
   <script src="dashboard.js"></script>

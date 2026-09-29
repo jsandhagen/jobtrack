@@ -33,13 +33,13 @@ async function renderBankPage() {
         <div class="bb-meta">${tagChips(b.tags)}<span class="faint">${esc(b.source && b.source.name ? `from ${b.source.name}` : '')}${b.uses ? ` · used ${b.uses}×` : ''}${b.hidden ? ' · hidden from auto-pick' : ''}</span></div>
         ${(b.variants || []).length ? `<div class="bb-variants"><div class="faint">Other wordings — Sprout picks whichever fits a posting best:</div>${b.variants
           .map((v, i) => `<div class="bb-variant"><textarea class="bb-var" rows="1" data-id="${b.id}" data-i="${i}">${esc(v)}</textarea>
-            <button class="small ghost" data-promote="${b.id}" data-i="${i}" title="Make this the main wording">⭐</button><button class="small ghost danger" data-delvar="${b.id}" data-i="${i}" title="Remove this wording">✕</button></div>`)
+            <button class="small ghost" data-promote="${b.id}" data-i="${i}" title="Make this the main wording" aria-label="Make this the main wording">${icon('star', 15)}</button><button class="small ghost danger" data-delvar="${b.id}" data-i="${i}" title="Remove this wording">✕</button></div>`)
           .join('')}</div>` : ''}
       </div>
       <div class="bb-actions">
         <button class="small ghost" data-addvar="${b.id}" title="Add another way of saying this">＋ wording</button>
         <select class="small-select" data-move="${b.id}" title="Move to another role">${roleOptions(b.experienceId)}</select>
-        <button class="small ghost" data-hide="${b.id}" title="${b.hidden ? 'Let auto-pick use this again' : 'Keep in the bank, but never auto-pick it'}">${b.hidden ? '👁 Unhide' : '🙈 Hide'}</button>
+        <button class="small ghost" data-hide="${b.id}" title="${b.hidden ? 'Let auto-pick use this again' : 'Keep in the bank, but never auto-pick it'}">${b.hidden ? `${icon('eye', 14)} Unhide` : `${icon('eyeOff', 14)} Hide`}</button>
         <button class="small ghost danger" data-del="${b.id}">Delete</button>
       </div>
     </div>`;
@@ -51,7 +51,7 @@ async function renderBankPage() {
       return `<div class="card role-card">
         <div class="role-head"><div><h3 style="margin:0">${esc(e.title || 'Untitled role')}${e.isProject ? ' <span class="chip tiny">project</span>' : ''}</h3>
           <div class="muted">${esc([e.organization, e.location, e.dates].filter(Boolean).join(' · '))}</div></div>
-          <div class="inline"><button class="small ghost" data-editrole="${e.id}">✏️ Edit</button>${bank.bullets.some((b) => b.experienceId === e.id) ? '' : `<button class="small ghost danger" data-delrole="${e.id}">Delete</button>`}</div></div>
+          <div class="inline"><button class="small ghost" data-editrole="${e.id}">${icon('pencil', 14)} Edit</button>${bank.bullets.some((b) => b.experienceId === e.id) ? '' : `<button class="small ghost danger" data-delrole="${e.id}">Delete</button>`}</div></div>
         ${bullets.map(bulletRow).join('') || '<p class="faint">No bullets yet.</p>'}
         <div class="bb-new"><textarea rows="1" placeholder="+ Write a new bullet for this role… (start with a verb: Led, Built, Reduced…)" data-newfor="${e.id}"></textarea><button class="small soft" data-addto="${e.id}">Add</button></div>
       </div>`;
@@ -59,11 +59,14 @@ async function renderBankPage() {
     .join('');
 
   page.innerHTML = `
-    <div class="page-head"><div><h1>🧩 Bullet bank</h1>
-      <p class="muted">Every accomplishment you've written, filed under its role. For each job, Sprout picks the bullets that fit best — you can reword, swap or add them anytime.</p></div>
-      <div class="inline"><button class="soft" id="bankImport">📥 Import from my documents</button>
-      ${state.hasApiKey ? '<button class="ghost" id="bankSuggest" title="Uses Claude">✨ Find more with Claude</button>' : ''}
-      <button class="primary" id="addRole">+ Add role</button></div></div>
+    ${pageHead(
+      'Bullet bank',
+      total ? 'proud' : 'curious',
+      `${total ? `<b>${total}</b> accomplishments and counting! ` : ''}Every bullet you've written, filed under its role. For each job I pick the ones that fit best — reword, swap or add them anytime.`,
+      `<button class="soft" id="bankImport">${icon('inbox')} Import from my documents</button>
+      ${state.hasApiKey ? `<button class="ghost" id="bankSuggest" title="Uses Claude">${icon('sparkle')} Find more with Claude</button>` : ''}
+      <button class="primary" id="addRole">+ Add role</button>`
+    )}
     ${total ? `<div class="inline" style="margin-bottom:14px"><input id="bankSearch" placeholder="Search bullets or skills…" value="${esc(bankSearch)}" style="flex:1"><span class="faint">${total} bullets · ${bank.experiences.length} roles</span></div>` : ''}
     ${
       total || bank.experiences.length
@@ -96,7 +99,7 @@ async function renderBankPage() {
   $('#bankImport', page).addEventListener('click', (e) =>
     run(e.currentTarget, async () => {
       const r = await S.importBullets();
-      toast(r.added || r.merged ? `Found ${r.added} new bullets${r.merged ? `, merged ${r.merged} duplicates` : ''} 🧩` : 'No new bullets found — everything is already in your bank.', 'good', 5000);
+      toast(r.added || r.merged ? `Found ${r.added} new bullets${r.merged ? `, merged ${r.merged} duplicates` : ''}` : 'No new bullets found — everything is already in your bank.', 'good', 5000);
       renderBankPage();
     }, 'Reading…')
   );
@@ -153,7 +156,7 @@ async function renderBankPage() {
   $$('[data-addto]', page).forEach((btn) =>
     btn.addEventListener('click', () => {
       const t = $(`[data-newfor="${btn.dataset.addto}"]`, page);
-      run(btn, async () => (await S.addBullet({ experienceId: btn.dataset.addto, text: t.value }), toast('Added 🧩', 'good'), renderBankPage()), 'Adding…');
+      run(btn, async () => (await S.addBullet({ experienceId: btn.dataset.addto, text: t.value }), toast('Added to your bank', 'good'), renderBankPage()), 'Adding…');
     })
   );
   $('#bankSummary', page).addEventListener('change', (e) => S.updateBank({ summary: e.target.value }).then(() => toast('Saved', 'good', 1500)));
@@ -193,7 +196,7 @@ function openRoleModal(role) {
 // until the user ticks it.
 function openSuggestModal({ suggestions, dropped }, bank) {
   const droppedNote = dropped ? ` ${dropped} more ${dropped === 1 ? 'was' : 'were'} left out because ${dropped === 1 ? 'it' : 'they'} repeated your bank or couldn't be traced to a document.` : '';
-  if (!suggestions.length) return toast(`Claude didn't find anything new — your bank already covers your documents. 🎉${droppedNote}`, 'good', 6000);
+  if (!suggestions.length) return toast(`Claude didn't find anything new — your bank already covers your documents.${droppedNote}`, 'good', 6000, 'proud');
   const guessRole = (sg) => {
     if (sg.experienceId && bank.experiences.some((e) => e.id === sg.experienceId)) return sg.experienceId;
     const l = String(sg.role || '').toLowerCase();
@@ -201,7 +204,7 @@ function openSuggestModal({ suggestions, dropped }, bank) {
     return hit ? hit.id : bank.experiences[0] && bank.experiences[0].id;
   };
   const opts = (sel) => bank.experiences.map((e) => `<option value="${e.id}" ${e.id === sel ? 'selected' : ''}>${esc([e.title, e.organization].filter(Boolean).join(' · '))}</option>`).join('');
-  const card = openModal(`<h2>✨ Suggested bullets</h2><p class="muted">Found in your documents. Tick the ones you want, fix any wording, and pick the role.${esc(droppedNote)}</p>
+  const card = openModal(`<h2 class="with-icon">${icon('sparkle', 22)} Suggested bullets</h2><p class="muted">Found in your documents. Tick the ones you want, fix any wording, and pick the role.${esc(droppedNote)}</p>
     <div class="list">${suggestions
       .map(
         (sg, i) => `<div class="sugg"><input type="checkbox" data-i="${i}" checked><div style="flex:1"><textarea rows="2" data-t="${i}">${esc(sg.text)}</textarea>
@@ -222,7 +225,7 @@ function openSuggestModal({ suggestions, dropped }, bank) {
         n++;
       }
       closeModal();
-      toast(`Added ${n} bullets 🧩`, 'good');
+      toast(`Added ${n} bullets`, 'good', 3800, 'proud');
       renderBankPage();
     }, 'Adding…')
   );

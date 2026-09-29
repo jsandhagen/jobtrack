@@ -1,13 +1,15 @@
-# 🌱 Sprout — your job application buddy
+# Sprout — your job application buddy
 
 A friendly desktop helper that notices when you're looking at a job posting, tells you how well you fit, and writes a resume tailored to that role when you press a button. Your own documents are the source for everything it writes.
 
+Sprout, the little seedling mascot, keeps you company the whole way. It greets you on the home page with a note about how your search is going, explains each page, pops up in every notification, cheers when you apply or land an interview or offer, and offers a hug when a role doesn't work out. Click Sprout anywhere for a pep talk. Its moods (happy, thrilled, proud, curious, thinking, waving, sleepy while detection is paused, worried when something goes wrong) are drawn in `src/renderer/mascot.js`. The rest of the app uses hand-drawn doodle icons (`src/renderer/icons.js`) instead of emoji.
+
 - **Document library**: drop in resumes, old cover letters, project write-ups, performance reviews and certificates (PDF, DOCX, TXT, MD), or paste text.
 - **Automatic job detection**:
-  - 🌐 **Browser extension** (recommended, Chrome/Edge/Brave): reads the whole posting straight from the page, including the parts you haven't scrolled to. It pops up your score automatically on LinkedIn, Indeed, Greenhouse, Lever, Workday and other job sites, and works on any other site with one click or `Alt+Shift+J`. See [Browser extension](#browser-extension).
-  - 📋 **Clipboard**: copy a job description anywhere and a popup appears with a score. This runs locally and makes no API calls.
-  - ⌨️ **Hotkey** (`Ctrl/Cmd + Shift + J`): reads the job posting on your screen with free, on-device OCR.
-  - 👀 **Screen watching** (off by default): reads the screen with OCR whenever it changes and then stays still.
+  - **Browser extension** (recommended, Chrome/Edge/Brave): reads the whole posting straight from the page, including the parts you haven't scrolled to. It pops up your score automatically on LinkedIn, Indeed, Greenhouse, Lever, Workday and other job sites, and works on any other site with one click or `Alt+Shift+J`. See [Browser extension](#browser-extension).
+  - **Clipboard**: copy a job description anywhere and a popup appears with a score. This runs locally and makes no API calls.
+  - **Hotkey** (`Ctrl/Cmd + Shift + J`): reads the job posting on your screen with free, on-device OCR.
+  - **Screen watching** (off by default): reads the screen with OCR whenever it changes and then stays still.
   - Claude can optionally be used as a fallback or instead of OCR for unusual layouts (Settings → *Read the screen with*).
 - **Free fit score for every posting**: computed on your computer with no API calls. It checks required vs preferred qualifications (including certifications and tools it has never seen before), role match, seniority, years of experience and your dealbreakers. See [Free fit score](#free-fit-score).
 - **Claude only when you want it**: by default Claude's deeper read (strengths, gaps, a qualifications checklist) runs only when you press **Ask Claude**. You can switch it to run automatically for promising roles. A monthly budget pauses automatic use, and Settings shows this month's calls and estimated cost.
@@ -69,7 +71,7 @@ Sprout keeps running in the system tray after you close the window, so detection
 | `src/main/documents.js` | PDF, DOCX and text extraction |
 | `src/main/resumeRender.js` | Resume / cover letter JSON → print-ready HTML and Markdown |
 | `src/main/store.js` | JSON persistence in the app's user-data folder |
-| `src/renderer/` | Dashboard, floating popup, and Sprout the mascot (inline SVG) |
+| `src/renderer/` | Dashboard, floating popup, Sprout the mascot (`mascot.js`, inline SVG) and the hand-drawn icons (`icons.js`) |
 
 ### Claude usage notes
 - Model: `claude-opus-5-5` by default. You can change it in Settings.
@@ -89,7 +91,7 @@ Every Claude button uses a prompt written for consistent, checkable results. The
 - **Claude refers to your roles and bullets by id** (`R1`, `B4`) instead of retyping them. Employers, titles, dates, locations, contact details and education always come from your own records, so they can't drift.
 - **Enforced in code, not only asked for:**
   - *Fit read*: Claude fills in a requirement-by-requirement checklist with a verbatim quote for each claim. The score is calculated from that checklist, not guessed by Claude. A quote that can't be found in your documents downgrades that requirement, and keywords must appear in the posting.
-  - *Resume draft*: a bank bullet Claude edited may not add numbers or named tools that its original wordings and your documents don't have. A new bullet needs a quote from your documents. Anything that fails is highlighted on the page and listed under **🔎 Check before sending**, together with skills that were left out because your documents don't show them, and jobs that were put back so your work history has no gap. Claude's tailoring notes appear in the same place.
+  - *Resume draft*: a bank bullet Claude edited may not add numbers or named tools that its original wordings and your documents don't have. A new bullet needs a quote from your documents. Anything that fails is highlighted on the page and listed under **Check before sending**, together with skills that were left out because your documents don't show them, and jobs that were put back so your work history has no gap. Claude's tailoring notes appear in the same place.
   - *Polish wording*: suggestions that add a fact or make a bullet much longer are held back and shown separately, not offered.
   - *Find more bullets*: every suggestion must quote the document it came from. Suggestions that repeat your bank are dropped.
   - *Cover letter*: the letter is signed with your profile name, and paragraphs with numbers or tools your documents don't show are listed for you to check.
@@ -139,7 +141,7 @@ A resume is really a selection from everything you've done. The bank keeps all o
 - **Automatic:** adding a resume to your library pulls out its roles and bullets. It handles "Title, Company, Dates" lines, two-line headers ("Company — City" above "Title   Dates"), bullets that wrap onto a second line in PDFs, and project sections.
 - **Duplicates merge:** the same accomplishment worded differently in two resumes (for example "Cut page load time 35%…" and "Reduced page load time by 35%…") becomes one bullet with **alternative wordings**. For each job, Sprout uses whichever wording fits the posting better.
 - **By hand:** write new bullets, reword, add wordings, move bullets between roles, or hide ones you don't want auto-picked.
-- **Optional:** ✨ *Find more with Claude* reads prose documents (project write-ups, reviews, brag docs) and suggests new bullets. Nothing is added until you tick it.
+- **Optional:** *Find more with Claude* reads prose documents (project write-ups, reviews, brag docs) and suggests new bullets. Nothing is added until you tick it.
 
 **Picking bullets for a job** (the *Build* tab on each application)
 - Each bullet is scored against the posting's requirements, using the same requirement detection as the fit score:
@@ -149,11 +151,11 @@ A resume is really a selection from everything you've done. The bank keeps all o
 - Every role gets a sensible minimum (recent roles 3, older ones 1–2).
 - A live checklist shows which requirements your chosen bullets cover.
 - Reword a bullet for this one job, then keep it *just here*, *save as another wording*, or *replace the original*. Any new bullet you write is saved to the bank too.
-- **📄 Build resume — free** assembles it:
+- **Build resume — free** assembles it:
   - relevant skills first;
   - your summary and education from the bank;
   - notes on any requirement no bullet shows.
-- ✨ *Polish wording* (optional, one Claude call) suggests light rewordings that mirror the posting without changing any facts. You accept each one.
+- *Polish wording* (optional, one Claude call) suggests light rewordings that mirror the posting without changing any facts. You accept each one.
 - *Have Claude write it* also uses your picked bullets as the backbone.
 
 **Fit evidence:** the fit panel lists each requirement next to the bullet that proves it, or "No bullet shows this yet — add one". Bullets you write in the app count toward the free fit score.
@@ -171,7 +173,7 @@ It runs automatically only on well-known job sites. Everywhere else it reads a p
 **Install (developer mode):**
 1. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
 2. Click **Load unpacked** and choose the `browser-extension` folder. Settings → *Browser extension* has a button that opens it.
-3. Click the 🌱 icon → **Connect**, then press **Allow** in the Sprout popup.
+3. Click the Sprout icon → **Connect**, then press **Allow** in the Sprout popup.
 
 **How it connects to the app:** the app listens on `127.0.0.1` only (ports 47321–47325). It accepts requests only from browser extensions: every request is a POST, which makes Chrome include an `Origin` header that web pages can't fake. Each request also needs the secret token handed out when you pressed **Allow**. You can disconnect a browser in Settings at any time. The code is in `src/main/bridge.js`.
 

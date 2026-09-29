@@ -70,7 +70,7 @@ function setApiKey(key) {
 
 function claudeClient() {
   const key = getApiKey();
-  if (!key) throw new Error('Add your Claude API key in Settings to unlock this ✨');
+  if (!key) throw new Error('Add your Claude API key in Settings to unlock this.');
   return claude.createClient(key);
 }
 
@@ -268,7 +268,7 @@ function setupWatcher() {
   watcher.on('error', (err, { force } = {}) => {
     console.error('watcher error', err);
     broadcast('toast', { kind: 'error', text: err.message });
-    if (force) showOverlay({ mode: 'message', mood: 'curious', title: 'Oops, a little hiccup', text: err.message });
+    if (force) showOverlay({ mode: 'message', mood: 'worried', title: 'Oops, a little hiccup', text: err.message });
   });
   applyWatchSettings(store.getSettings());
 }
@@ -1002,7 +1002,7 @@ function registerIpc() {
     if (action === 'pair-allow' || action === 'pair-deny') {
       const resolve = pairRequests.get(key);
       if (resolve) resolve(action === 'pair-allow');
-      if (action === 'pair-allow') showOverlay({ mode: 'message', mood: 'happy', title: 'Connected! 🎉', text: "Open a job posting in your browser and I'll score it right away." });
+      if (action === 'pair-allow') showOverlay({ mode: 'message', mood: 'thrilled', title: "We're connected!", text: "Open a job posting in your browser and I'll score it right away." });
       else hideOverlay();
       broadcast('state-changed');
       return;
@@ -1010,7 +1010,7 @@ function registerIpc() {
     if (action === 'analyze') {
       showOverlay({ mode: 'score', app: withAts(store.getApplication(appId)), analyzing: true });
       await analyzeApp(appId, { popup: true }).catch((err) =>
-        showOverlay({ mode: 'message', mood: 'curious', title: 'Oops, a little hiccup', text: err.message })
+        showOverlay({ mode: 'message', mood: 'worried', title: 'Oops, a little hiccup', text: err.message })
       );
     } else if (action === 'dismiss') {
       hideOverlay();
@@ -1032,7 +1032,7 @@ function registerIpc() {
         showOverlay({ mode: 'done', app: withAts(store.getApplication(appId)) });
         overlayHideTimer = setTimeout(hideOverlay, 30000);
       } catch (err) {
-        showOverlay({ mode: 'message', mood: 'curious', title: 'Oops, a little hiccup', text: err.message });
+        showOverlay({ mode: 'message', mood: 'worried', title: 'Oops, a little hiccup', text: err.message });
       }
     }
   });
@@ -1080,7 +1080,7 @@ function checkFollowUps() {
     store.updateApplication(a.id, { followUpNotified: true });
     if (Notification.isSupported()) {
       const n = new Notification({
-        title: `Time to follow up with ${a.job.company || 'them'} 🌱`,
+        title: `Sprout here — time to follow up with ${a.job.company || 'them'}!`,
         body: `You applied for ${a.job.title}${a.appliedAt ? ` on ${new Date(a.appliedAt).toLocaleDateString()}` : ''}. A short, friendly check-in can make you stand out!`,
       });
       n.on('click', () => {
