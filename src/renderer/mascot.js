@@ -3,13 +3,17 @@
 (function () {
   const ARC_EYES = 'M40 58 q3 -4 6 0 M58 58 q3 -4 6 0';
   const BIG_ARC_EYES = 'M39 59 q4 -6 8 0 M57 59 q4 -6 8 0';
+  // Four-point sparkle stars for starry-eyed excitement.
+  const star = (x, y, r, k = r * 0.3) =>
+    `M${x} ${y - r} Q${x + k} ${y - k} ${x + r} ${y} Q${x + k} ${y + k} ${x} ${y + r} Q${x - k} ${y + k} ${x - r} ${y} Q${x - k} ${y - k} ${x} ${y - r} Z`;
+  const STAR_EYES = `${star(43, 56.5, 5.8)} ${star(61, 56.5, 5.8)}`;
   const DOT_EYES = 'M43 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M61 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0';
 
   // eyes/mouth: face paths. dots: filled (round) eyes that blink.
   // arms: 'down' | 'up' | 'wave' | 'pump' | 'hug'. extra: sparkles | dots | zzz | heart | sweat.
   const FACES = {
     happy: { eyes: ARC_EYES, mouth: 'M44 68 q8 8 16 0', cheeks: true, arms: 'down' },
-    thrilled: { eyes: BIG_ARC_EYES, mouth: 'M42 66 q10 12 20 0 z', mouthFill: true, cheeks: true, arms: 'up', extra: 'sparkles' },
+    thrilled: { eyes: STAR_EYES, stars: true, mouth: 'M40 64.5 q12 16 24 0 z', mouthFill: true, tongue: true, cheeks: 'big', arms: 'up', extra: 'buzz' },
     thinking: { eyes: 'M41 57 h5 M58 57 h5', mouth: 'M47 70 q5 -2 10 0', cheeks: false, arms: 'down', extra: 'dots' },
     curious: { eyes: DOT_EYES, dots: true, mouth: 'M49 70 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0', cheeks: true, arms: 'down' },
     cheer: { eyes: ARC_EYES, mouth: 'M45 67 q7 6 14 0', cheeks: true, arms: 'pump' },
@@ -29,6 +33,10 @@
   };
 
   const EXTRAS = {
+    // Sparkles plus little excitement lines by the head.
+    buzz: `<g class="twinkle"><path d="M13 26 q1.2 5 5 6 q-3.8 1 -5 6 q-1.2 -5 -5 -6 q3.8 -1 5 -6z" fill="var(--butter, #f6d78b)"/>
+      <path d="M92 30 q.9 3.6 3.6 4.4 q-2.7 .8 -3.6 4.4 q-.9 -3.6 -3.6 -4.4 q2.7 -.8 3.6 -4.4z" fill="var(--lavender, #b9a9e6)"/></g>
+      <g class="buzz" stroke="var(--peach, #f6b99a)" stroke-width="2.4" stroke-linecap="round"><path d="M14 63 l-6 -2.5 M14.5 70 l-6 1.5"/><path d="M90 63 l6 -2.5 M89.5 70 l6 1.5"/></g>`,
     sparkles: `<g class="twinkle"><path d="M14 30 q1.2 5 5 6 q-3.8 1 -5 6 q-1.2 -5 -5 -6 q3.8 -1 5 -6z" fill="var(--butter, #f6d78b)"/>
       <path d="M91 36 q.9 3.6 3.6 4.4 q-2.7 .8 -3.6 4.4 q-.9 -3.6 -3.6 -4.4 q2.7 -.8 3.6 -4.4z" fill="var(--lavender, #b9a9e6)"/></g>`,
     dots: '<g class="think-dots" fill="var(--lavender, #b9a9e6)"><circle cx="85" cy="40" r="2"/><circle cx="91" cy="32" r="2.8"/><circle cx="97" cy="22" r="3.6"/></g>',
@@ -119,10 +127,11 @@
   ${hugInFront ? '' : arms}
   ${cast.body}
   ${cast.front}
-  ${f.cheeks ? '<ellipse cx="36" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/><ellipse cx="68" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/>' : ''}
+  ${f.cheeks === 'big' ? '<ellipse cx="34.5" cy="67" rx="6.2" ry="4" fill="#f5a59c" opacity=".85"/><ellipse cx="69.5" cy="67" rx="6.2" ry="4" fill="#f5a59c" opacity=".85"/>' : f.cheeks ? '<ellipse cx="36" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/><ellipse cx="68" cy="68" rx="5" ry="3.2" fill="#f7b8b0" opacity=".75"/>' : ''}
   ${f.brows ? `<path d="${f.brows}" stroke="#3b3a36" stroke-width="2" stroke-linecap="round" fill="none"/>` : ''}
-  <g class="eyes${f.dots ? ' blink' : ''}"><path d="${f.eyes}" stroke="#3b3a36" stroke-width="3" stroke-linecap="round" fill="${f.dots ? '#3b3a36' : 'none'}"/></g>
-  <path d="${f.mouth}" stroke="#3b3a36" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="${f.mouthFill ? '#e88d86' : 'none'}"/>
+  <g class="eyes${f.dots ? ' blink' : ''}${f.stars ? ' star-eyes' : ''}"><path d="${f.eyes}" stroke="#3b3a36" stroke-width="${f.stars ? 1.4 : 3}" stroke-linecap="round" stroke-linejoin="round" fill="${f.dots || f.stars ? '#3b3a36' : 'none'}"/>${f.stars ? '<circle cx="41.6" cy="55.6" r="1.25" fill="#fff"/><circle cx="59.6" cy="55.6" r="1.25" fill="#fff"/>' : ''}</g>
+  <path d="${f.mouth}" stroke="#3b3a36" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="${f.mouthFill ? (f.tongue ? '#8a3b36' : '#e88d86') : 'none'}"/>
+  ${f.tongue ? '<path d="M45.5 70.6 q6.5 -4.6 13 0 q-6.5 3.4 -13 0z" fill="#f29b93"/>' : ''}
   ${hugInFront ? arms : ''}
   ${f.extra ? EXTRAS[f.extra] : ''}
   </g>

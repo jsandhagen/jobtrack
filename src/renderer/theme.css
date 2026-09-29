@@ -194,6 +194,9 @@ button .ic, .chip .ic { margin: 0 1px; }
 .sprout .think-dots circle:nth-child(2) { animation-delay: 0.2s; }
 .sprout .think-dots circle:nth-child(3) { animation-delay: 0.4s; }
 .sprout .zzz { animation: twinkle 2.4s ease-in-out infinite; }
+.sprout .star-eyes { transform-box: fill-box; transform-origin: center; animation: star-pulse 1.4s ease-in-out infinite; }
+@keyframes star-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+.sprout .buzz { animation: twinkle 0.9s ease-in-out infinite; }
 .sprout.pettable { cursor: pointer; transition: transform 0.15s; }
 .sprout.pettable:hover { transform: rotate(-4deg) scale(1.04); }
 .sprout.boing .whole { animation: boing 0.6s ease; }
