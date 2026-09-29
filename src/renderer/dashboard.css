@@ -231,3 +231,5 @@ details.tray-card summary { cursor: pointer; }
 .tray-card.checks summary { cursor: pointer; }
 .letter-checks { background: #fff1de; border-radius: 12px; padding: 10px 14px; margin: 10px 0; font-size: 13px; }
 @media print { .ed-page li.rs-bullet.flagged { background: none; box-shadow: none; } }
+
+.voice-profile { white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.55; background: var(--butter-soft); border-radius: 10px; padding: 8px 12px; margin: 6px 0 0; }

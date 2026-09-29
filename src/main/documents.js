@@ -9,6 +9,7 @@ const SUPPORTED = ['.pdf', '.docx', '.txt', '.md', '.markdown', '.json'];
 function guessKind(name, text) {
   const n = name.toLowerCase();
   const t = text.slice(0, 4000).toLowerCase();
+  if (/writing[\s_-]?sample|\bessay\b|\bblog\b|\barticle\b/.test(n)) return 'writing-sample';
   if (/cover[\s_-]?letter/.test(n) || /^dear\b/m.test(t)) return 'cover-letter';
   if (/resume|résumé|\bcv\b/.test(n)) return 'resume';
   if (/transcript/.test(n)) return 'transcript';

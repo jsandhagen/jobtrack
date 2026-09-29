@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('sprout', {
   importFiles: (files) => call('docs:importPaths', Array.from(files).map((f) => webUtils.getPathForFile(f))),
   addTextDocument: (doc) => call('docs:addText', doc),
   getDocument: (id) => call('docs:get', id),
+  getVoiceProfile: () => call('docs:voice'),
   updateDocument: (id, patch) => call('docs:update', id, patch),
   removeDocument: (id) => call('docs:remove', id),
 

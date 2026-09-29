@@ -21,6 +21,7 @@ const { importFile, SUPPORTED } = require('./documents');
 const { localFitScore } = require('./localFit');
 const claude = require('./claude');
 const draft = require('./draft');
+const { voiceProfile } = require('./voice');
 const { PostingWatcher, fingerprint } = require('./watcher');
 const ocr = require('./ocr');
 const { createBridge } = require('./bridge');
@@ -312,8 +313,21 @@ async function scanNow() {
 
 // ---------------- core pipeline ----------------
 
+// Everything in the library goes to Claude, plus the bullets you wrote or
+// reworded in the app (those aren't in any document yet).
 function docsForPrompt() {
-  return store.allDocuments().map(({ name, kind, text }) => ({ name, kind, text }));
+  const docs = store.allDocuments().map(({ name, kind, text }) => ({ name, kind, text }));
+  const inDocs = docs.filter((d) => d.kind !== 'writing-sample').map((d) => d.text.replace(/\s+/g, ' ').toLowerCase()).join('\n');
+  const own = [...new Set(store.getBank().bullets.filter((b) => !b.hidden).flatMap((b) => [b.text, ...(b.variants || [])]))]
+    .filter((t) => t && !inDocs.includes(t.replace(/\s+/g, ' ').toLowerCase()));
+  if (own.length) docs.push({ name: 'Bullets written in Sprout', kind: 'bank', text: own.map((t) => `- ${t}`).join('\n') });
+  return docs;
+}
+
+// Documents that describe your experience. Writing samples only teach Claude
+// your voice, so they never count as evidence for a score.
+function evidenceDocs() {
+  return store.allDocuments().filter((d) => d.kind !== 'writing-sample');
 }
 
 // Your library plus bullet-bank text (bullets you wrote or reworded in the
@@ -321,7 +335,7 @@ function docsForPrompt() {
 function scoringDocuments() {
   const bank = store.getBank();
   const bankText = [...bank.bullets.flatMap((b) => [b.text, ...(b.variants || [])]), bank.skills.join(', ')].join('\n');
-  const docs = store.allDocuments();
+  const docs = evidenceDocs();
   return bankText.trim() ? [...docs, { kind: 'bank', text: bankText }] : docs;
 }
 
@@ -375,7 +389,7 @@ async function handlePosting(posting, { fromDashboard = false, waitForAnalysis =
 async function analyzeApp(appId, { popup = false, keepTitle = true } = {}) {
   const rec = store.getApplication(appId);
   if (!rec) throw new Error('That application no longer exists.');
-  if (!store.allDocuments().length) throw new Error('Add your resume to the library first.');
+  if (!evidenceDocs().length) throw new Error('Add your resume to the library first.');
   store.updateApplication(appId, { analysisStatus: 'working', analysisError: null });
   broadcast('app-updated', store.getApplication(appId));
   const showInPopup = (app) => {
@@ -401,7 +415,7 @@ async function analyzeApp(appId, { popup = false, keepTitle = true } = {}) {
 // Computed on read so it stays current as the library or the resume is edited.
 function withAts(rec) {
   if (!rec) return rec;
-  const before = libraryAtsScore(rec.job, store.allDocuments());
+  const before = libraryAtsScore(rec.job, evidenceDocs());
   const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml)) : null;
   const bank = store.getBank();
   // Which bullet proves each requirement.
@@ -417,7 +431,7 @@ function guessTitle(text) {
 async function makeResume(appId) {
   const rec = store.getApplication(appId);
   if (!rec) throw new Error('That application no longer exists.');
-  if (!store.allDocuments().length) throw new Error('Add at least one document (like your current resume) to your library first.');
+  if (!evidenceDocs().length) throw new Error('Add at least one document (like your current resume) to your library first.');
   store.updateApplication(appId, { resumeStatus: 'working' });
   broadcast('app-updated', store.getApplication(appId));
   try {
@@ -433,7 +447,7 @@ async function makeResume(appId) {
       documents,
       profile,
       analysis: rec.analysis,
-      ats: libraryAtsScore(rec.job, store.allDocuments()),
+      ats: libraryAtsScore(rec.job, evidenceDocs()),
       roles: ids.roles,
       picked: ids.picked,
       model: store.getSettings().model,
@@ -501,6 +515,7 @@ function importBullets(docs) {
   store.updateBank((bank) => {
     let b = bank;
     for (const d of docs) {
+      if (!d || d.kind === 'writing-sample') continue;
       const parsed = bulletBank.parseResume(d.text);
       if (!parsed.experiences.some((e) => e.bullets.length)) continue;
       const r = bulletBank.mergeIntoBank(b, parsed, { id: d.id, name: d.name });
@@ -734,6 +749,8 @@ function registerIpc() {
     return { ...d, bullets };
   });
   handle('docs:get', (id) => store.allDocuments().find((d) => d.id === id) || null);
+  // What Claude is told about how you write (measured locally, no AI).
+  handle('docs:voice', () => voiceProfile(store.allDocuments()));
   handle('docs:update', (id, patch) => {
     const allowed = {};
     for (const k of ['name', 'kind', 'text']) if (patch[k] !== undefined) allowed[k] = patch[k];
@@ -918,7 +935,7 @@ function registerIpc() {
     const days = Number(store.getSettings().followUpDays) || 7;
     const appliedAt = info.appliedAt ? new Date(info.appliedAt).toISOString() : new Date().toISOString();
     const followUpAt = info.followUpAt === '' ? null : info.followUpAt ? new Date(info.followUpAt).toISOString() : new Date(Date.parse(appliedAt) + days * 86400000).toISOString();
-    const best = libraryAtsScore(rec.job, store.allDocuments());
+    const best = libraryAtsScore(rec.job, evidenceDocs());
     const sent =
       info.resumeChoice === 'tailored' && rec.resumeHtml
         ? { resume: 'tailored', resumeHtml: rec.resumeHtml, letterHtml: info.includeLetter && rec.letterHtml ? rec.letterHtml : null }
@@ -1096,7 +1113,7 @@ function summarizeApp(a) {
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
     atsBefore: (() => {
-      const b = libraryAtsScore(a.job, store.allDocuments());
+      const b = libraryAtsScore(a.job, evidenceDocs());
       return b ? b.score : null;
     })(),
     atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml)).score : null,

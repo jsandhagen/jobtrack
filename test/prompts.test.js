@@ -167,3 +167,67 @@ test('cover letters are signed with the profile name and checked for untraceable
   assert.match(letter.checks[0], /Paragraph 2.*80/);
   assert.equal(client.requests[0].output_config.effort, 'high');
 });
+
+const SAMPLE = {
+  name: 'LinkedIn post.txt',
+  kind: 'writing-sample',
+  text: `I've spent the last year rebuilding how our team ships. It wasn't glamorous. We cut the release checklist in half — and nobody missed it.
+
+So what changed? We stopped guessing. We measured every step, then we deleted the ones that didn't matter. That's the whole trick.
+
+I'm proud of the team. We organised the work in small pieces and kept the colour-coded board honest. It's still the best project I've worked on.`,
+};
+
+test('the voice profile measures how the candidate writes, from samples and resume bullets', () => {
+  const { voiceProfile } = require('../src/main/voice');
+  const resume = { kind: 'resume', text: 'Experience\n- Built a design system.\n- Cut load time 35%.\n- Built checkout flows.\n- Led accessibility audits.' };
+  const v = voiceProfile([SAMPLE, resume]);
+  assert.match(v, /writing samples/);
+  assert.match(v, /Contractions: often/);
+  assert.match(v, /Spelling: British/);
+  assert.match(v, /dashes/);
+  assert.match(v, /Bullets end with a period: always/);
+  assert.match(v, /Verbs they open bullets with: Built, /);
+  assert.equal(voiceProfile([]), '');
+  // Same input, same text — so the cached prompt prefix stays identical.
+  assert.equal(voiceProfile([SAMPLE, resume]), v);
+});
+
+test('the library block orders documents by kind and keeps writing samples separate', () => {
+  const docs = [
+    { name: 'notes.txt', kind: 'other', text: 'Brag notes' },
+    SAMPLE,
+    { name: 'review.docx', kind: 'recommendation', text: 'Great mentor' },
+    { name: 'resume.pdf', kind: 'resume', text: LIBRARY },
+  ];
+  const block = P.libraryBlock(docs, {});
+  const facts = block.slice(block.indexOf('<candidate_documents>'), block.indexOf('</candidate_documents>'));
+  assert.ok(facts.indexOf('resume.pdf') < facts.indexOf('review.docx') && facts.indexOf('review.docx') < facts.indexOf('notes.txt'));
+  assert.doesNotMatch(facts, /LinkedIn post/);
+  assert.match(block, /<writing_samples>\n<document name="LinkedIn post.txt" kind="writing-sample">/);
+  assert.match(block, /<voice_profile>\n[\s\S]*Contractions/);
+  assert.match(P.SYSTEM, /# The candidate's voice/);
+  assert.match(P.SYSTEM, /# Using every document/);
+});
+
+test('writing samples never count as facts', async () => {
+  // Not in the fact-check corpus…
+  assert.doesNotMatch(claude.libraryText([SAMPLE, ...DOCS], {}), /release checklist/);
+  // …so a fit quote taken from a sample is not verified…
+  const fit = fakeClient({
+    headline: 'h', strengths: [], gaps: [], talking_points: [], keywords: [], job_title: '', company: '',
+    qualifications: [{ requirement: 'Release management', type: 'basic', status: 'met', evidence_quote: 'We cut the release checklist in half' }],
+  });
+  const a = await claude.analyzeFit(fit, { job: { text: POSTING }, documents: [SAMPLE, ...DOCS], profile: {} });
+  assert.equal(a.qualifications[0].verified, false);
+  // …and a bullet suggested from a sample is dropped.
+  const sug = fakeClient({ bullets: [{ role_id: 'R1', role_hint: '', text: 'Cut the release checklist in half', source_document: 'LinkedIn post.txt', source_quote: 'We cut the release checklist in half' }] });
+  const s = await claude.suggestBullets(sug, { documents: [SAMPLE, ...DOCS], profile: {}, roles: draft.promptIds(bank(), []).roles, existing: [] });
+  assert.equal(s.suggestions.length, 0);
+});
+
+test('documents named like writing samples are filed as writing samples', () => {
+  const { guessKind } = require('../src/main/documents');
+  assert.equal(guessKind('Writing sample - blog.docx', 'Dear reader'), 'writing-sample');
+  assert.equal(guessKind('Cover letter Acme.pdf', 'Dear Hiring Manager'), 'cover-letter');
+});

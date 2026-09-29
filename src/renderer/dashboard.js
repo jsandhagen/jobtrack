@@ -68,7 +68,18 @@ const KIND_LABEL = {
   transcript: ['🎓', 'Transcript'],
   recommendation: ['⭐', 'Recommendation'],
   other: ['📝', 'Notes'],
+  'writing-sample': ['✍️', 'Writing sample'],
 };
+function docRow(d) {
+  const [icon, label] = KIND_LABEL[d.kind] || KIND_LABEL.other;
+  return `<div class="row-item" data-doc="${d.id}"><div class="doc-icon">${icon}</div>
+    <div class="grow"><div class="title">${esc(d.name)}</div><div class="sub"><span class="doc-kind">${label}</span> · ${Math.round(d.chars / 5)} words · added ${timeAgo(d.addedAt)}</div></div>
+    <select class="kindSel" data-id="${d.id}" style="width:150px">${Object.entries(KIND_LABEL)
+      .map(([k, [, l]]) => `<option value="${k}" ${k === d.kind ? 'selected' : ''}>${l}</option>`)
+      .join('')}</select>
+    <button class="small ghost danger delDoc" data-id="${d.id}">Remove</button></div>`;
+}
+
 const STATUSES = ['scored', 'resume-ready', 'applied', 'interviewing', 'offer', 'rejected', 'skipped', 'closed'];
 const STATUS_LABEL = {
   scored: 'Not applied',
@@ -210,18 +221,15 @@ const views = {
       <div class="page-head"><div><h1>My library</h1><p class="muted">Everything I can draw from when tailoring: resumes, old cover letters, project write-ups, performance reviews, certificates… The more, the merrier!</p></div></div>
       <div class="dropzone" id="drop"><div class="big">📥</div><h3>Drop files here</h3><p class="muted">PDF, Word (.docx), text or Markdown</p>
         <div class="inline" style="justify-content:center"><button class="primary" id="pickBtn">Choose files</button><button class="soft" id="pasteDocBtn">Paste text instead</button></div></div>
-      <div class="list" style="margin-top:18px">${docs
-        .map((d) => {
-          const [icon, label] = KIND_LABEL[d.kind] || KIND_LABEL.other;
-          return `<div class="row-item" data-doc="${d.id}"><div class="doc-icon">${icon}</div>
-          <div class="grow"><div class="title">${esc(d.name)}</div><div class="sub"><span class="doc-kind">${label}</span> · ${Math.round(d.chars / 5)} words · added ${timeAgo(d.addedAt)}</div></div>
-          <select class="kindSel" data-id="${d.id}" style="width:150px">${Object.entries(KIND_LABEL)
-            .map(([k, [, l]]) => `<option value="${k}" ${k === d.kind ? 'selected' : ''}>${l}</option>`)
-            .join('')}</select>
-          <button class="small ghost danger delDoc" data-id="${d.id}">Remove</button></div>`;
-        })
-        .join('')}</div>
-      ${docs.length ? '' : `<div class="empty">${mascotSvg('cheer', 64)}<p>Start with your current resume — then add anything that shows off what you've done.</p></div>`}
+      <div class="list" style="margin-top:18px">${docs.filter((d) => d.kind !== 'writing-sample').map(docRow).join('')}</div>
+      ${docs.some((d) => d.kind !== 'writing-sample') ? '' : `<div class="empty">${mascotSvg('cheer', 64)}<p>Start with your current resume — then add anything that shows off what you've done.</p></div>`}
+      <div class="card" style="margin-top:22px">
+        <div class="page-head" style="margin:0"><div><h3 style="margin:0">✍️ Writing samples</h3>
+          <p class="muted" style="margin:4px 0 0">Things you wrote that sound like you: a cover letter you were proud of, a LinkedIn post, an email, an essay. Claude matches your tone and rhythm — most in cover letters, a little in your summary, and only in word choice on bullets, where resume rules come first. Samples are never used as facts about your work.</p></div>
+          <button class="soft" id="addSampleBtn">+ Add a writing sample</button></div>
+        <div class="list" style="margin-top:12px">${docs.filter((d) => d.kind === 'writing-sample').map(docRow).join('') || '<p class="faint">No samples yet. You can paste one, or upload a file above and set its type to “Writing sample”.</p>'}</div>
+        <details id="voiceBox" style="margin-top:10px"><summary class="faint">What Claude is told about how you write</summary><pre class="voice-profile" id="voiceText">…</pre></details>
+      </div>
     </div>`;
   },
 
@@ -718,20 +726,31 @@ const binders = {
       run(null, async () => reportImport(await S.importFiles(e.dataTransfer.files)));
     });
     $('#pickBtn').addEventListener('click', (e) => run(e.currentTarget, async () => reportImport(await S.pickDocuments()), 'Reading…'));
-    $('#pasteDocBtn').addEventListener('click', () => {
-      const card = openModal(`<h2>Add a text document</h2><p class="muted">Great for things like a brag list, LinkedIn "About", or notes on projects.</p>
-        <label>Name</label><input id="mName" placeholder="e.g. Brag document 2025">
-        <label style="margin-top:10px">Text</label><textarea id="mText" style="min-height:260px"></textarea>
+    const pasteModal = (sample) => {
+      const card = openModal(
+        sample
+          ? `<h2>Add a writing sample</h2><p class="muted">Paste something you wrote yourself, ideally a few paragraphs. Claude uses it for your tone and rhythm only, never as facts about your work.</p>
+        <label>Name</label><input id="mName" placeholder="e.g. Cover letter I was proud of">`
+          : `<h2>Add a text document</h2><p class="muted">Great for things like a brag list, LinkedIn "About", or notes on projects.</p>
+        <label>Name</label><input id="mName" placeholder="e.g. Brag document 2025">`
+      );
+      card.insertAdjacentHTML('beforeend', `<label style="margin-top:10px">Text</label><textarea id="mText" style="min-height:260px"></textarea>
         <div class="inline" style="margin-top:12px"><button class="primary" id="mSave">Add to library</button><button class="ghost" id="mCancel">Cancel</button></div>`);
       $('#mCancel', card).addEventListener('click', closeModal);
       $('#mSave', card).addEventListener('click', () =>
         run(null, async () => {
-          await S.addTextDocument({ name: $('#mName', card).value.trim() || 'Notes', text: $('#mText', card).value });
+          await S.addTextDocument({ name: $('#mName', card).value.trim() || (sample ? 'Writing sample' : 'Notes'), text: $('#mText', card).value, kind: sample ? 'writing-sample' : undefined });
           closeModal();
-          toast('Added to your library 📚', 'good');
+          toast(sample ? 'Sample added — Claude will match your voice ✍️' : 'Added to your library 📚', 'good');
         })
       );
+    };
+    $('#addSampleBtn').addEventListener('click', () => pasteModal(true));
+    S.getVoiceProfile().then((v) => {
+      const el = document.getElementById('voiceText');
+      if (el) el.textContent = v || 'Not enough of your writing yet. Add a sample or two (a few paragraphs each) and a resume with bullets.';
     });
+    $('#pasteDocBtn').addEventListener('click', () => pasteModal(false));
     $$('.kindSel').forEach((sel) => {
       sel.addEventListener('click', (e) => e.stopPropagation());
       sel.addEventListener('change', () => S.updateDocument(sel.dataset.id, { kind: sel.value }));
