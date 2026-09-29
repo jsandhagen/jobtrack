@@ -95,11 +95,9 @@ async function renderEditor(appId, app) {
       <div class="ed-main">
         <div class="ed-bar">
           <span class="ed-pages" id="edPages"></span>
-          <span class="faint">Click anywhere on the page to edit · Enter = new bullet</span>
-          <span style="flex:1"></span>
+          <span class="faint ed-hint">Click anywhere on the page to edit · Enter = new bullet</span>
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
-
         </div>
         <div class="ed-desk" id="edDesk"><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
       </div>
