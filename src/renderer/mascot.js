@@ -6,6 +6,8 @@
   // Big glossy chibi eyes: a dark oval with a large and a small highlight.
   const shiny = (x) => `<ellipse cx="${x}" cy="57" rx="4.6" ry="5.4" fill="#3b3a36"/><circle cx="${x + 1.5}" cy="54.8" r="1.9" fill="#fff"/><circle cx="${x - 1.7}" cy="59.4" r="0.95" fill="#fff"/>`;
   const SHINY_EYES = `${shiny(42.5)}${shiny(61.5)}`;
+  // Happy squeezed "> <" eyes.
+  const SQUEEZE_EYES = '<path d="M38.5 53 l7 4 l-7 4 M65.5 53 l-7 4 l7 4" stroke="#3b3a36" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>';
   const DOT_EYES = 'M43 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M61 57 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0';
 
   // eyes/mouth: face paths. dots: filled (round) eyes that blink.
@@ -27,6 +29,22 @@
   // Rosy chibi blush with little "///" marks.
   const BLUSH = `<ellipse cx="35" cy="67.5" rx="5.8" ry="3.6" fill="#f7a8a0" opacity=".8"/><ellipse cx="69" cy="67.5" rx="5.8" ry="3.6" fill="#f7a8a0" opacity=".8"/>
   <path d="M32.2 69 l1.6 -3 M35.2 69 l1.6 -3 M66.2 69 l1.6 -3 M69.2 69 l1.6 -3" stroke="#e57f78" stroke-width="1.1" stroke-linecap="round"/>`;
+
+  // Moods with more than one drawing take turns, so the same moment doesn't
+  // always look identical. Excited alternates shiny eyes and squeezed "> <" eyes.
+  const VARIANTS = {
+    thrilled: [
+      null, // FACES.thrilled
+      { eyesSvg: SQUEEZE_EYES, mouth: 'M45 64.5 h14 q0 7 -7 7 q-7 0 -7 -7z', mouthFill: true, tongue: 'M47.3 69.7 q4.7 -3.1 9.4 0 q-4.7 2.2 -9.4 0z', cheeks: 'blush', arms: 'up', extra: 'hearts' },
+    ],
+  };
+  const turns = {};
+  function faceFor(mood, variant) {
+    const list = VARIANTS[mood];
+    if (!list) return FACES[mood] || FACES.happy;
+    const i = Number.isInteger(variant) ? variant % list.length : (turns[mood] = ((turns[mood] ?? -1) + 1) % list.length);
+    return list[i] || FACES[mood];
+  }
 
   const ARMS = {
     down: ['M27 72 q-5 3 -7 8', 'M77 72 q5 3 7 8'],
@@ -118,8 +136,9 @@
 
   // opts.cls adds classes (e.g. "pettable"); opts.label overrides the accessible name;
   // opts.kind picks the character: 'sprout' (default), 'carrot' or 'cactus'.
+  // opts.variant (0, 1…) pins one drawing of a mood that has several.
   function mascotSvg(mood = 'happy', size = 96, opts = {}) {
-    const f = FACES[mood] || FACES.happy;
+    const f = faceFor(mood, opts.variant);
     const kind = CAST[opts.kind] ? opts.kind : 'sprout';
     const cast = CAST[kind];
     const motion = mood === 'thinking' ? 'sprout-think' : mood === 'thrilled' ? 'sprout-bob sprout-hop' : mood === 'sleepy' ? 'sprout-sleep' : 'sprout-bob';
