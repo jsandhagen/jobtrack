@@ -57,12 +57,13 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     ${footer}`;
 }
 
-// Two ways to tailor: Spike's free ATS picks, or Root's Claude rewrite.
+// Two ways to tailor: Spike optimizes your resume for ATS (free), Root has
+// Claude write an updated version. They peek over their buttons.
 function modeChoice(claude) {
-  const opt = (mode, act, title, sub) => `<button class="mode-pick mode-${mode}" data-act="${act}">${helperSvg(mode, 'happy', 44)}<span><b>${title}</b><small>${sub}</small></span></button>`;
+  const { peekPal } = window.SproutMascot;
   return `<div class="mode-picks${claude ? '' : ' single'}">
-    ${opt('ats', 'resume-ats', 'ATS resume', 'Free · your best keyword matches')}
-    ${claude ? opt('claude', 'resume', 'Claude resume', 'Rewritten for this job, fact-checked') : ''}
+    <button class="peek mode-ats" data-act="resume-ats">${peekPal('ats', 54)}<b>ATS resume</b><small>Free · optimize my resume</small></button>
+    ${claude ? `<button class="peek mode-claude" data-act="resume">${peekPal('claude', 54)}<b>Claude resume</b><small>Write an updated version</small></button>` : ''}
   </div>`;
 }
 

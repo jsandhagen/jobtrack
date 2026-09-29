@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { parseResume, mergeIntoBank, emptyBank, rankBullets, selectBullets, buildResume, similarity, splitHeader } = require('../src/main/bullets');
+const { parseResume, mergeIntoBank, emptyBank, rankBullets, selectBullets, buildResume, baselineDoc, similarity, splitHeader } = require('../src/main/bullets');
 const { atsScore } = require('../src/main/atsScore');
 const { renderResumeHtml, htmlToText } = require('../src/main/resumeRender');
 const { POSTINGS } = require('./fixtures/fitCases');
@@ -178,4 +178,18 @@ test('an inline "Skills:" line is a skills list, not part of the last bullet', (
   const p = parseResume('Experience\nWeb Developer, Pine Studio, 2016 - 2019\n- Shipped JavaScript apps for 30+ clients\nSkills: JavaScript, TypeScript, React');
   assert.equal(p.experiences[0].bullets[0].text, 'Shipped JavaScript apps for 30+ clients');
   assert.deepEqual(p.skills, ['JavaScript', 'TypeScript', 'React']);
+});
+
+test('the baseline resume is the bank as it stands: every role, bullets in order, hidden ones left out', () => {
+  const { bank } = mergeIntoBank(emptyBank(), parseResume(resume('a.txt')), { id: 'a', name: 'a.txt' });
+  const hidden = bank.bullets[1];
+  hidden.hidden = true;
+  const doc = baselineDoc({ profile: { name: 'Jordan Rivera' }, bank, job: POSTINGS.seniorFrontend });
+  assert.equal(doc.roles.length, bank.experiences.length);
+  const first = bank.experiences.find((e) => e.id === doc.roles[0].experienceId);
+  const expected = bank.bullets.filter((b) => b.experienceId === first.id && !b.hidden).map((b) => b.text);
+  assert.deepEqual(doc.roles[0].bullets.map((b) => b.text), expected);
+  assert.ok(!doc.roles.some((r) => r.bullets.some((b) => b.bulletId === hidden.id)));
+  // Skills in your own order, not re-sorted for the posting.
+  assert.deepEqual(doc.skills, bank.skills);
 });

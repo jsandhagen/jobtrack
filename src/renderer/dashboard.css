@@ -290,24 +290,22 @@ details.tray-card summary { cursor: pointer; }
 
 .voice-profile { white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.55; background: var(--butter-soft); border-radius: 10px; padding: 8px 12px; margin: 6px 0 0; }
 
-/* resume modes: Spike (ATS) and Root (Claude) */
-.mode-bar { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
-@media (max-width: 1000px) { .mode-bar { grid-template-columns: 1fr; } }
-.mode-card { --mode: var(--sage); --mode-soft: var(--sage-soft); display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px 12px 12px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm); transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
-.mode-card.mode-claude { --mode: #e0823e; --mode-soft: #fdeadb; }
-@media (prefers-color-scheme: dark) { .mode-card.mode-claude { --mode: #f9a65a; --mode-soft: #45332a; } }
-.mode-card.on { border-color: var(--mode); background: linear-gradient(135deg, var(--mode-soft), var(--surface) 70%); box-shadow: var(--shadow), 0 0 0 3px color-mix(in srgb, var(--mode) 14%, transparent); }
-.mode-card:not(.on) .sprout { opacity: 0.85; }
-.mode-card.locked { opacity: 0.75; }
-.mode-card .sprout { flex: none; margin-top: 2px; }
-.mode-text { flex: 1; min-width: 0; }
-.mode-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.mode-head b { font-size: 15px; }
-.mode-tag { font-size: 11px; font-weight: 800; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.06em; }
-.mode-now { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 800; color: #fff; background: var(--mode); border-radius: 99px; padding: 1px 9px 1px 6px; }
-@media (prefers-color-scheme: dark) { .mode-now { color: var(--bg); } }
-.mode-text p { margin: 4px 0 6px; font-size: 12.5px; color: var(--ink-soft); line-height: 1.45; }
-.mode-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.mode-card.mode-claude button.soft { background: var(--mode-soft); color: var(--mode); }
-.mode-card.mode-claude button.soft:hover { background: color-mix(in srgb, var(--mode-soft) 75%, var(--mode) 25%); }
+/* resume modes: baseline, then Spike (ATS) or Root (Claude) */
+.mode-strip { display: flex; align-items: flex-end; gap: 18px; margin-bottom: 14px; padding: 12px 14px 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-sm); }
+.mode-strip.mode-is-ats { background: linear-gradient(120deg, var(--sage-soft), var(--surface) 55%); }
+.mode-strip.mode-is-claude { background: linear-gradient(120deg, #fdeadb, var(--surface) 55%); }
+@media (prefers-color-scheme: dark) { .mode-strip.mode-is-claude { background: linear-gradient(120deg, #45332a, var(--surface) 55%); } }
+.mode-status { flex: 1; min-width: 0; display: flex; gap: 12px; align-items: center; align-self: center; }
+.mode-status > .sprout, .mode-doc { flex: none; }
+.mode-doc { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-soft); }
+.mode-status b { font-size: 15px; }
+.mode-status p { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-soft); line-height: 1.45; }
+.mode-links { margin-top: 4px; gap: 2px; }
+.mode-links button { margin-left: -8px; margin-right: 8px; }
+.mode-actions { display: flex; gap: 10px; flex: none; }
+.mode-actions .peek { width: 180px; }
+@media (max-width: 1100px) { .mode-strip { flex-direction: column; align-items: stretch; } .mode-actions .peek { flex: 1; width: auto; } }
+.ed-page.fresh { animation: fresh 1.6s ease; }
+@keyframes fresh { 0% { box-shadow: 0 0 0 0 rgba(98, 167, 127, 0.55), 0 14px 40px rgba(0, 0, 0, 0.14); } 40% { box-shadow: 0 0 0 10px rgba(98, 167, 127, 0.18), 0 14px 40px rgba(0, 0, 0, 0.14); } 100% { box-shadow: 0 0 0 0 rgba(98, 167, 127, 0), 0 1px 3px rgba(0, 0, 0, 0.12), 0 14px 40px rgba(0, 0, 0, 0.14); } }
+@media (prefers-reduced-motion: reduce) { .ed-page.fresh { animation: none; } }
 .small-link { font-size: 12.5px; font-weight: 700; }

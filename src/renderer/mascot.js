@@ -177,6 +177,12 @@
     return mascotSvg(mood, size, { ...opts, kind: h.kind });
   }
 
+  // A helper peeking over the top edge of a button; it pops up and waves on hover.
+  // Pair with <button class="peek mode-…">; styles live in theme.css.
+  function peekPal(mode, size = 56) {
+    return `<span class="peek-pal" aria-hidden="true">${helperSvg(mode, 'curious', size, { cls: 'pal-idle' })}${helperSvg(mode, 'wave', size, { cls: 'pal-wave' })}</span>`;
+  }
+
   function pick(list, seed = Date.now()) {
     return list[Math.abs(seed) % list.length];
   }
@@ -230,5 +236,5 @@
     setTimeout(() => box.remove(), 2400);
   }
 
-  window.SproutMascot = { mascotSvg, helperSvg, HELPERS, sproutSays, moodForScore, encouragement, say, pick, scoreRing, animateRings, scoreColor, confetti, moods: Object.keys(FACES) };
+  window.SproutMascot = { mascotSvg, helperSvg, peekPal, HELPERS, sproutSays, moodForScore, encouragement, say, pick, scoreRing, animateRings, scoreColor, confetti, moods: Object.keys(FACES) };
 })();

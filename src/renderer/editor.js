@@ -73,63 +73,68 @@ async function saveNow() {
 
 // ---------- rendering ----------
 
-// The two ways to tailor: Spike's free ATS picks, or Root's Claude rewrite.
-const MODES = {
-  ats: {
-    title: 'ATS mode',
-    tag: 'free · instant',
-    who: 'Spike',
-    blurb: 'Picks the bullets from your bank that match the most posting keywords, and puts the skills you can back up first. Your own words, laid out for applicant tracking systems.',
-  },
-  claude: {
-    title: 'Claude mode',
-    tag: 'uses Claude',
-    who: 'Root',
-    blurb: 'Claude rewrites the resume for this job from your bank and documents, in your voice, then every line is fact-checked against your records.',
-  },
+// Every job starts from your baseline resume. Spike optimizes it for ATS
+// scanners (free); Root has Claude write an updated version. Either one
+// shows straight away, and one step can be undone.
+const RESUME_STATES = {
+  baseline: { title: 'Baseline resume', line: 'Your resume as it is, with nothing tailored yet. Optimize it for this posting, or have Claude write an updated version.' },
+  ats: { title: 'Optimized for ATS by Spike', line: 'Your bullets that match the most posting keywords, in your own words, with the skills you can back up listed first.' },
+  claude: { title: 'Written by Root with Claude', line: 'Tailored to this posting and fact-checked against your records. Click anywhere on the page to edit.' },
 };
 
-function modeBar(current) {
-  const card = (mode) => {
-    const m = MODES[mode];
-    const on = current === mode;
-    const locked = mode === 'claude' && !state.hasApiKey;
-    const action = on
-      ? `<button class="small ghost" data-mode-go="${mode}" title="Build it again from scratch">${icon('refresh', 14)} Redo</button>`
-      : locked
-        ? '<a class="small-link" href="#settings">Add an API key</a>'
-        : `<button class="small soft" data-mode-go="${mode}">${mode === 'claude' ? 'Write it with Claude' : 'Switch to ATS picks'}</button>`;
-    return `<div class="mode-card mode-${mode}${on ? ' on' : ''}${locked ? ' locked' : ''}">
-      ${window.SproutMascot.helperSvg(mode, on ? 'happy' : 'curious', 58, { cls: 'pettable' })}
-      <div class="mode-text"><div class="mode-head"><b>${m.title}</b><span class="mode-tag">${m.tag}</span>${on ? `<span class="mode-now">${icon('check', 13)} this resume</span>` : ''}</div>
-        <p>${m.blurb}</p><div class="mode-foot"><span class="faint">with ${m.who} the ${mode === 'claude' ? 'carrot' : 'cactus'}</span>${action}</div></div>
-    </div>`;
-  };
-  return `<div class="mode-bar">${card('ats')}${card('claude')}</div>`;
+function modeBar(info) {
+  const cur = info.resumeSource;
+  const st = RESUME_STATES[cur] || RESUME_STATES.baseline;
+  const who = cur === 'baseline' ? `<span class="mode-doc">${icon('doc', 24)}</span>` : window.SproutMascot.helperSvg(cur, 'happy', 44, { cls: 'pettable' });
+  const was = { baseline: 'the baseline', ats: 'the ATS version', claude: 'the Claude version' }[info.undoTo] || 'the previous version';
+  const undo = info.canUndo ? `<button class="small ghost" data-mode-go="undo">${icon('refresh', 14)} Undo — back to ${cur === info.undoTo ? 'the previous version' : was}</button>` : '';
+  const back = cur !== 'baseline' && info.undoTo !== 'baseline' ? '<button class="small ghost" data-mode-go="baseline">Back to baseline</button>' : '';
+  const locked = !state.hasApiKey;
+  return `<div class="mode-strip mode-is-${cur}">
+    <div class="mode-status">${who}<div><b>${st.title}</b><p>${st.line}</p>${undo || back ? `<div class="inline mode-links">${undo}${back}</div>` : ''}</div></div>
+    <div class="mode-actions">
+      <button class="peek mode-ats" data-mode-go="ats">${window.SproutMascot.peekPal('ats', 54)}<b>${cur === 'ats' ? 'Optimize again' : 'Optimize for ATS'}</b><small>Free · instant</small></button>
+      <button class="peek mode-claude" data-mode-go="${locked ? 'settings' : 'claude'}" title="${locked ? 'Add a Claude API key in Settings' : 'Claude writes an updated version for this posting'}">${window.SproutMascot.peekPal('claude', 54)}<b>${cur === 'claude' ? 'Rewrite with Claude' : 'Write with Claude'}</b><small>${locked ? 'Add an API key first' : 'Uses Claude · ~1 min'}</small></button>
+    </div>
+  </div>`;
+}
+
+// Show the new version: bring the page into view and let it glow for a moment.
+function previewFresh() {
+  const slot = document.getElementById('editorSlot');
+  const page = document.getElementById('edPage');
+  if (slot) slot.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (page) {
+    page.classList.remove('fresh');
+    void page.offsetWidth;
+    page.classList.add('fresh');
+  }
 }
 
 async function switchMode(mode) {
-  const again = ed.info && ed.info.resumeSource === mode;
-  const msg =
-    mode === 'claude'
-      ? `${again ? 'Have Claude write a fresh draft?' : 'Switch to a Claude-written resume?'} It replaces what is on the page (your bullet bank is untouched).`
-      : `${again ? 'Start over with the best ATS picks for this job?' : 'Switch to ATS picks from your bullet bank?'} Your edits on this page will be replaced (your bank is untouched).`;
-  if (!confirm(msg)) return;
+  if (mode === 'settings') return void (location.hash = '#settings');
   await saveNow();
   ed.polish = new Map();
   ed.held = [];
+  const appId = ed.appId;
   if (mode === 'claude') {
-    const p = S.generateResume(ed.appId);
-    renderApplication(ed.appId);
-    await run(null, () => p.then(() => toast('Root finished your draft — edit away!', 'good', 3800, 'proud')));
-    renderApplication(ed.appId);
-  } else {
-    await run(null, async () => {
-      await S.atsResume(ed.appId);
-      toast('Spike picked your best-matching bullets.', 'good', 3800, 'proud');
-    });
-    renderEditor(ed.appId, ed.app);
+    const p = S.generateResume(appId);
+    renderApplication(appId); // shows Root at work
+    const ok = await run(null, () => p.then(() => true));
+    await renderApplication(appId);
+    if (ok) (previewFresh(), toast('Root wrote an updated version. Have a look! Undo is up top.', 'good', 5000, 'proud'));
+    return;
   }
+  const done = await run(null, async () => {
+    if (mode === 'ats') await S.atsResume(appId);
+    else if (mode === 'baseline') await S.baselineResume(appId);
+    else await S.undoResume(appId);
+    return true;
+  });
+  if (!done || ed.appId !== appId) return;
+  await renderEditor(appId, ed.app);
+  previewFresh();
+  if (mode === 'ats') toast('Spike optimized your resume for this posting.', 'good', 3800, 'proud');
 }
 
 document.addEventListener('click', (e) => {
@@ -155,7 +160,7 @@ async function renderEditor(appId, app) {
   ed.doc = JSON.parse(JSON.stringify(info.doc));
 
   slot.innerHTML = `
-    ${modeBar(info.resumeSource)}
+    ${modeBar(info)}
     <div class="ed">
       <div class="ed-main">
         <div class="ed-bar">

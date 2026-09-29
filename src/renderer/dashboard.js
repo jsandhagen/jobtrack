@@ -572,7 +572,8 @@ async function renderApplication(id) {
     </div>
     <div id="tabBody">${tabBody()}</div>`;
   animateRings(page);
-  if (appTab === 'resume' && !busyResume) renderEditor(id, a);
+  // The editor loads its own data; callers can await it to act on the new page.
+  const editorReady = appTab === 'resume' && !busyResume ? renderEditor(id, a) : null;
 
   const frame = document.getElementById('preview');
   if (frame) {
@@ -645,6 +646,7 @@ async function renderApplication(id) {
       }, 'Saving…')
     )
   );
+  return editorReady;
 }
 
 // ---------------- browser extension ----------------

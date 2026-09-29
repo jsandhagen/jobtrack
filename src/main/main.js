@@ -455,7 +455,7 @@ async function makeResume(appId) {
     const { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: rec.job.text, ids });
     const prev = rec.builder && rec.builder.doc;
     if (prev && prev.header && prev.header.name) doc.header = prev.header;
-    saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion });
+    saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
     broadcast('app-updated', updated);
     return updated;
@@ -463,6 +463,29 @@ async function makeResume(appId) {
     broadcast('app-updated', store.updateApplication(appId, { resumeStatus: 'error', resumeError: err.message }));
     throw err;
   }
+}
+
+// Every job starts from the baseline (your bank as it stands). ATS mode
+// optimizes it for free; Claude mode rewrites it. Switching keeps the page
+// you had, so one step can be undone.
+function undoPoint(rec) {
+  return rec.builder && rec.builder.doc ? { doc: rec.builder.doc, source: resumeMode(rec) } : null;
+}
+
+function makeBaseline(appId) {
+  const rec = store.getApplication(appId);
+  if (!rec) throw new Error('That application no longer exists.');
+  const doc = bulletBank.baselineDoc({ profile: store.getProfile(), bank: store.getBank(), job: rec.job });
+  if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
+  saveDoc(appId, doc, { resumeSource: 'baseline', builderPrev: undoPoint(rec) });
+  broadcast('app-updated', store.getApplication(appId));
+}
+
+function undoResume(appId) {
+  const rec = store.getApplication(appId);
+  if (!rec || !rec.builderPrev) throw new Error('Nothing to undo.');
+  saveDoc(appId, rec.builderPrev.doc, { resumeSource: rec.builderPrev.source, builderPrev: undoPoint(rec) });
+  broadcast('app-updated', store.getApplication(appId));
 }
 
 // ATS mode: free, no AI. Picks the bank bullets that cover the most posting
@@ -476,15 +499,16 @@ function makeAtsResume(appId) {
   if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add your resume to My library first.");
   const { doc } = bulletBank.buildDoc({ profile: store.getProfile(), bank, job: rec.job, roles: bulletBank.selectBullets(rec.job, bank).roles });
   if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
-  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null });
+  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
   broadcast('app-updated', updated);
   return updated;
 }
 
-// Older saves call the free picker's resumes 'bank'.
+// 'baseline' | 'ats' | 'claude'. Older saves call the free picker's resumes 'bank'.
 function resumeMode(rec) {
-  return rec.resumeSource === 'claude' ? 'claude' : 'ats';
+  if (rec.resumeSource === 'claude' || rec.resumeSource === 'ats' || rec.resumeSource === 'baseline') return rec.resumeSource;
+  return rec.resumeSource === 'bank' ? 'ats' : 'baseline';
 }
 
 async function makeCoverLetter(appId) {
@@ -559,8 +583,8 @@ function currentDoc(rec) {
   if (rec.builder && rec.builder.doc) return rec.builder.doc;
   if (rec.resume) return bulletBank.linkDocToBank(ResumeDoc.fromResume(rec.resume, profile), bank);
   // Older saves kept just the picked bullets.
-  const roles = rec.builder && rec.builder.roles ? rec.builder.roles : bulletBank.selectBullets(rec.job, bank).roles;
-  return bulletBank.buildDoc({ profile, bank, job: rec.job, roles }).doc;
+  if (rec.builder && rec.builder.roles) return bulletBank.buildDoc({ profile, bank, job: rec.job, roles: rec.builder.roles }).doc;
+  return bulletBank.baselineDoc({ profile, bank, job: rec.job });
 }
 
 function saveDoc(appId, doc, extra = {}) {
@@ -628,6 +652,8 @@ function builderState(rec) {
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 5) },
     bankSize: bank.bullets.length,
     resumeSource: resumeMode(rec),
+    canUndo: !!rec.builderPrev,
+    undoTo: rec.builderPrev ? rec.builderPrev.source : null,
     // What the code-side checks found in Claude's draft, and Claude's own notes.
     checks: rec.resumeSource === 'claude' ? rec.resumeChecks || [] : [],
     notes: rec.resumeSource === 'claude' ? rec.resumeNotes || [] : [],
@@ -989,6 +1015,8 @@ function registerIpc() {
   });
   handle('app:resume', (id) => makeResume(id));
   handle('app:atsResume', (id) => makeAtsResume(id));
+  handle('builder:baseline', (id) => (makeBaseline(id), builderState(store.getApplication(id))));
+  handle('builder:undo', (id) => (undoResume(id), builderState(store.getApplication(id))));
   handle('app:coverLetter', (id) => makeCoverLetter(id));
   handle('app:export', async (id, which, format, editedHtml) => {
     const rec = store.getApplication(id);
