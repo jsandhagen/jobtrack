@@ -186,43 +186,51 @@ function dealbreakers(job, profile) {
  * @param {{text:string, kind?:string}[]} documents
  * @param {object} [profile]  { targetRoles, workModes, minSalary, avoidKeywords }
  */
-function localFitScore(job, documents, profile = {}) {
-  const libText = documents.map((d) => d.text).join('\n\n');
-  const lib = lower(libText);
+// What the posting asks for, as a list of units, each able to say how well a
+// piece of text (your whole library, or a single resume bullet) covers it.
+// Shared by the fit score and the bullet bank so they agree.
+function requirementUnits(job) {
   const lines = classifyLines(job.text).filter((l) => !BOILERPLATE_LINE.test(l.line));
   const hasRequiredSection = lines.some((l) => l.kind === 'required');
   const ignoreWords = new Set([...lower(job.company).split(/\W+/), ...lower(job.title).split(/\W+/)].filter(Boolean));
-
-  // 1. Requirement units: dictionary skills + discovered terms, by kind.
-  const units = new Map(); // key -> {label, kind, met}
-  const addUnit = (key, label, kind, met) => {
+  const units = new Map(); // key -> {key, label, kind, match}
+  const rank = { preferred: 0, neutral: 1, required: 2 };
+  const addUnit = (key, label, kind, match) => {
     const prev = units.get(key);
-    const rank = { preferred: 0, neutral: 1, required: 2 };
-    if (!prev || rank[kind] > rank[prev.kind]) units.set(key, { label, kind, met });
+    if (!prev || rank[kind] > rank[prev.kind]) units.set(key, { key, label, kind, match });
   };
   for (const { line, original, kind, isHeading } of lines) {
     if (isHeading && line.length < 40) continue;
     const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
     for (const [skill, patterns] of Object.entries(SKILLS)) {
-      if (patterns.some((p) => p.test(line))) addUnit('s:' + skill, skill, effKind, patterns.some((p) => p.test(lib)));
+      if (patterns.some((p) => p.test(line))) addUnit('s:' + skill, skill, effKind, (t) => (patterns.some((p) => p.test(t)) ? 1 : 0));
     }
     // Only mine free-form terms from qualification-ish lines, not the company blurb.
     if (kind !== 'neutral' || !hasRequiredSection) {
       for (const term of extractTerms(original, ignoreWords)) {
         const words = lower(term).split(/\s+/).filter((w) => !STOPWORDS.has(w));
-        const full = hasTerm(lib, term);
-        const partial = !full && words.length > 1 && words.every((w) => hasTerm(lib, w));
-        addUnit('t:' + lower(term), term, effKind, full ? 1 : partial ? 0.6 : 0);
+        addUnit('t:' + lower(term), term, effKind, (t) => {
+          if (hasTerm(t, term)) return 1;
+          return words.length > 1 && words.every((w) => hasTerm(t, w)) ? 0.6 : 0;
+        });
       }
     }
   }
   const need = degreeLevel(job.text);
   if (need) {
-    const have = degreeLevel(libText);
     const equivalentOk = /or equivalent/i.test(job.text);
-    addUnit('degree', ['', 'associate degree', "bachelor's degree", "master's degree", 'PhD'][need], 'required', have >= need ? 1 : equivalentOk ? 0.5 : 0);
+    addUnit('degree', ['', 'associate degree', "bachelor's degree", "master's degree", 'PhD'][need], 'required', (t) =>
+      degreeLevel(t) >= need ? 1 : equivalentOk ? 0.5 : 0
+    );
   }
-  const all = [...units.values()].map((u) => ({ ...u, met: u.met === true ? 1 : u.met === false ? 0 : u.met }));
+  return { units: [...units.values()], lines, hasRequiredSection, ignoreWords };
+}
+
+function localFitScore(job, documents, profile = {}) {
+  const libText = documents.map((d) => d.text).join('\n\n');
+  const lib = lower(libText);
+  const { units, lines, ignoreWords } = requirementUnits(job);
+  const all = units.map((u) => ({ label: u.label, kind: u.kind, met: u.match(lib) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
   const neutral = all.filter((u) => u.kind === 'neutral');
@@ -319,4 +327,4 @@ function localFitScore(job, documents, profile = {}) {
   };
 }
 
-module.exports = { localFitScore, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };
+module.exports = { localFitScore, requirementUnits, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };

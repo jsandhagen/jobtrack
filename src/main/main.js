@@ -23,6 +23,7 @@ const claude = require('./claude');
 const { PostingWatcher, fingerprint } = require('./watcher');
 const ocr = require('./ocr');
 const { createBridge } = require('./bridge');
+const bulletBank = require('./bullets');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
@@ -313,8 +314,17 @@ function docsForPrompt() {
   return store.allDocuments().map(({ name, kind, text }) => ({ name, kind, text }));
 }
 
+// Your library plus bullet-bank text (bullets you wrote or reworded in the
+// app count as evidence too).
+function scoringDocuments() {
+  const bank = store.getBank();
+  const bankText = [...bank.bullets.flatMap((b) => [b.text, ...(b.variants || [])]), bank.skills.join(', ')].join('\n');
+  const docs = store.allDocuments();
+  return bankText.trim() ? [...docs, { kind: 'bank', text: bankText }] : docs;
+}
+
 function scoreLocally(job) {
-  return localFitScore(job, store.allDocuments(), store.getProfile());
+  return localFitScore(job, scoringDocuments(), store.getProfile());
 }
 
 // Should Claude take a closer look automatically? Default: only when asked.
@@ -391,7 +401,10 @@ function withAts(rec) {
   if (!rec) return rec;
   const before = libraryAtsScore(rec.job, store.allDocuments());
   const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml)) : null;
-  return { ...rec, ats: { before, after } };
+  const bank = store.getBank();
+  // Which bullet proves each requirement.
+  const evidence = bank.bullets.length ? bulletBank.rankBullets(rec.job, bank).evidence : [];
+  return { ...rec, ats: { before, after }, evidence };
 }
 
 function guessTitle(text) {
@@ -412,6 +425,7 @@ async function makeResume(appId) {
       profile: store.getProfile(),
       analysis: rec.analysis,
       ats: libraryAtsScore(rec.job, store.allDocuments()),
+      bullets: chosenBulletsForClaude(rec),
       model: store.getSettings().model,
     });
     store.updateApplication(appId, { resume, resumeHtml: renderResumeHtml(resume), resumeStatus: 'ready' });
@@ -461,6 +475,82 @@ async function htmlToPdf(html) {
 
 function safeFileName(s) {
   return String(s || 'resume').replace(/[^\w\s.-]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'resume';
+}
+
+// ---------------- bullet bank ----------------
+
+// Read bullets out of documents into the bank (free, no AI). Safe to repeat:
+// duplicates merge into existing bullets as alternative wordings.
+function importBullets(docs) {
+  let added = 0;
+  let merged = 0;
+  let roles = 0;
+  store.updateBank((bank) => {
+    let b = bank;
+    for (const d of docs) {
+      const parsed = bulletBank.parseResume(d.text);
+      if (!parsed.experiences.some((e) => e.bullets.length)) continue;
+      const r = bulletBank.mergeIntoBank(b, parsed, { id: d.id, name: d.name });
+      b = r.bank;
+      added += r.added;
+      merged += r.merged;
+      roles += r.roles;
+    }
+    return b;
+  });
+  return { added, merged, roles };
+}
+
+function builderState(rec) {
+  const bank = store.getBank();
+  const roles = rec.builder && rec.builder.roles ? rec.builder.roles : bulletBank.selectBullets(rec.job, bank).roles;
+  const { ranked, units } = bulletBank.rankBullets(rec.job, bank);
+  const chosenIds = new Set(roles.flatMap((r) => r.bullets.map((b) => b.bulletId)));
+  const byId = new Map(bank.bullets.map((b) => [b.id, b]));
+  const rankById = new Map(ranked.map((r) => [r.id, r]));
+  const exps = bulletBank.orderedExperiences(bank);
+  // Roles added to the bank after the builder was saved still show up.
+  const roleList = exps.map((e) => roles.find((r) => r.experienceId === e.id) || { experienceId: e.id, bullets: [] });
+  return {
+    roles: roleList.map((r) => {
+      const exp = exps.find((e) => e.id === r.experienceId);
+      return {
+        experienceId: r.experienceId,
+        exp: exp && { title: exp.title, organization: exp.organization, dates: exp.dates, isProject: !!exp.isProject },
+        bullets: r.bullets
+          .filter((b) => !b.bulletId || byId.has(b.bulletId))
+          .map((b) => {
+            const orig = b.bulletId && byId.get(b.bulletId);
+            const rr = rankById.get(b.bulletId);
+            const known = orig ? [orig.text, ...(orig.variants || [])] : [];
+            return { ...b, bankText: orig ? orig.text : '', edited: !!orig && !known.includes(b.text), covers: rr ? rr.covers.map((c) => c.label) : [] };
+          }),
+        more: ranked
+          .filter((x) => x.experienceId === r.experienceId && !chosenIds.has(x.id))
+          .map((x) => ({ bulletId: x.id, text: x.text, score: Math.round(x.score * 10) / 10, covers: x.covers.map((c) => c.label) })),
+      };
+    }),
+    coverage: bulletBank.coverageOf(units, roleList, bank),
+    bankSize: bank.bullets.length,
+  };
+}
+
+function chosenBulletsForClaude(rec) {
+  const bank = store.getBank();
+  if (!bank.bullets.length) return [];
+  const roles = rec.builder && rec.builder.roles ? rec.builder.roles : bulletBank.selectBullets(rec.job, bank).roles;
+  const exps = new Map(bank.experiences.map((e) => [e.id, e]));
+  return roles
+    .filter((r) => r.bullets.length && exps.has(r.experienceId))
+    .map((r) => ({ role: [exps.get(r.experienceId).title, exps.get(r.experienceId).organization].filter(Boolean).join(', '), bullets: r.bullets.map((b) => b.text) }));
+}
+
+function markBulletsUsed(roles) {
+  const ids = new Set(roles.flatMap((r) => r.bullets.map((b) => b.bulletId)).filter(Boolean));
+  const now = new Date().toISOString();
+  store.updateBank((bank) => {
+    for (const b of bank.bullets) if (ids.has(b.id)) Object.assign(b, { uses: (b.uses || 0) + 1, lastUsedAt: now });
+  });
 }
 
 // ---------------- browser extension bridge ----------------
@@ -586,8 +676,9 @@ function registerIpc() {
   handle('docs:addText', ({ name, text, kind }) => {
     if (!text || !text.trim()) throw new Error('Nothing to save yet — paste some text first.');
     const d = store.addDocument({ name: name || 'Notes', kind: kind || 'other', text: text.trim() });
+    const bullets = importBullets([store.allDocuments().find((x) => x.id === d.id)]);
     broadcast('state-changed');
-    return d;
+    return { ...d, bullets };
   });
   handle('docs:get', (id) => store.allDocuments().find((d) => d.id === id) || null);
   handle('docs:update', (id, patch) => {
@@ -627,6 +718,120 @@ function registerIpc() {
     return updated;
   });
   handle('app:analyze', (id) => analyzeApp(id));
+
+  // ---- bullet bank ----
+  handle('bank:get', () => {
+    const bank = store.getBank();
+    return { ...bank, experiences: bulletBank.orderedExperiences(bank), bullets: bank.bullets.map((b) => ({ ...b, tags: bulletBank.skillTags(b.text) })) };
+  });
+  handle('bank:import', () => {
+    const r = importBullets(store.allDocuments());
+    broadcast('state-changed');
+    return r;
+  });
+  handle('bank:update', (patch) => {
+    store.updateBank((b) => {
+      if (typeof patch.summary === 'string') b.summary = patch.summary;
+      if (Array.isArray(patch.skills)) b.skills = patch.skills.map((x) => String(x).trim()).filter(Boolean);
+      if (Array.isArray(patch.education)) b.education = patch.education;
+    });
+    broadcast('state-changed');
+  });
+  handle('bank:addBullet', ({ experienceId, text, source }) => {
+    if (!text || text.trim().length < 5) throw new Error('Write a little more first.');
+    const bullet = { id: crypto.randomUUID(), experienceId, text: text.trim(), variants: [], tags: [], source: { name: source || 'written in Sprout' }, createdAt: new Date().toISOString(), uses: 0 };
+    store.updateBank((b) => void b.bullets.push(bullet));
+    broadcast('state-changed');
+    return bullet;
+  });
+  handle('bank:updateBullet', (id, patch) => {
+    store.updateBank((b) => {
+      const x = b.bullets.find((y) => y.id === id);
+      if (!x) throw new Error('That bullet no longer exists.');
+      if (typeof patch.text === 'string' && patch.text.trim()) x.text = patch.text.trim();
+      if (Array.isArray(patch.variants)) x.variants = patch.variants.map((v) => v.trim()).filter(Boolean);
+      if (typeof patch.addVariant === 'string' && patch.addVariant.trim() && !x.variants.includes(patch.addVariant.trim())) x.variants.push(patch.addVariant.trim());
+      if (patch.experienceId) x.experienceId = patch.experienceId;
+      if (typeof patch.hidden === 'boolean') x.hidden = patch.hidden;
+      x.updatedAt = new Date().toISOString();
+    });
+    broadcast('state-changed');
+  });
+  handle('bank:deleteBullet', (id) => {
+    store.updateBank((b) => void (b.bullets = b.bullets.filter((x) => x.id !== id)));
+    broadcast('state-changed');
+  });
+  handle('bank:saveRole', (role) => {
+    let saved;
+    store.updateBank((b) => {
+      const fields = pick(role, ['title', 'organization', 'location', 'dates', 'isProject']);
+      if (fields.dates !== undefined) {
+        const [start, end] = String(fields.dates).split(/\s*(?:-|–|—|to)\s*/);
+        Object.assign(fields, { start: start || '', end: end || '' });
+      }
+      saved = role.id && b.experiences.find((e) => e.id === role.id);
+      if (saved) Object.assign(saved, fields);
+      else b.experiences.push((saved = { id: crypto.randomUUID(), title: '', organization: '', location: '', dates: '', start: '', end: '', ...fields }));
+    });
+    broadcast('state-changed');
+    return saved;
+  });
+  handle('bank:deleteRole', (id) => {
+    store.updateBank((b) => {
+      if (b.bullets.some((x) => x.experienceId === id)) throw new Error('Move or delete this role\'s bullets first.');
+      b.experiences = b.experiences.filter((e) => e.id !== id);
+    });
+    broadcast('state-changed');
+  });
+  handle('bank:suggest', async () => {
+    const bank = store.getBank();
+    const docs = docsForPrompt();
+    if (!docs.length) throw new Error('Add some documents to your library first.');
+    return claude.suggestBullets(claudeClient(), {
+      documents: docs,
+      profile: store.getProfile(),
+      roles: bank.experiences.map((e) => [e.title, e.organization].filter(Boolean).join(', ')),
+      existing: bank.bullets.map((b) => b.text),
+      model: store.getSettings().model,
+    });
+  });
+
+  // ---- resume builder (per application) ----
+  handle('builder:get', (appId) => builderState(store.getApplication(appId)));
+  handle('builder:save', (appId, roles) => {
+    const clean = (roles || []).map((r) => ({
+      experienceId: String(r.experienceId),
+      bullets: (r.bullets || []).filter((b) => b.text && b.text.trim()).map((b) => ({ bulletId: b.bulletId || null, text: b.text.trim() })),
+    }));
+    store.updateApplication(appId, { builder: { roles: clean, savedAt: new Date().toISOString() } });
+    return builderState(store.getApplication(appId));
+  });
+  handle('builder:auto', (appId) => {
+    const rec = store.getApplication(appId);
+    store.updateApplication(appId, { builder: { roles: bulletBank.selectBullets(rec.job, store.getBank()).roles, savedAt: new Date().toISOString() } });
+    return builderState(store.getApplication(appId));
+  });
+  // Assemble a resume from the chosen bullets — free, no AI.
+  handle('builder:build', (appId) => {
+    const rec = store.getApplication(appId);
+    const roles = builderState(rec).roles.map((r) => ({ experienceId: r.experienceId, bullets: r.bullets.map(({ bulletId, text }) => ({ bulletId, text })) }));
+    const resume = bulletBank.buildResume({ profile: store.getProfile(), bank: store.getBank(), job: rec.job, roles });
+    store.updateApplication(appId, { resume, resumeHtml: renderResumeHtml(resume), resumeStatus: 'ready', resumeSource: 'bank', builder: { roles, savedAt: new Date().toISOString() } });
+    markBulletsUsed(roles);
+    const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
+    broadcast('app-updated', updated);
+    return updated;
+  });
+  handle('builder:polish', async (appId) => {
+    const rec = store.getApplication(appId);
+    const st = builderState(rec);
+    const bullets = st.roles.flatMap((r) =>
+      r.bullets.map((b, i) => ({ id: `${r.experienceId}:${i}`, text: b.text, role: r.exp ? r.exp.title : '' }))
+    );
+    if (!bullets.length) throw new Error('Pick some bullets first.');
+    const edits = await claude.polishBullets(claudeClient(), { job: rec.job, bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
+    return edits.filter((e) => e.text.trim() && e.text.trim() !== bullets.find((b) => b.id === e.id).text);
+  });
   handle('bridge:status', () => ({
     port: bridgePort,
     folder: extensionDir(),
@@ -847,8 +1052,10 @@ async function importPaths(paths) {
       errors.push(`${path.basename(p)}: ${err.message}`);
     }
   }
+  // New resumes feed the bullet bank automatically.
+  const bullets = added.length ? importBullets(store.allDocuments().filter((d) => added.some((a) => a.id === d.id))) : null;
   broadcast('state-changed');
-  return { added, errors };
+  return { added, errors, bullets };
 }
 
 // ---------------- lifecycle ----------------
@@ -861,6 +1068,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
     registerIpc();
+    // First run with the bullet bank: fill it from the resumes already in the library.
+    if (!store.getBank().bullets.length && store.allDocuments().length) importBullets(store.allDocuments());
     createDashboard();
     createOverlay();
     try {

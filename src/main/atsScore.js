@@ -34,8 +34,9 @@ const WEIGHTS = {
 // Abbreviations end in "." so plain \b boundaries don't work; use lookarounds.
 const DEGREE_LEVELS = [
   [4, /(?<![a-z])(ph\.?\s?d|doctorate|doctoral)(?![a-z])/],
-  [3, /(?<![a-z])(master'?s|m\.s\.|m\.sc|msc|mba|m\.a\.)(?![a-z])/],
-  [2, /(?<![a-z])(bachelor'?s|b\.s\.|b\.sc|bsc|b\.a\.|undergraduate degree|4-year degree|four-year degree)(?![a-z])/],
+  // "master of" / "bachelor of" count, but not a bare "Scrum Master".
+  [3, /(?<![a-z])(master'?s|master of|m\.s\.|m\.sc|msc|mba|m\.a\.|msn)(?![a-z])/],
+  [2, /(?<![a-z])(bachelor'?s|bachelor of|b\.s\.|b\.sc|bsc|b\.a\.|bsn|undergraduate degree|4-year degree|four-year degree)(?![a-z])/],
   [1, /(?<![a-z])(associate'?s degree|associate degree)(?![a-z])/],
 ];
 const DEGREE_NAMES = { 1: "an associate's degree", 2: "a bachelor's degree", 3: "a master's degree", 4: 'a PhD' };

@@ -1,0 +1,22 @@
+Jordan Rivera
+jordan@example.com · (555) 123-4567
+
+Summary
+Frontend engineer who loves design systems and accessible, fast interfaces.
+
+Experience
+Senior Frontend Engineer, Bloom Labs, 2019 – Present
+- Built a React and TypeScript design system adopted by 40 engineers across 6 teams
+- Cut page load time 35% with code splitting and image caching
+- Designed GraphQL and REST API integrations with the backend team
+- Mentored 4 junior engineers through weekly pairing sessions
+Web Developer, Pine Studio, 2016 – 2019
+- Shipped JavaScript, HTML and CSS sites for 30+ clients
+- Set up Jest unit tests and GitHub Actions CI for client projects
+
+Education
+B.S. Computer Science
+Oregon State University, 2016
+
+Skills
+JavaScript, TypeScript, React, GraphQL, Node.js, CSS, Figma, Jest, Git

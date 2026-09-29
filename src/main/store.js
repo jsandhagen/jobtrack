@@ -59,6 +59,7 @@ class Store {
       applications: raw.applications || [],
       encryptedApiKey: raw.encryptedApiKey || null,
       usage: raw.usage || {},
+      bank: raw.bank || { experiences: [], bullets: [], education: [], skills: [], summary: '' },
     };
   }
 
@@ -167,6 +168,18 @@ class Store {
   removeApplication(id) {
     this.data.applications = this.data.applications.filter((a) => a.id !== id);
     this.save();
+  }
+
+  // ---- bullet bank ----
+  getBank() {
+    return this.data.bank;
+  }
+  // Apply a change to the bank and save; `fn` may mutate it or return a new one.
+  updateBank(fn) {
+    const next = fn(this.data.bank);
+    if (next) this.data.bank = next;
+    this.save();
+    return this.data.bank;
   }
 
   // ---- Claude usage, per calendar month ----

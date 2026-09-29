@@ -1,0 +1,20 @@
+JORDAN RIVERA
+Portland, OR | jordan@example.com
+
+PROFESSIONAL EXPERIENCE
+Bloom Labs — Portland, OR
+Frontend Engineer                                   Jan 2019 – Present
+• Led the Petal design system in React + TypeScript, now used by 40 engineers on
+  six product teams
+• Improved Core Web Vitals, reducing page load time by 35% through code splitting
+• Ran accessibility audits against WCAG 2.1 and fixed 120+ issues
+Pine Studio — Remote
+Web Developer                                       Jun 2016 – Dec 2018
+• Delivered 30+ client websites using JavaScript, HTML and CSS
+
+PROJECTS
+Open-source date picker                              2020 – 2021
+• Maintained an accessible React date picker with 2k GitHub stars
+
+EDUCATION
+Bachelor of Science in Computer Science, Oregon State University, 2016

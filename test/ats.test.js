@@ -80,6 +80,8 @@ test('benefits / EEO boilerplate and the company name are not treated as keyword
 test('education and years are basic qualifications', () => {
   assert.equal(degreeLevel("Master's in Design"), 3);
   assert.equal(degreeLevel('B.S. Computer Science'), 2);
+  assert.equal(degreeLevel('Bachelor of Science in Nursing'), 2);
+  assert.equal(degreeLevel('Certified Scrum Master'), 0);
   const noDegree = atsScore(JOB, GOOD.replace('B.S. Computer Science', 'Coursework in Computer Science'));
   assert.ok(noDegree.components.education < 100);
   const junior = atsScore(JOB, GOOD.replace('2018 – Present', '2024 – Present'));

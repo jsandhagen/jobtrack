@@ -94,6 +94,26 @@ const Resume = z.object({
     .describe('Notes for the candidate (not printed): what was emphasised and anything they should double-check'),
 });
 
+const BulletEdits = z.object({
+  edits: z.array(
+    z.object({
+      id: z.string().describe('The id of the bullet being reworded, exactly as given'),
+      text: z.string().describe('The reworded bullet (or the original, unchanged, if it is already right)'),
+      why: z.string().describe('A few words on what changed, e.g. "mirrors the posting\'s \'design systems\'"; empty if unchanged'),
+    })
+  ),
+});
+
+const SuggestedBullets = z.object({
+  bullets: z.array(
+    z.object({
+      role: z.string().describe('Which of the candidate\'s roles this belongs to: its title and organization as they appear in the documents, or "Projects" / "Other"'),
+      text: z.string().describe('One resume bullet: starts with a strong past-tense verb, one line, concrete, with numbers only if the document gives them'),
+      source: z.string().describe('The document name it came from'),
+    })
+  ),
+});
+
 const CoverLetter = z.object({
   greeting: z.string(),
   paragraphs: z.array(z.string()).describe('3-4 paragraphs'),
@@ -217,8 +237,15 @@ function atsGuidance(job, ats) {
   return lines.filter(Boolean).join('\n');
 }
 
-async function generateResume(client, { job, documents, profile, analysis, ats, model }) {
+async function generateResume(client, { job, documents, profile, analysis, ats, bullets, model }) {
+  const chosen =
+    bullets && bullets.length
+      ? `\n\nThe candidate hand-picked these bullets from their bullet bank for this role. Use them as the backbone of the experience section, under the roles shown. Keep their wording unless a small tweak mirrors the posting better; don't add new claims:\n${bullets
+          .map((r) => `${r.role}:\n${r.bullets.map((b) => `- ${b}`).join('\n')}`)
+          .join('\n')}`
+      : '';
   const guidance =
+    chosen +
     (analysis
       ? `\n\nEarlier fit analysis to build on:\nStrengths: ${analysis.strengths.join('; ')}\nTalking points: ${analysis.talking_points.join('; ')}\nKeywords: ${analysis.keywords.join(', ')}`
       : '') + atsGuidance(job, ats);
@@ -232,6 +259,46 @@ async function generateResume(client, { job, documents, profile, analysis, ats, 
 Write a one-to-two page resume tailored to this posting using only facts from the candidate's documents and profile. Lead with the most relevant experience, quantify impact where the documents give numbers, and keep bullets crisp (one line each where possible). Omit sections that would be empty.`,
     schema: Resume,
   });
+}
+
+// Light rewording of chosen bullets for one posting. Facts stay the same.
+async function polishBullets(client, { job, bullets, documents, profile, model }) {
+  const list = bullets.map((b) => `<bullet id="${escapeAttr(b.id)}" role="${escapeAttr(b.role)}">${b.text}</bullet>`).join('\n');
+  const out = await structuredCall(client, {
+    kind: 'polish',
+    model,
+    effort: 'medium',
+    system: systemBlocks(documents, profile),
+    content: `${jobBlock(job)}
+
+<bullets>
+${list}
+</bullets>
+
+Lightly tailor each bullet's wording for this posting: use the posting's own terms where they truthfully describe the same work, lead with the most relevant part, and keep each to one line. Keep every fact, number and scope exactly as it is — never add tools, results or responsibilities that aren't in the bullet or the documents. If a bullet is already right, return it unchanged.`,
+    schema: BulletEdits,
+  });
+  const byId = new Map(bullets.map((b) => [b.id, b]));
+  return out.edits.filter((e) => byId.has(e.id));
+}
+
+// Turn documents without bullet lists (project write-ups, reviews, brag docs)
+// into suggested bullets for the bank. The user reviews every one.
+async function suggestBullets(client, { documents, profile, roles, existing, model }) {
+  const out = await structuredCall(client, {
+    kind: 'suggest',
+    model,
+    effort: 'medium',
+    system: systemBlocks(documents, profile),
+    content: `The candidate keeps a "bullet bank" of resume bullets. Their roles: ${roles.map((r) => `"${r}"`).join(', ') || '(none yet)'}.
+
+They already have these bullets (don't repeat them or reword them):
+${existing.map((t) => `- ${t}`).join('\n') || '(none)'}
+
+Read the documents and suggest up to 15 NEW bullets for accomplishments the documents describe but the bank doesn't have yet — especially from project write-ups, performance reviews, and notes. Every bullet must be directly supported by a document.`,
+    schema: SuggestedBullets,
+  });
+  return out.bullets;
 }
 
 async function generateCoverLetter(client, { job, documents, profile, analysis, model }) {
@@ -256,6 +323,8 @@ module.exports = {
   analyzeFit,
   generateResume,
   generateCoverLetter,
-  schemas: { ScreenJob, FitAnalysis, Resume, CoverLetter },
+  polishBullets,
+  suggestBullets,
+  schemas: { ScreenJob, FitAnalysis, Resume, CoverLetter, BulletEdits, SuggestedBullets },
   DEFAULT_MODEL,
 };

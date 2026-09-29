@@ -396,6 +396,8 @@ async function renderApplication(id) {
     page.innerHTML = `<div class="card empty">${mascotSvg('curious', 72)}<p>That application was removed.</p></div>`;
     return;
   }
+  // Open on the builder until there's a resume to look at.
+  if (appTab === 'auto') appTab = a.resumeHtml ? 'resume' : 'build';
   const an = a.analysis;
   const score = an ? an.score : a.quick.score;
   const label = an ? an.label : a.quick.label;
@@ -441,6 +443,7 @@ async function renderApplication(id) {
 
   const tabBody = () => {
     if (appTab === 'posting') return `<div class="posting-text">${esc(a.job.text)}</div>`;
+    if (appTab === 'build') return '<div id="builderSlot"><div class="empty"><span class="spinner"></span></div></div>';
     const isLetter = appTab === 'letter';
     const html = isLetter ? a.letterHtml : a.resumeHtml;
     const busy = isLetter ? busyLetter : busyResume;
@@ -449,14 +452,16 @@ async function renderApplication(id) {
     if (!html)
       return `<div class="empty">${mascotSvg('cheer', 80)}<h3>${isLetter ? 'No cover letter yet' : 'Ready when you are!'}</h3>
         ${err ? `<p style="color:var(--rose)">${esc(err)}</p>` : ''}
-        <button class="primary" id="${isLetter ? 'genLetter' : 'genResume'}" ${state.hasApiKey ? '' : 'disabled'}>✨ Generate ${isLetter ? 'cover letter' : 'tailored resume'}</button>
-        ${state.hasApiKey ? '' : '<p class="faint" style="margin-top:8px"><a href="#settings">Add an API key</a> to generate.</p>'}</div>`;
+        ${isLetter ? '' : '<button class="primary" data-tab="build">🧩 Build it from my bullets — free</button> '}
+        <button class="${isLetter ? 'primary' : 'soft'}" id="${isLetter ? 'genLetter' : 'genResume'}" ${state.hasApiKey ? '' : 'disabled'}>✨ ${isLetter ? 'Generate cover letter' : 'Have Claude write it'}</button>
+        ${state.hasApiKey ? '' : '<p class="faint" style="margin-top:8px"><a href="#settings">Add an API key</a> for Claude to write it.</p>'}
+        ${!isLetter && state.hasApiKey ? '<p class="faint" style="margin-top:8px">Claude writes from your library, using the bullets you picked in Build as the backbone.</p>' : ''}</div>`;
     const notes = !isLetter && a.resume && a.resume.tailoring_notes && a.resume.tailoring_notes.length
       ? `<div class="card" style="margin-bottom:12px;background:var(--butter-soft);border:0;box-shadow:none"><b>📝 Notes from Sprout</b><ul class="tidy" style="margin-top:6px">${a.resume.tailoring_notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>`
       : '';
     return `${notes}<div class="inline" style="margin-bottom:10px">
         <button class="primary exp" data-fmt="pdf">⬇ Export PDF</button><button class="soft exp" data-fmt="md">Markdown</button><button class="soft exp" data-fmt="html">HTML</button>
-        <button class="ghost" id="regen">↻ Regenerate</button><span class="faint">✏️ Click anywhere on the page to tweak wording before exporting.</span></div>
+        <button class="ghost" id="regen">${!isLetter && a.resumeSource === 'bank' ? '🧩 Change bullets' : '↻ Regenerate'}</button><span class="faint">✏️ Click anywhere on the page to tweak wording before exporting.</span></div>
       <div class="preview-wrap"><iframe class="preview-frame" id="preview"></iframe></div>`;
   };
 
@@ -477,6 +482,7 @@ async function renderApplication(id) {
     <div class="grid sidebar">
       <div>
         <div class="tabs">
+          <button class="${appTab === 'build' ? 'on' : ''}" data-tab="build">🧩 Build</button>
           <button class="${appTab === 'resume' ? 'on' : ''}" data-tab="resume">📄 Resume</button>
           <button class="${appTab === 'letter' ? 'on' : ''}" data-tab="letter">💌 Cover letter</button>
           <button class="${appTab === 'posting' ? 'on' : ''}" data-tab="posting">📰 Posting</button>
@@ -485,11 +491,12 @@ async function renderApplication(id) {
       </div>
       <div class="grid" style="gap:16px">
       ${trackingCard(a)}
-      <div class="card">${mascotSvg(analyzing ? 'thinking' : moodForScore(score), 56)}${insight}${skills}
+      <div class="card">${mascotSvg(analyzing ? 'thinking' : moodForScore(score), 56)}${insight}${evidenceBlock(a)}${skills}
         ${q.requiredYears ? `<div class="section-title">Experience</div><p class="muted" style="margin:0">Posting asks for ~${q.requiredYears}+ years${q.estimatedYears !== null ? `; your documents span about ${q.estimatedYears}.` : '.'}</p>` : ''}
       </div></div>
     </div>`;
   animateRings(page);
+  if (appTab === 'build') renderBuilder(id);
 
   const frame = document.getElementById('preview');
   if (frame) {
@@ -563,7 +570,11 @@ async function renderApplication(id) {
   const gl = $('#genLetter', page);
   if (gl) gl.addEventListener('click', () => gen(gl, 'letter'));
   const rg = $('#regen', page);
-  if (rg) rg.addEventListener('click', () => confirm('Regenerate? Your edits will be replaced.') && gen(rg, appTab));
+  if (rg)
+    rg.addEventListener('click', () => {
+      if (appTab === 'resume' && a.resumeSource === 'bank') return (appTab = 'build'), renderApplication(id);
+      if (confirm('Regenerate? Your edits will be replaced.')) gen(rg, appTab);
+    });
   $$('.exp', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
@@ -830,6 +841,7 @@ const binders = {
 function reportImport(res) {
   if (!res) return;
   if (res.added && res.added.length) toast(`Added ${res.added.length} document${res.added.length > 1 ? 's' : ''} 📚`, 'good');
+  if (res.bullets && res.bullets.added) toast(`…and ${res.bullets.added} bullets to your bullet bank 🧩`, 'good', 5000);
   (res.errors || []).forEach((e) => toast(e, 'error', 7000));
 }
 
@@ -848,7 +860,7 @@ function route() {
   const v = views[name] ? name : 'home';
   $$('.side a', document).forEach((a) => a.classList.toggle('active', a.dataset.view === v || (v === 'application' && a.dataset.view === 'applications')));
   if (v !== 'application' || id !== currentAppId) {
-    if (v === 'application') appTab = 'resume';
+    if (v === 'application') appTab = 'auto';
     currentAppId = v === 'application' ? id : null;
   }
   view.innerHTML = views[v]();
