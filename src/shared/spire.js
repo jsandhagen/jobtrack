@@ -4,10 +4,12 @@
 // but only as fast as you apply:
 // - Each application you send this week is one climb (one floor).
 // - Each week is an Act. Your weekly goal sets how many floors lead to the
-//   boss, The Hiring Committee.
+//   boss, the Crow Council.
 // - Your deck comes from your real search: a tailored resume unlocks
-//   Tailored Resume, an interview unlocks Nail the Interview, every 5
+//   Bramble Lash, an interview unlocks Sunburst, every 5
 //   applications upgrades a card. Garden badges become relics.
+// - Card and enemy names stay in Sprout's woodland world; the link to your
+//   search is in each card's `from` note.
 // - Losing a fight never ends anything. Sprout gets back up with half HP,
 //   ready as soon as you send the next application.
 //
@@ -21,20 +23,21 @@
 })(typeof self !== 'undefined' ? self : this, function (Garden) {
   // ---------------- cards ----------------
   // {x} in text is replaced by the card's (possibly upgraded) value.
+  // `from` says what in your real search unlocks the card.
   const CARDS = {
-    pitch: { name: 'Elevator Pitch', type: 'attack', cost: 1, dmg: 6, up: { dmg: 9 }, icon: 'chat', text: 'Deal {dmg} damage.' },
-    positive: { name: 'Stay Positive', type: 'skill', cost: 1, block: 5, up: { block: 8 }, icon: 'heart', text: 'Gain {block} Block.' },
-    tailored: { name: 'Tailored Resume', type: 'attack', cost: 1, dmg: 9, up: { dmg: 12 }, icon: 'doc', text: 'Deal {dmg} damage.' },
-    letter: { name: 'Cover Letter', type: 'skill', cost: 1, block: 7, draw: 1, up: { block: 10 }, icon: 'letter', text: 'Gain {block} Block. Draw {draw} card.' },
-    coffee: { name: 'Coffee Chat', type: 'skill', cost: 0, draw: 2, up: { draw: 3 }, icon: 'chat', text: 'Draw {draw} cards.' },
-    followup: { name: 'Follow-up Email', type: 'skill', cost: 1, pressure: 4, up: { pressure: 6 }, icon: 'send', text: 'Apply {pressure} Pressure. (Loses that much HP each turn, then 1 less.)' },
-    keywords: { name: 'Keyword Match', type: 'attack', cost: 1, dmg: 4, hits: 2, up: { dmg: 6 }, icon: 'search', text: 'Deal {dmg} damage {hits} times.' },
-    research: { name: 'Company Research', type: 'skill', cost: 1, weak: 2, draw: 1, up: { weak: 3 }, icon: 'books', text: 'Apply {weak} Weak. Draw {draw} card.' },
-    portfolio: { name: 'Portfolio Piece', type: 'attack', cost: 2, dmg: 12, block: 6, up: { dmg: 15, block: 9 }, icon: 'folder', text: 'Deal {dmg} damage. Gain {block} Block.' },
-    confidence: { name: 'Confidence', type: 'power', cost: 1, strength: 2, up: { strength: 3 }, icon: 'sparkle', text: 'Gain {strength} Strength.' },
-    resilience: { name: 'Resilience', type: 'skill', cost: 1, block: 6, heal: 3, up: { block: 8, heal: 5 }, icon: 'seedling', text: 'Gain {block} Block. Heal {heal} HP.' },
-    interview: { name: 'Nail the Interview', type: 'attack', cost: 2, dmg: 18, up: { dmg: 24 }, icon: 'target', text: 'Deal {dmg} damage.' },
-    offer: { name: 'Offer in Hand', type: 'attack', cost: 0, dmg: 20, exhaust: true, up: { dmg: 30 }, icon: 'medal', text: 'Deal {dmg} damage. Exhaust.' },
+    pitch: { name: 'Thorn Strike', type: 'attack', cost: 1, dmg: 6, up: { dmg: 9 }, icon: 'sword', text: 'Deal {dmg} damage.', from: 'Starter card' },
+    positive: { name: 'Leaf Guard', type: 'skill', cost: 1, block: 5, up: { block: 8 }, icon: 'shield', text: 'Gain {block} Block.', from: 'Starter card' },
+    tailored: { name: 'Bramble Lash', type: 'attack', cost: 1, dmg: 9, up: { dmg: 12 }, icon: 'sword', text: 'Deal {dmg} damage.', from: 'Applying with a tailored resume' },
+    letter: { name: 'Petal Shield', type: 'skill', cost: 1, block: 7, draw: 1, up: { block: 10 }, icon: 'heart', text: 'Gain {block} Block. Draw {draw} card.', from: 'Sending a cover letter' },
+    coffee: { name: 'Morning Dew', type: 'skill', cost: 0, draw: 2, up: { draw: 3 }, icon: 'sparkle', text: 'Draw {draw} cards.', from: '3 applications' },
+    followup: { name: 'Creeping Nettle', type: 'skill', cost: 1, pressure: 4, up: { pressure: 6 }, icon: 'seedling', text: 'Apply {pressure} Nettle.', from: '5 applications' },
+    keywords: { name: 'Twin Thorns', type: 'attack', cost: 1, dmg: 4, hits: 2, up: { dmg: 6 }, icon: 'star', text: 'Deal {dmg} damage {hits} times.' },
+    research: { name: 'Spore Cloud', type: 'skill', cost: 1, weak: 2, draw: 1, up: { weak: 3 }, icon: 'eye', text: 'Apply {weak} Weak. Draw {draw} card.', from: '8 applications' },
+    portfolio: { name: 'Oak Slam', type: 'attack', cost: 2, dmg: 12, block: 6, up: { dmg: 15, block: 9 }, icon: 'stack', text: 'Deal {dmg} damage. Gain {block} Block.' },
+    confidence: { name: 'Deep Roots', type: 'power', cost: 1, strength: 2, up: { strength: 3 }, icon: 'seedling', text: 'Gain {strength} Strength.' },
+    resilience: { name: 'Regrowth', type: 'skill', cost: 1, block: 6, heal: 3, up: { block: 8, heal: 5 }, icon: 'refresh', text: 'Gain {block} Block. Heal {heal} HP.', from: 'Hearing “no” and carrying on' },
+    interview: { name: 'Sunburst', type: 'attack', cost: 2, dmg: 18, up: { dmg: 24 }, icon: 'sparkle', text: 'Deal {dmg} damage.', from: 'Landing an interview' },
+    offer: { name: 'Golden Bloom', type: 'attack', cost: 0, dmg: 20, exhaust: true, up: { dmg: 30 }, icon: 'medal', text: 'Deal {dmg} damage. Exhaust.', from: 'Getting an offer' },
   };
   // Cards that can turn up as rewards after a fight.
   const REWARD_POOL = ['tailored', 'letter', 'coffee', 'followup', 'keywords', 'research', 'portfolio', 'confidence', 'resilience'];
@@ -51,24 +54,24 @@
   // ---------------- relics (from garden badges) ----------------
   const RELICS = {
     first: { name: 'Lucky Acorn', icon: 'seedling', text: 'Start each fight with 4 Block.' },
-    days3: { name: 'Morning Coffee', icon: 'clock', text: '+1 Energy on the first turn of each fight.' },
-    bounce: { name: 'Rubber Band', icon: 'heart', text: 'Heal 6 HP after each fight you win.' },
-    interview: { name: 'Firm Handshake', icon: 'chat', text: 'Start each fight with 1 Strength.' },
+    days3: { name: 'Dew Drop', icon: 'clock', text: '+1 Energy on the first turn of each fight.' },
+    bounce: { name: 'Willow Bough', icon: 'heart', text: 'Heal 6 HP after each fight you win.' },
+    interview: { name: 'Oak Charm', icon: 'star', text: 'Start each fight with 1 Strength.' },
     weeks3: { name: 'Watering Can', icon: 'medal', text: '+10 max HP.' },
     big: { name: 'Busy Bee', icon: 'party', text: 'Draw 1 extra card each turn.' },
-    offer: { name: 'Golden Leaf', icon: 'star', text: 'Enemies start with 10% less HP.' },
+    offer: { name: 'Golden Leaf', icon: 'medal', text: 'Enemies start with 10% less HP.' },
   };
 
   // ---------------- enemies ----------------
   // Moves cycle in order, so the intent shown is always what happens next.
   const ENEMIES = {
-    ghoster: { name: 'The Ghoster', hp: 32, moves: [{ attack: 8 }, { block: 9, label: 'Goes quiet' }, { attack: 11 }] },
-    golem: { name: 'ATS Golem', hp: 38, moves: [{ attack: 10 }, { weak: 2, label: 'Keyword scan' }, { attack: 13 }] },
-    lowball: { name: 'Lowball Goblin', hp: 30, moves: [{ attack: 6, hits: 2 }, { attack: 8, block: 5 }] },
-    hydra: { name: 'Take-home Hydra', hp: 36, moves: [{ strength: 3, label: 'Adds a requirement' }, { attack: 6, hits: 2 }] },
-    gauntlet: { name: 'Five-Round Gauntlet', hp: 54, elite: true, moves: [{ attack: 12 }, { strength: 3, block: 6, label: 'Another round' }, { attack: 7, hits: 2 }] },
-    unicorn: { name: 'The Unicorn Listing', hp: 50, elite: true, moves: [{ weak: 2, attack: 6, label: '10 years in a 5-year-old tool' }, { attack: 14 }, { block: 10, label: 'Too good to be true' }] },
-    committee: { name: 'The Hiring Committee', hp: 72, boss: true, moves: [{ attack: 5, hits: 3 }, { block: 10, strength: 2, label: 'Deliberates' }, { attack: 14 }, { weak: 2, attack: 7, label: '“Culture fit”' }] },
+    ghoster: { name: 'Hollow Wisp', hp: 32, moves: [{ attack: 8 }, { block: 9, label: 'Fades from sight' }, { attack: 11 }] },
+    golem: { name: 'Gatekeeper Golem', hp: 38, moves: [{ attack: 10 }, { weak: 2, label: 'Stony glare' }, { attack: 13 }] },
+    lowball: { name: 'Pinchpenny Goblin', hp: 30, moves: [{ attack: 6, hits: 2 }, { attack: 8, block: 5 }] },
+    hydra: { name: 'Tangle Hydra', hp: 36, moves: [{ strength: 3, label: 'Grows another head' }, { attack: 6, hits: 2 }] },
+    gauntlet: { name: 'Knight of Five Trials', hp: 54, elite: true, moves: [{ attack: 12 }, { strength: 3, block: 6, label: 'The next trial' }, { attack: 7, hits: 2 }] },
+    unicorn: { name: 'Mirage Unicorn', hp: 50, elite: true, moves: [{ weak: 2, attack: 6, label: 'Dazzling shimmer' }, { attack: 14 }, { block: 10, label: 'Turns to mist' }] },
+    committee: { name: 'The Crow Council', hp: 72, boss: true, moves: [{ attack: 5, hits: 3, label: 'Three beaks' }, { block: 10, strength: 2, label: 'Confers in whispers' }, { attack: 14, label: 'Swoop' }, { weak: 2, attack: 7, label: 'Ruffled feathers' }] },
   };
   const FIGHTS = ['ghoster', 'golem', 'lowball', 'hydra'];
   const ELITES = ['gauntlet', 'unicorn'];
@@ -166,7 +169,7 @@
   }
 
   function newState(seed = Date.now()) {
-    return { v: 1, seed: seed | 0, act: 0, week: null, goal: 0, map: [], floor: 0, path: [], used: 0, hp: BASE_HP, maxHp: BASE_HP, knocked: false, cleared: false, combat: null, reward: null, cards: [], stats: { won: 0, lost: 0, bosses: 0, acts: 0 } };
+    return { v: 1, seed: seed | 0, act: 0, week: null, goal: 0, map: [], floor: 0, path: [], used: 0, hp: BASE_HP, maxHp: BASE_HP, campfire: false, tended: [], knocked: false, cleared: false, combat: null, reward: null, cards: [], stats: { won: 0, lost: 0, bosses: 0, acts: 0 } };
   }
 
   // Bring the run up to date: a new week starts a new Act at full HP.
@@ -186,8 +189,10 @@
       s.cleared = false;
       s.combat = null;
       s.reward = null;
+      s.campfire = false;
     }
     s.maxHp = c.maxHp;
+    s.tended ||= [];
     s.hp = Math.min(s.hp, c.maxHp);
     return s;
   }
@@ -202,7 +207,7 @@
     return !(s.map[s.floor] && s.map[s.floor][0].type === 'boss') || s.knocked;
   }
   function canEnter(s, c) {
-    return !s.combat && !s.reward && !s.cleared && (!needsClimb(s) || climbsLeft(s, c) > 0);
+    return !s.combat && !s.reward && !s.campfire && !s.cleared && (!needsClimb(s) || climbsLeft(s, c) > 0);
   }
 
   function enter(s, c, choice = 0) {
@@ -211,11 +216,9 @@
     if (needsClimb(s)) s.used++;
     s.knocked = false;
     if (node.type === 'rest') {
-      const heal = Math.round(c.maxHp * 0.3);
-      s.hp = Math.min(c.maxHp, s.hp + heal);
       s.path.push(choice);
-      s.floor++;
-      return { event: 'rest', heal };
+      s.campfire = true;
+      return { event: 'rest' };
     }
     if (node.type === 'treasure') {
       s.path.push(choice);
@@ -224,6 +227,42 @@
     }
     startCombat(s, c, node, choice);
     return { event: 'combat' };
+  }
+
+  // At a campfire, like Slay the Spire: rest (heal 30%) or tend one card
+  // (upgrade it for the rest of the climb).
+  function campfireHeal(s) {
+    return Math.min(s.maxHp - s.hp, Math.round(s.maxHp * 0.3));
+  }
+  function rest(s, c, how, cardId) {
+    if (!s.campfire) return null;
+    let out;
+    if (how === 'tend') {
+      if (!tendable(s, c).includes(cardId)) throw new Error('That card can’t be upgraded.');
+      (s.tended ||= []).push(cardId);
+      out = { tended: cardId };
+    } else {
+      const heal = campfireHeal(s);
+      s.hp += heal;
+      out = { heal };
+    }
+    s.campfire = false;
+    s.floor++;
+    return out;
+  }
+
+  // The whole deck: career cards and picked cards, with campfire upgrades.
+  function fullDeck(s, c) {
+    const deck = [...c.deck, ...(s.cards || [])].map((k) => ({ ...k }));
+    for (const id of s.tended || []) {
+      const k = deck.find((x) => x.id === id && !x.up);
+      if (k) k.up = true;
+    }
+    return deck;
+  }
+  // Card ids with a copy that isn't upgraded yet.
+  function tendable(s, c) {
+    return [...new Set(fullDeck(s, c).filter((k) => !k.up).map((k) => k.id))];
   }
 
   // After the boss: extra applications still earn a card each.
@@ -263,7 +302,7 @@
 
   function startCombat(s, c, node, choice) {
     let uid = 0;
-    const deck = [...c.deck, ...s.cards].map((card) => ({ ...card, uid: ++uid }));
+    const deck = fullDeck(s, c).map((card) => ({ ...card, uid: ++uid }));
     const relics = c.relics;
     s.combat = {
       node,
@@ -417,5 +456,5 @@
     return s;
   }
 
-  return { CARDS, RELICS, ENEMIES, REWARD_POOL, BASE_HP, ENERGY, career, newState, sync, climbsLeft, needsClimb, canEnter, enter, bonus, takeReward, play, playable, endTurn, closeCombat, intent, stat, cardText, attackValue };
+  return { CARDS, RELICS, ENEMIES, REWARD_POOL, BASE_HP, ENERGY, career, newState, sync, climbsLeft, needsClimb, canEnter, enter, rest, campfireHeal, fullDeck, tendable, bonus, takeReward, play, playable, endTurn, closeCombat, intent, stat, cardText, attackValue };
 });

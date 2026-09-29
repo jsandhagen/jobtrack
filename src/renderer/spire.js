@@ -34,25 +34,32 @@ function angryFace(cx, cy, k = 1) {
 }
 
 const ENEMY_ART = {
-  ghoster: () => `<path d="M30 104 V52 C30 28 46 16 60 16 S90 28 90 52 V104 l-10 -8 -10 8 -10 -8 -10 8 -10 -8z" fill="#efeafb" stroke="#9d8fd0" stroke-width="2.5" opacity=".92"/>
-    ${angryFace(60, 54)}<rect x="80" y="70" width="18" height="28" rx="4" fill="#fff" stroke="#6b5aa8" stroke-width="2"/><path d="M84 84 h2 M88 84 h2 M92 84 h2" stroke="#6b5aa8" stroke-width="2.4" stroke-linecap="round"/>`,
+  ghoster: () => `<path d="M34 100 C24 80 30 60 36 46 C42 26 52 16 62 16 C78 16 90 30 88 52 C86 70 94 84 86 100 C78 92 72 104 64 96 C56 106 50 94 44 102 C40 96 38 104 34 100z" fill="#efeafb" stroke="#9d8fd0" stroke-width="2.5" opacity=".9"/>
+    ${angryFace(62, 52)}<circle cx="24" cy="40" r="4" fill="#d9d0f5"/><circle cx="98" cy="30" r="3" fill="#d9d0f5"/><circle cx="102" cy="74" r="5" fill="#e6dff9"/>`,
   golem: () => `<rect x="28" y="30" width="64" height="72" rx="10" fill="#c9d3dc" stroke="#6b7c8c" stroke-width="2.5"/>
     <rect x="36" y="42" width="48" height="14" rx="7" fill="#2d3a34"/><rect x="44" y="46" width="20" height="6" rx="3" fill="#ff6b6b"><animate attributeName="x" values="40;60;40" dur="2.4s" repeatCount="indefinite"/></rect>
     <path d="M44 74 h32 M44 82 h24 M44 90 h28" stroke="#6b7c8c" stroke-width="3" stroke-linecap="round"/><path d="M60 30 V18" stroke="#6b7c8c" stroke-width="3"/><circle cx="60" cy="16" r="4" fill="#f6d78b" stroke="#a07a1c" stroke-width="1.5"/>`,
   lowball: () => `<path d="M28 50 l-14 -12 20 4z M92 50 l14 -12 -20 4z" fill="#9fd08a" stroke="#4f8a3e" stroke-width="2"/>
     <ellipse cx="60" cy="68" rx="34" ry="36" fill="#9fd08a" stroke="#4f8a3e" stroke-width="2.5"/>${angryFace(60, 58)}
     <circle cx="88" cy="92" r="13" fill="#f6d78b" stroke="#a07a1c" stroke-width="2"/><text x="88" y="97" text-anchor="middle" font-size="15" font-weight="900" fill="#a07a1c">$</text>`,
-  hydra: () => [[34, 34, -14], [60, 22, 0], [86, 34, 14]].map(([x, y, r]) => `<path d="M60 96 Q${x} 70 ${x} ${y + 12}" stroke="#f3a987" stroke-width="13" fill="none" stroke-linecap="round"/>
-    <g transform="rotate(${r} ${x} ${y})"><ellipse cx="${x}" cy="${y}" rx="15" ry="13" fill="#f6b99a" stroke="#b8653e" stroke-width="2"/>${angryFace(x, y, 0.6)}</g>`).join('') +
-    '<ellipse cx="60" cy="100" rx="30" ry="12" fill="#f6b99a" stroke="#b8653e" stroke-width="2.5"/><rect x="46" y="92" width="28" height="14" rx="2" fill="#fff" stroke="#b8653e" stroke-width="1.5"/><path d="M50 97 h20 M50 101 h14" stroke="#b8653e" stroke-width="1.5"/>',
-  gauntlet: () => [0, 1, 2, 3, 4].map((i) => `<circle cx="${60 + (i % 2 ? 14 : -14) * (i ? 1 : 0)}" cy="${98 - i * 17}" r="${20 - i * 1.5}" fill="${['#f6d78b', '#f6b99a', '#b9a9e6', '#8fd0a6', '#e98a8a'][i]}" stroke="#2d3a34" stroke-width="2"/><text x="${60 + (i % 2 ? 14 : -14) * (i ? 1 : 0)}" y="${104 - i * 17}" text-anchor="middle" font-size="15" font-weight="900" fill="#2d3a34">${i + 1}</text>`).join('') + angryFace(60, 22, 0.55),
+  hydra: () => [[34, 34, -14], [60, 22, 0], [86, 34, 14]].map(([x, y, r]) => `<path d="M60 96 Q${x} 70 ${x} ${y + 12}" stroke="#7fbf8e" stroke-width="13" fill="none" stroke-linecap="round"/>
+    <g transform="rotate(${r} ${x} ${y})"><ellipse cx="${x}" cy="${y}" rx="15" ry="13" fill="#8fd0a6" stroke="#3f8a61" stroke-width="2"/>${angryFace(x, y, 0.6)}</g>`).join('') +
+    '<ellipse cx="60" cy="100" rx="30" ry="12" fill="#8fd0a6" stroke="#3f8a61" stroke-width="2.5"/><path d="M36 104 q-10 6 -16 0 M84 104 q10 6 16 0" stroke="#3f8a61" stroke-width="3" fill="none" stroke-linecap="round"/>',
+  gauntlet: () => `<path d="M60 8 q14 4 12 18" stroke="#e98a8a" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M36 46 C36 24 48 16 60 16 S84 24 84 46 V62 H36z" fill="#c9d3dc" stroke="#5f6f80" stroke-width="2.5"/><rect x="42" y="38" width="36" height="8" rx="4" fill="#2d3a34"/><circle cx="52" cy="42" r="2" fill="#ff8a6b"/><circle cx="68" cy="42" r="2" fill="#ff8a6b"/>
+    <path d="M40 62 h40 l6 42 H34z" fill="#b9a9e6" stroke="#5f6f80" stroke-width="2.5"/>
+    <path d="M78 66 h26 v18 c0 12 -8 18 -13 20 c-5 -2 -13 -8 -13 -20z" fill="#f6d78b" stroke="#a07a1c" stroke-width="2.5"/><text x="91" y="89" text-anchor="middle" font-size="13" font-weight="900" fill="#a07a1c">V</text>
+    <path d="M30 60 L22 104" stroke="#5f6f80" stroke-width="4" stroke-linecap="round"/><path d="M26 58 h8" stroke="#5f6f80" stroke-width="4" stroke-linecap="round"/>`,
   unicorn: () => `<path d="M62 30 L74 4 L76 32z" fill="url(#rainbow)" stroke="#6b5aa8" stroke-width="2"/>
     <defs><linearGradient id="rainbow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e98a8a"/><stop offset=".35" stop-color="#f6d78b"/><stop offset=".7" stop-color="#8fd0a6"/><stop offset="1" stop-color="#b9a9e6"/></linearGradient></defs>
     <ellipse cx="60" cy="64" rx="34" ry="34" fill="#fff" stroke="#9d8fd0" stroke-width="2.5"/><path d="M28 50 q-8 20 4 40 M32 44 q-12 18 -2 36" stroke="#b9a9e6" stroke-width="5" fill="none" stroke-linecap="round"/>
     ${angryFace(64, 60)}<path d="M34 100 l0 12 M48 102 v12 M72 102 v12 M86 100 v12" stroke="#9d8fd0" stroke-width="5" stroke-linecap="round"/>`,
-  committee: () => [[30, '#e98a8a'], [60, '#b9a9e6'], [90, '#8fd0a6']].map(([x, c], i) => `<circle cx="${x}" cy="${i === 1 ? 34 : 42}" r="15" fill="#fff6e8" stroke="#2d3a34" stroke-width="2"/>${angryFace(x, i === 1 ? 34 : 42, 0.55)}
-    <path d="M${x - 17} ${i === 1 ? 74 : 80} q0 -22 17 -22 q17 0 17 22z" fill="${c}" stroke="#2d3a34" stroke-width="2"/>`).join('') +
-    '<rect x="8" y="78" width="104" height="28" rx="5" fill="#9b7650" stroke="#6e5232" stroke-width="2.5"/><path d="M20 90 h80" stroke="#6e5232" stroke-width="2"/><rect x="50" y="70" width="20" height="10" rx="2" fill="#fff" stroke="#6e5232" stroke-width="1.5"/>',
+  committee: () => '<path d="M4 92 C30 86 80 90 116 84" stroke="#9b7650" stroke-width="7" fill="none" stroke-linecap="round"/><path d="M92 88 l10 12 M30 90 l-8 10" stroke="#9b7650" stroke-width="4" stroke-linecap="round"/>' +
+    [[28, 72, 0.9], [60, 60, 1.15], [92, 70, 0.9]].map(([x, y, k]) => `<g transform="translate(${x} ${y}) scale(${k})">
+      <path d="M-4 18 l-6 10 M4 18 l2 10" stroke="#e0a458" stroke-width="2.5" stroke-linecap="round"/>
+      <ellipse cx="0" cy="4" rx="15" ry="17" fill="#3b4250" stroke="#8f9bb0" stroke-width="1.8"/><path d="M-13 4 q-10 10 -4 20 q8 -4 10 -14" fill="#2c3240" stroke="#8f9bb0" stroke-width="1.5"/>
+      <circle cx="0" cy="-16" r="11" fill="#3b4250" stroke="#8f9bb0" stroke-width="1.8"/><path d="M8 -17 l12 3 -12 4z" fill="#e0a458" stroke="#a8742c" stroke-width="1.2"/>
+      <circle cx="3" cy="-18" r="3" fill="#fff"/><circle cx="4" cy="-18" r="1.5" fill="#2d3a34"/><path d="M-2 -24 l9 3" stroke="#fff" stroke-width="2" stroke-linecap="round"/></g>`).join(''),
 };
 function enemySvg(id, size = 170) {
   return `<svg class="enemy-art" viewBox="0 0 120 120" width="${size}" height="${size}" aria-hidden="true">${ENEMY_ART[id]()}</svg>`;
@@ -76,7 +83,7 @@ function statuses(who) {
   const out = [];
   if (who.strength) out.push(`<span class="chip tiny good" title="Strength: +${who.strength} damage on every attack">${icon('sparkle', 12)} ${who.strength} Strength</span>`);
   if (who.weak) out.push(`<span class="chip tiny grow" title="Weak: attacks deal 25% less for ${who.weak} turn${who.weak === 1 ? '' : 's'}">Weak ${who.weak}</span>`);
-  if (who.pressure) out.push(`<span class="chip tiny lav" title="Pressure: loses this much HP at the start of its turn, then 1 less">Pressure ${who.pressure}</span>`);
+  if (who.pressure) out.push(`<span class="chip tiny lav" title="Nettle: loses this much HP at the start of its turn, then 1 less">Nettle ${who.pressure}</span>`);
   return out.join('');
 }
 
@@ -89,14 +96,14 @@ function intentHtml(it) {
   return `<div class="intent" title="What it will do next${it.label ? `: ${esc(it.label)}` : ''}">${bits.join('')}${it.label ? `<small>${esc(it.label)}</small>` : ''}</div>`;
 }
 
-function cardHtml(card, { i = null, player = null, playable = true, pick = null } = {}) {
+function cardHtml(card, { i = null, player = null, playable = true, pick = null, from = false } = {}) {
   const def = Spire.CARDS[card.id];
   const attrs = i !== null ? `data-hand="${i}" title="Play (${i + 1})"` : pick !== null ? `data-pick="${pick}"` : '';
   const tag = i !== null || pick !== null ? 'button' : 'div';
   return `<${tag} class="sts-card t-${def.type}${card.up ? ' up' : ''}" ${attrs} ${playable ? '' : 'disabled'}>
     <span class="cost">${def.cost}</span><b class="cname">${esc(def.name)}${card.up ? '+' : ''}</b>
     <div class="art">${icon(def.icon, 40)}</div><span class="ctype">${def.type}</span>
-    <p>${esc(Spire.cardText(card, player))}</p></${tag}>`;
+    <p>${esc(Spire.cardText(card, player))}</p>${from ? `<small class="from">${esc(def.from || 'Found on the climb')}</small>` : ''}</${tag}>`;
 }
 
 function spireTopBar(run, c) {
@@ -106,7 +113,7 @@ function spireTopBar(run, c) {
     <div class="grow">${hpBar(run.hp, run.maxHp)}</div>
     <span class="chip ${left ? 'good' : ''}" title="Each application you send this week is one climb">${icon('send', 14)} ${left} climb${left === 1 ? '' : 's'} ready</span>
     <div class="relics">${c.relics.map((id) => `<span class="relic" title="${esc(Spire.RELICS[id].name)}: ${esc(Spire.RELICS[id].text)}">${icon(Spire.RELICS[id].icon, 20)}</span>`).join('') || '<span class="faint" title="Earn garden badges to collect relics">no relics yet</span>'}</div>
-    <button class="soft small" id="deckBtn">${icon('stack', 15)} Deck ${c.deck.length + run.cards.length}</button>
+    <button class="soft small" id="deckBtn">${icon('stack', 15)} Deck ${Spire.fullDeck(run, c).length}</button>
   </div>`;
 }
 
@@ -135,7 +142,7 @@ function mapHtml(run, c) {
   let line;
   if (run.cleared) line = left ? `Act cleared! You still have ${left} climb${left === 1 ? '' : 's'}: each one opens a bonus card.` : "Act cleared! A new Act starts Monday. Every application you send before then earns a bonus card.";
   else if (run.knocked && Spire.needsClimb(run) && !left) line = 'Sprout got knocked down, but is back up at half HP. Send an application to try again.';
-  else if (can) line = run.map[run.floor][0].type === 'boss' ? 'You hit your weekly goal, so the Hiring Committee will see you now. Good luck!' : run.map[run.floor].length > 1 ? 'Choose your path.' : 'Onward!';
+  else if (can) line = run.map[run.floor][0].type === 'boss' ? 'You hit your weekly goal! The Crow Council is waiting at the top. Good luck!' : run.map[run.floor].length > 1 ? 'Choose your path.' : 'Onward!';
   else line = `No climbs left. Every application you send this week is one more floor${c.climbs < c.goal ? ` — ${c.goal - c.climbs} more reach the boss` : ''}.`;
   return `<div class="grid spire-main">
     <div class="card spire-map">${rows}</div>
@@ -183,10 +190,21 @@ function combatHtml(run) {
 
 function rewardHtml(run) {
   const r = run.reward;
-  const title = r.bonus ? 'Bonus card' : r.treasure ? 'Treasure!' : r.boss ? 'The Hiring Committee is impressed!' : 'Victory!';
+  const title = r.bonus ? 'Bonus card' : r.treasure ? 'Treasure!' : r.boss ? 'The Crow Council scatters!' : 'Victory!';
   return `<div class="card reward">${mascotSvg(r.boss ? 'thrilled' : 'proud', 90)}<h2>${title}</h2><p class="muted">Add a card to your deck${r.treasure ? '' : ', or skip it to keep your deck lean'}.</p>
     <div class="hand picks">${r.cards.map((card, k) => cardHtml(card, { pick: k })).join('')}</div>
     <button class="ghost" id="skipReward">Skip</button></div>`;
+}
+
+// Rest or tend (upgrade) a card, like a Slay the Spire campfire.
+function campfireHtml(r, c) {
+  const ids = Spire.tendable(r, c);
+  return `<div class="card reward campfire"><div class="campfire-scene">${mascotSvg('sleepy', 90)}${icon('flame', 48)}</div><h2>Campfire</h2>
+    <p class="muted">Rest to heal, or tend one card to upgrade it for the rest of the climb.</p>
+    ${Spire.campfireHeal(r) ? `<button class="primary" id="campHeal">${icon('heart')} Rest: heal ${Spire.campfireHeal(r)} HP</button>` : `<button class="soft" id="campHeal">${icon('heart')} Rest anyway (already at full HP)</button>`}
+    <div class="section-title">Or tend a card</div>
+    <div class="hand picks">${ids.map((id) => cardHtml({ id, up: true }, { pick: -1 }).replace('data-pick="-1"', `data-pick-tend="${id}" title="Upgrade ${esc(Spire.CARDS[id].name)}"`)).join('') || '<span class="faint">Every card is already upgraded.</span>'}</div>
+  </div>`;
 }
 
 // ---------------- page ----------------
@@ -198,8 +216,8 @@ async function renderSpire() {
   const page = document.getElementById('spirePage');
   if (!page) return;
   if (!spireOn()) {
-    page.innerHTML = `${pageHead("Sprout's Spire", 'wave', 'Turn-based card battles, Slay the Spire style, powered by your applications.')}
-      <div class="card empty">${enemySvg('committee', 110)}<h3>Climb the Spire?</h3><p class="muted">Each application you send lets Sprout climb one floor. Beat your weekly goal to face the Hiring Committee.</p>
+    page.innerHTML = `${pageHead("Sprout's Spire", 'wave', 'Turn-based card battles, Slay the Spire style. Every application you send is one more floor.')}
+      <div class="card empty">${enemySvg('committee', 110)}<h3>Climb the Spire?</h3><p class="muted">Each application you send lets Sprout climb one floor. Hit your weekly goal to face the Crow Council at the top.</p>
       <button class="primary" id="spireOnBtn">${icon('sword')} Start climbing</button></div>`;
     $('#spireOnBtn', page).addEventListener('click', (e) => run(e.currentTarget, () => S.updateSettings({ gardenEnabled: true, gameStyle: 'spire' })));
     return;
@@ -208,6 +226,7 @@ async function renderSpire() {
   const r = spireRun;
   let body;
   if (r.combat) body = combatHtml(r);
+  else if (r.campfire) body = campfireHtml(r, c);
   else if (r.reward) body = rewardHtml(r);
   else body = mapHtml(r, c);
   page.innerHTML = `${spireTopBar(r, c)}${body}`;
@@ -223,15 +242,16 @@ function bindSpire(page, c) {
     renderSpire();
   };
   $('#deckBtn', page).addEventListener('click', () => {
-    const cards = [...c.deck, ...r.cards].sort((x, y) => x.id.localeCompare(y.id));
-    const card = openModal(`<h2>Sprout's deck</h2><p class="faint">Unlocked by your real search, plus the cards you picked on the climb.</p>
-      <div class="hand deck-list">${cards.map((k) => cardHtml(k)).join('')}</div><div class="inline" style="margin-top:12px"><button class="ghost" id="mClose">Close</button></div>`);
+    // Earned cards first, then the starters; upgraded copies first within each.
+    const starter = (k) => (Spire.CARDS[k.id].from === 'Starter card' ? 1 : 0);
+    const cards = Spire.fullDeck(r, c).sort((x, y) => starter(x) - starter(y) || Spire.CARDS[x.id].name.localeCompare(Spire.CARDS[y.id].name) || y.up - x.up);
+    const card = openModal(`<h2>Sprout's deck</h2><p class="faint">Cards unlock as your real search moves along. Each one notes how it was earned.</p>
+      <div class="hand deck-list">${cards.map((k) => cardHtml(k, { from: true })).join('')}</div><div class="inline" style="margin-top:12px"><button class="ghost" id="mClose">Close</button></div>`);
     $('#mClose', card).addEventListener('click', closeModal);
   });
   $$('[data-node]', page).forEach((b) =>
     b.addEventListener('click', () => {
-      const res = Spire.enter(r, c, Number(b.dataset.node));
-      if (res.event === 'rest') toast(`Sprout rests by the campfire: +${res.heal} HP.`, 'good', 3800, 'sleepy');
+      Spire.enter(r, c, Number(b.dataset.node));
       after(null);
     })
   );
@@ -268,6 +288,20 @@ function bindSpire(page, c) {
       if (boss) celebrate(`Act ${r.act} cleared! See you at the next one.`);
       after(null);
     });
+  const heal = $('#campHeal', page);
+  if (heal)
+    heal.addEventListener('click', () => {
+      const res = Spire.rest(r, c, 'heal');
+      toast(`Sprout naps by the fire: +${res.heal} HP.`, 'good', 3800, 'sleepy');
+      after(null);
+    });
+  $$('[data-pick-tend]', page).forEach((b) =>
+    b.addEventListener('click', () => {
+      Spire.rest(r, c, 'tend', b.dataset.pickTend);
+      toast(`${Spire.CARDS[b.dataset.pickTend].name} upgraded for the rest of the climb.`, 'good', 3800, 'proud');
+      after(null);
+    })
+  );
   const bonusBtn = $('#bonusBtn', page);
   if (bonusBtn)
     bonusBtn.addEventListener('click', () => {

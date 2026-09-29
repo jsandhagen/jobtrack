@@ -366,3 +366,8 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .spire-home-foe { flex: none; margin: -8px 0; }
 @media (max-width: 800px) { .spire-home-foe { display: none; } .arena { grid-template-columns: 1fr; } .vs { display: none; } }
 @media (prefers-reduced-motion: reduce) { .floor.now .node:not(:disabled), .fighter.hit .sprout, .fighter.hit .enemy-art, .dmg { animation: none; } }
+.sts-card .from { margin-top: auto; padding-top: 4px; font-size: 10.5px; line-height: 1.25; color: var(--sage-deep); font-weight: 700; }
+.campfire-scene { display: flex; align-items: flex-end; gap: 2px; }
+.campfire-scene .ic-flame { color: #e08a4a; animation: flicker 1.6s ease-in-out infinite; transform-origin: bottom center; }
+@keyframes flicker { 0%, 100% { transform: scale(1) rotate(-2deg); } 50% { transform: scale(1.08, 1.14) rotate(2deg); } }
+@media (prefers-reduced-motion: reduce) { .campfire-scene .ic-flame { animation: none; } }

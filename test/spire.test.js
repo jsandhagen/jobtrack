@@ -53,6 +53,8 @@ test('each application this week is one climb; the boss is free once reached', (
   s.map[1] = [{ type: 'rest' }];
   s.hp = 10;
   assert.equal(Sp.enter(s, c, 0).event, 'rest');
+  assert.equal(Sp.canEnter(s, c), false, 'choose at the campfire first');
+  assert.equal(Sp.rest(s, c, 'heal').heal, 18);
   assert.equal(s.hp, 28);
   assert.equal(Sp.climbsLeft(s, c), 0);
   assert.equal(s.map[s.floor][0].type, 'boss');
@@ -90,10 +92,10 @@ test('cards cost energy; block soaks damage; intents are telegraphed', () => {
   assert.equal(cb.player.energy, Sp.ENERGY);
   assert.equal(cb.player.block, 0);
   assert.equal(cb.hand.length, 5);
-  assert.equal(Sp.intent(s).label, 'Goes quiet');
+  assert.equal(Sp.intent(s).label, 'Fades from sight');
 });
 
-test('weak, strength and pressure work like the real thing', () => {
+test('weak, strength and nettle (poison) work like the real thing', () => {
   const c = Sp.career([app(at(29))], { now: NOW });
   const s = Sp.sync(null, c);
   s.map[0] = [{ type: 'fight', enemy: 'golem' }];
@@ -129,6 +131,26 @@ test('losing never ends the run: back up at half HP, and the next application re
   assert.equal(Sp.enter(s, c, 0).event, 'combat');
 });
 
+test('tending a card at the campfire upgrades one copy for the rest of the climb', () => {
+  const c = Sp.career([app(at(29))], { now: NOW });
+  const s = Sp.sync(null, c);
+  s.map[0] = [{ type: 'rest' }];
+  Sp.enter(s, c, 0);
+  assert.throws(() => Sp.rest(s, c, 'tend', 'offer'), /can’t be upgraded/);
+  Sp.rest(s, c, 'tend', 'pitch');
+  assert.equal(s.floor, 1);
+  const deck = Sp.fullDeck(s, c);
+  assert.equal(deck.filter((k) => k.id === 'pitch' && k.up).length, 1);
+  assert.equal(deck.filter((k) => k.id === 'pitch').length, 5);
+  // Survives the career deck being rebuilt next week.
+  Sp.sync(s, Sp.career([app(at(29))], { now: new Date(2026, 9, 6, 10) }));
+  assert.equal(Sp.fullDeck(s, c).filter((k) => k.up).length, 1);
+});
+
+test('every card says where it comes from, or is a reward', () => {
+  for (const [id, def] of Object.entries(Sp.CARDS)) assert.ok(def.from || Sp.REWARD_POOL.includes(id), id);
+});
+
 test('a new week starts a new act at full HP, keeping picked cards', () => {
   const c1 = Sp.career([app(at(29))], { now: NOW });
   const s = Sp.sync(null, c1);
@@ -149,6 +171,7 @@ test('a full act can be played through to the boss', () => {
   let s = Sp.sync(Sp.newState(42), c);
   for (let guard = 0; !s.cleared && guard < 20; guard++) {
     if (s.reward) Sp.takeReward(s, 0);
+    else if (s.campfire) Sp.rest(s, c, 'heal');
     else if (s.combat) {
       autoFight(s, c);
       Sp.closeCombat(s);

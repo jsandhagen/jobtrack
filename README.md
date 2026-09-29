@@ -242,13 +242,13 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 
 ## Sprout's Spire
 
-The default style of the optional game (Settings → *Sprout's garden* → *Game style*). Sprout climbs a tower of job-search monsters in turn-based card battles, but only as fast as you apply:
+The default style of the optional game (Settings → *Sprout's garden* → *Game style*). Sprout, a thorny little seedling, climbs a tower of woodland creatures in turn-based card battles, but only as fast as you apply:
 
 - **One climb per application.** Each role you mark as applied this week lets Sprout take one floor. You can't play ahead of your search.
-- **Each week is an Act.** Your weekly goal sets how many floors come before the boss, *The Hiring Committee*. Reaching the boss is free, so hitting your goal is what earns the boss fight. A new Act starts each Monday at full HP.
-- **A map with choices**: pick a fight, an elite, a campfire rest (+30% HP) or treasure on each floor.
-- **Battles work like Slay the Spire**: 3 energy and 5 cards a turn, Block, Strength, Weak, a poison-like *Pressure*, and enemies that show their next move. Enemies include The Ghoster, the ATS Golem, the Lowball Goblin, the Take-home Hydra, and the elites Five-Round Gauntlet and The Unicorn Listing. Keys `1`–`9` play cards and `E` ends the turn.
-- **Your deck comes from your real search.** A tailored resume unlocks *Tailored Resume*, a cover letter unlocks *Cover Letter*, an interview unlocks *Nail the Interview*, a rejection unlocks *Resilience*, and an offer unlocks *Offer in Hand*. Every 5 applications upgrades a card, and each win offers a card to add.
+- **Each week is an Act.** Your weekly goal sets how many floors come before the boss, *the Crow Council*. Reaching the boss is free, so hitting your goal is what earns the boss fight. A new Act starts each Monday at full HP.
+- **A map with choices**: pick a fight, an elite, a campfire or treasure on each floor. At a campfire, rest (heal 30%) or tend a card to upgrade it for the rest of the climb.
+- **Battles work like Slay the Spire**: 3 energy and 5 cards a turn, Block, Strength, Weak, poison-like *Nettle*, and enemies that show their next move. You'll meet the Hollow Wisp, the Gatekeeper Golem, the Pinchpenny Goblin and the Tangle Hydra, plus the elites Knight of Five Trials and Mirage Unicorn. Keys `1`–`9` play cards and `E` ends the turn.
+- **Your deck grows with your real search.** Applying with a tailored resume unlocks *Bramble Lash*, a cover letter unlocks *Petal Shield*, an interview unlocks *Sunburst*, carrying on after a "no" unlocks *Regrowth*, and an offer unlocks *Golden Bloom*. Every 5 applications upgrades a card, each win offers a card to add, and the deck view notes how each card was earned.
 - **Garden badges become relics**, e.g. *Lucky Acorn* (first application: start fights with 4 Block) and *Busy Bee* (big week: draw an extra card).
 - **Losing never ends the run.** Sprout gets back up at half HP, and your next application is the next try. After the boss, each extra application opens a bonus card.
 
