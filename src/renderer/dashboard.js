@@ -5,6 +5,7 @@ const view = document.getElementById('view');
 let state = null;
 let currentAppId = null;
 let appTab = 'resume';
+let openTab = null; // tab to show next time an application opens
 
 // ---------------- helpers ----------------
 
@@ -950,7 +951,8 @@ function route() {
   const v = views[name] ? name : 'home';
   $$('.side a', document).forEach((a) => a.classList.toggle('active', a.dataset.view === v || (v === 'application' && a.dataset.view === 'applications')));
   if (v !== 'application' || id !== currentAppId) {
-    if (v === 'application') appTab = 'auto';
+    if (v === 'application') appTab = openTab || 'auto';
+    openTab = null;
     currentAppId = v === 'application' ? id : null;
   }
   view.innerHTML = views[v]();
@@ -977,7 +979,13 @@ S.onAppUpdated(async (app) => {
   else if (!isEditing() && !currentAppId) route();
 });
 S.onToast(({ text, kind }) => toast(text, kind));
-S.onNavigate(({ view: v, id }) => (location.hash = v === 'application' ? `#application/${id}` : `#${v}`));
+S.onNavigate(({ view: v, id, tab }) => {
+  // Opening a role at a given tab (e.g. its new cover letter).
+  const target = v === 'application' ? `#application/${id}` : `#${v}`;
+  if (tab) (openTab = tab), (currentAppId = null);
+  if (location.hash === target) route(); // no hashchange when already there
+  else location.hash = target;
+});
 
 document.getElementById('brandMark').innerHTML = icon('seedling', 30);
 $$('.side a[data-icon]', document).forEach((a) => a.insertAdjacentHTML('afterbegin', icon(a.dataset.icon, 20)));

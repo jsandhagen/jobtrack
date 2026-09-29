@@ -111,7 +111,7 @@
     const kind = CAST[opts.kind] ? opts.kind : 'sprout';
     const cast = CAST[kind];
     const motion = mood === 'thinking' ? 'sprout-think' : mood === 'thrilled' ? 'sprout-bob sprout-hop' : mood === 'sleepy' ? 'sprout-sleep' : 'sprout-bob';
-    const arms = armPaths(f.arms, cast);
+    const arms = opts.noArms ? '' : armPaths(f.arms, cast);
     const hugInFront = f.arms === 'hug';
     return `<svg class="sprout ${motion} mood-${mood} cast-${kind}${opts.cls ? ' ' + opts.cls : ''}" width="${size}" height="${size}" viewBox="0 0 104 104" role="img" aria-label="${opts.label || `${cast.name} ${cast.what}, feeling ${mood}`}">
   <g class="whole">
@@ -177,10 +177,16 @@
     return mascotSvg(mood, size, { ...opts, kind: h.kind });
   }
 
-  // A helper peeking over the top edge of a button; it pops up and waves on hover.
-  // Pair with <button class="peek mode-…">; styles live in theme.css.
-  function peekPal(mode, size = 56) {
-    return `<span class="peek-pal" aria-hidden="true">${helperSvg(mode, 'curious', size, { cls: 'pal-idle' })}${helperSvg(mode, 'wave', size, { cls: 'pal-wave' })}</span>`;
+  // A helper hiding behind a button: just the top of its head and its eyes
+  // show over the edge, with two little hands gripping it. On hover it pulls
+  // itself up and smiles. Pair with <button class="peek mode-…">; styles in theme.css.
+  function peekPal(mode, size = 54) {
+    const h = HELPERS[mode] || HELPERS.ats;
+    const cast = CAST[h.kind];
+    const head = (mood, cls) => mascotSvg(mood, size, { kind: h.kind, noArms: true, cls });
+    const hand = (cx) => `<g><ellipse cx="${cx}" cy="8" rx="6.2" ry="4.6" fill="${cast.fill}" stroke="${cast.line}" stroke-width="1.8"/><path d="M${cx - 2.2} 5.6 v3.2 M${cx + 2.2} 5.6 v3.2" stroke="${cast.line}" stroke-width="1.3" stroke-linecap="round"/></g>`;
+    return `<span class="peek-pal" aria-hidden="true">${head('curious', 'pal-idle')}${head('happy', 'pal-up')}</span>
+      <svg class="peek-hands" aria-hidden="true" width="${size}" height="16" viewBox="0 0 54 16">${hand(13)}${hand(41)}</svg>`;
   }
 
   function pick(list, seed = Date.now()) {

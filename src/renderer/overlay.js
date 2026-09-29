@@ -38,8 +38,8 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     footer = `${!a && !analyzing ? `<button class="ghost small ask-claude" data-act="analyze">${icon('search', 15)} Ask Claude for a deeper read</button>` : ''}
       <div class="ask">Want me to tailor a resume for this role?</div>
       ${modeChoice(true)}
+      <button class="soft letter-btn" data-act="letter">${icon('letter', 16)} Write a cover letter<small>with Claude</small></button>
       <div class="actions minor">
-        <button class="ghost" data-act="both">${icon('letter', 15)} Claude resume + cover letter</button>
         <button class="ghost" data-act="open">Details</button>
         <button class="ghost" data-act="dismiss">Not now</button>
       </div>`;
@@ -77,16 +77,22 @@ function atsLine(app) {
     <span>ATS match for your current resume: <b>${b.score}%</b>${b.skillsMatch ? ` · skills ${esc(b.skillsMatch.toLowerCase())}` : ''}</span></div>`;
 }
 
-function workingView({ app, engine }) {
+function workingView({ app, engine, what }) {
   const claude = engine !== 'ats';
+  const letter = what === 'letter';
   return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thinking', 88)}
-    <h3>${claude ? 'Root is writing with Claude…' : 'Spike is picking your bullets…'}</h3>
-    <p class="muted">${claude ? `Tailoring your resume for <b>${esc(app.job.title)}</b>. This usually takes under a minute — feel free to keep browsing!` : `Matching your best experience to <b>${esc(app.job.title)}</b>.`}</p>
+    <h3>${letter ? 'Root is writing your cover letter…' : claude ? 'Root is writing with Claude…' : 'Spike is picking your bullets…'}</h3>
+    <p class="muted">${claude ? `${letter ? 'Writing to' : 'Tailoring your resume for'} <b>${esc(app.job.title)}</b>. This usually takes under a minute — feel free to keep browsing!` : `Matching your best experience to <b>${esc(app.job.title)}</b>.`}</p>
     <span class="spinner" style="color: var(--sage)"></span></div>`;
 }
 
-function doneView({ app, engine }) {
+function doneView({ app, engine, what }) {
   const claude = engine !== 'ats';
+  if (what === 'letter')
+    return `<div class="center">${helperSvg('claude', 'thrilled', 88)}
+    <h3>Your cover letter is ready!</h3>
+    <p class="muted">Written for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : ''}. Give it a read and tweak anything before you send it.</p>
+    <div class="actions"><button class="primary" data-act="open-letter">Open & review</button><button class="ghost" data-act="dismiss-quiet">Later</button></div></div>`;
   return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thrilled', 88)}
     <h3>Your ${claude ? 'Claude' : 'ATS'} resume is ready!</h3>
     <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : ''}. Give it a quick read, tweak anything you like, and export to PDF.</p>

@@ -56,3 +56,8 @@ body { padding: 10px; user-select: none; }
 .actions.minor { justify-content: center; gap: 2px; }
 .actions.minor button { padding: 6px 10px; font-size: 12.5px; }
 .center .actions { justify-content: center; }
+.letter-btn { width: 100%; justify-content: center; margin: 2px 0 6px; }
+.letter-btn small { font-size: 11.5px; font-weight: 600; opacity: 0.75; margin-left: 2px; }
+button.letter-btn { background: #fdeadb; color: #c4692b; }
+button.letter-btn:hover { background: #fbdcc4; }
+@media (prefers-color-scheme: dark) { button.letter-btn { background: #45332a; color: #f9a65a; } button.letter-btn:hover { background: #553e31; } }

@@ -1065,12 +1065,21 @@ function registerIpc() {
       const rec = appId && store.getApplication(appId);
       if (rec && rec.status === 'scored') store.setStatus(appId, 'skipped');
       broadcast('state-changed');
-    } else if (action === 'open') {
+    } else if (action === 'open' || action === 'open-letter') {
       hideOverlay();
       const w = createDashboard();
-      const send = () => w.webContents.send('navigate', { view: 'application', id: appId });
+      const send = () => w.webContents.send('navigate', { view: 'application', id: appId, tab: action === 'open-letter' ? 'letter' : undefined });
       if (w.webContents.isLoading()) w.webContents.once('did-finish-load', send);
       else send();
+    } else if (action === 'letter') {
+      showOverlay({ mode: 'working', engine: 'claude', what: 'letter', app: withAts(store.getApplication(appId)) });
+      try {
+        await makeCoverLetter(appId);
+        showOverlay({ mode: 'done', engine: 'claude', what: 'letter', app: withAts(store.getApplication(appId)) });
+        overlayHideTimer = setTimeout(hideOverlay, 30000);
+      } catch (err) {
+        showOverlay({ mode: 'message', mood: 'worried', title: 'Oops, a little hiccup', text: err.message });
+      }
     } else if (action === 'resume' || action === 'both' || action === 'resume-ats') {
       const engine = action === 'resume-ats' ? 'ats' : 'claude';
       showOverlay({ mode: 'working', engine, app: withAts(store.getApplication(appId)) });
