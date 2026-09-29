@@ -1,0 +1,266 @@
+// Offline, instant fit estimate. No API calls, so it can run on every
+// clipboard copy and give the user a number before Claude weighs in.
+
+// canonical skill -> patterns that count as a mention
+const SKILLS = {
+  // languages & frameworks
+  JavaScript: [/\bjavascript\b/, /\bjs\b/, /\becmascript\b/],
+  TypeScript: [/\btypescript\b/],
+  Python: [/\bpython\b/],
+  Java: [/\bjava\b(?!script)/],
+  'C#': [/\bc#/, /\.net\b/, /\bdotnet\b/],
+  'C++': [/\bc\+\+/, /\bcpp\b/],
+  Go: [/\bgolang\b/, /\bgo\s+(?:language|developer|engineer)\b/],
+  Rust: [/\brust\b/],
+  Ruby: [/\bruby\b/, /\brails\b/],
+  PHP: [/\bphp\b/],
+  Swift: [/\bswift\b/],
+  Kotlin: [/\bkotlin\b/],
+  SQL: [/\bsql\b/, /\bpostgres(?:ql)?\b/, /\bmysql\b/, /\bt-sql\b/],
+  R: [/\br\s+(?:programming|language|studio)\b/, /\brstudio\b/],
+  React: [/\breact(?:\.js|js)?\b/],
+  Angular: [/\bangular\b/],
+  Vue: [/\bvue(?:\.js)?\b/],
+  'Node.js': [/\bnode(?:\.js|js)?\b/],
+  Django: [/\bdjango\b/],
+  Flask: [/\bflask\b/],
+  Spring: [/\bspring\s*boot\b/, /\bspring framework\b/],
+  'HTML/CSS': [/\bhtml5?\b/, /\bcss3?\b/],
+  GraphQL: [/\bgraphql\b/],
+  'REST APIs': [/\brest(?:ful)?\s*api/, /\bapi design\b/],
+  // cloud & ops
+  AWS: [/\baws\b/, /\bamazon web services\b/],
+  Azure: [/\bazure\b/],
+  GCP: [/\bgcp\b/, /\bgoogle cloud\b/],
+  Docker: [/\bdocker\b/, /\bcontainers?\b/],
+  Kubernetes: [/\bkubernetes\b/, /\bk8s\b/],
+  Terraform: [/\bterraform\b/, /\binfrastructure as code\b/],
+  'CI/CD': [/\bci\s*\/\s*cd\b/, /\bcontinuous (?:integration|delivery|deployment)\b/, /\bgithub actions\b/, /\bjenkins\b/],
+  Linux: [/\blinux\b/, /\bunix\b/],
+  Git: [/\bgit\b/, /\bgithub\b/, /\bgitlab\b/],
+  // data & ML
+  'Machine Learning': [/\bmachine learning\b/, /\bml\b/],
+  'Deep Learning': [/\bdeep learning\b/, /\bneural networks?\b/, /\bpytorch\b/, /\btensorflow\b/],
+  'LLMs / GenAI': [/\bllms?\b/, /\blarge language models?\b/, /\bgenerative ai\b/, /\bgenai\b/, /\bprompt engineering\b/],
+  'Data Analysis': [/\bdata analy(?:sis|tics)\b/, /\banalytics\b/],
+  'Data Visualization': [/\bdata visuali[sz]ation\b/, /\btableau\b/, /\bpower\s*bi\b/, /\blooker\b/],
+  Excel: [/\bexcel\b/, /\bspreadsheets?\b/],
+  Statistics: [/\bstatistic(?:s|al)\b/, /\ba\/b test/],
+  'ETL / Pipelines': [/\betl\b/, /\bdata pipelines?\b/, /\bairflow\b/, /\bdbt\b/],
+  Spark: [/\bspark\b/, /\bdatabricks\b/],
+  Snowflake: [/\bsnowflake\b/],
+  // product, design, business
+  'Product Management': [/\bproduct management\b/, /\bproduct manager\b/, /\broadmaps?\b/],
+  Agile: [/\bagile\b/, /\bscrum\b/, /\bkanban\b/, /\bsprints?\b/],
+  'Project Management': [/\bproject management\b/, /\bpmp\b/, /\bstakeholder management\b/],
+  'UX Design': [/\bux\b/, /\buser experience\b/, /\buser research\b/, /\busability\b/],
+  'UI Design': [/\bui design\b/, /\bvisual design\b/, /\bdesign systems?\b/],
+  Figma: [/\bfigma\b/],
+  'Adobe Creative Suite': [/\badobe\b/, /\bphotoshop\b/, /\billustrator\b/, /\bindesign\b/],
+  Marketing: [/\bmarketing\b/, /\bcampaigns?\b/],
+  SEO: [/\bseo\b/, /\bsearch engine optimi[sz]ation\b/],
+  'Content Writing': [/\bcopywriting\b/, /\bcontent (?:writing|creation|strategy)\b/, /\btechnical writing\b/],
+  'Social Media': [/\bsocial media\b/],
+  Sales: [/\bsales\b/, /\bquota\b/, /\bpipeline generation\b/],
+  CRM: [/\bcrm\b/, /\bsalesforce\b/, /\bhubspot\b/],
+  'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
+  Finance: [/\bfinancial (?:analysis|modeling|reporting)\b/, /\bbudget(?:s|ing)?\b/, /\bforecasting\b/],
+  Accounting: [/\baccounting\b/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
+  Operations: [/\boperations\b/, /\bprocess improvement\b/, /\blean\b/, /\bsix sigma\b/],
+  'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, /\bprocurement\b/, /\binventory\b/],
+  'Human Resources': [/\bhuman resources\b/, /\brecruiting\b/, /\btalent acquisition\b/, /\bonboarding\b/],
+  Healthcare: [/\bpatient care\b/, /\bclinical\b/, /\behr\b/, /\bhipaa\b/],
+  Education: [/\bcurriculum\b/, /\blesson plans?\b/, /\bteaching\b/, /\binstruction(?:al)? design\b/],
+  Legal: [/\blegal research\b/, /\bcompliance\b/, /\bcontracts?\b/, /\bregulatory\b/],
+  Security: [/\bsecurity\b/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
+  Testing: [/\bunit tests?\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
+  // human skills
+  Leadership: [/\bleadership\b/, /\bmentor(?:ing|ship)?\b/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
+  Communication: [/\bcommunication skills\b/, /\bwritten and verbal\b/, /\bpresentations?\b/, /\bpublic speaking\b/],
+  Collaboration: [/\bcross[-\s]functional\b/, /\bcollaborat(?:e|ion|ive)\b/, /\bteamwork\b/],
+  'Problem Solving': [/\bproblem[-\s]solving\b/, /\banalytical skills\b/, /\bcritical thinking\b/],
+  Bilingual: [/\bbilingual\b/, /\bspanish\b/, /\bfrench\b/, /\bmandarin\b/, /\bgerman\b/],
+};
+
+const STOPWORDS = new Set(
+  (
+    'about above after again against all also and any are because been before being below between both but ' +
+    'can could did does doing down during each few for from further had has have having here how into its itself ' +
+    'just more most must other our ours out over own same should some such than that the their them then there ' +
+    'these they this those through too under until very was were what when where which while who whom why will ' +
+    'with would you your yours we us role team work working company job candidate candidates position ability ' +
+    'including include includes strong experience years year preferred required requirements responsibilities ' +
+    'qualifications plus etc new well across within help using use based like one two three looking join'
+  ).split(' ')
+);
+
+const REQUIRED_CUE = /\b(required|requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
+const PREFERRED_CUE = /\b(preferred|nice to have|bonus|plus|desired|ideally|good to have)\b/;
+
+function lower(s) {
+  return (s || '').toLowerCase();
+}
+
+function findSkills(text) {
+  const t = lower(text);
+  const found = new Set();
+  for (const [skill, patterns] of Object.entries(SKILLS)) {
+    if (patterns.some((p) => p.test(t))) found.add(skill);
+  }
+  return found;
+}
+
+// Weight each skill by where it shows up in the posting: required-sounding
+// lines count more than nice-to-haves.
+function weightedJobSkills(jobText) {
+  const weights = new Map();
+  let section = 'neutral';
+  for (const rawLine of lower(jobText).split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const isHeading = line.length < 60 && !/[.;]$/.test(line);
+    let lineKind = section;
+    if (PREFERRED_CUE.test(line)) lineKind = 'preferred';
+    else if (REQUIRED_CUE.test(line)) lineKind = 'required';
+    if (isHeading && lineKind !== section) section = lineKind;
+    const w = lineKind === 'required' ? 1.5 : lineKind === 'preferred' ? 0.6 : 1;
+    for (const [skill, patterns] of Object.entries(SKILLS)) {
+      if (patterns.some((p) => p.test(line))) {
+        weights.set(skill, Math.max(weights.get(skill) || 0, w));
+      }
+    }
+  }
+  return weights;
+}
+
+function significantTerms(text) {
+  const counts = new Map();
+  for (const w of lower(text).match(/[a-z][a-z+#.\-]{3,}/g) || []) {
+    const word = w.replace(/[.\-]+$/, '');
+    if (word.length < 4 || STOPWORDS.has(word)) continue;
+    counts.set(word, (counts.get(word) || 0) + 1);
+  }
+  return counts;
+}
+
+function requiredYears(jobText) {
+  const m = lower(jobText).match(/(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?years?/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Longest span covered by date ranges like "2019 - Present" or "Jan 2018 – Mar 2022".
+function yearsOfExperience(corpus, now = new Date()) {
+  const thisYear = now.getFullYear();
+  const re = /\b((?:19|20)\d{2})\s*(?:-|–|—|to)\s*((?:19|20)\d{2}|present|current|now)\b/gi;
+  let earliest = null;
+  let latest = null;
+  let m;
+  while ((m = re.exec(corpus))) {
+    const start = parseInt(m[1], 10);
+    const end = /\d/.test(m[2]) ? parseInt(m[2], 10) : thisYear;
+    if (start > end || start < 1960) continue;
+    earliest = earliest === null ? start : Math.min(earliest, start);
+    latest = latest === null ? end : Math.max(latest, end);
+  }
+  return earliest === null ? null : latest - earliest;
+}
+
+function fitLabel(score) {
+  if (score >= 80) return 'Excellent match';
+  if (score >= 65) return 'Strong match';
+  if (score >= 45) return 'Good potential';
+  return 'Stretch role';
+}
+
+/**
+ * @param {string} jobText  the posting
+ * @param {string[]} docTexts  the user's library
+ */
+function quickFitScore(jobText, docTexts) {
+  const corpus = docTexts.join('\n\n');
+  const corpusSkills = findSkills(corpus);
+  const jobSkills = weightedJobSkills(jobText);
+
+  const matched = [];
+  const missing = [];
+  let have = 0;
+  let total = 0;
+  for (const [skill, w] of jobSkills) {
+    total += w;
+    if (corpusSkills.has(skill)) {
+      have += w;
+      matched.push(skill);
+    } else {
+      missing.push(skill);
+    }
+  }
+  const skillCoverage = total ? have / total : null;
+
+  // Vocabulary overlap catches domain words the skills list doesn't know about.
+  const jobTerms = [...significantTerms(jobText).entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
+  const corpusLower = lower(corpus);
+  const termHits = jobTerms.filter(([t]) => corpusLower.includes(t)).length;
+  const termOverlap = jobTerms.length ? termHits / jobTerms.length : 0;
+
+  const needYears = requiredYears(jobText);
+  const haveYears = yearsOfExperience(corpus);
+  let yearsFit = null;
+  if (needYears !== null && haveYears !== null) yearsFit = Math.min(1, haveYears / Math.max(needYears, 1));
+
+  // Blend whatever signals we actually have.
+  const parts = [
+    [skillCoverage, 0.65],
+    [termOverlap, 0.25],
+    [yearsFit, 0.1],
+  ].filter(([v]) => v !== null);
+  const weightSum = parts.reduce((s, [, w]) => s + w, 0);
+  const raw = parts.reduce((s, [v, w]) => s + v * w, 0) / weightSum;
+  // Keyword overlap undersells real fit; stretch the curve so a solid match lands in the 70s-80s.
+  const score = docTexts.length ? Math.round(Math.min(100, Math.max(0, Math.pow(raw, 0.8) * 100))) : 0;
+
+  return {
+    score,
+    label: fitLabel(score),
+    matchedSkills: matched,
+    missingSkills: missing,
+    requiredYears: needYears,
+    estimatedYears: haveYears,
+    source: 'quick',
+  };
+}
+
+const POSTING_SIGNALS = [
+  /\bresponsibilities\b/,
+  /\bqualifications\b/,
+  /\brequirements\b/,
+  /\babout (?:the|this) (?:role|position|job)\b/,
+  /\bwhat you.?ll (?:do|bring)\b/,
+  /\bwho you are\b/,
+  /\byears? of (?:professional )?experience\b/,
+  /\bexperience (?:with|in)\b/,
+  /\bbenefits\b/,
+  /\b(?:salary|compensation|pay range)\b/,
+  /\bfull[-\s]time\b|\bpart[-\s]time\b|\bcontract\b/,
+  /\bwe.?re looking for\b|\byou will\b/,
+  /\bequal (?:opportunity|employment)\b/,
+  /\bapply\b/,
+  /\bremote\b|\bhybrid\b|\bon[-\s]site\b/,
+  /\bpreferred\b|\bnice to have\b/,
+];
+
+function looksLikeJobPosting(text) {
+  if (!text || text.length < 300) return false;
+  const t = lower(text);
+  const hits = POSTING_SIGNALS.filter((p) => p.test(t)).length;
+  return hits >= 4;
+}
+
+module.exports = {
+  quickFitScore,
+  looksLikeJobPosting,
+  findSkills,
+  weightedJobSkills,
+  yearsOfExperience,
+  requiredYears,
+  fitLabel,
+};
