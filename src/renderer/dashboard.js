@@ -127,6 +127,79 @@ function greeting() {
   return `Good evening${name}!`;
 }
 
+// ---------------- home page pieces ----------------
+
+// The hero's sky follows the clock: dawn, day, sunset, night.
+function timeOfDay(h = new Date().getHours()) {
+  if (h >= 5 && h < 10) return 'dawn';
+  if (h >= 10 && h < 17) return 'day';
+  if (h >= 17 && h < 21) return 'dusk';
+  return 'night';
+}
+
+function heroScene(time) {
+  // Laid out for the usual ~960px-wide hero: text on the left, buttons on the
+  // right, and the sun or moon in the open sky between them.
+  const sky = time === 'night'
+    ? `<g class="stars">${[[330, 30, 1.4], [400, 62, 1], [470, 22, 1.2], [560, 48, 1.6], [620, 16, 1], [660, 70, 1.2], [760, 24, 1.4], [240, 56, 1], [880, 60, 1.1]].map(([x, y, r], i) => `<circle cx="${x}" cy="${y}" r="${r}" style="animation-delay:${i * 0.4}s"/>`).join('')}</g>
+      <g class="moon"><circle cx="700" cy="50" r="18"/><circle cx="709" cy="43" r="16" class="moon-cut"/></g>`
+    : `<circle class="sun" cx="${time === 'dawn' ? 660 : time === 'dusk' ? 720 : 700}" cy="${time === 'day' ? 50 : 88}" r="${time === 'day' ? 20 : 24}"/>
+      <g class="clouds"><path class="cloud c1" d="M470 46a12 12 0 0 1 22-6 10 10 0 0 1 17 8h-39a7 7 0 0 1 0-2z"/><path class="cloud c2" d="M580 30a10 10 0 0 1 18-5 8 8 0 0 1 14 7h-32a6 6 0 0 1 0-2z"/></g>`;
+  return `<svg class="hero-scene" viewBox="0 0 960 150" preserveAspectRatio="xMidYMax slice" aria-hidden="true">${sky}
+    <path class="hill back" d="M0 128C140 104 280 120 420 110S740 92 960 114V150H0Z"/>
+    <path class="hill front" d="M0 116C50 100 130 98 180 116S300 138 400 134 700 140 960 130V150H0Z"/>
+    <g class="grass">${[36, 64, 124, 206, 262, 560, 820, 900].map((x, i) => `<path d="M${x} ${i < 4 ? 118 + (i % 2) * 6 : 136}q1-6 -2-10M${x + 3} ${i < 4 ? 118 + (i % 2) * 6 : 136}q1-8 4-11"/>`).join('')}</g></svg>`;
+}
+
+// Five growth stages for the whole search: checked → saved → applied → interviewing → offer.
+function stageArt(kind) {
+  const soil = '<path d="M4 34h24" stroke="var(--stage-soil)" stroke-width="3" stroke-linecap="round"/>';
+  if (kind === 'seed') return `<svg viewBox="0 0 32 36" width="40" height="44" aria-hidden="true">${soil}<ellipse cx="16" cy="29" rx="5" ry="3.6" fill="#c9a27a" stroke="#9a7450" stroke-width="1.2"/><path d="M14 28.5q2-1.6 4 0" stroke="#9a7450" stroke-width="1" fill="none"/></svg>`;
+  if (kind === 'sprout') return `<svg viewBox="0 0 32 36" width="40" height="44" aria-hidden="true">${soil}<path d="M16 33q-1-8 0-14" stroke="var(--stem)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M16 22q-8-1-9-7 7-1 9 7z" fill="var(--leaf)" stroke="var(--stem)" stroke-width="1.2"/><path d="M16 20q7-2 9-8-7-1-9 8z" fill="var(--leaf-2)" stroke="var(--stem)" stroke-width="1.2"/></svg>`;
+  return bedPlantSvg(kind).replace('width="32" height="36"', 'width="40" height="44"').replace('aria-hidden="true">', `aria-hidden="true">${soil}`); // garden.js
+}
+
+function growthCard(apps) {
+  const reached = (a, ...st) => st.includes(a.status) || (a.statusHistory || []).some((h) => st.includes(h.status));
+  const applied = apps.filter((a) => a.appliedAt || reached(a, 'applied', 'interviewing', 'offer'));
+  const talking = apps.filter((a) => reached(a, 'interviewing', 'offer'));
+  const stages = [
+    ['seed', apps.length + (state.checked || []).length, 'checked', 'check'],
+    ['sprout', apps.length, 'saved', 'applications'],
+    ['bud', applied.length, 'applied', 'applications'],
+    ['bloom', talking.length, 'interviewing', 'applications'],
+    ['golden', apps.filter((a) => reached(a, 'offer')).length, apps.filter((a) => reached(a, 'offer')).length === 1 ? 'offer' : 'offers', 'applications'],
+  ];
+  const rate = applied.length ? `${Math.round((talking.length / applied.length) * 100)}% of applications got an interview` : 'Apply to a role and watch it grow';
+  return `<div class="card growth"><div class="growth-head"><h3 class="with-icon">${icon('seedling', 20)} Your search, growing</h3><span class="faint">${rate}</span></div>
+    <div class="stages">${stages.map(([kind, n, label, go], i) => `${i ? '<i class="stage-vine" aria-hidden="true"></i>' : ''}<button class="stage ${n ? '' : 'none'}" data-go="${go}" title="${n} ${label}">${stageArt(kind)}<b>${n}</b><span>${label}</span></button>`).join('')}</div></div>`;
+}
+
+// The last seven days, one plant per day, sized by what you did.
+function weekCard(apps) {
+  const all = [...apps, ...(state.checked || [])];
+  const day = (t) => new Date(t).toDateString();
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(Date.now() - (6 - i) * 86400000);
+    const key = d.toDateString();
+    return { d, checked: all.filter((a) => day(a.createdAt) === key).length, applied: apps.filter((a) => a.appliedAt && day(a.appliedAt) === key).length };
+  });
+  const checked = days.reduce((n, x) => n + x.checked, 0);
+  const applied = days.reduce((n, x) => n + x.applied, 0);
+  const plant = ({ checked: c, applied: a }) => {
+    if (!c && !a) return '<svg viewBox="0 0 40 72" width="40" height="72" aria-hidden="true"><ellipse cx="20" cy="67" rx="3.2" ry="2.4" fill="var(--stage-soil)"/></svg>';
+    const top = 70 - Math.min(58, 18 + (c + a * 2) * 7); // taller the busier the day
+    const leaves = [];
+    for (let y = 60; y > top + 12; y -= 14) leaves.push(`<path d="M20 ${y}q${y % 28 ? -9 : 9}-1 ${y % 28 ? -10 : 10}-7 ${y % 28 ? 8 : -8}-1 ${y % 28 ? 10 : -10} 7z" fill="var(--leaf)" stroke="var(--stem)" stroke-width="1.1"/>`);
+    return `<svg viewBox="0 0 40 72" width="40" height="72" aria-hidden="true"><path d="M20 70V${top + 6}" stroke="var(--stem)" stroke-width="2.2" stroke-linecap="round"/>${leaves.join('')}
+      <path d="M20 ${top + 9}q-8-1-9-7 7-1 9 7z" fill="var(--leaf)" stroke="var(--stem)" stroke-width="1.1"/><path d="M20 ${top + 7}q7-2 9-8-7-1-9 8z" fill="var(--leaf-2)" stroke="var(--stem)" stroke-width="1.1"/>
+      ${a ? `<path d="M20 ${top + 6}q-5.5-4-0.5-11 5.5 6.5 0.5 11z" fill="var(--lavender)" stroke="#6b5aa8" stroke-width="1.1"/>${a > 1 ? `<text x="30" y="${top + 4}" class="wcount">×${a}</text>` : ''}` : ''}</svg>`;
+  };
+  return `<div class="card week"><div class="growth-head"><h3 class="with-icon">${icon('clock', 20)} This week</h3><span class="faint">${checked} checked · ${applied} applied</span></div>
+    <div class="week-bed">${days.map((x, i) => `<div class="wday ${i === 6 ? 'today' : ''}" title="${x.d.toLocaleDateString(undefined, { weekday: 'long' })}: ${x.checked} checked, ${x.applied} applied">${plant(x)}<span>${i === 6 ? 'Today' : x.d.toLocaleDateString(undefined, { weekday: 'short' })}</span></div>`).join('')}</div>
+    <div class="week-key faint"><span>${icon('seedling', 13)} checked a role</span><span><i class="bud-dot"></i> applied</span></div></div>`;
+}
+
 // What Sprout says on the home page, from how the search is going.
 function homeMood({ apps, appliedWeek, due, allDone, standout }) {
   const offers = apps.filter((a) => a.status === 'offer').length;
@@ -321,10 +394,7 @@ const views = {
   home() {
     const apps = state.applications;
     const weekAgo = Date.now() - 7 * 86400000;
-    const thisWeek = [...apps, ...(state.checked || [])].filter((a) => new Date(a.createdAt).getTime() > weekAgo).length;
     const appliedWeek = apps.filter((a) => a.appliedAt && Date.parse(a.appliedAt) > weekAgo).length;
-    const appliedAll = apps.filter((a) => a.appliedAt).length;
-    const responses = apps.filter((a) => a.appliedAt && ['interviewing', 'offer'].includes(a.status)).length;
     const due = apps.filter(followUpDue);
     const steps = [
       [state.documents.length > 0, 'Add your resume & documents to your library', 'library'],
@@ -335,8 +405,9 @@ const views = {
     const allDone = steps.every(([d]) => d);
     const standout = standoutLine(); // network.js
     const [mood, line] = homeMood({ apps, appliedWeek, due, allDone, standout });
+    const time = timeOfDay();
     return `<div class="page">
-      <div class="hero">${mascotSvg(mood, 104, { cls: 'pettable', label: 'Sprout — click to say hi' })}
+      <div class="hero" data-time="${time}">${heroScene(time)}${mascotSvg(mood, 104, { cls: 'pettable', label: 'Sprout — click to say hi' })}
         <div><h1>${greeting()}</h1><p class="sprout-line">${esc(line)}</p></div>
         <div class="actions">
           ${standout ? `<button class="primary" id="standoutBtn">${icon('sparkle')} See the strong fits</button>` : ''}
@@ -344,31 +415,25 @@ const views = {
           <button class="soft" id="scanBtn">${icon('camera')} Scan my screen</button>
         </div>
       </div>
+      ${allDone ? '' : `<div class="card setup"><div class="setup-top"><h3 style="margin:0">Getting set up</h3><div class="setup-bar"><i style="width:${(steps.filter(([d]) => d).length / steps.length) * 100}%"></i></div><span class="faint">${steps.filter(([d]) => d).length} of ${steps.length}</span></div>
+        <div class="setup-next">${steps.filter(([d]) => !d).map(([, what, go]) => `<button class="small soft" data-go="${go}">${esc(what)} →</button>`).join('')}</div></div>`}
       ${spireHomeCard() || gardenHomeCard()}
       ${outreachHomeCard()}
-      <div class="grid three" style="margin-bottom:16px">
-        <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('seedling', 26)}</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
-        <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('send', 26)}</div><div><b>${appliedWeek}</b><span>applied in the last 7 days · ${appliedAll} total</span></div></div>
-        <div class="card stat"><div class="stat-icon" style="background:var(--peach-soft);color:#b8653e">${icon('chat', 26)}</div><div><b>${appliedAll ? Math.round((responses / appliedAll) * 100) + '%' : '–'}</b><span>got an interview or offer</span></div></div>
-      </div>
+      ${growthCard(apps)}
       ${due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0"><h3 class="with-icon">${icon('clock', 20)} Follow-ups due</h3><div class="list">${due.map(appRow).join('')}</div></div>` : ''}
-      <div class="grid two">
-        <div class="card"><h2>${allDone ? 'All set up!' : 'Getting started'}</h2>
-          <ul class="checklist">${steps
-            .map(([done, what, go]) => `<li class="${done ? 'done' : ''}"><span class="tick">${done ? '✓' : ''}</span><span class="what">${what}</span>${done ? '' : `<button class="small soft" data-go="${go}">Go</button>`}</li>`)
-            .join('')}</ul>
-        </div>
-        <div class="card"><h2>Recent roles</h2>
+      <div class="grid home-split">
+        ${weekCard(apps)}
+        <div class="card"><h3>Recent roles</h3>
           ${(state.checked || []).length ? `<p class="faint" style="margin-top:-4px">Plus ${state.checked.length} job${state.checked.length === 1 ? '' : 's'} you checked but didn't save. <a href="#check">See them</a>.</p>` : ''}
-          ${apps.length ? `<div class="list">${apps.slice(0, 4).map(appRow).join('')}</div>` : `<div class="empty">${mascotSvg('curious', 64)}<p>No roles yet. Copy a job posting's text, press <b>${esc(prettyHotkey())}</b> while one's on screen, or paste one in <a href="#check">Check a job</a>.</p></div>`}
+          ${apps.length ? `<div class="list">${apps.slice(0, 3).map(appRow).join('')}</div>` : `<div class="empty">${mascotSvg('curious', 64)}<p>No roles yet. Copy a job posting's text, press <b>${esc(prettyHotkey())}</b> while one's on screen, or paste one in <a href="#check">Check a job</a>.</p></div>`}
         </div>
       </div>
-      <div class="card" style="margin-top:16px"><h3>How I spot jobs for you</h3>
+      ${apps.length < 3 ? `<div class="card" style="margin-top:16px"><h3>How I spot jobs for you</h3>
         <div class="spot-ways">
           <div>${icon('clipboard', 28)}<p><b>Copy</b> a job description anywhere and I'll pop up with a free score — no Claude usage.</p></div>
           <div>${icon('keyboard', 28)}<p>Press <b>${esc(prettyHotkey())}</b> and I'll read the posting on your screen (free, on your computer).</p></div>
           <div>${icon('eye', 28)}<p>Or turn on <b>screen watching</b> in Settings and I'll notice postings as you browse.</p></div>
-        </div></div>
+        </div></div>` : ''}
     </div>`;
   },
 
