@@ -161,10 +161,31 @@ class Store {
     this.save();
     return app;
   }
+  // Checking a job's fit keeps it as a "checked" job (saved: false), off your
+  // applications, until you save it or act on it. Older records have no flag
+  // and count as saved.
+  saveApplication(id) {
+    const app = this.getApplication(id);
+    if (!app || app.saved !== false) return app;
+    app.saved = true;
+    app.savedAt = new Date().toISOString();
+    this.save();
+    return app;
+  }
+  // Checked jobs you never saved are forgotten after `days` without being seen again.
+  pruneChecked(days = 30, now = Date.now()) {
+    const cutoff = now - days * 86400000;
+    const before = this.data.applications.length;
+    this.data.applications = this.data.applications.filter((a) => a.saved !== false || Date.parse(a.lastSeenAt || a.createdAt) >= cutoff);
+    if (this.data.applications.length !== before) this.save();
+    return before - this.data.applications.length;
+  }
   // Change status and keep a dated history, so the tracker can show a timeline.
+  // Moving a job along (resume ready, applied…) saves it.
   setStatus(id, status, extra = {}) {
     const app = this.getApplication(id);
     if (!app) return null;
+    if (app.saved === false && !['scored', 'skipped'].includes(status)) Object.assign(app, { saved: true, savedAt: new Date().toISOString() });
     if (app.status !== status) {
       app.statusHistory = [...(app.statusHistory || [{ status: app.status, at: app.createdAt }]), { status, at: new Date().toISOString() }];
       app.status = status;

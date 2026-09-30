@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('sprout', {
   exportCsv: () => call('apps:exportCsv'),
   openExternal: (url) => call('shell:openExternal', url),
   updateApplication: (id, patch) => call('app:update', id, patch),
+  saveApplication: (id) => call('app:save', id),
   removeApplication: (id) => call('app:remove', id),
   generateResume: (id) => call('app:resume', id),
   atsResume: (id) => call('app:atsResume', id),

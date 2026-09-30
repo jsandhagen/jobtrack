@@ -613,7 +613,7 @@ function careerJobs() {
 
 function inMyList(co, job) {
   const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  return state.applications.find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
+  return [...state.applications, ...(state.checked || [])].find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
 }
 
 function careersFeedCard() {
@@ -633,7 +633,7 @@ function careersFeedCard() {
     const isNew = job.firstSeenAt && Date.now() - Date.parse(job.firstSeenAt) < 3 * 86400000;
     return `<div class="search-row"><div class="grow"><div class="title">${esc(job.title)}${isNew ? ' <span class="chip good tiny">new</span>' : ''}</div>
       <div class="sub">${esc([co.name, job.location, ageText(job.postedAt)].filter(Boolean).join(' · '))}</div></div>
-      ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">In your list</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
+      ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">${mine.saved === false ? `Checked · ${mine.score}` : 'In your list'}</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
       <button class="small ghost" data-open-url="${esc(job.url)}">${icon('link', 14)} Open</button></div>`;
   };
   const body = !cos.length

@@ -23,6 +23,8 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     ? a.strengths.slice(0, 3).map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')
     : app.quick.matchedSkills.slice(0, 6).map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('');
   const speech = analyzing ? 'A new role — let me take a closer look…' : encouragement(score, app.id.charCodeAt(0));
+  // Checked jobs stay off your applications unless you keep them.
+  const saveBtn = app.saved === false ? '<button class="ghost" data-act="save">Save for later</button>' : '';
   let footer;
   if (noDocs) {
     footer = `<div class="note">Add your resume and a few documents to your library so I can score you properly!</div>
@@ -31,10 +33,10 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     footer = `<div class="ask">Want an ATS resume for this role? It's free.</div>
       ${modeChoice(false)}
       <div class="note">Add a Claude API key in Settings for a deeper read and Claude-written resumes.</div>
-      <div class="actions minor"><button class="ghost" data-act="open">Details</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
+      <div class="actions minor"><button class="ghost" data-act="open">Details</button>${saveBtn}<button class="ghost" data-act="dismiss">Not now</button></div>`;
   } else if (app.quick.dealbreakers && app.quick.dealbreakers.length && !a) {
     footer = `<div class="note">Heads up — ${esc(app.quick.dealbreakers.join('; '))}.</div>
-      <div class="actions"><button class="ghost" data-act="open">Details</button><button class="soft" data-act="resume">Tailor a resume anyway</button><button class="ghost" data-act="dismiss">Skip it</button></div>`;
+      <div class="actions"><button class="ghost" data-act="open">Details</button><button class="soft" data-act="resume">Tailor a resume anyway</button>${saveBtn}<button class="ghost" data-act="dismiss">Skip it</button></div>`;
   } else {
     footer = `${!a && !analyzing ? `<button class="ghost small ask-claude" data-act="analyze">${icon('search', 15)} Ask Claude for a deeper read</button>` : ''}
       <div class="ask">Want me to tailor a resume for this role?</div>
@@ -42,6 +44,7 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
       <button class="soft letter-btn" data-act="letter">${icon('letter', 16)} Write a cover letter<small>with Claude</small></button>
       <div class="actions minor">
         <button class="ghost" data-act="open">Details</button>
+        ${saveBtn}
         <button class="ghost" data-act="dismiss">Not now</button>
       </div>`;
   }

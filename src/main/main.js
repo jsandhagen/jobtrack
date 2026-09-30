@@ -391,7 +391,10 @@ function wantsAutoAnalysis(local) {
 }
 
 // silent: someone else shows the result (the browser extension's card), so no popup.
-async function handlePosting(posting, { fromDashboard = false, waitForAnalysis = true, quietDuplicate = false, silent = false } = {}) {
+// A checked job is kept (so it's recognised next time and you can open it)
+// but stays off your applications until you save it or act on it. `save`
+// is for when you've already said to keep it (the browser card asks).
+async function handlePosting(posting, { fromDashboard = false, waitForAnalysis = true, quietDuplicate = false, silent = false, save = false } = {}) {
   const docs = store.allDocuments();
   const job = { title: posting.title || guessTitle(posting.text), company: posting.company || '', location: posting.location || '', text: posting.text, url: posting.url || '' };
   const fp = fingerprint(posting.text);
@@ -400,16 +403,17 @@ async function handlePosting(posting, { fromDashboard = false, waitForAnalysis =
   // Seen this one before? Don't create a second record — remind instead.
   const dup = store.findDuplicate({ fingerprint: fp, company: job.company, title: job.title });
   if (dup) {
+    if (save) store.saveApplication(dup.id);
     const updated = store.updateApplication(dup.id, { lastSeenAt: new Date().toISOString(), seenCount: (dup.seenCount || 1) + 1, ...(job.url && !dup.job.url ? { job: { ...dup.job, url: job.url } } : {}) });
     broadcast('app-updated', updated);
     // Browsing past a job again: only speak up if it matters (you applied, etc.).
-    const worthMentioning = !['scored', 'skipped'].includes(updated.status);
+    const worthMentioning = updated.saved !== false && !['scored', 'skipped'].includes(updated.status);
     if (!fromDashboard && !silent && (!quietDuplicate || worthMentioning)) showOverlay({ mode: 'seen', app: withAts(updated) });
     return updated;
   }
 
   const quick = scoreLocally(job);
-  const rec = store.addApplication({ job, via: posting.via, fingerprint: fp, quick, analysis: null });
+  const rec = store.addApplication({ job, via: posting.via, fingerprint: fp, quick, analysis: null, saved: !!save, ...(save ? { savedAt: new Date().toISOString() } : {}) });
   broadcast('state-changed');
 
   const hasKey = !!getApiKey();
@@ -471,6 +475,7 @@ async function makeResume(appId) {
   const rec = store.getApplication(appId);
   if (!rec) throw new Error('That application no longer exists.');
   if (!evidenceDocs().length) throw new Error('Add at least one document (like your current resume) to your library first.');
+  store.saveApplication(appId);
   store.updateApplication(appId, { resumeStatus: 'working' });
   broadcast('app-updated', store.getApplication(appId));
   try {
@@ -536,6 +541,7 @@ function makeAtsResume(appId) {
   if (!store.getBank().experiences.length && store.allDocuments().length) importBullets(store.allDocuments());
   const bank = store.getBank();
   if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add your resume to My library first.");
+  store.saveApplication(appId);
   const { doc } = bulletBank.buildDoc({ profile: store.getProfile(), bank, job: rec.job, roles: bulletBank.selectBullets(rec.job, bank).roles });
   if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
   saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, builderPrev: undoPoint(rec) });
@@ -553,6 +559,7 @@ function resumeMode(rec) {
 async function makeCoverLetter(appId) {
   const rec = store.getApplication(appId);
   if (!rec) throw new Error('That application no longer exists.');
+  store.saveApplication(appId);
   store.updateApplication(appId, { letterStatus: 'working' });
   broadcast('app-updated', store.getApplication(appId));
   try {
@@ -808,7 +815,7 @@ async function startBridge() {
     onPosting: async (p) => {
       const job = jobFromBrowser(p);
       const before = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
-      const rec = await handlePosting({ ...job, via: 'browser' }, { waitForAnalysis: false, quietDuplicate: p.auto, silent: p.silent });
+      const rec = await handlePosting({ ...job, via: 'browser' }, { waitForAnalysis: false, quietDuplicate: p.auto, silent: p.silent, save: true });
       const score = rec.analysis ? rec.analysis.score : rec.quick.score;
       return {
         id: rec.id,
@@ -825,8 +832,8 @@ async function startBridge() {
     onPreview: async (p) => {
       const job = jobFromBrowser(p);
       const dup = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
-      if (dup) return browserCard(dup, { seen: true });
-      const quick = scoreLocally(job);
+      if (dup && dup.saved !== false) return browserCard(dup, { seen: true });
+      const quick = dup ? dup.quick : scoreLocally(job);
       return {
         saved: false,
         preview: {
@@ -889,7 +896,12 @@ function registerIpc() {
     settings: { ...store.getSettings(), bridgePairings: undefined },
     profile: store.getProfile(),
     documents: store.listDocuments(),
-    applications: store.listApplications().map(summarizeApp),
+    applications: store.listApplications().filter((a) => a.saved !== false).map(summarizeApp),
+    checked: store
+      .listApplications()
+      .filter((a) => a.saved === false)
+      .sort((a, b) => String(b.lastSeenAt || b.createdAt).localeCompare(String(a.lastSeenAt || a.createdAt)))
+      .map(summarizeApp),
     hasApiKey: !!getApiKey(),
     usage: store.getUsage(),
     autoBudgetOk: autoBudgetOk(),
@@ -955,6 +967,7 @@ function registerIpc() {
     const allowed = {};
     for (const k of ['notes', 'followUpAt', 'appliedVia', 'contact', 'salaryNote']) if (patch[k] !== undefined) allowed[k] = patch[k];
     if (patch.followUpAt !== undefined) allowed.followUpNotified = false;
+    if (patch.notes) store.saveApplication(id); // writing notes on a job means keeping it
     if (patch.job) {
       const rec = store.getApplication(id);
       allowed.job = { ...rec.job, ...pick(patch.job, ['title', 'company', 'location', 'url']) };
@@ -1056,7 +1069,7 @@ function registerIpc() {
   // ---- resume editor (per application) ----
   handle('builder:get', (appId) => builderState(store.getApplication(appId)));
   handle('builder:save', (appId, doc) => {
-    const rec = store.getApplication(appId);
+    const rec = store.saveApplication(appId);
     const clean = saveDoc(appId, doc);
     // Role facts (employer, title, dates, location) are the same on every resume: keep the bank in step.
     store.updateBank((bank) => {
@@ -1229,9 +1242,16 @@ function registerIpc() {
       filters: [{ name: 'CSV', extensions: ['csv'] }],
     });
     if (res.canceled || !res.filePath) return null;
-    fs.writeFileSync(res.filePath, applicationsCsv(store.listApplications()));
+    fs.writeFileSync(res.filePath, applicationsCsv(store.listApplications().filter((a) => a.saved !== false)));
     shell.showItemInFolder(res.filePath);
     return res.filePath;
+  });
+  handle('app:save', (id) => {
+    const rec = store.saveApplication(id);
+    if (!rec) throw new Error('That job is no longer in Sprout.');
+    broadcast('app-updated', rec);
+    broadcast('state-changed');
+    return rec;
   });
   handle('app:remove', (id) => {
     store.removeApplication(id);
@@ -1283,6 +1303,11 @@ function registerIpc() {
       await analyzeApp(appId, { popup: true }).catch((err) =>
         showOverlay({ mode: 'message', mood: 'worried', title: 'Oops, a little hiccup', text: err.message })
       );
+    } else if (action === 'save') {
+      if (appId) store.saveApplication(appId);
+      showOverlay({ mode: 'message', mood: 'happy', title: 'Saved to your applications', text: "It's under To apply whenever you're ready." });
+      overlayHideTimer = setTimeout(hideOverlay, 4000);
+      broadcast('state-changed');
     } else if (action === 'dismiss') {
       hideOverlay();
       // "Not now" on a fresh posting files it as skipped; never downgrade one you applied to.
@@ -1465,6 +1490,8 @@ function summarizeApp(a) {
     confidence: a.quick.confidence || null,
     dealbreaker: !!(a.quick.dealbreakers && a.quick.dealbreakers.length),
     appliedAt: a.appliedAt || null,
+    saved: a.saved !== false,
+    lastSeenAt: a.lastSeenAt || a.createdAt,
     statusHistory: a.statusHistory || [],
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
@@ -1545,6 +1572,7 @@ if (process.argv.includes('--smoke-test')) {
 
   app.whenReady().then(() => {
     store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
+    store.pruneChecked(); // checked jobs you never saved, not seen for a month
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();
     // First run with the bullet bank: fill it from the resumes already in the library.

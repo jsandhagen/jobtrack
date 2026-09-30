@@ -89,6 +89,30 @@ test('Store persists settings, documents and applications', () => {
   assert.equal(new Store(dir).listDocuments().length, 0);
 });
 
+test('checked jobs stay off your applications until saved, and are forgotten after a month', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-'));
+  const s = new Store(dir);
+  const old = s.addApplication({ job: { title: 'Legacy', text: POSTING }, quick: { score: 50 } }); // saved before the flag existed
+  const checked = s.addApplication({ job: { title: 'Checked', text: POSTING }, quick: { score: 50 }, saved: false });
+  const stale = s.addApplication({ job: { title: 'Stale', text: POSTING }, quick: { score: 50 }, saved: false });
+  const skipped = s.addApplication({ job: { title: 'Skipped', text: POSTING }, quick: { score: 50 }, saved: false });
+  const month = 31 * 86400000;
+  s.updateApplication(stale.id, { createdAt: new Date(Date.now() - month).toISOString() });
+  // Seen again recently: kept.
+  s.updateApplication(checked.id, { createdAt: new Date(Date.now() - month).toISOString(), lastSeenAt: new Date().toISOString() });
+
+  s.setStatus(skipped.id, 'skipped');
+  assert.equal(s.getApplication(skipped.id).saved, false, 'skipping a checked job does not save it');
+  s.setStatus(checked.id, 'applied');
+  assert.equal(s.getApplication(checked.id).saved, true, 'applying saves it');
+  assert.equal(s.saveApplication(old.id).saved, undefined, 'older records count as saved as they are');
+
+  assert.equal(s.pruneChecked(30), 1);
+  assert.deepEqual(new Store(dir).listApplications().map((a) => a.job.title).sort(), ['Checked', 'Legacy', 'Skipped']);
+  assert.equal(s.saveApplication(skipped.id).saved, true);
+  assert.ok(s.getApplication(skipped.id).savedAt);
+});
+
 test('extractText reads text files and guessKind labels them', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-'));
   const f = path.join(dir, 'My Resume.md');

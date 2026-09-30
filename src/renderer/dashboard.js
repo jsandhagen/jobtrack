@@ -214,11 +214,21 @@ document.getElementById('modal').addEventListener('click', (e) => {
 
 // ---------------- views ----------------
 
+// Jobs you checked but didn't save: kept a month so you can come back to one.
+function checkedCard() {
+  const list = state.checked || [];
+  if (!list.length) return '';
+  return `<div class="card" style="margin-top:16px"><h3 class="with-icon">${icon('clock', 20)} Recently checked</h3>
+    <p class="faint" style="margin-top:-4px">Jobs you checked but didn't save. They stay out of your applications, and I forget them after a month unless you check them again. Making a resume or cover letter, or marking one applied, saves it.</p>
+    <div class="list">${list.slice(0, 15).map(checkedRow).join('')}</div>
+    ${list.length > 15 ? `<p class="faint">…and ${list.length - 15} more.</p>` : ''}</div>`;
+}
+
 const views = {
   home() {
     const apps = state.applications;
     const weekAgo = Date.now() - 7 * 86400000;
-    const thisWeek = apps.filter((a) => new Date(a.createdAt).getTime() > weekAgo).length;
+    const thisWeek = [...apps, ...(state.checked || [])].filter((a) => new Date(a.createdAt).getTime() > weekAgo).length;
     const appliedWeek = apps.filter((a) => a.appliedAt && Date.parse(a.appliedAt) > weekAgo).length;
     const appliedAll = apps.filter((a) => a.appliedAt).length;
     const responses = apps.filter((a) => a.appliedAt && ['interviewing', 'offer'].includes(a.status)).length;
@@ -227,7 +237,7 @@ const views = {
       [state.documents.length > 0, 'Add your resume & documents to your library', 'library'],
       [!!state.profile.name && !!state.profile.email, 'Fill in your name and contact info', 'profile'],
       [state.hasApiKey, 'Connect Claude with an API key', 'settings'],
-      [apps.length > 0, 'Check your first job posting', 'check'],
+      [apps.length > 0 || (state.checked || []).length > 0, 'Check your first job posting', 'check'],
     ];
     const allDone = steps.every(([d]) => d);
     const [mood, line] = homeMood({ apps, appliedWeek, due, allDone });
@@ -254,6 +264,7 @@ const views = {
             .join('')}</ul>
         </div>
         <div class="card"><h2>Recent roles</h2>
+          ${(state.checked || []).length ? `<p class="faint" style="margin-top:-4px">Plus ${state.checked.length} job${state.checked.length === 1 ? '' : 's'} you checked but didn't save. <a href="#check">See them</a>.</p>` : ''}
           ${apps.length ? `<div class="list">${apps.slice(0, 4).map(appRow).join('')}</div>` : `<div class="empty">${mascotSvg('curious', 64)}<p>No roles yet. Copy a job posting's text, press <b>${esc(prettyHotkey())}</b> while one's on screen, or paste one in <a href="#check">Check a job</a>.</p></div>`}
         </div>
       </div>
@@ -285,7 +296,8 @@ const views = {
           <ul class="tidy muted"><li>An instant, free fit score (runs on your computer)</li><li>${state.hasApiKey ? "Optional: Claude's deeper read — strengths, gaps & a qualifications checklist" : '<a href="#settings">Add an API key</a> for Claude\'s optional deeper read'}</li><li>A one-click tailored resume & cover letter</li></ul>
           ${state.documents.length ? '' : '<p class="note-box">Tip: <a href="#library">add your documents</a> first so I have something to compare against!</p>'}
         </div>
-      </div></div>`;
+      </div>
+      ${checkedCard()}</div>`;
   },
 
   applications() {
@@ -455,6 +467,14 @@ function appRow(a) {
     <span class="status ${a.status}">${esc(STATUS_LABEL[a.status] || a.status)}</span></div>`;
 }
 
+// A job you checked but haven't saved: open it, or keep it.
+function checkedRow(a) {
+  const meta = [a.job.company, `checked ${timeAgo(a.lastSeenAt || a.createdAt)}`].filter(Boolean).join(' · ');
+  return `<div class="row-item" data-app="${a.id}"><div class="pill ${a.dealbreaker ? 'lo' : pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
+    <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
+    <button class="small soft saveChecked" data-id="${a.id}">Save</button></div>`;
+}
+
 function viaLabel(via) {
   const [ic, text] = { screen: ['camera', 'spotted on screen'], clipboard: ['clipboard', 'from your clipboard'], browser: ['globe', 'from your browser'], careers: ['home', 'from a careers site you watch'] }[via] || ['pencil', 'pasted in'];
   return `${icon(ic, 14)} ${text}`;
@@ -535,6 +555,7 @@ async function renderApplication(id) {
   const busyLetter = a.letterStatus === 'working';
   const analyzing = a.analysisStatus === 'working';
   const q = a.quick;
+  const unsaved = a.saved === false;
 
   const insight = an
     ? `<h3 style="margin-top:4px">Claude's fit read ${infoBtn('fit')}</h3><p style="font-weight:700">${esc(an.headline)}</p>
@@ -607,10 +628,15 @@ async function renderApplication(id) {
         <span class="faint">${esc(encouragement(score, a.id.charCodeAt(1)))}</span></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:170px">
-        ${a.appliedAt ? `<span class="chip good" style="justify-content:center">${icon('check', 15)} Applied ${fmtDate(a.appliedAt)}</span>` : `<button class="primary" id="markApplied">${icon('send')} Mark as applied</button>`}
-        <select id="statusSel">${STATUSES.map((s) => `<option ${s === a.status ? 'selected' : ''} value="${s}">${STATUS_LABEL[s]}</option>`).join('')}</select>
-        <div class="inline" style="justify-content:center"><button class="ghost small" id="editJob">${icon('pencil', 14)} Edit</button><button class="ghost danger small" id="delApp">Delete</button></div>
-      </div></div></div>
+        ${
+          unsaved
+            ? `<button class="primary" id="saveApp">${icon('check', 15)} Save to applications</button><button class="soft" id="markApplied">${icon('send')} Mark as applied</button>`
+            : `${a.appliedAt ? `<span class="chip good" style="justify-content:center">${icon('check', 15)} Applied ${fmtDate(a.appliedAt)}</span>` : `<button class="primary" id="markApplied">${icon('send')} Mark as applied</button>`}
+        <select id="statusSel">${STATUSES.map((s) => `<option ${s === a.status ? 'selected' : ''} value="${s}">${STATUS_LABEL[s]}</option>`).join('')}</select>`
+        }
+        <div class="inline" style="justify-content:center"><button class="ghost small" id="editJob">${icon('pencil', 14)} Edit</button><button class="ghost danger small" id="delApp">${unsaved ? 'Forget it' : 'Delete'}</button></div>
+      </div></div>
+      ${unsaved ? `<p class="faint" style="margin:10px 0 0">${icon('clock', 14)} Checked, not saved: this job isn't in your applications. Save it, make a resume or cover letter, or mark it applied to keep it.</p>` : ''}</div>
     <div class="tabs">
       <button class="${appTab === 'resume' ? 'on' : ''}" data-tab="resume">${icon('doc', 17)} Resume</button>
       <button class="${appTab === 'fit' ? 'on' : ''}" data-tab="fit">${icon('target', 17)} Fit & ATS</button>
@@ -638,7 +664,17 @@ async function renderApplication(id) {
       renderApplication(id);
     })
   );
-  $('#statusSel', page).addEventListener('change', (e) => {
+  const saveBtn = $('#saveApp', page);
+  if (saveBtn)
+    saveBtn.addEventListener('click', () =>
+      run(saveBtn, async () => {
+        await S.saveApplication(id);
+        toast('Saved to your applications.', 'good');
+        renderApplication(id);
+      }),
+    );
+  const statusSel = $('#statusSel', page);
+  if (statusSel) statusSel.addEventListener('change', (e) => {
     if (e.target.value === 'applied' && !a.appliedAt) return openApplyModal(a);
     const st = e.target.value;
     S.updateApplication(id, { status: st }).then(() => {
@@ -672,9 +708,9 @@ async function renderApplication(id) {
   const link = $('#jobLink', page);
   if (link) link.addEventListener('click', (e) => (e.preventDefault(), S.openExternal(a.job.url)));
   $('#delApp', page).addEventListener('click', async () => {
-    if (!confirm('Delete this application?')) return;
+    if (!confirm(unsaved ? 'Forget this job?' : 'Delete this application?')) return;
     await S.removeApplication(id);
-    location.hash = '#applications';
+    location.hash = unsaved ? '#check' : '#applications';
   });
   const genLetter = async () => {
     const p = S.generateCoverLetter(id);
@@ -1096,6 +1132,15 @@ function route() {
   binders[v]();
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => (location.hash = '#' + b.dataset.go)));
   $$('[data-app]').forEach((row) => row.addEventListener('click', () => (location.hash = `#application/${row.dataset.app}`)));
+  $$('.saveChecked').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      run(b, async () => {
+        await S.saveApplication(b.dataset.id);
+        toast('Saved to your applications.', 'good');
+      });
+    }),
+  );
   if (v === 'application') renderApplication(id);
 }
 
