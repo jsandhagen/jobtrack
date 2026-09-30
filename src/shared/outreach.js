@@ -125,6 +125,119 @@
     return findProfileUrl(c);
   }
 
+  // Insiders at a company (or in a role): one search per school you went to
+  // (alumni), one per place you've worked (old coworkers), and one for the
+  // role itself. LinkedIn's alumni and past-company filters need internal
+  // ids, so these search profile text instead; the Google version searches
+  // public profiles, which list education and past jobs.
+  function insiderSearches({ company, titles } = {}, profile = {}) {
+    const co = clean(company);
+    const t = splitList(titles).slice(0, 3).join(', ');
+    if (!co && !t) return [];
+    const at = co ? ` at ${co}` : '';
+    const who = t ? splitList(t).join(' or ') : 'People';
+    const make = (kind, label, common) => {
+      const s = { kind: 'people', titles: t, company: co, common };
+      return { kind, label, common, search: s, linkedin: linkedinPeopleUrl(s), google: googlePeopleUrl(s) };
+    };
+    const out = [];
+    for (const s of splitList(profile.schools).slice(0, 4)) out.push(make('alumni', `${s} alumni${at}`, s));
+    for (const e of splitList(profile.pastEmployers).slice(0, 4)) if (!sameCompany(e, co)) out.push(make('coworkers', `Also worked at ${e}${co ? `, now${at}` : ''}`, e));
+    out.push(make('role', `${who}${at}`, ''));
+    return out;
+  }
+
+  // ---------------- people from LinkedIn ----------------
+
+  // https://www.linkedin.com/in/frederick-lee-4a5b6c/?miniProfile=… -> https://www.linkedin.com/in/frederick-lee-4a5b6c
+  function linkedinProfileUrl(url) {
+    const m = clean(url).match(/^(?:https?:\/\/)?(?:[a-z]{2,3}\.|www\.)?linkedin\.com\/in\/([^/?#\s]+)/i);
+    return m ? `https://www.linkedin.com/in/${m[1]}` : '';
+  }
+  // A guess at their name from the link: frederick-lee-4a5b6c -> Frederick Lee.
+  function nameFromProfileUrl(url) {
+    const u = linkedinProfileUrl(url);
+    if (!u) return '';
+    let slug = u.split('/in/')[1];
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {
+      /* keep it as is */
+    }
+    const words = slug.split(/[-_]+/).filter(Boolean);
+    // LinkedIn adds an id with digits (and sometimes a lone letter) to taken names.
+    while (words.length > 1 && /\d/.test(words[words.length - 1])) words.pop();
+    if (!words.length || words.some((w) => /\d/.test(w))) return '';
+    return words.map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  }
+
+  // Same school or employer, allowing for extra words on either side:
+  // "University of Virginia - Darden" matches "University of Virginia".
+  function sameOrg(a, b) {
+    const x = norm(a);
+    const y = norm(b);
+    if (!x || !y) return false;
+    if (x === y) return true;
+    const [short, long] = x.length < y.length ? [x, y] : [y, x];
+    return short.length >= 4 && ` ${long} `.includes(` ${short} `);
+  }
+
+  // Schools and employers a person shares with you, from what's saved about
+  // them: the schools and jobs read from their LinkedIn profile, their
+  // current company, and the "in common" note ("UVA alum · ex-Appian").
+  function sharedBackground(person = {}, profile = {}) {
+    const mySchools = splitList(profile.schools);
+    const myJobs = splitList(profile.pastEmployers);
+    const schools = [];
+    const employers = [];
+    const add = (list, name) => name && !list.some((x) => norm(x) === norm(name)) && list.push(name);
+    const theirSchools = [].concat(person.schools || []).flatMap(splitList);
+    const theirJobs = [...[].concat(person.employers || []).flatMap(splitList), clean(person.company)].filter(Boolean);
+    for (const s of mySchools) if (theirSchools.some((x) => sameOrg(x, s))) add(schools, s);
+    for (const e of myJobs) if (theirJobs.some((x) => sameOrg(x, e))) add(employers, e);
+    for (const part of splitList(person.connection)) {
+      const core = commonCore(part);
+      const s = mySchools.find((x) => sameOrg(x, core));
+      const e = myJobs.find((x) => sameOrg(x, core));
+      if (s && !e) add(schools, s);
+      else if (e && !s) add(employers, e);
+      else if (/\s(alum|alumni|alumnus|alumna|grad|graduate)s?$/i.test(part)) add(schools, core);
+      else if (/^(ex-|former\s)/i.test(part)) add(employers, core);
+    }
+    return { schools, employers };
+  }
+  // "UVA alum · ex-Appian", for the "in common" field.
+  function connectionText({ schools = [], employers = [] }) {
+    return [...schools.map((s) => `${s} alum`), ...employers.map((e) => `ex-${e}`)].join(' · ');
+  }
+
+  // A person read off a LinkedIn profile, as a contact. Their headline fills
+  // in the title and company when the experience section didn't load.
+  function contactFromProfile(p = {}, profile = {}) {
+    const list = (v) => [...new Set([].concat(v || []).map((x) => clean(x).slice(0, 200)).filter(Boolean))].slice(0, 15);
+    const headline = clean(p.headline).slice(0, 300);
+    const m = headline.match(/^(.{2,80}?)\s+(?:at|@)\s+([^|,·]{2,80})/i);
+    const title = clean(p.title) || (m ? clean(m[1]) : '');
+    const company = clean(p.company) || (m ? clean(m[2]) : '');
+    const c = {
+      name: clean(p.name).slice(0, 120) || nameFromProfileUrl(p.url),
+      title: title.slice(0, 200),
+      company: company.slice(0, 200),
+      headline,
+      location: clean(p.location).slice(0, 200),
+      linkedinUrl: linkedinProfileUrl(p.url),
+      schools: list(p.schools),
+      employers: list(p.employers).filter((e) => !sameCompany(e, company)),
+    };
+    c.connection = connectionText(sharedBackground(c, profile));
+    return c;
+  }
+
+  // "went to UVA and worked at Appian", for the card on their profile.
+  function sharedPhrases({ schools = [], employers = [] }) {
+    return [...schools.map((s) => `went to ${s}`), ...employers.map((e) => `worked at ${e}`)];
+  }
+
   function companyLinks(co, profile = {}) {
     const common = [...splitList(profile.schools), ...splitList(profile.pastEmployers)];
     return {
@@ -334,7 +447,8 @@
 
   // "went to UVA" / "worked at Appian" read naturally after "we both".
   function commonPhrase(connection, profile = {}) {
-    const c = clean(connection);
+    // "UVA alum · ex-Appian": the first thing reads best in a short message.
+    const c = splitList(connection)[0] || '';
     if (!c) return '';
     if (/^(went|worked|studied|were|are|know|grew|live|did|attended|played)\b/i.test(c)) return c;
     const ex = /^(ex-|former\s+)/i.test(c);
@@ -353,7 +467,7 @@
   // The known details for a message. Unknown ones are '' (see FALLBACK).
   function templateVars(contact = {}, profile = {}, job = null) {
     const roles = splitList(profile.targetRoles);
-    const core = commonCore(contact.connection || '');
+    const core = commonCore(splitList(contact.connection)[0] || '');
     const linkedin = String(profile.links || '').split(/[\s·,|]+/).find((l) => /linkedin\.com\//i.test(l)) || '';
     return {
       first: clean(contact.name).split(' ')[0],
@@ -561,6 +675,14 @@
     findProfileUrl,
     profileUrl,
     companyLinks,
+    insiderSearches,
+    linkedinProfileUrl,
+    nameFromProfileUrl,
+    sameOrg,
+    sharedBackground,
+    sharedPhrases,
+    connectionText,
+    contactFromProfile,
     suggestedSearches,
     searchKey,
     searchUrl,
