@@ -251,3 +251,14 @@ ul.tidy li { margin-bottom: 5px; }
 .peek:disabled { opacity: 0.6; }
 .peek:disabled .peek-pal, .peek:disabled .peek-hands { filter: grayscale(0.6); }
 @media (prefers-reduced-motion: reduce) { .peek-pal, .peek-hands { transition: none; } }
+
+/* ⓘ buttons explaining the fit and ATS scores (scoreInfo.js) */
+button.info-btn { display: inline-grid; place-items: center; width: 18px; height: 18px; min-height: 0; padding: 0; margin: 0 0 0 4px; border-radius: 50%; border: 1.5px solid var(--line-strong); background: var(--surface); color: var(--ink-soft); font: italic 800 11px/1 Georgia, serif; vertical-align: middle; box-shadow: none; cursor: help; flex: none; }
+button.info-btn:hover, button.info-btn[aria-expanded='true'] { border-color: var(--sage); color: var(--sage-deep); background: var(--sage-soft); }
+.info-pop { position: fixed; z-index: 1000; padding: 14px 16px; border-radius: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); box-shadow: 0 12px 34px rgba(40, 50, 40, 0.18); font-size: 13px; line-height: 1.5; font-weight: 500; text-align: left; white-space: normal; animation: fade 0.15s ease; }
+.info-pop.inline { position: static; margin: 8px 0; box-shadow: none; background: var(--surface-2); border: 0; font-size: 12.5px; }
+.info-pop .info-title { display: block; font-size: 14px; margin-bottom: 4px; }
+.info-pop p { margin: 6px 0; }
+.info-pop ul { margin: 6px 0; padding-left: 18px; }
+.info-pop li { margin: 2px 0; }
+.info-pop .info-vs { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); color: var(--ink-soft); }

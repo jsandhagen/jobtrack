@@ -291,7 +291,7 @@ function renderTray() {
 
   tray.innerHTML = `
     <div class="tray-card">
-      <div class="tray-score"><div><b>${covered}/${req.length}</b><span>requirements shown</span></div><div><b>${info.ats.score}%</b><span>ATS match ${info.ats.grade ? `· <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}</span></div></div>
+      <div class="tray-score"><div><b>${covered}/${req.length}</b><span>requirements shown</span></div><div><b>${info.ats.score}% ${window.SproutInfo.infoBtn('ats')}</b><span>ATS match ${info.ats.grade ? `· <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}</span></div></div>
       <div class="req-list">${req.map(chip).join('')}${pref.map(chip).join('')}</div>
       <p class="faint" style="margin:6px 0 0">Tap a requirement to see bullets that prove it.</p>
     </div>
