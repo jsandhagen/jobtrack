@@ -130,13 +130,20 @@ Every Claude button uses a prompt written for consistent, checkable results. The
 
 Nothing here scrapes LinkedIn: every search is a link that opens in your browser.
 
-**Find jobs** (`#find`):
-- **Suggested searches** from your Profile's target roles and location: each role near you, remote, and at startups. Save the ones you like; each shows when you last opened it.
-- LinkedIn searches are limited to **the past week, newest first**, with titles in quotes (so "chief of staff" doesn't match every "staff" job) and a 25-mile distance.
-- **Startup job boards**: a Google search of Ashby, Greenhouse, Lever and Workable boards for the past week, which finds the smaller companies LinkedIn buries.
-- **Build a search** (titles, keywords, location, posted within, remote / hybrid / on-site), or save any other link.
-- **Companies to watch**: why each caught your eye, a careers link, and one click to its jobs this week, people you share a school or employer with there, or people in your field there. Companies from your applications and people are suggested.
-- **New at your companies**: Sprout reads each watched company's own careers site and lists the open roles whose titles match your target roles (plus any extra titles you add for that company), newest first, filtered to the past week or month. It checks a minute after starting and every 6 hours after that, and sends a desktop notification when a new matching role goes up. **Check my fit** pulls in the full posting and scores it like any other job.
+**Find jobs** (`#find`) has three tabs, and remembers the one you used last:
+- **Jobs**, the job board: open roles at the companies you watch, newest first, grouped into *Today*, *This week*, *This month* and *Earlier*.
+  - **Filter** by title, company or place (press `/` to jump to the box, `Esc` to clear it), pick one company, or tick **Remote only**. The *Past week / Past month / All open* tabs show how many roles each has.
+  - Click a title to open the posting, or a company name to see only its roles. **Check my fit** scores the full posting. Jobs already in your list say so instead.
+  - **✕ hides** a job that's not for you. Tick **Hidden** to see or restore them.
+  - Your saved searches sit in one row above the board, one click each.
+- **Searches**: one-click searches for fresh postings, all opening in your browser (nothing here scrapes LinkedIn).
+  - **Suggested searches** come from your Profile's target roles and location: each role near you, remote, and at startups. Save the ones you like. Each shows when you last opened it.
+  - LinkedIn searches are limited to **the past week, newest first**, with titles in quotes (so "chief of staff" doesn't match every "staff" job) and a 25-mile distance.
+  - **Startup job boards**: a Google search of Ashby, Greenhouse, Lever and Workable boards for the past week, which finds the smaller companies LinkedIn buries.
+  - **Build a search** (titles, keywords, location, posted within, remote / hybrid / on-site), or save any other link.
+- **Companies**: the companies you watch. Add one by name (press Enter), with why it caught your eye and its careers link if you have it. Companies from your applications and people are suggested.
+  - Each shows how Sprout reads its careers site, **See N matching roles** (opens the Jobs tab filtered to it) and its careers page. **More** holds its LinkedIn jobs this week, people you share a school or employer with there, people in your field there, adding a person, extra titles to match, and changing the careers link.
+- **How the board gets its jobs:** Sprout reads each watched company's own careers site and lists the open roles whose titles match your target roles (plus any extra titles you add for that company). It checks a minute after starting and every 6 hours after that, and sends a desktop notification when a new matching role goes up.
   - Works with careers sites hosted on **Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Workday**, which is most startups and many larger companies. Sprout finds the board from the careers link, from links on the careers page, or (with no link) by trying the company's name on Greenhouse, Lever and Ashby. A board found by name is marked so you can say **Not them**.
   - For a company whose careers site Sprout can't read (a fully custom site), it says so, and you can still open the careers page yourself.
   - **Which roles count:** a title matches a target role when it has every meaningful word of it, close together, in any order: *Operations Manager* matches *Manager, Business Operations* and *Sr. Ops Managers*, but *Chief of Staff* doesn't match *Staff Engineer, Office of the Chief Scientist*. Common abbreviations (Ops, VP, SWE, BizOps, PM…) and plurals count as the same word. Internships and co-ops only show up if a target role asks for one.

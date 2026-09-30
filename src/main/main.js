@@ -1159,8 +1159,10 @@ function registerIpc() {
     const fields = NET_FIELDS[kind];
     if (!fields) throw new Error(`Unknown list: ${kind}`);
     const rec = pick(item || {}, ['id', ...fields]);
-    if (kind === 'contacts' && !String(rec.name || '').trim()) throw new Error('Add their name first.');
-    if (kind === 'companies' && !String(rec.name || '').trim()) throw new Error('Add the company name first.');
+    // A name is needed to add one, and can't be blanked; an update may leave it out.
+    const blankName = (!rec.id || rec.name !== undefined) && !String(rec.name || '').trim();
+    if (kind === 'contacts' && blankName) throw new Error('Add their name first.');
+    if (kind === 'companies' && blankName) throw new Error('Add the company name first.');
     if (kind === 'searches' && rec.url && !/^https?:\/\//i.test(rec.url)) throw new Error("That link doesn't look like a web address.");
     if (kind === 'contacts' && !rec.id) {
       const dup = outreach.findContact(store.list('contacts'), rec);
@@ -1447,7 +1449,7 @@ function applicationsCsv(apps) {
 
 const NET_FIELDS = {
   contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified'],
-  companies: ['name', 'why', 'careersUrl', 'status', 'tags', 'keywords'],
+  companies: ['name', 'why', 'careersUrl', 'status', 'tags', 'keywords', 'hidden'],
   searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
   templates: ['name', 'body', 'channel', 'subject', 'when', 'weight'],
 };
