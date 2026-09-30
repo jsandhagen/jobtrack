@@ -167,3 +167,9 @@ These models must incorporate best practices while accounting for the unique ris
   assert.ok(!r.missingSkills.some((m) => m.skill === 'Accounting'));
   assert.ok(r.missingSkills.filter((m) => m.skill === 'Java').every((m) => m.kind === 'preferred'));
 });
+
+test('quantified-bullet check reads numbers on a wrapped bullet’s continuation lines', () => {
+  const resume = ['● Launched a product estimated to bring', 'an additional $2M annually.', '● Benchmarked against a database of', 'over 30 million entries.', '● Built a model with 97% accuracy.'].join('\n');
+  const r = atsScore({ title: 'Analyst', text: 'Requirements\n- SQL' }, resume);
+  assert.ok(r.formatChecks.find((c) => c.id === 'quantified').ok);
+});

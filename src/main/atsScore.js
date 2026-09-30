@@ -164,8 +164,14 @@ function scoreParseability(resumeText) {
   const t = resumeText;
   const tl = lower(t);
   const words = (t.match(/\S+/g) || []).length;
-  const bulletLines = t.split('\n').filter((l) => /^\s*([-•*▪●◦]|\d+\.)\s+/.test(l));
-  const quantified = bulletLines.filter((l) => /\d|%|\$/.test(l)).length;
+  // A bullet runs until the next bullet or blank line (PDF text wraps them).
+  const bulletLines = [];
+  for (const l of t.split('\n')) {
+    if (/^\s*([-•*▪●◦]|\d+\.)\s+/.test(l)) bulletLines.push(l);
+    else if (!l.trim()) bulletLines.push('');
+    else if (bulletLines.length && bulletLines[bulletLines.length - 1]) bulletLines[bulletLines.length - 1] += ' ' + l;
+  }
+  const quantified = bulletLines.filter((l) => l && /\d|%|\$/.test(l)).length;
   const checks = [
     { id: 'email', ok: /[\w.+-]+@[\w-]+\.[\w.]+/.test(t), tip: 'Add an email address so the ATS can fill in your contact details.' },
     { id: 'phone', ok: /(\+?\d[\d\s().-]{7,}\d)/.test(t), tip: 'Add a phone number.' },
