@@ -82,6 +82,6 @@ Masters of Economics, May 2022`;
 test('"X, Y, or Z" is one requirement that any one of them meets; "X and Y" stays two', () => {
   const job = { title: 'Data Analyst', company: 'Acme', text: 'Requirements\n- Experience with Python, R, or Java\n- SQL and Excel' };
   const r = localFitScore(job, [{ kind: 'resume', text: 'Analyst 2019-2024. Python, SQL.' }]);
-  assert.ok(r.matchedSkills.includes('one of Python, Java'));
+  assert.ok(r.matchedSkills.includes('one of Python, R, Java'));
   assert.deepEqual(r.missingSkills, ['Excel']);
 });

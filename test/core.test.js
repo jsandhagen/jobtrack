@@ -50,7 +50,7 @@ test('looksLikeJobPosting detects postings and ignores ordinary text', () => {
 
 test('requiredYears and yearsOfExperience parse ranges', () => {
   assert.equal(requiredYears(POSTING), 5);
-  assert.equal(yearsOfExperience(RESUME, new Date('2026-06-01')), 10);
+  assert.equal(yearsOfExperience(RESUME, new Date('2026-06-01')), 10.4);
   assert.equal(yearsOfExperience('no dates here'), null);
 });
 

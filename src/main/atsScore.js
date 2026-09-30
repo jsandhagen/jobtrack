@@ -17,9 +17,8 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, classifyJobSkills, classifyLines, significantTerms, requiredYears, yearsOfExperience } = require('./fitScore');
+const { SKILLS, SOFT_SKILLS, INTERPERSONAL, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience } = require('./fitScore');
 
-const SOFT_SKILLS = new Set(['Leadership', 'Communication', 'Collaboration', 'Problem Solving']);
 
 const WEIGHTS = {
   hardSkills: 0.35,
@@ -33,12 +32,26 @@ const WEIGHTS = {
 
 // Abbreviations end in "." so plain \b boundaries don't work; use lookarounds.
 const DEGREE_LEVELS = [
-  [4, /(?<![a-z])(ph\.?\s?d|doctorate|doctoral)(?![a-z])/],
+  [4, /(?<![a-z])(ph\.?\s?d|doctorate|doctoral|doctor of philosophy)(?![a-z])/],
   // "master of" / "bachelor of" count, but not a bare "Scrum Master".
-  [3, /(?<![a-z])(master['’]?s|master of|m\.s\.|m\.sc|msc|mba|m\.a\.|msn)(?![a-z])/],
+  [3, /(?<![a-z])(master['’]?s|master of|m\.s\.|m\.sc|msc|mba|m\.a\.|msn|graduate degree|advanced degree)(?![a-z])/],
   [2, /(?<![a-z])(bachelor['’]?s|bachelor of|b\.s\.|b\.sc|bsc|b\.a\.|bsn|undergraduate degree|4-year degree|four-year degree)(?![a-z])/],
   [1, /(?<![a-z])(associate['’]?s degree|associate degree)(?![a-z])/],
 ];
+// Bare "BS", "MS", "BA", "MA" count only in capitals and in a degree-like
+// spot ("BS/MS in Statistics", "MA Economics"), not "MS Excel" or "Boston, MA".
+const DEGREE_ABBR = /(?<![A-Za-z]|,\s)(BS|BA|MS|MA)(?=\s*\/\s*(?:BS|BA|MS|MA|PhD)\b|\s+(?:in|of)\s|\s*,?\s+(?!Office|Excel|Word|Access|Project|SQL|Teams|Outlook|PowerPoint|Dynamics|Visio|Windows|Azure|Exchange|Power)[A-Z][a-z]{3,}|\s+degree\b|\s+or\s+(?:BS|BA|MS|MA|PhD|Ph\.D)\b)/g;
+const ABBR_LEVEL = { BS: 2, BA: 2, MS: 3, MA: 3 };
+// Postings also say just "degree in Finance" or "college degree".
+const GENERIC_DEGREE = /(?<![a-z])(?:college |university )?degree in\b|\b(?:college|university) degree\b/;
+
+function degreeLevels(text, posting = false) {
+  const t = lower(text);
+  const levels = DEGREE_LEVELS.filter(([, re]) => re.test(t)).map(([l]) => l);
+  for (const m of String(text).matchAll(DEGREE_ABBR)) levels.push(ABBR_LEVEL[m[1]]);
+  if (posting && !levels.length && GENERIC_DEGREE.test(t)) levels.push(2);
+  return levels;
+}
 const DEGREE_NAMES = { 1: "an associate's degree", 2: "a bachelor's degree", 3: "a master's degree", 4: 'a PhD' };
 
 const SENIORITY = /\b(senior|sr|junior|jr|lead|principal|staff|head|chief|associate|entry[- ]level|mid[- ]level|i{1,3}|iv|[1-4])\b/g;
@@ -61,21 +74,21 @@ function containsTerm(haystack, term) {
 function degreeRequirements(jobText) {
   let required = 0;
   let preferred = 0;
-  for (const { original, kind } of classifyLines(jobText)) {
-    const t = original.toLowerCase();
-    const levels = DEGREE_LEVELS.filter(([, re]) => re.test(t)).map(([l]) => l);
+  for (const { original, kind } of classifyLines(jobText).flatMap((l) => clauses(l.original, l.kind, l.section))) {
+    const levels = degreeLevels(original, true);
     if (!levels.length) continue;
+    // Within one clause the options are alternatives: "BS or MS" -> BS will do.
+    const level = Math.min(...levels);
     const pref = kind === 'preferred' || /\b(preferred|a plus|nice to have|ideally)\b/i.test(original);
-    if (pref) preferred = Math.max(preferred, ...levels);
-    else required = Math.min(required || 9, ...levels); // "Bachelor's or Master's" -> Bachelor's
+    if (pref) preferred = Math.max(preferred, level);
+    else required = Math.min(required || 9, level);
   }
   return { required: required || null, preferred: preferred > (required || 0) ? preferred : null };
 }
 
 function degreeLevel(text) {
-  const t = lower(text);
-  for (const [level, re] of DEGREE_LEVELS) if (re.test(t)) return level;
-  return 0;
+  const levels = degreeLevels(text);
+  return levels.length ? Math.max(...levels) : 0;
 }
 
 // ---------- components ----------
@@ -297,10 +310,12 @@ function atsScore(job, resumeText, opts = {}) {
 
   // "Basic qualifications": required skills (or all mentioned skills if the
   // posting has no clear required section), plus stated degree / years.
-  const hasRequired = skills.units.some((u) => u.kind === 'required');
+  const hasRequired = skills.units.some((u) => u.kind === 'required' && !u.skills.every((s) => INTERPERSONAL.has(s)));
   const basicKinds = hasRequired ? ['required'] : ['required', 'neutral'];
-  const basic = skills.units.filter((u) => basicKinds.includes(u.kind));
-  const preferred = skills.units.filter((u) => u.kind === 'preferred');
+  // Knockout filters screen hard qualifications, not interpersonal skills.
+  const hardUnits = skills.units.filter((u) => !u.skills.every((s) => INTERPERSONAL.has(s)));
+  const basic = hardUnits.filter((u) => basicKinds.includes(u.kind));
+  const preferred = hardUnits.filter((u) => u.kind === 'preferred');
   let basicMet = basic.filter((u) => u.met).length;
   let basicTotal = basic.length;
   const knockouts = basic.filter((u) => !u.met).map((u) => `${u.label} (posting says "${u.term}")`);

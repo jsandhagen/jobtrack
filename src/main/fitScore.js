@@ -9,20 +9,25 @@ const SKILLS = {
   TypeScript: [/\btypescript\b/],
   Python: [/\bpython\b/],
   Java: [/\bjava\b(?!script)/],
+  Scala: [/\bscala\b/],
   'C#': [/\bc#/, /\.net\b/, /\bdotnet\b/],
   'C++': [/\bc\+\+/, /\bcpp\b/],
   Go: [/\bgolang\b/, /\bgo\s+(?:language|developer|engineer)\b/],
-  Rust: [/\brust\b/],
+  Rust: [/\brust\b(?!\s+belt)/],
   Ruby: [/\bruby\b/, /\brails\b/],
   PHP: [/\bphp\b/],
-  Swift: [/\bswift\b/],
+  Swift: [/\bswift(?:ui)?\b(?!\s+(?:execution|action|response|decisions?|turnaround|pace|delivery|resolution))/],
   Kotlin: [/\bkotlin\b/],
   SQL: [/\bsql\b/, /\bpostgres(?:ql)?\b/, /\bmysql\b/, /\bt-sql\b/],
-  R: [/\br\s+(?:programming|language|studio)\b/, /\brstudio\b/],
-  React: [/\breact(?:\.js|js)?\b/],
+  // A bare "R" only counts inside a list or after "in/with": "Python, R, SQL", "experience with R".
+  R: [/\br\s+(?:programming|language|studio)\b/, /\brstudio\b/, /(?:(?:^|[,/(]\s*)|\b(?:in|with|and|or|using)\s+)r(?=\s*(?:[,/);.]|$)|\s+(?:and|or)\b)/],
+  SAS: [/\bsas\b/],
+  MATLAB: [/\bmatlab\b/],
+  'Stata / SPSS': [/\bstata\b/, /\bspss\b/],
+  React: [/\breact(?:\.js|js)?\b(?!\s+(?:quickly|to|swiftly|fast|calmly|appropriately))/],
   Angular: [/\bangular\b/],
   Vue: [/\bvue(?:\.js)?\b/],
-  'Node.js': [/\bnode(?:\.js|js)?\b/],
+  'Node.js': [/\bnode(?:\.js|js)?\b(?!\s+(?:in|of)\b)/],
   Django: [/\bdjango\b/],
   Flask: [/\bflask\b/],
   Spring: [/\bspring\s*boot\b/, /\bspring framework\b/],
@@ -33,22 +38,24 @@ const SKILLS = {
   AWS: [/\baws\b/, /\bamazon web services\b/],
   Azure: [/\bazure\b/],
   GCP: [/\bgcp\b/, /\bgoogle cloud\b/],
-  Docker: [/\bdocker\b/, /\bcontainers?\b/],
+  Docker: [/\bdocker\b/, /\bcontaineri[sz](?:ed|ation)\b/],
   Kubernetes: [/\bkubernetes\b/, /\bk8s\b/],
   Terraform: [/\bterraform\b/, /\binfrastructure as code\b/],
   'CI/CD': [/\bci\s*\/\s*cd\b/, /\bcontinuous (?:integration|delivery|deployment)\b/, /\bgithub actions\b/, /\bjenkins\b/],
   Linux: [/\blinux\b/, /\bunix\b/],
   Git: [/\bgit\b/, /\bgithub\b/, /\bgitlab\b/],
   // data & ML
-  'Machine Learning': [/\bmachine learning\b/, /\bml\b/],
+  'Machine Learning': [/\bmachine[-\s]learning\b/, /(?<!\d\s?)\bml\b(?!\s*(?:doses?|vials?|of|per)\b)/, /\bscikit[-\s]learn\b/, /\bxgboost\b/],
   'Deep Learning': [/\bdeep learning\b/, /\bneural networks?\b/, /\bpytorch\b/, /\btensorflow\b/],
   'LLMs / GenAI': [/\bllms?\b/, /\blarge language models?\b/, /\bgenerative ai\b/, /\bgenai\b/, /\bprompt engineering\b/],
   'Data Analysis': [/\bdata analy(?:sis|tics)\b/, /\banalytics\b/],
   'Data Visualization': [/\bdata visuali[sz]ation\b/, /\btableau\b/, /\bpower\s*bi\b/, /\blooker\b/],
-  Excel: [/\bexcel\b/, /\bspreadsheets?\b/],
+  // Not the verb: "you'll excel in a fast-paced role".
+  Excel: [/\bexcel\b(?!\s+(?:in|at|as|under|within|when)\b)/, /\bspreadsheets?\b/],
   Statistics: [/\bstatistic(?:s|al)\b/, /\ba\/b test/],
   'ETL / Pipelines': [/\betl\b/, /\bdata pipelines?\b/, /\bairflow\b/, /\bdbt\b/],
-  Spark: [/\bspark\b/, /\bdatabricks\b/],
+  // Not the verb: "ideas that spark innovation".
+  Spark: [/\b(?:apache |py)spark\b/, /\bspark(?=\s*(?:[,/;).]|$)|\s+(?:sql|streaming|jobs?|clusters?|ecosystem|pipelines?|mllib)\b|\s+(?:and|or)\s+(?:hadoop|kafka|hive|scala|databricks|python|sql|flink)\b)/, /\bdatabricks\b/],
   Snowflake: [/\bsnowflake\b/],
   // product, design, business
   'Product Management': [/\bproduct management\b/, /\bproduct manager\b/, /\broadmaps?\b/],
@@ -62,26 +69,33 @@ const SKILLS = {
   SEO: [/\bseo\b/, /\bsearch engine optimi[sz]ation\b/],
   'Content Writing': [/\bcopywriting\b/, /\bcontent (?:writing|creation|strategy)\b/, /\btechnical writing\b/],
   'Social Media': [/\bsocial media\b/],
-  Sales: [/\bsales\b/, /\bquota\b/, /\bpipeline generation\b/],
+  Sales: [/\bsales\b(?!\s+tax)/, /\bquota\b/, /\bpipeline generation\b/],
   CRM: [/\bcrm\b/, /\bsalesforce\b/, /\bhubspot\b/],
   'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
   Finance: [/\bfinancial (?:analysis|modeling|reporting)\b/, /\bbudget(?:s|ing)?\b/, /\bforecasting\b/],
   Accounting: [/\baccounting\b(?!\s+for\b)/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
-  Operations: [/\boperations\b/, /\bprocess improvement\b/, /\blean\b/, /\bsix sigma\b/],
-  'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, /\bprocurement\b/, /\binventory\b/],
-  'Human Resources': [/\bhuman resources\b/, /\brecruiting\b/, /\btalent acquisition\b/, /\bonboarding\b/],
+  Operations: [/\boperations\b/, /\bprocess improvement\b/, /\blean (?:manufacturing|principles|methodolog\w*|management|practices|production)\b/, /\bsix sigma\b/],
+  'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, /\bprocurement\b/, /\binventory\b(?!\s+of\b)/],
+  // Bare "onboarding" is usually customers, vendors or data, not new hires.
+  'Human Resources': [/\bhuman resources\b/, /\brecruiting\b/, /\btalent acquisition\b/, /\b(?:employee|new[- ]hire) onboarding\b/],
   Healthcare: [/\bpatient care\b/, /\bclinical\b/, /\behr\b/, /\bhipaa\b/],
   Education: [/\bcurriculum\b/, /\blesson plans?\b/, /\bteaching\b/, /\binstruction(?:al)? design\b/],
-  Legal: [/\blegal research\b/, /\bcompliance\b/, /\bcontracts?\b/, /\bregulatory\b/],
-  Security: [/\bsecurity\b/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
+  'Legal / Compliance': [/\blegal research\b/, /\bcompliance\b/, /\bcontracts? (?:law|review|negotiation|drafting|management)\b/, /\bregulatory\b/],
+  // A clearance is a credential (and a knockout), not a security skill.
+  'Security Clearance': [/\bsecurity clearance\b/, /\bts\s*\/\s*sci\b/, /\b(?:top secret|secret|public trust) clearance\b/, /\bactive clearance\b/],
+  Security: [/(?<!social )\bsecurity\b(?!\s+clearance)/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
   Testing: [/\bunit tests?\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
   // human skills
   Leadership: [/\bleadership\b/, /\bmentor(?:ed|ing|ship|s)?\b/, /\bled (?:a |the )?(?:team|group|squad)/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
-  Communication: [/\bcommunication skills\b/, /\bwritten and verbal\b/, /\bpresentations?\b/, /\bpublic speaking\b/],
-  Collaboration: [/\bcross[-\s]functional\b/, /\bcollaborat(?:e|ion|ive)\b/, /\bteamwork\b/],
-  'Problem Solving': [/\bproblem[-\s]solving\b/, /\banalytical skills\b/, /\bcritical thinking\b/],
+  Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/],
+  Collaboration: [/\bcross[-\s]functional\b/, /\bcollaborat(?:e|ed|es|ing|ion|ive(?:ly)?)\b/, /\bteamwork\b/, /\bteam player\b/],
+  'Problem Solving': [/\bproblem[-\s]solv(?:ing|er)\b/, /\banalytical (?:skills|thinking|mindset|abilities)\b/, /\bcritical thinking\b/],
   Bilingual: [/\bbilingual\b/, /\bspanish\b/, /\bfrench\b/, /\bmandarin\b/, /\bgerman\b/],
 };
+
+const SOFT_SKILLS = new Set(['Leadership', 'Communication', 'Collaboration', 'Problem Solving']);
+// Soft skills a resume can't really prove by wording; leadership it can ("led a team of 6").
+const INTERPERSONAL = new Set(['Communication', 'Collaboration', 'Problem Solving']);
 
 const STOPWORDS = new Set(
   (
@@ -97,7 +111,9 @@ const STOPWORDS = new Set(
 
 // "as required" means "as needed", not a requirement.
 const REQUIRED_CUE = /\b((?<!\bas )required|requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
-const PREFERRED_CUE = /\b(preferred|nice to have|bonus|plus|desired|ideally|good to have)\b/;
+const PREFERRED_CUE = /\b(preferred|nice[- ]to[- ]haves?|bonus|plus|desired|desirable|ideally|good to have|helpful|beneficial|advantageous|an asset)\b/;
+// "No Java experience required", "Python is not required": not a requirement.
+const NEGATED_CUE = /\bnot (?:required|necessary|needed|a requirement|mandatory)\b|\bno\b[^.;]{0,40}\b(?:required|necessary|needed)\b/;
 // Example lists ("languages may include Python, R, MATLAB", "other useful
 // tools include SAS") name options, not things every applicant must have.
 const OPTIONAL_CUE = /\b(may include|not limited to|such as|e\.g\.|for example|other useful|also useful|one or more of|any of the following)/;
@@ -124,6 +140,14 @@ function findSkills(text) {
 // exact wording the posting used, for strict (literal) keyword matching.
 const KIND_RANK = { preferred: 0, neutral: 1, required: 2 };
 
+const APOS = "['’]?";
+const REQUIRED_HEADING = new RegExp(
+  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you${APOS}ll (?:need|bring)|what you bring|what we${APOS}re looking for|who you are|about you|you have|must[- ]haves?)\\b[^.]{0,30}$`
+);
+const NEUTRAL_HEADING = new RegExp(
+  `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main )?(?:responsibilities|duties)|what you${APOS}ll (?:do|be doing|work on)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company))\\b[^.]{0,30}$`
+);
+
 // Tag every non-empty posting line as required / preferred / neutral, using
 // both the line's own wording and the section heading it sits under.
 function classifyLines(jobText) {
@@ -137,9 +161,12 @@ function classifyLines(jobText) {
     const isHeading = !isBullet && line.length < 60 && !/[.;]$/.test(line);
     let lineKind = section;
     if (PREFERRED_CUE.test(line)) lineKind = 'preferred';
-    else if (REQUIRED_CUE.test(line)) lineKind = 'required';
+    else if (REQUIRED_CUE.test(line) || (isHeading && REQUIRED_HEADING.test(line))) lineKind = 'required';
+    // "Responsibilities", "Benefits", "About us" end a requirements section.
+    else if (isHeading && NEUTRAL_HEADING.test(line)) lineKind = 'neutral';
+    const sectionKind = section;
     if (isHeading && lineKind !== section) section = lineKind;
-    out.push({ line, original, kind: lineKind, isHeading });
+    out.push({ line, original, kind: lineKind, isHeading, section: sectionKind });
   }
   return out;
 }
@@ -147,14 +174,25 @@ function classifyLines(jobText) {
 // Split a line into sentences/clauses so "Python and SQL are a must; other
 // useful languages include Java, SAS" doesn't make Java and SAS required.
 // Keeps "e.g." and "Ph.D." intact.
-function clauses(original, lineKind) {
-  return original
-    .split(/(?<=[!?;])\s+|(?<=[a-z0-9)]{2}\.)\s+(?=[A-Z])/)
-    .filter((c) => c.trim())
-    .map((c) => {
-      const cl = c.toLowerCase();
-      return { original: c, line: cl, kind: PREFERRED_CUE.test(cl) || OPTIONAL_CUE.test(cl) ? 'preferred' : lineKind };
-    });
+function clauses(original, lineKind, section = lineKind) {
+  const parts = original.split(/(?<=[!?;])\s+|(?<=[a-z0-9)]{2}\.)\s+(?=[A-Z])/).filter((c) => c.trim());
+  return parts.map((c) => {
+    const cl = c.toLowerCase();
+    let kind = lineKind;
+    if (PREFERRED_CUE.test(cl) || OPTIONAL_CUE.test(cl) || NEGATED_CUE.test(cl)) kind = 'preferred';
+    else if (REQUIRED_CUE.test(cl)) kind = 'required';
+    // "Bachelor's required; Master's a plus": the "plus" belongs to the second clause only.
+    else if (parts.length > 1 && lineKind === 'preferred') kind = section;
+    return { original: c, line: cl, kind };
+  });
+}
+
+// "PhD in economics, finance, statistics, or a related field": the fields of
+// study describe the degree, they aren't skills to match separately. Blanked
+// with spaces so positions in the line stay put.
+const FIELD_OF_STUDY = /\b(?:degree|ph\.?\s?d\.?|doctorate|master['’]?s|bachelor['’]?s|b\.?s\.?|m\.?s\.?|b\.?a\.?|m\.?a\.?|mba)\s+(?:degree\s+)?(?:in|of)\s+[^.;]*?\b(?:related|similar|equivalent|other)\b[^.;]*?\b(?:fields?|disciplines?|areas?|majors?|subjects?)\b/g;
+function stripFieldsOfStudy(line) {
+  return line.replace(FIELD_OF_STUDY, (m) => ' '.repeat(m.length));
 }
 
 // Lists of alternatives — "Python, R, or SAS", "Tableau/Power BI", "such as
@@ -168,6 +206,13 @@ const OR_GAP = /\/|\bor\b/;
 function alternativeRuns(line, items) {
   const optional = OPTIONAL_CUE.test(line);
   const sorted = [...items].sort((a, b) => a.index - b.index);
+  // "Coursework may include econometrics, optimization, Bayesian methods...":
+  // everything listed after the cue is an option, whatever sits between.
+  const cue = line.match(OPTIONAL_CUE);
+  if (cue) {
+    const after = sorted.filter((it) => it.index >= cue.index);
+    if (after.length >= 2) return [after, ...alternativeRuns(line.slice(0, cue.index), sorted.filter((it) => it.end <= cue.index))];
+  }
   const runs = [];
   let run = [];
   let hasOr = false;
@@ -201,8 +246,10 @@ function classifyJobSkills(jobText) {
   const groups = [];
   const parts = classifyLines(jobText)
     .filter((l) => !BOILERPLATE_LINE.test(l.line))
-    .flatMap((l) => clauses(l.original, l.kind));
-  for (const { line, kind } of parts) {
+    .flatMap((l) => clauses(l.original, l.kind, l.section));
+  for (const part of parts) {
+    const { kind } = part;
+    const line = stripFieldsOfStudy(part.line);
     const found = [];
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       for (const p of patterns) {
@@ -254,26 +301,73 @@ function significantTerms(text) {
   return counts;
 }
 
+const NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20 };
+const NUM = `(\\d{1,2}|${Object.keys(NUMBER_WORDS).join('|')})`;
+// "3+ years", "3-5 yrs", "3 to 5 years", "five (5) years", "minimum of two years".
+const YEARS_RE = new RegExp(`\\b${NUM}(?:\\s*\\(\\d{1,2}\\))?\\s*\\+?\\s*(?:(?:-|–|—|to)\\s*${NUM}\\s*\\+?\\s*)?(?:years?|yrs?)\\b`, 'g');
+const toNum = (s) => (/\d/.test(s) ? parseInt(s, 10) : NUMBER_WORDS[s]);
+
+// Years of experience the posting asks for. Skips ages ("18 years or older"),
+// company history ("in business for 25 years") and "4-year degree"; prefers a
+// required mention over a preferred one ("5+ preferred; 3 required" -> 3).
 function requiredYears(jobText) {
-  const m = lower(jobText).match(/(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?years?/);
-  return m ? parseInt(m[1], 10) : null;
+  const found = [];
+  for (const { line, kind } of classifyLines(jobText).flatMap((l) => clauses(l.original, l.kind, l.section))) {
+    for (const m of line.matchAll(YEARS_RE)) {
+      const after = line.slice(m.index + m[0].length, m.index + m[0].length + 30);
+      const before = line.slice(Math.max(0, m.index - 30), m.index);
+      if (/^\s*(?:of age|old|or older|ago|in business|warranty)|^[-\s]*(?:degree|college|university|program)/.test(after)) continue;
+      if (/(?:for (?:over |more than )?|founded|since|within|every|past|last|over the)\s*$/.test(before)) continue;
+      found.push({ years: toNum(m[1]), kind });
+    }
+  }
+  const req = found.find((f) => f.kind !== 'preferred');
+  return (req || found[0] || { years: null }).years;
 }
 
-// Longest span covered by date ranges like "2019 - Present" or "Jan 2018 – Mar 2022".
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11, spr: 3, sum: 6, fal: 9, aut: 9, win: 0 };
+const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec|spring|summer|fall|autumn|winter)[a-z]*\\.?';
+const DATE = `(?:(${MONTH})\\s+|(\\d{1,2})\\s*/\\s*)?((?:19|20)\\d{2})`;
+const RANGE_RE = new RegExp(`${DATE}\\s*(?:-|–|—|to|until)\\s*(?:${DATE}|(present|current|now|today)|(\\d{2})\\b)`, 'gi');
+const SKIP_SECTION = /^\s*#*\s*(?:education|academic|certifications?|licen[sc]es|volunteer|extracurricular|activities|awards|honou?rs|publications)\b[^.]{0,40}$/i;
+const WORK_SECTION = /^\s*#*\s*(?:(?:professional|relevant|work|career|employment)\s+)*(?:experience|employment|work history|career history)\b[^.]{0,40}$/i;
+const SCHOOL_LINE = /\b(?:university|college|school|institute|gpa|b\.?s\.?c?|b\.?a\.?|m\.?s\.?|mba|ph\.?d|bachelor|master|degree)\b/i;
+
+// Years of work the documents show: the union of their date ranges ("Jan 2020
+// – Present", "06/2020 - 08/2022", "2015-16"), so gaps and overlapping jobs
+// aren't double counted and school dates under Education don't count.
 function yearsOfExperience(corpus, now = new Date()) {
-  const thisYear = now.getFullYear();
-  const re = /\b((?:19|20)\d{2})\s*(?:-|–|—|to)\s*((?:19|20)\d{2}|present|current|now)\b/gi;
-  let earliest = null;
-  let latest = null;
-  let m;
-  while ((m = re.exec(corpus))) {
-    const start = parseInt(m[1], 10);
-    const end = /\d/.test(m[2]) ? parseInt(m[2], 10) : thisYear;
-    if (start > end || start < 1960) continue;
-    earliest = earliest === null ? start : Math.min(earliest, start);
-    latest = latest === null ? end : Math.max(latest, end);
+  const nowM = now.getFullYear() * 12 + now.getMonth();
+  const spans = [];
+  let skipping = false;
+  for (const line of String(corpus || '').split('\n')) {
+    if (SKIP_SECTION.test(line)) skipping = true;
+    else if (WORK_SECTION.test(line)) skipping = false;
+    if (skipping) continue;
+    for (const m of line.matchAll(RANGE_RE)) {
+      if (SCHOOL_LINE.test(line)) continue;
+      // Groups: 1-3 start (month name, month number, year); 4-6 end; 7 "present"; 8 two-digit end year.
+      const month = (name, num) => (name ? MONTHS[name.slice(0, 3).toLowerCase()] : num ? Math.min(11, Math.max(0, parseInt(num, 10) - 1)) : 0);
+      const sy = parseInt(m[3], 10);
+      const start = sy * 12 + month(m[1], m[2]);
+      const end = m[6] ? parseInt(m[6], 10) * 12 + month(m[4], m[5]) : m[7] ? nowM : (Math.floor(sy / 100) * 100 + parseInt(m[8], 10)) * 12;
+      if (sy < 1960 || end < start) continue;
+      spans.push([start, Math.min(end, nowM)]);
+    }
   }
-  return earliest === null ? null : latest - earliest;
+  if (!spans.length) return null;
+  spans.sort((a, b) => a[0] - b[0]);
+  let months = 0;
+  let [cs, ce] = spans[0];
+  for (const [s, e] of spans.slice(1)) {
+    if (s <= ce) ce = Math.max(ce, e);
+    else {
+      months += ce - cs;
+      [cs, ce] = [s, e];
+    }
+  }
+  months += ce - cs;
+  return Math.round((months / 12) * 10) / 10;
 }
 
 function fitLabel(score) {
@@ -311,11 +405,14 @@ function looksLikeJobPosting(text) {
 
 module.exports = {
   SKILLS,
+  SOFT_SKILLS,
+  INTERPERSONAL,
   STOPWORDS,
   classifyJobSkills,
   classifyLines,
   clauses,
   alternativeRuns,
+  stripFieldsOfStudy,
   BOILERPLATE_LINE,
   significantTerms,
   looksLikeJobPosting,

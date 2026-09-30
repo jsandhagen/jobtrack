@@ -10,7 +10,7 @@
 //   years of experience           15%
 // Dealbreakers from your profile (work mode, minimum salary, words to avoid)
 // cap the score so those roles never pop up as good matches.
-const { SKILLS, STOPWORDS, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, INTERPERSONAL, STOPWORDS, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeRequirements } = require('./atsScore');
 
 const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
@@ -35,7 +35,7 @@ function isDictionarySkill(term) {
 }
 
 // "Strong programming skills" is shown by the languages you list, not the word.
-const LANGUAGE_SKILLS = ['JavaScript', 'TypeScript', 'Python', 'Java', 'C#', 'C++', 'Go', 'Rust', 'Ruby', 'PHP', 'Swift', 'Kotlin', 'SQL', 'R'];
+const LANGUAGE_SKILLS = ['JavaScript', 'TypeScript', 'Python', 'Java', 'Scala', 'C#', 'C++', 'Go', 'Rust', 'Ruby', 'PHP', 'Swift', 'Kotlin', 'SQL', 'R', 'SAS', 'MATLAB'];
 const GENERIC_PROGRAMMING = /^(programming|coding|computer programming|software development)$/i;
 function showsProgramming(textLower) {
   return /\b(programming|coding)\b/.test(textLower) || LANGUAGE_SKILLS.some((s) => SKILLS[s].some((p) => p.test(textLower)));
@@ -44,7 +44,7 @@ function showsProgramming(textLower) {
 // Capitalised words that are just English, not skills.
 const NOT_TERMS = new Set(
   (
-    'we you our your the this that they their a an and or of in on for to with as at by is are be will ' +
+    'we you our your the this that they their a an and or of in on for to with as at by is are be will no not ' +
     'about role team company position job candidate candidates applicants responsibilities requirements qualifications ' +
     'preferred required minimum basic nice bonus plus benefits experience knowledge ability skills strong excellent ' +
     'proven demonstrated working work must should including include etc ideal ideally equivalent degree bachelor ' +
@@ -57,7 +57,7 @@ const NOT_TERMS = new Set(
 );
 
 const EDGE_WORDS = new Set(
-  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity'.split(' ')
+  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity advanced basic intermediate expert proficient proficiency excellent good techniques technique methods methodologies concepts principles tools skills practices'.split(' ')
 );
 
 // Terms a posting asks for that aren't in the skills dictionary: acronyms
@@ -83,7 +83,8 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
   };
   let body = original.replace(/^\s*([-•*▪●◦]|\d+[.)])\s*/, '');
   // Blank out anything the skills dictionary already covers ("Power BI", "REST APIs").
-  for (const ps of Object.values(SKILLS)) for (const p of ps) body = body.replace(new RegExp(p.source, 'gi'), ' ; ');
+  // Whole words, so "A/B testing" doesn't leave "ing" behind.
+  for (const ps of Object.values(SKILLS)) for (const p of ps) body = body.replace(new RegExp(p.source + '[a-z]*', 'gi'), ' ; ');
   // Acronyms / mixed-case tokens: ACLS, HubSpot, AutoCAD, SAP, CPA, iOS
   for (const m of body.matchAll(/\b([A-Z]{2,6}s?|[A-Za-z]*[a-z][A-Z][A-Za-z]*)\b/g)) add(m[1].replace(/s$/, (x) => (m[1].length > 3 ? '' : x)));
   // Capitalised words/phrases not at the start of the sentence: "Epic", "Google Analytics"
@@ -130,11 +131,14 @@ const LEVELS = [
   [6, /\b(vp|vice president|chief|cto|cfo|coo|ceo)\b/],
   [5, /\b(director|head of)\b/],
   [4, /\b(staff|principal|lead|architect|manager)\b/],
-  [3, /\b(senior|sr\.?)\b/],
-  [1, /\b(junior|jr\.?|entry[- ]level|graduate|associate|assistant|trainee)\b/],
+  [3, /\b(senior|sr\.?|iii|iv)\b/],
+  [1, /\b(junior|jr\.?|entry[- ]level|graduate|associate|assistant|trainee|i)\b/],
 ];
+// Words that look like levels but aren't here: "Staff Accountant", "Lead
+// Generation", and individual-contributor "Product/Project/Account Manager".
+const NOT_LEVEL = /\bstaff (?=accountant|nurse|writer|auditor|attorney|pharmacist|assistant|engineer i\b)|\blead (?=gen(?:eration)?\b)|\b(?:product|project|program|account|case|property|community|office) (?=manager\b)manager\b/g;
 function titleLevel(title) {
-  const t = lower(title);
+  const t = lower(title).replace(NOT_LEVEL, ' ');
   for (const [lvl, re] of LEVELS) if (re.test(t)) return lvl;
   return null; // no marker = mid level
 }
@@ -157,17 +161,19 @@ function parseMoney(s) {
   return v;
 }
 function postingSalaryMax(text) {
-  const range = text.match(/\$\s?([\d,.]+\s?k?)\s*(?:-|–|—|to)\s*\$?\s?([\d,.]+\s?k?)/i);
+  const range = text.match(/\$\s?([\d,.]+\s?k?)(?:\s*\/\s*h(?:ou)?r)?\s*(?:-|–|—|to)\s*\$?\s?([\d,.]+\s?k?)/i) || text.match(/\bup to \$\s?()([\d,.]+\s?k?)/i);
   if (range) {
     const hi = parseMoney(range[2]);
-    if (hi && hi < 1000 && /\/\s?h(ou)?r|hourly|per hour/i.test(text)) return hi * 2080;
+    // Hourly pay: annualise at 40 h x 52 weeks.
+    if (hi && hi < 1000 && /\/\s?h(ou)?r|hourly|(?:per|an|each|\/)\s*hour/i.test(text)) return hi * 2080;
     return hi;
   }
   return null;
 }
 function workMode(text) {
   const t = lower(text);
-  if (/\bfully remote\b|\b100% remote\b|\bremote[- ]first\b|\(remote\)|\bremote\b(?!.{0,20}\bnot\b)/.test(t) && !/\bno remote\b|\bnot remote\b/.test(t)) {
+  const notRemote = /\bno remote\b|\bnot (?:a )?(?:fully )?remote\b|\bnon-remote\b|\bremote\s*:\s*no\b|\bremote (?:work )?(?:is )?not (?:available|possible|an option|offered)/.test(t);
+  if (!notRemote && (/\bfully remote\b|\b100% remote\b|\bremote[- ]first\b|\(remote\)|\bwork from home\b|\bwfh\b|\bremote\b(?!.{0,20}\bnot\b)/.test(t))) {
     return /\bhybrid\b/.test(t) ? 'hybrid' : 'remote';
   }
   if (/\bhybrid\b/.test(t)) return 'hybrid';
@@ -215,12 +221,13 @@ function requirementUnits(job) {
   };
   const parts = lines
     .filter((l) => !(l.isHeading && l.line.length < 40))
-    .flatMap((l) => clauses(l.original, l.kind).map((c) => ({ ...c, lineKind: l.kind })));
+    .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind })));
   for (const { line, original, kind, lineKind } of parts) {
     const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
     const found = []; // { key, label, match, index, end }
+    const skillLine = stripFieldsOfStudy(line);
     for (const [skill, patterns] of Object.entries(SKILLS)) {
-      const hit = patterns.map((p) => line.match(p)).find(Boolean);
+      const hit = patterns.map((p) => skillLine.match(p)).find(Boolean);
       if (hit) found.push({ key: 's:' + skill, label: skill, match: (t) => (patterns.some((p) => p.test(t)) ? 1 : 0), index: hit.index, end: hit.index + hit[0].length });
     }
     // Only mine free-form terms from qualification-ish lines, not the company
@@ -251,13 +258,17 @@ function requirementUnits(job) {
       run.forEach((f) => grouped.add(f));
       addUnit('any:' + run.map((f) => f.key).join('|'), `one of ${run.map((f) => f.label).join(', ')}`, effKind, (t) => Math.max(...run.map((f) => f.match(t))));
     }
-    for (const f of found) if (!grouped.has(f)) addUnit(f.key, f.label, effKind, f.match);
+      for (const f of found) {
+      // Soft skills can't be judged from wording, so they only nudge the score.
+      if (!grouped.has(f)) addUnit(f.key, f.label, INTERPERSONAL.has(f.label) && effKind === 'required' ? 'neutral' : effKind, f.match);
+    }
   }
+  // Degree matchers take the original text too: "BA"/"MS" only count in capitals.
   const DEGREE_NAMES = ['', 'associate degree', "bachelor's degree", "master's degree", 'PhD'];
   const deg = degreeRequirements(job.text);
   const equivalentOk = /or equivalent/i.test(job.text);
-  if (deg.required) addUnit('degree', DEGREE_NAMES[deg.required], 'required', (t) => (degreeLevel(t) >= deg.required ? 1 : equivalentOk ? 0.5 : 0));
-  if (deg.preferred) addUnit('degree-pref', DEGREE_NAMES[deg.preferred], 'preferred', (t) => (degreeLevel(t) >= deg.preferred ? 1 : 0));
+  if (deg.required) addUnit('degree', DEGREE_NAMES[deg.required], 'required', (t, original) => (degreeLevel(original ?? t) >= deg.required ? 1 : equivalentOk ? 0.5 : 0));
+  if (deg.preferred) addUnit('degree-pref', DEGREE_NAMES[deg.preferred], 'preferred', (t, original) => (degreeLevel(original ?? t) >= deg.preferred ? 1 : 0));
   return { units: [...units.values()], lines, hasRequiredSection, ignoreWords };
 }
 
@@ -265,7 +276,7 @@ function localFitScore(job, documents, profile = {}) {
   const libText = documents.map((d) => d.text).join('\n\n');
   const lib = lower(libText);
   const { units, lines, ignoreWords } = requirementUnits(job);
-  const all = units.map((u) => ({ label: u.label, kind: u.kind, met: u.match(lib) }));
+  const all = units.map((u) => ({ label: u.label, kind: u.kind, met: u.match(lib, libText) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
   const neutral = all.filter((u) => u.kind === 'neutral');
