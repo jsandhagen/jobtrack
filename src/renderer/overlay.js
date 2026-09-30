@@ -1,4 +1,4 @@
-const { mascotSvg, moodForScore, encouragement, say, scoreRing, animateRings, confetti } = window.SproutMascot;
+const { mascotSvg, helperSvg, moodForScore, encouragement, say, scoreRing, animateRings, confetti } = window.SproutMascot;
 const { icon } = window.SproutIcons;
 const pop = document.getElementById('pop');
 const content = document.getElementById('content');
@@ -21,28 +21,30 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
   const chips = a
     ? a.strengths.slice(0, 3).map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')
     : app.quick.matchedSkills.slice(0, 6).map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('');
-  const speech = analyzing ? 'Ooh, a new role! Let me take a closer look…' : encouragement(score, app.id.charCodeAt(0));
+  const speech = analyzing ? 'A new role — let me take a closer look…' : encouragement(score, app.id.charCodeAt(0));
   let footer;
   if (noDocs) {
     footer = `<div class="note">Add your resume and a few documents to your library so I can score you properly!</div>
       <div class="actions"><button class="primary" data-act="open">Open my library</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
   } else if (noKey) {
-    footer = `<div class="note">This is the free score. Add a Claude API key in Settings for an optional deeper read and one-click resumes.</div>
-      <div class="actions"><button class="primary" data-act="open">See details</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
+    footer = `<div class="ask">Want an ATS resume for this role? It's free.</div>
+      ${modeChoice(false)}
+      <div class="note">Add a Claude API key in Settings for a deeper read and Claude-written resumes.</div>
+      <div class="actions minor"><button class="ghost" data-act="open">Details</button><button class="ghost" data-act="dismiss">Not now</button></div>`;
   } else if (app.quick.dealbreakers && app.quick.dealbreakers.length && !a) {
     footer = `<div class="note">Heads up — ${esc(app.quick.dealbreakers.join('; '))}.</div>
       <div class="actions"><button class="ghost" data-act="open">Details</button><button class="soft" data-act="resume">Tailor a resume anyway</button><button class="ghost" data-act="dismiss">Skip it</button></div>`;
   } else {
     footer = `${!a && !analyzing ? `<button class="ghost small ask-claude" data-act="analyze">${icon('search', 15)} Ask Claude for a deeper read</button>` : ''}
       <div class="ask">Want me to tailor a resume for this role?</div>
-      <div class="actions">
-        <button class="primary" data-act="resume">${icon('sparkle')} Yes, make my resume!</button>
-        <button class="soft" data-act="both">Resume + cover letter</button>
+      ${modeChoice(true)}
+      <button class="soft letter-btn" data-act="letter">${icon('letter', 16)} Write a cover letter<small>with Claude</small></button>
+      <div class="actions minor">
         <button class="ghost" data-act="open">Details</button>
         <button class="ghost" data-act="dismiss">Not now</button>
       </div>`;
   }
-  return `<div class="top">${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click to say hi' })}<div class="speech">${esc(speech)}</div></div>
+  return `<div class="top">${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click to say hi', variant: 'random' })}<div class="speech">${esc(speech)}</div></div>
     <div class="role">${esc(app.job.title)}</div>
     <div class="company">${esc([app.job.company, app.job.location].filter(Boolean).join(' · ') || 'Job posting detected')}</div>
     <div class="scoreline">${scoreRing(score, 84)}
@@ -55,6 +57,16 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     ${footer}`;
 }
 
+// Two ways to tailor: Spike optimizes your resume for ATS (free), Root has
+// Claude write an updated version. They peek over their buttons.
+function modeChoice(claude) {
+  const { peekPal } = window.SproutMascot;
+  return `<div class="mode-picks${claude ? '' : ' single'}">
+    <button class="peek mode-ats" data-act="resume-ats">${peekPal('ats', 54)}<b>ATS resume</b><small>Free · optimize my resume</small></button>
+    ${claude ? `<button class="peek mode-claude" data-act="resume">${peekPal('claude', 54)}<b>Claude resume</b><small>Write an updated version</small></button>` : ''}
+  </div>`;
+}
+
 // "How an ATS would see the resume you have today", Workday-style grade included.
 function atsLine(app) {
   const b = app.ats && app.ats.before;
@@ -65,16 +77,24 @@ function atsLine(app) {
     <span>ATS match for your current resume: <b>${b.score}%</b>${b.skillsMatch ? ` · skills ${esc(b.skillsMatch.toLowerCase())}` : ''}</span></div>`;
 }
 
-function workingView({ app }) {
-  return `<div class="center">${mascotSvg('thinking', 88)}
-    <h3>Tailoring your resume…</h3>
-    <p class="muted">Picking your best experience for <b>${esc(app.job.title)}</b>. This usually takes under a minute — feel free to keep browsing!</p>
+function workingView({ app, engine, what }) {
+  const claude = engine !== 'ats';
+  const letter = what === 'letter';
+  return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thinking', 88)}
+    <h3>${letter ? 'Root is writing your cover letter…' : claude ? 'Root is writing with Claude…' : 'Spike is picking your bullets…'}</h3>
+    <p class="muted">${claude ? `${letter ? 'Writing to' : 'Tailoring your resume for'} <b>${esc(app.job.title)}</b>. This usually takes under a minute. Keep browsing if you like.` : `Matching your best experience to <b>${esc(app.job.title)}</b>.`}</p>
     <span class="spinner" style="color: var(--sage)"></span></div>`;
 }
 
-function doneView({ app }) {
-  return `<div class="center">${mascotSvg('thrilled', 88)}
-    <h3>Your resume is ready!</h3>
+function doneView({ app, engine, what }) {
+  const claude = engine !== 'ats';
+  if (what === 'letter')
+    return `<div class="center">${helperSvg('claude', 'thrilled', 88)}
+    <h3>Your cover letter is ready!</h3>
+    <p class="muted">Written for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : ''}. Give it a read and tweak anything before you send it.</p>
+    <div class="actions"><button class="primary" data-act="open-letter">Open & review</button><button class="ghost" data-act="dismiss-quiet">Later</button></div></div>`;
+  return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thrilled', 88)}
+    <h3>Your ${claude ? 'Claude' : 'ATS'} resume is ready!</h3>
     <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : ''}. Give it a quick read, tweak anything you like, and export to PDF.</p>
     ${app.ats && app.ats.after ? `<div class="ats-compare">ATS match ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${app.ats.after.score}%</b> <span class="grade g-${app.ats.after.grade}">${app.ats.after.grade}</span></div>` : ''}
     <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="dismiss-quiet">Later</button></div></div>`;
@@ -86,8 +106,8 @@ function seenView({ app }) {
   const when = new Date(applied || app.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const statusLine = {
     applied: `You applied on ${when}.`,
-    interviewing: "You're interviewing for this one — you've got this!",
-    offer: 'You have an offer for this one! So proud of you.',
+    interviewing: "You're interviewing for this one. Good luck!",
+    offer: 'You have an offer for this one. Congratulations!',
     rejected: `You applied on ${when}; it didn't work out this time.`,
     skipped: `You skipped this one on ${when}.`,
   }[app.status] || `You checked this on ${when} but haven't applied yet.`;
@@ -130,7 +150,7 @@ content.addEventListener('click', (e) => {
   const pet = e.target.closest('.sprout.pettable');
   if (pet) {
     const speech = content.querySelector('.speech');
-    if (speech) speech.textContent = say('pet');
+    if (speech) speech.textContent = say(pet.classList.contains('cast-cactus') ? 'spike' : pet.classList.contains('cast-carrot') ? 'root' : 'pet');
     pet.classList.remove('boing');
     void pet.getBoundingClientRect();
     pet.classList.add('boing');

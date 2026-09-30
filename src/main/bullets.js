@@ -578,6 +578,21 @@ function buildDoc({ profile, bank, job, roles }) {
   };
 }
 
+/**
+ * The baseline resume: your bank as it stands, before any tailoring. Every
+ * role, newest first, with its bullets in their original order and wording
+ * (bullets you hid are left out), and your skills in your own order.
+ */
+function baselineDoc({ profile, bank, job }) {
+  const roles = orderedExperiences(bank).map((e) => ({
+    experienceId: e.id,
+    bullets: bank.bullets.filter((b) => b.experienceId === e.id && !b.hidden).map((b) => ({ bulletId: b.id, text: b.text })),
+  }));
+  const { doc } = buildDoc({ profile, bank, job, roles });
+  doc.skills = bank.skills.slice();
+  return doc;
+}
+
 // Link a doc written elsewhere (e.g. by Claude) back to bank roles and bullets.
 function linkDocToBank(doc, bank) {
   const n = (s) => norm(s);
@@ -598,6 +613,7 @@ function linkDocToBank(doc, bank) {
 
 module.exports = {
   buildDoc,
+  baselineDoc,
   linkDocToBank,
   SAME_BULLET,
   parseResume,

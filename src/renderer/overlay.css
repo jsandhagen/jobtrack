@@ -48,3 +48,16 @@ body { padding: 10px; user-select: none; }
 .ats-compare { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; background: var(--sage-soft); border-radius: 12px; padding: 6px 12px; margin-bottom: 12px; }
 .ats-compare .was { color: var(--ink-faint); text-decoration: line-through; }
 .ask-claude { margin: 0 0 4px -6px; }
+
+/* two ways to tailor: helpers peek over their buttons */
+.mode-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 2px 0 6px; }
+.mode-picks.single { grid-template-columns: 1fr; }
+.mode-picks .peek { -webkit-app-region: no-drag; }
+.actions.minor { justify-content: center; gap: 2px; }
+.actions.minor button { padding: 6px 10px; font-size: 12.5px; }
+.center .actions { justify-content: center; }
+.letter-btn { width: 100%; justify-content: center; margin: 2px 0 6px; }
+.letter-btn small { font-size: 11.5px; font-weight: 600; opacity: 0.75; margin-left: 2px; }
+button.letter-btn { background: #fdeadb; color: #c4692b; }
+button.letter-btn:hover { background: #fbdcc4; }
+@media (prefers-color-scheme: dark) { button.letter-btn { background: #45332a; color: #f9a65a; } button.letter-btn:hover { background: #553e31; } }

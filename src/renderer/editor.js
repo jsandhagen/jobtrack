@@ -73,6 +73,75 @@ async function saveNow() {
 
 // ---------- rendering ----------
 
+// Every job starts from your baseline resume. Spike optimizes it for ATS
+// scanners (free); Root has Claude write an updated version. Either one
+// shows straight away, and one step can be undone.
+const RESUME_STATES = {
+  baseline: { title: 'Baseline resume', line: 'Your resume as it is, with nothing tailored yet. Optimize it for this posting, or have Claude write an updated version.' },
+  ats: { title: 'Optimized for ATS by Spike', line: 'Your bullets that match the most posting keywords, in your own words, with the skills you can back up listed first.' },
+  claude: { title: 'Written by Root with Claude', line: 'Tailored to this posting and fact-checked against your records. Click anywhere on the page to edit.' },
+};
+
+function modeBar(info) {
+  const cur = info.resumeSource;
+  const st = RESUME_STATES[cur] || RESUME_STATES.baseline;
+  const who = cur === 'baseline' ? `<span class="mode-doc">${icon('doc', 24)}</span>` : window.SproutMascot.helperSvg(cur, 'happy', 44, { cls: 'pettable' });
+  const was = { baseline: 'the baseline', ats: 'the ATS version', claude: 'the Claude version' }[info.undoTo] || 'the previous version';
+  const undo = info.canUndo ? `<button class="small ghost" data-mode-go="undo">${icon('refresh', 14)} Undo — back to ${cur === info.undoTo ? 'the previous version' : was}</button>` : '';
+  const back = cur !== 'baseline' && info.undoTo !== 'baseline' ? '<button class="small ghost" data-mode-go="baseline">Back to baseline</button>' : '';
+  const locked = !state.hasApiKey;
+  return `<div class="mode-strip mode-is-${cur}">
+    <div class="mode-status">${who}<div><b>${st.title}</b><p>${st.line}</p>${undo || back ? `<div class="inline mode-links">${undo}${back}</div>` : ''}</div></div>
+    <div class="mode-actions">
+      <button class="peek mode-ats" data-mode-go="ats">${window.SproutMascot.peekPal('ats', 54)}<b>${cur === 'ats' ? 'Optimize again' : 'Optimize for ATS'}</b><small>Free · instant</small></button>
+      <button class="peek mode-claude" data-mode-go="${locked ? 'settings' : 'claude'}" title="${locked ? 'Add a Claude API key in Settings' : 'Claude writes an updated version for this posting'}">${window.SproutMascot.peekPal('claude', 54)}<b>${cur === 'claude' ? 'Rewrite with Claude' : 'Write with Claude'}</b><small>${locked ? 'Add an API key first' : 'Uses Claude · ~1 min'}</small></button>
+    </div>
+  </div>`;
+}
+
+// Show the new version: bring the page into view and let it glow for a moment.
+function previewFresh() {
+  const slot = document.getElementById('editorSlot');
+  const page = document.getElementById('edPage');
+  if (slot) slot.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (page) {
+    page.classList.remove('fresh');
+    void page.offsetWidth;
+    page.classList.add('fresh');
+  }
+}
+
+async function switchMode(mode) {
+  if (mode === 'settings') return void (location.hash = '#settings');
+  await saveNow();
+  ed.polish = new Map();
+  ed.held = [];
+  const appId = ed.appId;
+  if (mode === 'claude') {
+    const p = S.generateResume(appId);
+    renderApplication(appId); // shows Root at work
+    const ok = await run(null, () => p.then(() => true));
+    await renderApplication(appId);
+    if (ok) (previewFresh(), toast(say('claudeDone'), 'good', 5000, 'proud'));
+    return;
+  }
+  const done = await run(null, async () => {
+    if (mode === 'ats') await S.atsResume(appId);
+    else if (mode === 'baseline') await S.baselineResume(appId);
+    else await S.undoResume(appId);
+    return true;
+  });
+  if (!done || ed.appId !== appId) return;
+  await renderEditor(appId, ed.app);
+  previewFresh();
+  if (mode === 'ats') toast(say('atsDone'), 'good', 3800, 'proud');
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mode-go]');
+  if (b && document.getElementById('editorSlot')) switchMode(b.dataset.modeGo);
+});
+
 async function renderEditor(appId, app) {
   const slot = document.getElementById('editorSlot');
   if (!slot) return;
@@ -91,15 +160,14 @@ async function renderEditor(appId, app) {
   ed.doc = JSON.parse(JSON.stringify(info.doc));
 
   slot.innerHTML = `
+    ${modeBar(info)}
     <div class="ed">
       <div class="ed-main">
         <div class="ed-bar">
           <span class="ed-pages" id="edPages"></span>
-          <span class="faint">Click anywhere on the page to edit · Enter = new bullet</span>
-          <span style="flex:1"></span>
+          <span class="faint ed-hint">Click anywhere on the page to edit · Enter = new bullet</span>
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
-
         </div>
         <div class="ed-desk" id="edDesk"><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
       </div>
@@ -238,7 +306,7 @@ function renderTray() {
             ? `<p class="muted">✓ Already shown on the page${document.querySelector('#edPage li.lit') ? ' — highlighted in purple' : ''}. No other bullets in your bank mention it.</p>`
             : `<p class="muted">No bullet in your bank shows “${esc(filterLabel)}”. If you have that experience, click into a role on the page, press Enter, and write it — you can save it to your bank.</p>`
           : info.bankSize
-            ? sproutSays('proud', 'Every relevant bullet from your bank is already on the page!', 40, { cls: 'tight' })
+            ? sproutSays('proud', 'Every relevant bullet in your bank is already on the page.', 40, { cls: 'tight' })
             : sproutSays('curious', 'Your bullet bank is empty — add a resume to <a href="#library">My library</a>.', 40, { cls: 'tight' }))
       }
       ${info.otherRoles.length ? `<div class="tray-role" style="margin-top:10px">Roles not on this resume</div>${info.otherRoles.map((o) => `<div class="cand slim"><span>${esc([o.title, o.organization].filter(Boolean).join(' · '))} <span class="faint">(${o.count})</span></span><button class="small soft" data-add-role-id="${o.id}">+ Add</button></div>`).join('')}` : ''}
@@ -248,8 +316,6 @@ function renderTray() {
       <h4>More</h4>
       <div class="tray-actions">
         ${state.hasApiKey ? `<button class="soft" id="edPolish" title="One Claude call; you approve each change">${icon('sparkle')} Polish wording for this job</button>` : ''}
-        ${state.hasApiKey ? `<button class="ghost" id="edClaude" title="Claude drafts the whole resume from your library, using these bullets as the backbone">${icon('pencil')} Have Claude write a draft</button>` : ''}
-        <button class="ghost" id="edAuto">${icon('refresh')} Start over with the best picks</button>
       </div>
       <div class="faint" style="margin-top:10px">Make this resume's… <a href="#" data-default="header">header</a> · <a href="#" data-default="summary">summary</a> · <a href="#" data-default="skills">skills</a> · <a href="#" data-default="education">education</a> …your default for new resumes.</div>
     </div>
@@ -295,7 +361,7 @@ function checksPanel() {
   if (!flagged.length && !checks.length && !notes.length) return '';
   const n = flagged.length + checks.length;
   return `<details class="tray-card checks" ${flagged.length ? 'open' : ''}>
-    <summary><b>${n ? `${icon('search', 16)} Check before sending (${n})` : `${icon('note', 16)} Notes from Claude`}</b></summary>
+    <summary><b>${n ? `${icon('search', 16)} Check before sending (${n})` : `${icon('note', 16)} Notes from Root`}</b></summary>
     ${flagged.length ? `<p class="faint" style="margin:6px 0">These bullets say something your documents don't show. Fix the wording, or confirm it's true.</p>` : ''}
     ${flagged
       .map(
@@ -457,25 +523,6 @@ function wireTray() {
         renderTray();
       }, 'Polishing…')
     );
-  const cl = $('#edClaude', tray);
-  if (cl)
-    cl.addEventListener('click', async () => {
-      if (!confirm('Have Claude write a fresh draft? It replaces what is on the page (your bullet bank is untouched).')) return;
-      await saveNow();
-      const p = S.generateResume(ed.appId);
-      renderApplication(ed.appId);
-      await run(null, () => p.then(() => toast('Draft ready — edit away!', 'good')));
-      renderApplication(ed.appId);
-    });
-  $('#edAuto', tray).addEventListener('click', () =>
-    confirm('Start over with the best bullets for this job? Your edits on this page will be replaced (your bank is untouched).') &&
-    run(null, async () => {
-      ed.polish = new Map();
-      ed.held = [];
-      await S.autoEditor(ed.appId);
-      renderEditor(ed.appId, ed.app);
-    })
-  );
   $$('[data-default]', tray).forEach((a) =>
     a.addEventListener('click', (e) => {
       e.preventDefault();
