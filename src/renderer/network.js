@@ -86,11 +86,33 @@ const PEOPLE_FILTERS = [
   ['reached', 'Waiting to hear', (c) => c.status === 'reached'],
   ['replied', 'Talking', (c) => ['replied', 'talked', 'referred'].includes(c.status)],
   ['quiet', 'No reply', (c) => c.status === 'quiet'],
-  // Only shown once your Profile lists schools / past employers.
-  ['alumni', 'Alumni', (c) => O.sharedBackground(c, state.profile).schools.length > 0, 'schools'],
-  ['coworkers', 'Ex-coworkers', (c) => O.sharedBackground(c, state.profile).employers.length > 0, 'pastEmployers'],
 ];
-const peopleFilters = () => PEOPLE_FILTERS.filter(([k, , , needs]) => !needs || O.splitList(state.profile[needs]).length || peopleFilter === k);
+// People you share a school or an employer with (toggles by the search box;
+// shown once your Profile lists schools / past employers).
+let peopleShared = '';
+const SHARED_FILTERS = [
+  ['alumni', 'Alumni', 'schools', (c) => O.sharedBackground(c, state.profile).schools.length > 0],
+  ['coworkers', 'Ex-coworkers', 'pastEmployers', (c) => O.sharedBackground(c, state.profile).employers.length > 0],
+];
+
+// Three tabs, like Find jobs: your people, finding more, and templates.
+const PEOPLE_TABS = ['people', 'find', 'templates'];
+let peopleTab = (() => {
+  try {
+    return PEOPLE_TABS.includes(localStorage.getItem('sprout.peopleTab')) ? localStorage.getItem('sprout.peopleTab') : 'people';
+  } catch {
+    return 'people';
+  }
+})();
+function setPeopleTab(tab) {
+  peopleTab = tab;
+  try {
+    localStorage.setItem('sprout.peopleTab', tab);
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  route();
+}
 
 function peopleMood(st) {
   if (!st.total) return ['wave', "Reaching out is the scary part, so I'll write the first draft. Add someone you'd like to talk to: a chief of staff you admire, someone from your school, an old coworker."];
@@ -103,9 +125,8 @@ function peopleMood(st) {
 
 function reasonChip(c, roles) {
   if (roles && roles.length) return `<span class="chip good tiny">${icon('target', 13)} ${roles.length === 1 ? `${esc(roles[0].job.title)} role here` : `${roles.length} of your roles here`}</span>`;
-  if (c.connection) return `<span class="chip lav tiny">${esc(c.connection)}</span>`;
-  const shared = O.connectionText(O.sharedBackground(c, state.profile));
-  return shared ? `<span class="chip lav tiny">${esc(shared)}</span>` : '';
+  const common = c.connection || O.connectionText(O.sharedBackground(c, state.profile));
+  return common ? `<span class="chip lav tiny" title="${esc(common)}">${esc(common)}</span>` : '';
 }
 
 function contactRow(c) {
@@ -114,7 +135,7 @@ function contactRow(c) {
   return `<div class="row-item person" data-contact="${c.id}">
     <div class="avatar">${esc(initials(c.name))}</div>
     <div class="grow"><div class="title">${esc(c.name)}</div><div class="sub">${esc(contactLine(c))}${c.reachedAt ? ` · reached out ${fmtDate(c.reachedAt)}` : ''}</div>
-      <div style="margin-top:4px">${reasonChip(c, roles)}${roles.length && c.connection ? `<span class="chip lav tiny">${esc(c.connection)}</span>` : ''}${due ? `<span class="chip due tiny">${icon('clock', 13)} follow up</span>` : ''}</div></div>
+      <div style="margin-top:4px">${reasonChip(c, roles)}${roles.length && c.connection ? `<span class="chip lav tiny" title="${esc(c.connection)}">${esc(c.connection)}</span>` : ''}${due ? `<span class="chip due tiny">${icon('clock', 13)} follow up</span>` : ''}</div></div>
     <select class="small-select contactStatus" data-id="${c.id}" title="Where things stand">${O.CONTACT_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (c.status || 'to-reach') ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <button class="small ${c.status === 'to-reach' || !c.status || due ? 'primary' : 'soft'}" data-msg="${c.id}">${icon('chat', 15)} ${due ? 'Nudge' : 'Message'}</button>
     <button class="small ghost" data-open-url="${esc(O.profileUrl(c))}" title="${c.linkedinUrl ? 'Open their LinkedIn profile' : 'Find their LinkedIn profile (Google search by name and company)'}">${icon('link', 15)} ${c.linkedinUrl ? 'Profile' : 'Find profile'}</button>
@@ -126,41 +147,60 @@ views.people = () => {
   const cs = state.contacts;
   const st = O.outreachStats(cs);
   const [mood, line] = peopleMood(st);
+  const tab = (k, label, n) => `<button class="${peopleTab === k ? 'on' : ''}" data-people-tab="${k}">${label}${n ? ` <span class="faint">${n}</span>` : ''}</button>`;
+  const body = peopleTab === 'find' ? findPeopleTab() : peopleTab === 'templates' ? templatesCard() : myPeopleTab(st);
+  return `<div class="page">
+    ${pageHead('People', mood, esc(line), `<button class="soft" id="importPeople">${icon('clipboard')} Import from a spreadsheet</button><button class="primary" data-add-person="">+ Add a person</button>`)}
+    <div class="tabs find-tabs">${tab('people', `${icon('user', 17)} My people`, cs.length)}${tab('find', `${icon('search', 17)} Find people`)}${tab('templates', `${icon('letter', 17)} Templates`, state.templates.length)}</div>
+    ${body}
+  </div>`;
+};
+
+function myPeopleTab(st) {
+  const cs = state.contacts;
   const q = peopleSearch.toLowerCase();
+  const shared = SHARED_FILTERS.filter(([k, , needs]) => O.splitList(state.profile[needs]).length || peopleShared === k);
+  const sharedFn = (SHARED_FILTERS.find(([k]) => k === peopleShared) || [])[3] || (() => true);
+  const statusFn = (PEOPLE_FILTERS.find(([k]) => k === peopleFilter) || PEOPLE_FILTERS[0])[2];
   const shown = cs
-    .filter((PEOPLE_FILTERS.find(([k]) => k === peopleFilter) || PEOPLE_FILTERS[0])[2])
+    .filter(statusFn)
+    .filter(sharedFn)
     .filter((c) => !q || [c.name, c.title, c.company, c.connection, c.notes, c.headline, ...(c.schools || []), ...(c.employers || [])].join(' ').toLowerCase().includes(q))
     .sort((a, b) => Number(O.contactFollowUpDue(b)) - Number(O.contactFollowUpDue(a)) || String(b.lastTouchAt || b.addedAt).localeCompare(String(a.lastTouchAt || a.addedAt)));
   // With only a few people the whole list is short enough; then only call
   // out someone at a company you're applying to.
   const next = O.nextToReach(cs, state.applications, 3).filter((n) => cs.length > 4 || n.roles.length);
   const due = cs.filter((c) => O.contactFollowUpDue(c));
+  const filtered = peopleFilter !== 'all' || peopleShared || q;
 
-  return `<div class="page">
-    ${pageHead('People', mood, esc(line), `<button class="soft" id="importPeople">${icon('clipboard')} Import from a spreadsheet</button><button class="primary" data-add-person="">+ Add a person</button>`)}
-    ${cs.length ? `<div class="grid three" style="margin-bottom:16px">
+  if (!cs.length)
+    return `<div class="card empty">${mascotSvg('curious', 72)}<h3>No people yet</h3>
+      <p>Look for alumni and old coworkers at the companies you want in <a href="#" data-people-tab="find">Find people</a>. With the Sprout browser extension, adding someone is one click on their LinkedIn profile. Or import the spreadsheet you already have.</p>
+      <button class="primary" data-people-tab="find">${icon('search', 15)} Find people</button></div>`;
+
+  return `<div class="grid three" style="margin-bottom:16px">
       <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('send', 26)}</div><div><b>${st.reachedWeek}</b><span>reached out this week · ${st.reached} total</span></div></div>
       <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('chat', 26)}</div><div><b>${st.replied}</b><span>wrote back or talked with you</span></div></div>
       <div class="card stat"><div class="stat-icon" style="background:var(--peach-soft);color:#b8653e">${icon('user', 26)}</div><div><b>${st.toReach}</b><span>still to contact</span></div></div>
-    </div>` : ''}
-    <div class="grid sidebar">
-      <div>
-        ${next.length || due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0">
-          ${due.length ? `<h3 class="with-icon">${icon('clock', 20)} Time for a nudge</h3><div class="list" style="margin-bottom:${next.length ? 14 : 0}px">${due.map(contactRow).join('')}</div>` : ''}
-          ${next.length ? `<h3 class="with-icon">${icon('sparkle', 20)} Reach out next</h3><p class="faint" style="margin-top:-4px">People at companies you're applying to come first. Click <b>Message</b>: the draft is ready, you only have to send it.</p><div class="list">${next.map(({ contact }) => contactRow(contact)).join('')}</div>` : ''}
-        </div>` : ''}
-        <div class="tabs">${peopleFilters().map(([k, label, fn]) => `<button class="${peopleFilter === k ? 'on' : ''}" data-pfilter="${k}">${label} <span class="faint">${cs.filter(fn).length}</span></button>`).join('')}</div>
-        <input id="peopleSearch" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" style="margin-bottom:12px">
-        ${shown.length ? `<div class="list">${shown.map(contactRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 72)}<h3>${cs.length ? 'Nobody here' : 'No people yet'}</h3><p>${cs.length ? 'No one matches this filter.' : 'Use <b>Alumni & old coworkers</b> on the right to find people at the companies you want, then add the ones you want to talk to. With the Sprout browser extension, adding someone is one click on their LinkedIn profile. Or import the spreadsheet you already have.'}</p></div>`}
-      </div>
-      <div>
-        ${insidersCard()}
-        ${findPeopleCard()}
-        ${templatesCard()}
-      </div>
     </div>
+    ${next.length || due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0">
+      ${due.length ? `<h3 class="with-icon">${icon('clock', 20)} Time for a nudge</h3><div class="list" style="margin-bottom:${next.length ? 14 : 0}px">${due.map(contactRow).join('')}</div>` : ''}
+      ${next.length ? `<h3 class="with-icon">${icon('sparkle', 20)} Reach out next</h3><p class="faint" style="margin-top:-4px">People at companies you're applying to come first. Click <b>Message</b>: the draft is ready, you only have to send it.</p><div class="list">${next.map(({ contact }) => contactRow(contact)).join('')}</div>` : ''}
+    </div>` : ''}
+    <div class="tabs compact">${PEOPLE_FILTERS.map(([k, label, fn]) => `<button class="${peopleFilter === k ? 'on' : ''}" data-pfilter="${k}">${label} <span class="faint">${cs.filter(fn).length}</span></button>`).join('')}</div>
+    <div class="people-bar">
+      <input id="peopleSearch" type="search" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" autocomplete="off">
+      ${shared.map(([k, label, , fn]) => `<label class="check-label" title="People you share ${k === 'alumni' ? 'a school' : 'an employer'} with"><input type="checkbox" data-pshared="${k}" ${peopleShared === k ? 'checked' : ''}> ${label} <span class="faint">${cs.filter(fn).length}</span></label>`).join('')}
+    </div>
+    ${shown.length ? `<div class="list">${shown.map(contactRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 72)}<h3>Nobody here</h3><p>No one matches ${filtered ? 'these filters' : 'this filter'}. <a href="#" id="peopleClear">Show everyone</a></p></div>`}`;
+}
+
+function findPeopleTab() {
+  return `<div class="grid sidebar-wide">
+    ${insidersCard()}
+    ${findPeopleCard()}
   </div>`;
-};
+}
 
 // ---------------- alumni & old coworkers at a company ----------------
 
@@ -180,13 +220,13 @@ function insiderCompanies() {
 function insidersCard() {
   const cos = insiderCompanies();
   const roles = O.splitList(state.profile.targetRoles);
-  return `<div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('user', 20)} Alumni & old coworkers</h3>
+  return `<div class="card"><h3 class="with-icon">${icon('user', 20)} Alumni & old coworkers</h3>
     <p class="faint" style="margin-top:-4px">Pick a company, a role, or both. I'll look for people who went to your schools or worked where you did: they're the likeliest to say yes.</p>
-    <div class="form-grid" style="grid-template-columns:1fr">
+    <div class="form-grid">
       <div><label>At a company</label><input id="inCompany" list="inCompanies" value="${esc(insider.company)}" placeholder="${esc(cos[0] || 'e.g. Ramp')}" autocomplete="off"><datalist id="inCompanies">${cos.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
       <div><label>In a role <span class="faint">(optional)</span></label><input id="inTitles" value="${esc(insider.titles)}" placeholder="${esc(`e.g. ${roles[0] || 'Chief of Staff'}`)}" autocomplete="off"></div>
     </div>
-    ${cos.length ? `<div class="inline" style="margin-top:8px;flex-wrap:wrap;gap:6px">${cos.slice(0, 6).map((c) => `<button class="chip tiny ${O.sameCompany(c, insider.company) ? 'good' : ''}" data-in-co="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
+    ${cos.length ? `<div class="inline" style="margin-top:8px;flex-wrap:wrap;gap:0">${cos.slice(0, 8).map((c) => `<button class="chip tiny ${O.sameCompany(c, insider.company) ? 'good' : ''}" data-in-co="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
     <div id="insiderResults" style="margin-top:10px">${insiderResults()}</div>
   </div>`;
 }
@@ -210,12 +250,12 @@ function insiderResults() {
       <button class="small ghost inSave" data-i="${found.indexOf(s)}" title="Keep this search">Save</button>
     </div>`;
   return `${known.length ? `<p class="note-box" style="margin-top:0">You already know ${known.length === 1 ? `<b>${esc(known[0].name)}</b>` : `<b>${known.length} people</b>`} at ${esc(company)}. <a href="#" id="inKnown">Show ${known.length === 1 ? 'them' : 'them all'}</a></p>` : ''}
-    ${groups
+    <div class="insider-groups">${groups
       .map(([k, label]) => {
         const list = found.filter((s) => s.kind === k);
-        return list.length ? `<div class="section-title" style="margin-top:8px">${esc(label)}</div>${list.map(row).join('')}` : '';
+        return list.length ? `<div><div class="section-title" style="margin-top:4px">${esc(label)}</div>${list.map(row).join('')}</div>` : '';
       })
-      .join('')}
+      .join('')}</div>
     ${!O.splitList(p.schools).length && !O.splitList(p.pastEmployers).length ? `<p class="note-box">Add your schools and past employers in <a href="#profile">Profile</a> and I'll search for alumni and old coworkers here too.</p>` : ''}
     <p class="faint" style="margin-bottom:0">Found someone? Open their LinkedIn profile: the Sprout browser extension adds them in one click, with their schools and past jobs.</p>`;
 }
@@ -245,7 +285,7 @@ function bindInsiderResults() {
       const s = O.insiderSearches({ company: insider.company.trim(), titles: insider.titles.trim() }, state.profile)[Number(b.dataset.i)];
       if (!s) return;
       await S.saveItem('searches', { ...s.search, source: 'linkedin', name: s.label });
-      toast('Saved. It will be under Find people whenever you want fresh results.', 'good');
+      toast('Saved. It will be under Your searches whenever you want fresh results.', 'good');
       netRefresh();
     })
   );
@@ -254,29 +294,29 @@ function bindInsiderResults() {
     known.addEventListener('click', (e) => {
       e.preventDefault();
       peopleFilter = 'all';
+      peopleShared = '';
       peopleSearch = insider.company.trim();
-      route();
+      setPeopleTab('people');
     });
 }
 
+// Saved people searches, and a search of your own. (Alumni and old
+// coworkers have their own card, so there are no suggestions here.)
 function findPeopleCard() {
   const p = state.profile;
   const roles = O.splitList(p.targetRoles);
   const common = [...O.splitList(p.schools), ...O.splitList(p.pastEmployers)];
   const saved = state.searches.filter((s) => s.kind === 'people');
-  const savedKeys = new Set(saved.map(O.searchKey));
-  const sugg = O.suggestedSearches(p).filter((s) => s.kind === 'people' && !savedKeys.has(s.key));
-  return `<div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('search', 20)} Find people</h3>
-    <p class="faint" style="margin-top:-4px">Opens a LinkedIn search in your browser. Titles in quotes, so "chief of staff" doesn't match every staff job.</p>
-    ${saved.map((s) => searchRow(s, true)).join('')}
-    ${sugg.map((s) => searchRow(s, false)).join('')}
-    ${!common.length ? `<p class="note-box">Add your school and past employers in <a href="#profile">Profile</a> and I'll suggest searches for people you have something in common with.</p>` : ''}
-    <div class="form-grid" style="margin-top:12px;grid-template-columns:1fr">
+  return `<div class="card"><h3 class="with-icon">${icon('search', 20)} Your searches</h3>
+    ${saved.length ? saved.map((s) => searchRow(s, true)).join('') : '<p class="faint" style="margin-top:-4px">Searches you save show up here, one click from fresh results.</p>'}
+    <div class="section-title" style="margin-top:14px">Search your own way</div>
+    <div class="form-grid" style="grid-template-columns:1fr">
       <div><label>Their job title</label><input id="ppTitles" placeholder="${esc(roles.slice(0, 2).join(', ') || 'Chief of staff, operations manager')}"></div>
       <div><label>At a company <span class="faint">(optional)</span></label><input id="ppCompany" placeholder="e.g. Ramp"></div>
-      <div><label>In common <span class="faint">(school or past employer)</span></label><input id="ppCommon" placeholder="${esc(common.slice(0, 2).join(', ') || 'UVA, Appian')}"></div>
+      <div><label>In common <span class="faint">(optional)</span></label><input id="ppCommon" placeholder="${esc(common.slice(0, 2).join(', ') || 'UVA, Appian')}"></div>
     </div>
-    <div class="inline" style="margin-top:10px"><button class="soft small" id="ppOpen">${icon('link', 15)} Search LinkedIn</button><button class="ghost small" id="ppGoogle" title="Same search through Google, if LinkedIn limits your searches">Via Google</button><button class="ghost small" id="ppSave">Save search</button></div>
+    <div class="inline" style="margin-top:10px;flex-wrap:wrap"><button class="soft small" id="ppOpen">${icon('link', 15)} LinkedIn</button><button class="ghost small" id="ppGoogle" title="Same search through Google, if LinkedIn limits your searches">Google</button><button class="ghost small" id="ppSave">Save</button></div>
+    <p class="faint" style="margin-bottom:0">Titles go in quotes, so "chief of staff" doesn't match every staff job.</p>
   </div>`;
 }
 
@@ -298,15 +338,27 @@ function templatesCard() {
 }
 
 binders.people = () => {
+  $$('[data-people-tab]').forEach((b) => b.addEventListener('click', (e) => (e.preventDefault(), setPeopleTab(b.dataset.peopleTab))));
+  $('#importPeople').addEventListener('click', openImportModal);
+  if (peopleTab === 'people') bindMyPeople();
+  if (peopleTab === 'find') bindFindPeople();
+  if (peopleTab === 'templates') bindTemplates();
+};
+
+function bindMyPeople() {
   $$('[data-pfilter]').forEach((b) => b.addEventListener('click', () => ((peopleFilter = b.dataset.pfilter), route())));
+  $$('[data-pshared]').forEach((b) => b.addEventListener('change', () => ((peopleShared = b.checked ? b.dataset.pshared : ''), route())));
+  const clear = $('#peopleClear');
+  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), (peopleFilter = 'all'), (peopleShared = ''), (peopleSearch = ''), route()));
   const search = $('#peopleSearch');
-  search.addEventListener('input', () => {
-    peopleSearch = search.value;
-    route();
-    const el = $('#peopleSearch');
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  });
+  if (search)
+    search.addEventListener('input', () => {
+      peopleSearch = search.value;
+      route();
+      const el = $('#peopleSearch');
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
   $$('.contactStatus').forEach((sel) =>
     sel.addEventListener('change', async () => {
       await S.setContactStatus(sel.dataset.id, sel.value).catch((err) => toast(err.message, 'error'));
@@ -316,10 +368,11 @@ binders.people = () => {
     })
   );
   $$('.editContact').forEach((b) => b.addEventListener('click', () => openContactModal(state.contacts.find((c) => c.id === b.dataset.id))));
-  $('#importPeople').addEventListener('click', openImportModal);
+}
+
+function bindFindPeople() {
   bindSearchRows();
   bindInsiders();
-
   const pp = () => ({ kind: 'people', titles: $('#ppTitles').value, company: $('#ppCompany').value, common: $('#ppCommon').value });
   const filled = (s) => s.titles.trim() || s.company.trim() || s.common.trim();
   $('#ppOpen').addEventListener('click', () => (filled(pp()) ? openUrl(O.linkedinPeopleUrl(pp())) : toast('Add a title, a company or something in common first.')));
@@ -332,7 +385,9 @@ binders.people = () => {
     toast('Search saved.', 'good');
     netRefresh();
   });
+}
 
+function bindTemplates() {
   $$('.editTpl').forEach((b) => b.addEventListener('click', () => openTemplateModal(state.templates.find((t) => t.id === b.dataset.id))));
   $('#newTpl').addEventListener('click', () => openTemplateModal({ name: '', body: 'Hi {first}, \n\n{me}' }));
   $('#resetTpl').addEventListener('click', async () => {
@@ -340,7 +395,7 @@ binders.people = () => {
     await S.resetTemplates();
     netRefresh();
   });
-};
+}
 
 // Open / save / remove buttons on search rows (both pages).
 function bindSearchRows() {
