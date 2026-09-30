@@ -248,7 +248,21 @@ The default style of the optional game (Settings → *Sprout's garden* → *Game
 - **Each week is an Act.** Your weekly goal (default 7 applications) is how many floors come before the boss, *the Crow Council*. Reaching the boss is free, so hitting your goal is what earns the boss fight. A new Act starts each Monday at full HP.
 - **A branching map**, like Slay the Spire's: 2–3 nodes per floor (fights, elites, campfires, treasure), each linked to only one or two nodes above it, so every choice closes some paths off. Paths you can no longer reach fade out, and the side panel lists your current choices by name. At a campfire, rest (heal 30%) or tend a card to upgrade it for the rest of the climb.
 - **Battles work like Slay the Spire**: 3 energy and 5 cards a turn, Block, Strength, Weak, poison-like *Nettle*, and enemies that show their next move. You'll meet the Hollow Wisp, the Gatekeeper Golem, the Pinchpenny Goblin and the Tangle Hydra, plus the elites Knight of Five Trials and Mirage Unicorn. Keys `1`–`9` play cards and `E` ends the turn.
-- **Your deck grows with your real search.** Applying with a tailored resume unlocks *Bramble Lash*, a cover letter unlocks *Petal Shield*, an interview unlocks *Sunburst*, carrying on after a "no" unlocks *Regrowth*, and an offer unlocks *Golden Bloom*. Every 5 applications upgrades a card, each win offers a card to add, and the deck view notes how each card was earned.
+- **Cards work like Slay the Spire's rarities.** Fights and treasure only offer **commons**: simple cards that combo with each other around *Nettle* (Creeping Nettle, Nettle Sting, Spore Cloud), *Block and Thorns* (Thicket, Timber!, Petal Shield, Oak Slam) and *Strength / multi-hits / 0-cost* (Twin Thorns, Seed Scatter, Morning Dew). The **blue (uncommon) and gold (rare) enablers** that make those combos take off never drop from fights; only your real search unlocks them:
+
+  | Card | Rarity | Unlocked by |
+  |---|---|---|
+  | Deep Roots (+Strength) | uncommon | hitting your weekly goal |
+  | Thorn Mantle (Thorns) | uncommon | applying 3 days in a row |
+  | Photosynthesis (Block from 0-cost cards) | uncommon | applying again within 3 days of a "no" |
+  | Spreading Rot (Nettle every turn) | uncommon | 10 applications |
+  | Sunburst (big hit + Strength) | rare | your first interview |
+  | Evergreen (Block stays between turns) | rare | your second interview |
+  | Old Growth (Strength every turn) | rare | your third interview |
+  | Overgrowth (double Nettle) | rare | 25 applications |
+  | Golden Bloom (+1 Energy every turn) | rare | an offer |
+
+  A tailored resume, a cover letter, 3/5/8 applications and a rejection also add commons. Every 5 applications upgrades a card. The deck view shows how each card was earned and which enablers are still to unlock, and a new one is announced when you earn it.
 - **Garden badges become relics**, e.g. *Lucky Acorn* (first application: start fights with 4 Block) and *Busy Bee* (big week: draw an extra card).
 - **Losing never ends the run.** Sprout gets back up at half HP, and your next application is the next try. After the boss, each extra application opens a bonus card.
 

@@ -23,24 +23,62 @@
 })(typeof self !== 'undefined' ? self : this, function (Garden) {
   // ---------------- cards ----------------
   // {x} in text is replaced by the card's (possibly upgraded) value.
-  // `from` says what in your real search unlocks the card.
+  // Rarity works like Slay the Spire's, except for where cards come from:
+  // - common: simple cards that combo with each other (Nettle; Block and
+  //   Thorns; Strength and multi-hits; 0-cost). Fights and treasure offer
+  //   these, and early ones also unlock from your search.
+  // - uncommon (blue) and rare (gold): the enablers that make a combo take
+  //   off. They never drop from fights; only interviews, offers and
+  //   milestones in your real search unlock them (see UNLOCKS).
+  // `from` says what in your search unlocks the card. {x} in text is
+  // replaced by the card's (possibly upgraded) value.
   const CARDS = {
-    pitch: { name: 'Thorn Strike', type: 'attack', cost: 1, dmg: 6, up: { dmg: 9 }, icon: 'sword', text: 'Deal {dmg} damage.', from: 'Starter card' },
-    positive: { name: 'Leaf Guard', type: 'skill', cost: 1, block: 5, up: { block: 8 }, icon: 'shield', text: 'Gain {block} Block.', from: 'Starter card' },
-    tailored: { name: 'Bramble Lash', type: 'attack', cost: 1, dmg: 9, up: { dmg: 12 }, icon: 'sword', text: 'Deal {dmg} damage.', from: 'Applying with a tailored resume' },
-    letter: { name: 'Petal Shield', type: 'skill', cost: 1, block: 7, draw: 1, up: { block: 10 }, icon: 'heart', text: 'Gain {block} Block. Draw {draw} card.', from: 'Sending a cover letter' },
-    coffee: { name: 'Morning Dew', type: 'skill', cost: 0, draw: 2, up: { draw: 3 }, icon: 'sparkle', text: 'Draw {draw} cards.', from: '3 applications' },
-    followup: { name: 'Creeping Nettle', type: 'skill', cost: 1, pressure: 4, up: { pressure: 6 }, icon: 'seedling', text: 'Apply {pressure} Nettle.', from: '5 applications' },
-    keywords: { name: 'Twin Thorns', type: 'attack', cost: 1, dmg: 4, hits: 2, up: { dmg: 6 }, icon: 'star', text: 'Deal {dmg} damage {hits} times.' },
-    research: { name: 'Spore Cloud', type: 'skill', cost: 1, weak: 2, draw: 1, up: { weak: 3 }, icon: 'eye', text: 'Apply {weak} Weak. Draw {draw} card.', from: '8 applications' },
-    portfolio: { name: 'Oak Slam', type: 'attack', cost: 2, dmg: 12, block: 6, up: { dmg: 15, block: 9 }, icon: 'stack', text: 'Deal {dmg} damage. Gain {block} Block.' },
-    confidence: { name: 'Deep Roots', type: 'power', cost: 1, strength: 2, up: { strength: 3 }, icon: 'seedling', text: 'Gain {strength} Strength.' },
-    resilience: { name: 'Regrowth', type: 'skill', cost: 1, block: 6, heal: 3, up: { block: 8, heal: 5 }, icon: 'refresh', text: 'Gain {block} Block. Heal {heal} HP.', from: 'Hearing “no” and carrying on' },
-    interview: { name: 'Sunburst', type: 'attack', cost: 2, dmg: 18, up: { dmg: 24 }, icon: 'sparkle', text: 'Deal {dmg} damage.', from: 'Landing an interview' },
-    offer: { name: 'Golden Bloom', type: 'attack', cost: 0, dmg: 20, exhaust: true, up: { dmg: 30 }, icon: 'medal', text: 'Deal {dmg} damage. Exhaust.', from: 'Getting an offer' },
+    // Starters
+    pitch: { name: 'Thorn Strike', rarity: 'starter', type: 'attack', cost: 1, dmg: 6, up: { dmg: 9 }, icon: 'sword', text: 'Deal {dmg} damage.', from: 'Starter card' },
+    positive: { name: 'Leaf Guard', rarity: 'starter', type: 'skill', cost: 1, block: 5, up: { block: 8 }, icon: 'shield', text: 'Gain {block} Block.', from: 'Starter card' },
+    // Commons: Strength and multi-hits
+    tailored: { name: 'Bramble Lash', rarity: 'common', type: 'attack', cost: 1, dmg: 9, up: { dmg: 12 }, icon: 'sword', text: 'Deal {dmg} damage.', from: 'Applying with a tailored resume' },
+    keywords: { name: 'Twin Thorns', rarity: 'common', type: 'attack', cost: 1, dmg: 4, hits: 2, up: { dmg: 6 }, icon: 'star', text: 'Deal {dmg} damage {hits} times.' },
+    seeds: { name: 'Seed Scatter', rarity: 'common', type: 'attack', cost: 0, dmg: 3, up: { dmg: 5 }, icon: 'sparkle', text: 'Deal {dmg} damage.' },
+    // Commons: Nettle
+    followup: { name: 'Creeping Nettle', rarity: 'common', type: 'skill', cost: 1, pressure: 4, up: { pressure: 6 }, icon: 'seedling', text: 'Apply {pressure} Nettle.', from: '5 applications' },
+    sting: { name: 'Nettle Sting', rarity: 'common', type: 'attack', cost: 1, dmg: 4, pressure: 3, up: { dmg: 6, pressure: 4 }, icon: 'seedling', text: 'Deal {dmg} damage. Apply {pressure} Nettle.' },
+    research: { name: 'Spore Cloud', rarity: 'common', type: 'skill', cost: 1, weak: 2, pressure: 2, up: { weak: 3, pressure: 3 }, icon: 'eye', text: 'Apply {weak} Weak and {pressure} Nettle.', from: '8 applications' },
+    // Commons: Block and Thorns
+    letter: { name: 'Petal Shield', rarity: 'common', type: 'skill', cost: 1, block: 7, draw: 1, up: { block: 10 }, icon: 'heart', text: 'Gain {block} Block. Draw {draw} card.', from: 'Sending a cover letter' },
+    thicket: { name: 'Thicket', rarity: 'common', type: 'skill', cost: 1, block: 5, thorns: 2, up: { block: 7, thorns: 3 }, icon: 'shield', text: 'Gain {block} Block and {thorns} Thorns.' },
+    timber: { name: 'Timber!', rarity: 'common', type: 'attack', cost: 1, dmgFromBlock: true, up: { cost: 0 }, icon: 'stack', text: 'Deal damage equal to your Block.' },
+    portfolio: { name: 'Oak Slam', rarity: 'common', type: 'attack', cost: 2, dmg: 12, block: 6, up: { dmg: 15, block: 9 }, icon: 'stack', text: 'Deal {dmg} damage. Gain {block} Block.' },
+    resilience: { name: 'Regrowth', rarity: 'common', type: 'skill', cost: 1, block: 6, heal: 3, up: { block: 8, heal: 5 }, icon: 'refresh', text: 'Gain {block} Block. Heal {heal} HP.', from: 'Hearing “no” and carrying on' },
+    // Commons: 0-cost and draw
+    coffee: { name: 'Morning Dew', rarity: 'common', type: 'skill', cost: 0, draw: 2, up: { draw: 3 }, icon: 'sparkle', text: 'Draw {draw} cards.', from: '3 applications' },
+    // Uncommon enablers (blue)
+    confidence: { name: 'Deep Roots', rarity: 'uncommon', type: 'power', cost: 1, strength: 2, up: { strength: 3 }, icon: 'seedling', text: 'Gain {strength} Strength.' },
+    mantle: { name: 'Thorn Mantle', rarity: 'uncommon', type: 'power', cost: 1, thorns: 3, up: { thorns: 5 }, icon: 'shield', text: 'Gain {thorns} Thorns.' },
+    rot: { name: 'Spreading Rot', rarity: 'uncommon', type: 'power', cost: 1, rot: 2, up: { rot: 3 }, icon: 'seedling', text: 'At the start of your turn, apply {rot} Nettle.' },
+    photo: { name: 'Photosynthesis', rarity: 'uncommon', type: 'power', cost: 1, photo: 3, up: { photo: 4 }, icon: 'sparkle', text: 'Whenever you play a 0-cost card, gain {photo} Block.' },
+    // Rare enablers (gold)
+    interview: { name: 'Sunburst', rarity: 'rare', type: 'attack', cost: 2, dmg: 14, strength: 2, up: { dmg: 18, strength: 3 }, icon: 'sparkle', text: 'Deal {dmg} damage. Gain {strength} Strength.' },
+    evergreen: { name: 'Evergreen', rarity: 'rare', type: 'power', cost: 2, evergreen: 1, up: { cost: 1 }, icon: 'shield', text: 'Block is no longer removed at the start of your turn.' },
+    oldgrowth: { name: 'Old Growth', rarity: 'rare', type: 'power', cost: 3, growth: 1, up: { cost: 2 }, icon: 'seedling', text: 'At the start of your turn, gain {growth} Strength.' },
+    overgrowth: { name: 'Overgrowth', rarity: 'rare', type: 'skill', cost: 1, doubleNettle: true, exhaust: true, up: { cost: 0 }, icon: 'refresh', text: 'Double the enemy’s Nettle. Exhaust.' },
+    offer: { name: 'Golden Bloom', rarity: 'rare', type: 'power', cost: 1, bloom: 1, up: { cost: 0 }, icon: 'medal', text: 'Gain {bloom} extra Energy every turn.' },
   };
-  // Cards that can turn up as rewards after a fight.
-  const REWARD_POOL = ['tailored', 'letter', 'coffee', 'followup', 'keywords', 'research', 'portfolio', 'confidence', 'resilience'];
+  // What unlocks each enabler. `ctx` is worked out from your applications.
+  const UNLOCKS = [
+    { id: 'confidence', need: 'Hit your weekly goal', test: (x) => x.earned.includes('goal') },
+    { id: 'mantle', need: 'Apply 3 days in a row', test: (x) => x.earned.includes('days3') },
+    { id: 'photo', need: 'Apply again within 3 days of a “no”', test: (x) => x.earned.includes('bounce') },
+    { id: 'rot', need: '10 applications', test: (x) => x.applied >= 10 },
+    { id: 'interview', need: 'Your first interview', test: (x) => x.interviews >= 1 },
+    { id: 'evergreen', need: 'Your second interview', test: (x) => x.interviews >= 2 },
+    { id: 'oldgrowth', need: 'Your third interview', test: (x) => x.interviews >= 3 },
+    { id: 'overgrowth', need: '25 applications', test: (x) => x.applied >= 25 },
+    { id: 'offer', need: 'Getting an offer', test: (x) => x.offers >= 1 },
+  ];
+  UNLOCKS.forEach((u) => (CARDS[u.id].from = u.need));
+  // Fights and treasure only offer commons: the enablers come from your real search.
+  const REWARD_POOL = Object.keys(CARDS).filter((id) => CARDS[id].rarity === 'common');
 
   function stat(card, key) {
     const def = CARDS[card.id];
@@ -48,7 +86,8 @@
   }
   // With `player`, damage includes Strength and Weak, as it will actually land.
   function cardText(card, player) {
-    return CARDS[card.id].text.replace(/\{(\w+)\}/g, (_, k) => (k === 'dmg' && player ? attackValue(stat(card, k), player) : stat(card, k)));
+    const text = CARDS[card.id].text.replace(/\{(\w+)\}/g, (_, k) => (k === 'dmg' && player ? attackValue(stat(card, k), player) : stat(card, k)));
+    return CARDS[card.id].dmgFromBlock && player ? `${text.slice(0, -1)} (${attackValue(player.block, player)}).` : text;
   }
 
   // ---------------- relics (from garden badges) ----------------
@@ -104,7 +143,7 @@
   function career(apps, { weeklyGoal = 7, now = new Date() } = {}) {
     const g = Garden.gardenStats(apps, { weeklyGoal, now });
     const applied = apps.filter((a) => a.appliedAt);
-    const reached = (s) => apps.some((a) => a.status === s || (a.statusHistory || []).some((h) => h.status === s));
+    const reached = (a, s) => a.status === s || (a.statusHistory || []).some((h) => h.status === s);
     const deck = [];
     const add = (id, n = 1) => {
       for (let i = 0; i < n; i++) deck.push({ id, up: false });
@@ -116,15 +155,17 @@
     if (applied.length >= 3) add('coffee');
     if (applied.length >= 5) add('followup');
     if (applied.length >= 8) add('research');
-    if (reached('interviewing') || reached('offer')) add('interview');
-    if (reached('rejected')) add('resilience');
-    if (reached('offer')) add('offer');
+    if (apps.some((a) => reached(a, 'rejected'))) add('resilience');
+    const ctx = { applied: applied.length, interviews: apps.filter((a) => reached(a, 'interviewing') || reached(a, 'offer')).length, offers: apps.filter((a) => reached(a, 'offer')).length, earned: g.earned };
+    const locked = [];
+    for (const u of UNLOCKS) (u.test(ctx) ? add(u.id) : locked.push({ id: u.id, need: u.need }));
     // Every 5 applications upgrades one card: the best ones first, then the basics.
     const order = [...deck.keys()].sort((x, y) => (['pitch', 'positive'].includes(deck[x].id) ? 1 : 0) - (['pitch', 'positive'].includes(deck[y].id) ? 1 : 0) || x - y);
     order.slice(0, Math.floor(applied.length / 5)).forEach((i) => (deck[i].up = true));
     const relics = g.earned.filter((id) => RELICS[id]);
     return {
       deck,
+      locked,
       relics,
       maxHp: BASE_HP + (relics.includes('weeks3') ? 10 : 0),
       week: +Garden.weekStart(now),
@@ -356,7 +397,7 @@
       choice,
       relics,
       enemy: scaleEnemy(node.enemy, s.act, relics),
-      player: { block: relics.includes('first') ? 4 : 0, strength: relics.includes('interview') ? 1 : 0, weak: 0, energy: ENERGY + (relics.includes('days3') ? 1 : 0) },
+      player: { block: relics.includes('first') ? 4 : 0, strength: relics.includes('interview') ? 1 : 0, weak: 0, energy: ENERGY + (relics.includes('days3') ? 1 : 0), thorns: 0, evergreen: false, growth: 0, rot: 0, bloom: 0, photo: 0 },
       draw: shuffle(s, deck),
       hand: [],
       discard: [],
@@ -401,7 +442,7 @@
   function playable(s, i) {
     const cb = s.combat;
     const card = cb && !cb.result && cb.hand[i];
-    return !!card && CARDS[card.id].cost <= cb.player.energy;
+    return !!card && stat(card, 'cost') <= cb.player.energy;
   }
 
   function play(s, i) {
@@ -411,12 +452,14 @@
     const e = cb.enemy;
     const card = cb.hand.splice(i, 1)[0];
     const def = CARDS[card.id];
-    p.energy -= def.cost;
+    const cost = stat(card, 'cost');
+    p.energy -= cost;
     const out = { card, dealt: 0, blocked: 0 };
-    if (def.dmg !== undefined) {
+    if (def.dmg !== undefined || def.dmgFromBlock) {
       const hits = stat(card, 'hits') || 1;
+      const base = def.dmgFromBlock ? p.block : stat(card, 'dmg');
       for (let h = 0; h < hits; h++) {
-        const d = attackValue(stat(card, 'dmg'), p);
+        const d = attackValue(base, p);
         const through = absorb(e, d);
         e.hp -= through;
         out.dealt += through;
@@ -427,6 +470,14 @@
     if (def.strength !== undefined) p.strength += stat(card, 'strength');
     if (def.weak !== undefined) e.weak += stat(card, 'weak');
     if (def.pressure !== undefined) e.pressure += stat(card, 'pressure');
+    if (def.doubleNettle) e.pressure *= 2;
+    if (def.thorns !== undefined) p.thorns += stat(card, 'thorns');
+    if (def.rot !== undefined) p.rot += stat(card, 'rot');
+    if (def.photo !== undefined) p.photo += stat(card, 'photo');
+    if (def.growth !== undefined) p.growth += stat(card, 'growth');
+    if (def.bloom !== undefined) p.bloom += stat(card, 'bloom');
+    if (def.evergreen) p.evergreen = true;
+    if (cost === 0 && p.photo) p.block += p.photo;
     (def.exhaust || def.type === 'power' ? cb.exhausted : cb.discard).push(card);
     if (def.draw !== undefined) draw(s, stat(card, 'draw'));
     cb.log.push(`Sprout played ${def.name}${out.dealt ? ` for ${out.dealt}` : ''}.`);
@@ -459,6 +510,15 @@
       const through = absorb(p, m.attack);
       s.hp -= through;
       out.taken += through;
+      // Thorns hit back on every hit, blocked or not.
+      if (p.thorns) {
+        e.hp -= p.thorns;
+        out.thorns = (out.thorns || 0) + p.thorns;
+      }
+    }
+    if (e.hp <= 0 && s.hp > 0) {
+      win(s);
+      return out;
     }
     if (m.block) e.block += m.block;
     if (m.strength) e.strength += m.strength;
@@ -472,8 +532,10 @@
     }
     // Sprout's next turn.
     cb.turn++;
-    p.block = 0;
-    p.energy = ENERGY;
+    if (!p.evergreen) p.block = 0;
+    p.energy = ENERGY + p.bloom;
+    p.strength += p.growth;
+    e.pressure += p.rot;
     draw(s, HAND + (cb.relics.includes('big') ? 1 : 0));
     return out;
   }
@@ -503,5 +565,5 @@
     return s;
   }
 
-  return { CARDS, RELICS, ENEMIES, REWARD_POOL, BASE_HP, ENERGY, career, newState, sync, climbsLeft, needsClimb, canEnter, choices, reachable, enter, rest, campfireHeal, fullDeck, tendable, bonus, takeReward, play, playable, endTurn, closeCombat, intent, stat, cardText, attackValue };
+  return { CARDS, UNLOCKS, RELICS, ENEMIES, REWARD_POOL, BASE_HP, ENERGY, career, newState, sync, climbsLeft, needsClimb, canEnter, choices, reachable, enter, rest, campfireHeal, fullDeck, tendable, bonus, takeReward, play, playable, endTurn, closeCombat, intent, stat, cardText, attackValue };
 });

@@ -18,9 +18,23 @@ async function loadSpire() {
   const c = spireCareer();
   const before = JSON.stringify(spireRun);
   spireRun = Spire.sync(spireRun, c);
+  announceUnlocks(c);
   if (JSON.stringify(spireRun) !== before) saveSpire();
   return c;
 }
+// Celebrate each blue or gold card the first time your search unlocks it.
+// On the first visit, what's already unlocked is recorded quietly.
+function announceUnlocks(c) {
+  const have = Spire.UNLOCKS.map((u) => u.id).filter((id) => c.deck.some((k) => k.id === id));
+  const first = !spireRun.known;
+  const fresh = first ? [] : have.filter((id) => !spireRun.known.includes(id));
+  spireRun.known = [...new Set([...(spireRun.known || []), ...have])];
+  if (!fresh.length) return;
+  const names = fresh.map((id) => `${Spire.CARDS[id].name} (${Spire.CARDS[id].from.toLowerCase()})`);
+  const rare = fresh.some((id) => Spire.CARDS[id].rarity === 'rare');
+  setTimeout(() => celebrate(`New ${rare ? 'rare' : 'uncommon'} card${fresh.length > 1 ? 's' : ''} for Sprout's deck: ${names.join(', ')}!`, 'thrilled'), 900);
+}
+
 function saveSpire() {
   S.saveSpire(spireRun).catch((e) => toast(e.message, 'error'));
 }
@@ -84,6 +98,14 @@ function statuses(who) {
   if (who.strength) out.push(`<span class="chip tiny good" title="Strength: +${who.strength} damage on every attack">${icon('sparkle', 12)} ${who.strength} Strength</span>`);
   if (who.weak) out.push(`<span class="chip tiny grow" title="Weak: attacks deal 25% less for ${who.weak} turn${who.weak === 1 ? '' : 's'}">Weak ${who.weak}</span>`);
   if (who.pressure) out.push(`<span class="chip tiny lav" title="Nettle: loses this much HP at the start of its turn, then 1 less">Nettle ${who.pressure}</span>`);
+  // Powers from enabler cards.
+  const power = (v, label, tip) => v && out.push(`<span class="chip tiny power" title="${esc(tip)}">${label}</span>`);
+  power(who.thorns, `Thorns ${who.thorns}`, `Thorns: deals ${who.thorns} damage back whenever it's hit`);
+  power(who.evergreen, 'Evergreen', 'Evergreen: Block stays between turns');
+  power(who.growth, `Old Growth ${who.growth}`, `Old Growth: +${who.growth} Strength at the start of each turn`);
+  power(who.rot, `Spreading Rot ${who.rot}`, `Spreading Rot: applies ${who.rot} Nettle at the start of each turn`);
+  power(who.bloom, `Golden Bloom ${who.bloom}`, `Golden Bloom: +${who.bloom} Energy every turn`);
+  power(who.photo, `Photosynthesis ${who.photo}`, `Photosynthesis: +${who.photo} Block whenever you play a 0-cost card`);
   return out.join('');
 }
 
@@ -96,14 +118,17 @@ function intentHtml(it) {
   return `<div class="intent" title="What it will do next${it.label ? `: ${esc(it.label)}` : ''}">${bits.join('')}${it.label ? `<small>${esc(it.label)}</small>` : ''}</div>`;
 }
 
-function cardHtml(card, { i = null, player = null, playable = true, pick = null, from = false } = {}) {
+const RARITY = { starter: '', common: '', uncommon: 'Uncommon', rare: 'Rare' };
+
+function cardHtml(card, { i = null, player = null, playable = true, pick = null, from = false, locked = null } = {}) {
   const def = Spire.CARDS[card.id];
   const attrs = i !== null ? `data-hand="${i}" title="Play (${i + 1})"` : pick !== null ? `data-pick="${pick}"` : '';
   const tag = i !== null || pick !== null ? 'button' : 'div';
-  return `<${tag} class="sts-card t-${def.type}${card.up ? ' up' : ''}" ${attrs} ${playable ? '' : 'disabled'}>
-    <span class="cost">${def.cost}</span><b class="cname">${esc(def.name)}${card.up ? '+' : ''}</b>
-    <div class="art">${icon(def.icon, 40)}</div><span class="ctype">${def.type}</span>
-    <p>${esc(Spire.cardText(card, player))}</p>${from ? `<small class="from">${esc(def.from || 'Found on the climb')}</small>` : ''}</${tag}>`;
+  if (locked) from = false;
+  return `<${tag} class="sts-card t-${def.type} r-${def.rarity}${card.up ? ' up' : ''}${locked ? ' locked' : ''}" ${attrs} ${playable ? '' : 'disabled'}>
+    <span class="cost">${Spire.stat(card, 'cost')}</span><b class="cname">${esc(def.name)}${card.up ? '+' : ''}</b>
+    <div class="art">${icon(def.icon, 40)}</div><span class="ctype">${RARITY[def.rarity] ? `${RARITY[def.rarity]} ` : ''}${def.type}</span>
+    <p>${esc(Spire.cardText(card, player))}</p>${from ? `<small class="from">${esc(def.from || 'Found on the climb')}</small>` : ''}${locked ? `<small class="from need">${icon('star', 12)} ${esc(locked)}</small>` : ''}</${tag}>`;
 }
 
 function spireTopBar(run, c) {
@@ -325,8 +350,10 @@ function bindSpire(page, c) {
     // Earned cards first, then the starters; upgraded copies first within each.
     const starter = (k) => (Spire.CARDS[k.id].from === 'Starter card' ? 1 : 0);
     const cards = Spire.fullDeck(r, c).sort((x, y) => starter(x) - starter(y) || Spire.CARDS[x.id].name.localeCompare(Spire.CARDS[y.id].name) || y.up - x.up);
-    const card = openModal(`<h2>Sprout's deck</h2><p class="faint">Cards unlock as your real search moves along. Each one notes how it was earned.</p>
-      <div class="hand deck-list">${cards.map((k) => cardHtml(k, { from: true })).join('')}</div><div class="inline" style="margin-top:12px"><button class="ghost" id="mClose">Close</button></div>`);
+    const card = openModal(`<h2>Sprout's deck</h2><p class="faint">Fights give simple cards that combo with each other. The <b class="rare-blue">blue</b> and <b class="rare-gold">gold</b> cards that make combos take off only come from your real search.</p>
+      <div class="deck-scroll"><div class="hand deck-list">${cards.map((k) => cardHtml(k, { from: true })).join('')}</div>
+      ${c.locked.length ? `<div class="section-title">Still to unlock</div><div class="hand deck-list">${c.locked.map((l) => cardHtml({ id: l.id, up: false }, { locked: l.need })).join('')}</div>` : ''}</div>
+      <div class="inline" style="margin-top:12px"><button class="ghost" id="mClose">Close</button></div>`);
     $('#mClose', card).addEventListener('click', closeModal);
   });
   $$('[data-node]', page).forEach((b) =>

@@ -421,3 +421,23 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .choice:not(:disabled):hover { background: var(--sage-soft); }
 .spire-side .how { text-align: left; margin-top: 12px; }
 .spire-side .how summary { cursor: pointer; }
+/* Card rarity, Slay the Spire style: blue uncommon and gold rare banners. */
+.sts-card.r-uncommon .cname, .sts-card.r-rare .cname { margin: 0 -10px; padding: 3px 8px; width: calc(100% + 20px); justify-content: center; border-radius: 4px; }
+.sts-card.r-uncommon .cname { background: linear-gradient(180deg, #dbe8fb, #c3d7f5); color: #2f5a93; }
+.sts-card.r-rare .cname { background: linear-gradient(180deg, #fbeab0, #f2cf67); color: #7a5a10; box-shadow: 0 0 10px rgba(242, 207, 103, .55); }
+.sts-card.r-rare { box-shadow: 0 0 0 2px #f2cf67, var(--shadow); }
+.sts-card.r-uncommon { box-shadow: 0 0 0 2px #c3d7f5, var(--shadow); }
+.sts-card.locked { filter: grayscale(.85); opacity: .7; }
+.sts-card .from.need { color: #a07a1c; }
+.rare-blue { color: #2f5a93; } .rare-gold { color: #a07a1c; }
+.chip.power { background: #efe4c2; color: #7a5a10; }
+.deck-scroll { max-height: 62vh; overflow: auto; }
+.deck-scroll .deck-list { max-height: none; overflow: visible; }
+@media (prefers-color-scheme: dark) {
+  .sts-card.r-uncommon .cname { background: linear-gradient(180deg, #2e4260, #26364f); color: #b9d2f5; }
+  .sts-card.r-rare .cname { background: linear-gradient(180deg, #5c4a1c, #4a3b14); color: #ffe08a; }
+  .chip.power { background: #43391f; color: #f2d58a; }
+  .rare-blue { color: #9fc0ee; } .rare-gold { color: #f2d58a; }
+}
+.sts-card .cname { overflow-wrap: normal; } /* never split a card name mid-word */
+.sts-card.r-uncommon .cname, .sts-card.r-rare .cname { font-size: 12.5px; padding: 3px 4px; }

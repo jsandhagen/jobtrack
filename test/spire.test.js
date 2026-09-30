@@ -34,7 +34,9 @@ test('the deck comes from your real search', () => {
   ];
   const c = Sp.career(apps, { now: NOW });
   for (const id of ['tailored', 'letter', 'coffee', 'followup', 'interview', 'resilience']) assert.ok(c.deck.some((k) => k.id === id), id);
-  assert.ok(!c.deck.some((k) => k.id === 'offer'), 'offers unlock Offer in Hand');
+  assert.ok(!c.deck.some((k) => k.id === 'offer'), 'only an offer unlocks Golden Bloom');
+  assert.ok(!c.deck.some((k) => k.id === 'evergreen'), 'a second interview unlocks Evergreen');
+  assert.ok(c.locked.some((l) => l.id === 'evergreen' && /second interview/.test(l.need)));
   assert.equal(c.deck.filter((k) => k.up).length, 1, 'every 5 applications upgrades a card');
   assert.ok(!['pitch', 'positive'].includes(c.deck.find((k) => k.up).id), 'the best card is upgraded first');
   assert.ok(c.relics.includes('first') && c.relics.includes('interview'), 'garden badges become relics');
@@ -200,6 +202,71 @@ test('runs saved before maps branched still work', () => {
   s.map.forEach((floor) => floor.forEach((nd) => delete nd.next));
   Sp.sync(s, c);
   assert.deepEqual(s.map[0][0].next, s.map[1].map((_, k) => k));
+});
+
+test('fights only offer commons; blue and gold enablers come from your search', () => {
+  for (const id of Sp.REWARD_POOL) assert.equal(Sp.CARDS[id].rarity, 'common', id);
+  for (const u of Sp.UNLOCKS) assert.ok(['uncommon', 'rare'].includes(Sp.CARDS[u.id].rarity), u.id);
+  for (const [id, def] of Object.entries(Sp.CARDS)) if (!['starter', 'common'].includes(def.rarity)) assert.ok(Sp.UNLOCKS.some((u) => u.id === id), `${id} has an unlock`);
+  const interviews = (n) => Array.from({ length: n }, (_, i) => app(at(20 + i), { status: 'interviewing' }));
+  const has = (apps, id) => Sp.career(apps, { now: NOW }).deck.some((k) => k.id === id);
+  assert.ok(has(interviews(1), 'interview') && !has(interviews(1), 'evergreen'));
+  assert.ok(has(interviews(2), 'evergreen') && !has(interviews(2), 'oldgrowth'));
+  assert.ok(has(interviews(3), 'oldgrowth'));
+  assert.ok(has([app(at(29), { status: 'offer' })], 'offer'));
+});
+
+function fightWith(hand, enemy = 'ghoster') {
+  const c = Sp.career([app(at(29))], { now: NOW });
+  const s = Sp.sync(Sp.newState(4), c);
+  setFloor(s, 0, { type: 'fight', enemy });
+  Sp.enter(s, c, 0);
+  const cb = s.combat;
+  cb.player.block = 0;
+  cb.player.energy = 10;
+  cb.draw = [];
+  cb.discard = [];
+  cb.hand = hand.map((id, uid) => ({ id, up: false, uid }));
+  return { s, c, cb };
+}
+
+test('Thorns hit back; Timber! hits for your Block; Evergreen keeps Block', () => {
+  const { s, c, cb } = fightWith(['thicket', 'mantle', 'evergreen', 'timber']);
+  Sp.play(s, 0); // 5 Block, 2 Thorns
+  Sp.play(s, 0); // +3 Thorns
+  Sp.play(s, 0); // Evergreen
+  assert.equal(Sp.cardText(cb.hand[0], cb.player), 'Deal damage equal to your Block (5).');
+  const hp = cb.enemy.hp;
+  Sp.play(s, 0);
+  assert.equal(cb.enemy.hp, hp - 5);
+  Sp.endTurn(s, c); // Ghoster attacks for 8: 5 blocked, thorns deal 5
+  assert.equal(cb.enemy.hp, hp - 10);
+  cb.player.block = 7;
+  Sp.endTurn(s, c); // Ghoster only blocks this turn
+  assert.equal(cb.player.block, 7, 'Evergreen keeps Block between turns');
+});
+
+test('Nettle combos: Spreading Rot adds each turn, Overgrowth doubles it', () => {
+  const { s, c, cb } = fightWith(['sting', 'rot', 'overgrowth']);
+  Sp.play(s, 0); // 3 Nettle
+  Sp.play(s, 0); // Rot 2
+  Sp.play(s, 0); // double → 6
+  assert.equal(cb.enemy.pressure, 6);
+  Sp.endTurn(s, c); // ticks 6 → 5, then Rot adds 2 at the start of Sprout's turn
+  assert.equal(cb.enemy.pressure, 7);
+  assert.ok(cb.exhausted.some((k) => k.id === 'overgrowth'), 'Overgrowth exhausts');
+});
+
+test('Old Growth, Golden Bloom and Photosynthesis', () => {
+  const { s, c, cb } = fightWith(['oldgrowth', 'offer', 'photo', 'seeds']);
+  Sp.play(s, 0);
+  Sp.play(s, 0);
+  Sp.play(s, 0);
+  Sp.play(s, 0); // 0-cost → +3 Block
+  assert.equal(cb.player.block, 3);
+  Sp.endTurn(s, c);
+  assert.equal(cb.player.strength, 1, 'Old Growth: +1 Strength each turn');
+  assert.equal(cb.player.energy, Sp.ENERGY + 1);
 });
 
 test('a new week starts a new act at full HP, keeping picked cards', () => {
