@@ -22,25 +22,55 @@ const ATS_LABEL = {
 
 const DAY = 86400000;
 const TIMEOUT_MS = 20000;
+const WORKDAY_MAX = 100; // postings read per search on a Workday board
 
 // ---------------- which careers site is this? ----------------
 
-// A board from any link to it (a careers page URL, or one found in its HTML).
+// A link as people paste it: no scheme, wrapped in <>, trailing punctuation.
+function normalizeLink(url) {
+  let u = String(url || '')
+    .trim()
+    .replace(/^<|>$/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/[.,;:!?)\]]+$/, '');
+  if (u.startsWith('//')) u = `https:${u}`;
+  else if (u && !/^[a-z][a-z0-9+.-]*:/i.test(u) && /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$)/i.test(u)) u = `https://${u}`;
+  return u;
+}
+
+// A board from any link to it (a careers page URL, one found in its HTML, or
+// the board's own API address).
 function detectBoard(url) {
-  const u = String(url || '').trim();
+  const u = normalizeLink(url);
   let m;
-  if ((m = u.match(/(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io\/(?:embed\/job_board(?:\/js)?\?for=)?([A-Za-z0-9_-]+)/i)) && !/^(embed|v1)$/i.test(m[1])) return board('greenhouse', m[1]);
-  if ((m = u.match(/greenhouse\.io\/embed\/job_board(?:\/js)?\?for=([A-Za-z0-9_-]+)/i))) return board('greenhouse', m[1]);
-  if ((m = u.match(/jobs\.(eu\.)?lever\.co\/([A-Za-z0-9_.-]+)/i))) return board('lever', m[2], { region: m[1] ? 'eu' : '' });
-  if ((m = u.match(/jobs\.ashbyhq\.com\/([A-Za-z0-9_.%-]+)/i))) return board('ashby', decodeURIComponent(m[1]));
-  if ((m = u.match(/apply\.workable\.com\/(?:api\/v\d\/widget\/accounts\/)?([A-Za-z0-9_-]+)/i)) && m[1] !== 'api') return board('workable', m[1]);
-  if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.workable\.com/i)) && !/^(apply|www|jobs)$/i.test(m[1])) return board('workable', m[1]);
+  // Greenhouse: boards/job-boards pages, embeds (job_board, job_app) and the API.
+  if ((m = u.match(/greenhouse\.io\/embed\/job_(?:board|app)(?:\/js)?\?(?:[^#\s]*&)?for=([A-Za-z0-9_-]+)/i))) return board('greenhouse', m[1]);
+  if ((m = u.match(/boards-api(?:\.eu)?\.greenhouse\.io\/v1\/boards\/([A-Za-z0-9_-]+)/i))) return board('greenhouse', m[1]);
+  if ((m = u.match(/(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io\/([A-Za-z0-9_-]+)/i)) && !/^(embed|v1|api)$/i.test(m[1])) return board('greenhouse', m[1]);
+  if ((m = u.match(/(?:jobs|api)\.(eu\.)?lever\.co\/(?:v0\/postings\/)?([A-Za-z0-9_.-]+)/i)) && !/^v0$/i.test(m[2])) return board('lever', m[2].replace(/\.+$/, ''), { region: m[1] ? 'eu' : '' });
+  if ((m = u.match(/api\.ashbyhq\.com\/posting-api\/job-board\/([A-Za-z0-9_.%-]+)/i))) return board('ashby', safeDecode(m[1]));
+  if ((m = u.match(/jobs\.ashbyhq\.com\/([A-Za-z0-9_.%-]+)/i)) && !/^api$/i.test(m[1])) return board('ashby', safeDecode(m[1]).replace(/\.+$/, ''));
+  if ((m = u.match(/apply\.workable\.com\/(?:api\/v\d\/(?:widget\/)?accounts\/)?([A-Za-z0-9_-]+)/i)) && !/^(api|j)$/i.test(m[1])) return board('workable', m[1]);
+  if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.workable\.com/i)) && !/^(apply|www|jobs|help|resources)$/i.test(m[1])) return board('workable', m[1]);
+  if ((m = u.match(/api\.smartrecruiters\.com\/v1\/companies\/([A-Za-z0-9_-]+)/i))) return board('smartrecruiters', m[1]);
   if ((m = u.match(/(?:jobs|careers)\.smartrecruiters\.com\/([A-Za-z0-9_-]+)/i))) return board('smartrecruiters', m[1]);
-  // tenant.wd5.myworkdayjobs.com/en-US/Site  or  wd3.myworkdaysite.com/recruiting/tenant/Site
-  if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([A-Za-z0-9_-]+)/))) return board('workday', m[1], { host: `${m[1]}.${m[2]}.myworkdayjobs.com`, site: m[3] });
-  if ((m = u.match(/\/\/(wd\d+)\.myworkdaysite\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?recruiting\/([A-Za-z0-9-]+)\/([A-Za-z0-9_-]+)/))) return board('workday', m[2], { host: `${m[1]}.myworkdaysite.com`, site: m[3] });
+  // Workday: tenant.wd5.myworkdayjobs.com/en-US/Site, its API (/wday/cxs/tenant/Site),
+  // or wd3.myworkdaysite.com/recruiting/tenant/Site
+  if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/wday\/cxs\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)/i))) return board('workday', m[3], { host: `${m[1]}.${m[2]}.myworkdayjobs.com`, site: m[4] });
+  if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?([A-Za-z0-9_-]+)/i)) && !/^(wday|job|details)$/i.test(m[3])) return board('workday', m[1], { host: `${m[1]}.${m[2]}.myworkdayjobs.com`, site: m[3] });
+  if ((m = u.match(/\/\/(wd\d+)\.myworkdaysite\.com\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?recruiting\/([A-Za-z0-9-]+)\/([A-Za-z0-9_-]+)/i))) return board('workday', m[2], { host: `${m[1]}.myworkdaysite.com`, site: m[3] });
   return null;
 }
+
+function safeDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+const boardKey = (b) => `${b.ats}:${String(b.token).toLowerCase()}:${b.host || ''}:${b.site || ''}`;
 
 function board(ats, token, extra = {}) {
   const b = { ats, token, ...extra };
@@ -69,63 +99,121 @@ function boardUrl(b) {
 }
 
 // A careers page on the company's own site usually embeds or links to its
-// board. Look for the first link we recognise.
+// board. It may also link to other boards (a partner's, a portfolio
+// company's), so take the one it points to most often.
 function boardFromHtml(html) {
-  const text = String(html || '').replace(/\\\//g, '/');
-  const re = /https?:\/\/[^\s"'<>)]+|(?:boards|job-boards)\.greenhouse\.io\/embed\/job_board(?:\/js)?\?for=[A-Za-z0-9_-]+/gi;
+  const text = String(html || '')
+    .replace(/\\\//g, '/')
+    .replace(/&amp;/g, '&')
+    .replace(/&#x2F;|&#47;/gi, '/');
+  const re = /(?:https?:)?\/\/[^\s"'<>)\\]+|(?:boards|job-boards)\.greenhouse\.io\/embed\/job_(?:board|app)(?:\/js)?\?for=[A-Za-z0-9_-]+/gi;
+  const found = new Map();
   for (const m of text.matchAll(re)) {
-    const b = detectBoard(m[0].startsWith('http') ? m[0] : `https://${m[0]}`);
-    if (b) return b;
+    const b = detectBoard(/^(https?:)?\/\//i.test(m[0]) ? m[0] : `https://${m[0]}`);
+    if (!b) continue;
+    const k = boardKey(b);
+    const f = found.get(k) || { b, n: 0 };
+    f.n++;
+    found.set(k, f);
   }
-  return null;
+  let best = null;
+  for (const f of found.values()) if (!best || f.n > best.n) best = f; // ties go to the first seen
+  return best ? best.b : null;
 }
 
-// Names to try when there's no careers link: "Ramp" -> ramp; "Scale AI" -> scaleai, scale-ai.
+// Names to try when there's no careers link: "Ramp" -> ramp; "Scale AI" -> scaleai,
+// scale-ai; "Mercury Technologies" -> mercury, then mercurytechnologies.
 function slugsFor(name) {
-  const base = String(name || '')
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/\b(inc|llc|ltd|corp|corporation|co|company|the|technologies|technology|labs|hq)\b\.?/g, ' ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-  if (!base) return [];
-  return [...new Set([base.replace(/ /g, ''), base.replace(/ /g, '-')])];
+  const plain = (s) =>
+    String(s || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/\([^)]*\)/g, ' ') // "Block (formerly Square)"
+      .replace(/[\u2019']/g, '');
+  const tidy = (s) => s.replace(/[^a-z0-9]+/g, ' ').trim();
+  const full = tidy(plain(name).replace(/\b(inc|llc|ltd|corp|co|plc|gmbh)\b\.?/g, ' '));
+  const base = tidy(plain(name).replace(/\b(inc|llc|ltd|plc|gmbh|corp|corporation|co|company|the|technologies|technology|labs|hq)\b\.?/g, ' '));
+  const out = [];
+  for (const b of [base, full]) if (b) out.push(b.replace(/ /g, ''), b.replace(/ /g, '-'));
+  return [...new Set(out)].slice(0, 4);
 }
 
 // ---------------- HTTP ----------------
 
-async function getJson(fetchImpl, url, init = {}) {
-  const res = await fetchImpl(url, { ...init, headers: { Accept: 'application/json', ...(init.headers || {}) }, signal: AbortSignal.timeout(TIMEOUT_MS) });
-  if (res.status === 404) {
-    const err = new Error('not found');
-    err.notFound = true;
-    throw err;
+// Careers sites rate limit and have bad minutes. Retry what's worth
+// retrying (no connection, 429, 5xx) a couple of times, then give up with a
+// message a person can read. Tests set the delays to 0.
+const http = { retryDelays: [1500, 5000], maxRetryAfterMs: 15000 };
+const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
+
+function failure(message, props = {}) {
+  return Object.assign(new Error(message), props);
+}
+
+async function request(fetchImpl, url, init = {}, what = 'the careers site') {
+  let lastErr;
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    } catch (err) {
+      lastErr =
+        err && (err.name === 'TimeoutError' || err.name === 'AbortError')
+          ? failure(`${what} took too long to answer.`, { name: 'TimeoutError', transient: true })
+          : failure(`I couldn't reach ${what}. Are you online?`, { transient: true, cause: err });
+    }
+    if (res) {
+      if (res.ok) return res;
+      if (res.status === 404 || res.status === 410) throw failure('not found', { notFound: true, status: res.status });
+      const transient = res.status === 429 || res.status >= 500;
+      lastErr = failure(res.status === 429 ? `${what} asked me to slow down. I'll try again later.` : `${what} answered ${res.status}`, { status: res.status, transient });
+      if (!transient) throw lastErr;
+    }
+    // A site that took 20 seconds once won't be quicker straight away.
+    if (attempt >= http.retryDelays.length || lastErr.name === 'TimeoutError') throw lastErr;
+    const after = res && res.headers && typeof res.headers.get === 'function' ? Number(res.headers.get('retry-after')) : NaN;
+    await sleep(Number.isFinite(after) && after >= 0 ? Math.min(after * 1000, http.maxRetryAfterMs) : http.retryDelays[attempt]);
   }
-  if (!res.ok) throw new Error(`the careers site answered ${res.status}`);
-  return res.json();
+}
+
+async function getJson(fetchImpl, url, init = {}) {
+  const res = await request(fetchImpl, url, { ...init, headers: { Accept: 'application/json', ...(init.headers || {}) } });
+  try {
+    return await res.json();
+  } catch {
+    // A login wall, a bot check or a maintenance page instead of job data.
+    throw failure("the careers site sent back a page instead of its job list. It may be blocking automated reads right now.", { transient: true });
+  }
 }
 
 async function getText(fetchImpl, url) {
-  const res = await fetchImpl(url, { headers: { Accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`the careers page answered ${res.status}`);
-  return res.text();
+  const res = await request(fetchImpl, url, { headers: { Accept: 'text/html' } }, 'the careers page');
+  return { text: await res.text(), url: res.url || url };
 }
 
 // ---------------- reading jobs ----------------
 
+// A date as ISO text. Seconds or milliseconds since 1970, or date text.
+// Nonsense (before 2000, or days in the future) counts as unknown.
 const iso = (v) => {
   if (v === null || v === undefined || v === '') return null;
-  const t = typeof v === 'number' ? v : Date.parse(v);
-  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+  let t = typeof v === 'number' || /^\d{9,13}$/.test(String(v)) ? Number(v) : Date.parse(v);
+  if (Number.isFinite(t) && t < 1e11) t *= 1000; // seconds
+  if (!Number.isFinite(t) || t < Date.UTC(2000, 0, 1) || t > Date.now() + 2 * DAY) return null;
+  return new Date(t).toISOString();
 };
 
 // Workday says "Posted Today", "Posted Yesterday", "Posted 3 Days Ago", "Posted 30+ Days Ago".
 function workdayPosted(text, now = Date.now()) {
   const s = String(text || '').toLowerCase();
-  if (/today/.test(s)) return new Date(now).toISOString();
+  if (/today|just posted|hours? ago/.test(s)) return new Date(now).toISOString();
   if (/yesterday/.test(s)) return new Date(now - DAY).toISOString();
-  const m = s.match(/(\d+)\+?\s*days?/);
-  return m ? new Date(now - Number(m[1]) * DAY).toISOString() : null;
+  const m = s.match(/(\d+)\+?\s*(days?|weeks?|months?)/);
+  if (!m) return null;
+  const unit = /^w/.test(m[2]) ? 7 : /^m/.test(m[2]) ? 30 : 1;
+  return new Date(now - Number(m[1]) * unit * DAY).toISOString();
 }
 
 function joinLoc(...parts) {
@@ -134,12 +222,32 @@ function joinLoc(...parts) {
 
 // Every open job on a board: [{ id, title, location, url, postedAt, department }].
 // Workday boards can hold thousands of jobs, so those are searched by your
-// roles instead of listed in full.
-async function listJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}) {
+// roles instead of listed in full. Entries without a title or id are
+// dropped, titles are tidied, and each job is listed once.
+async function listJobs(b, fetchImpl, opts = {}) {
+  const out = new Map();
+  for (const j of await rawJobs(b, fetchImpl, opts)) {
+    const id = j.id == null ? '' : String(j.id).trim();
+    const title = tidyTitle(j.title);
+    if (!id || id === 'undefined' || !title || out.has(id)) continue;
+    const job = { ...j, id, title, location: tidyTitle(j.location), url: /^https?:\/\//i.test(j.url || '') ? j.url : b.url || '' };
+    for (const k of Object.keys(job)) if (job[k] === undefined) delete job[k];
+    out.set(id, job);
+  }
+  return [...out.values()];
+}
+
+function tidyTitle(s) {
+  return decodeEntities(String(s || '').replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}) {
   switch (b.ats) {
     case 'greenhouse': {
       const d = await getJson(fetchImpl, `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(b.token)}/jobs`);
-      return (d.jobs || []).map((j) => ({ id: String(j.id), title: j.title, location: (j.location && j.location.name) || '', url: j.absolute_url, postedAt: iso(j.first_published || j.updated_at) }));
+      return (d.jobs || []).map((j) => ({ id: String(j.id), title: j.title, location: (j.location && j.location.name) || '', url: j.absolute_url || `${boardUrl(b)}/jobs/${j.id}`, postedAt: iso(j.first_published || j.updated_at) }));
     }
     case 'lever': {
       const d = await getJson(fetchImpl, `https://api.${b.region === 'eu' ? 'eu.' : ''}lever.co/v0/postings/${encodeURIComponent(b.token)}?mode=json`);
@@ -183,18 +291,34 @@ async function listJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {
       return out;
     }
     case 'workday': {
+      // Workday pages hold at most 20, and only the first page says how many
+      // there are. One search failing (Workday rejects some search text)
+      // shouldn't lose the others.
       const api = `https://${b.host}/wday/cxs/${b.token}/${b.site}/jobs`;
       const seen = new Map();
-      for (const term of searchTerms.length ? searchTerms : ['']) {
-        for (let offset = 0; offset < 60; offset += 20) {
-          const d = await getJson(fetchImpl, api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appliedFacets: {}, limit: 20, offset, searchText: term }) });
-          for (const j of d.jobPostings || []) {
-            if (!j.externalPath || seen.has(j.externalPath)) continue;
-            seen.set(j.externalPath, { id: j.externalPath, title: j.title, location: j.locationsText || '', url: `https://${b.host}/${b.site}${j.externalPath}`, postedAt: workdayPosted(j.postedOn, now), path: j.externalPath });
+      const terms = [...new Set((searchTerms.length ? searchTerms : ['']).map((t) => String(t).trim()))];
+      let failed = null;
+      let worked = 0;
+      for (const term of terms) {
+        try {
+          let total = Infinity;
+          for (let offset = 0; offset < WORKDAY_MAX; offset += 20) {
+            const d = await getJson(fetchImpl, api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appliedFacets: {}, limit: 20, offset, searchText: term }) });
+            if (offset === 0 && Number.isFinite(d.total)) total = d.total;
+            const page = d.jobPostings || [];
+            for (const j of page) {
+              if (!j.externalPath || seen.has(j.externalPath)) continue;
+              seen.set(j.externalPath, { id: j.externalPath, title: j.title, location: j.locationsText || '', url: `https://${b.host}/${b.site}${j.externalPath}`, postedAt: workdayPosted(j.postedOn, now), path: j.externalPath });
+            }
+            if (page.length < 20 || offset + 20 >= total) break;
           }
-          if (!d.jobPostings || d.jobPostings.length < 20 || offset + 20 >= (d.total || 0)) break;
+          worked++;
+        } catch (err) {
+          if (err.notFound) throw err;
+          failed = failed || err;
         }
       }
+      if (!worked && failed) throw failed;
       return [...seen.values()];
     }
     default:
@@ -204,25 +328,95 @@ async function listJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {
 
 // ---------------- one posting's full text, for scoring ----------------
 
+const ENTITIES = { lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '\u2013', mdash: '\u2014', rsquo: '\u2019', lsquo: '\u2018', rdquo: '\u201d', ldquo: '\u201c', hellip: '\u2026', bull: '\u2022', middot: '\u00b7', trade: '\u2122', reg: '\u00ae', copy: '\u00a9', eacute: '\u00e9', amp: '&' };
+
+// &amp; last, so "&amp;lt;" becomes "&lt;" and not "<".
+function decodeEntities(s) {
+  return String(s || '')
+    .replace(/&#(\d+);/g, (m, n) => codePoint(Number(n), m))
+    .replace(/&#x([0-9a-f]+);/gi, (m, n) => codePoint(parseInt(n, 16), m))
+    .replace(/&([a-z]+);/gi, (m, n) => (n.toLowerCase() !== 'amp' && ENTITIES[n.toLowerCase()] !== undefined ? ENTITIES[n.toLowerCase()] : m))
+    .replace(/&amp;/gi, '&');
+}
+
+function codePoint(n, fallback) {
+  try {
+    return n > 0 ? String.fromCodePoint(n) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// Board descriptions come as HTML, sometimes escaped twice.
 function htmlToPlain(html) {
-  return String(html || '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/<\s*(script|style)[\s\S]*?<\/\s*\1\s*>/gi, '')
-    .replace(/<\s*li[^>]*>/gi, '\n- ')
-    .replace(/<\s*(br|\/p|\/div|\/h\d|\/ul|\/ol|\/li)[^>]*>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
+  let s = String(html || '');
+  for (let i = 0; i < 2 && /&lt;\/?[a-z]/i.test(s); i++) s = decodeEntities(s);
+  return decodeEntities(
+    s
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<\s*(script|style)[\s\S]*?<\/\s*\1\s*>/gi, '')
+      .replace(/<\s*li[^>]*>/gi, '\n- ')
+      .replace(/<\s*(br|\/p|\/div|\/h\d|\/ul|\/ol|\/li|\/tr)[^>]*>/gi, '\n')
+      .replace(/<[^>]+>/g, ''),
+  )
+    .replace(/\u00a0/g, ' ')
     .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
     .replace(/\n\s*\n\s*\n+/g, '\n\n')
     .trim();
 }
 
+// A posting page's own job data (schema.org JobPosting), for when a board's
+// API won't give the description.
+function descriptionFromPage(html) {
+  for (const m of String(html || '').matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    let data;
+    try {
+      data = JSON.parse(m[1].trim());
+    } catch {
+      continue;
+    }
+    const stack = [data];
+    while (stack.length) {
+      const x = stack.pop();
+      if (!x || typeof x !== 'object') continue;
+      if (Array.isArray(x)) stack.push(...x);
+      else {
+        const type = [].concat(x['@type'] || []);
+        if (type.includes('JobPosting') && x.description) return htmlToPlain(x.description);
+        if (x['@graph']) stack.push(x['@graph']);
+      }
+    }
+  }
+  return '';
+}
+
+// The full text of one posting: from the board's API, or failing that, from
+// the posting's own page.
 async function jobDetail(b, job, fetchImpl) {
+  let text = '';
+  let apiErr = null;
+  try {
+    text = await apiDetail(b, job, fetchImpl);
+  } catch (err) {
+    apiErr = err;
+  }
+  if (text.length >= 80 || !/^https?:\/\//i.test(job.url || '')) {
+    if (!text && apiErr) throw apiErr;
+    return text;
+  }
+  try {
+    const page = await getText(fetchImpl, job.url);
+    const fromPage = descriptionFromPage(page.text);
+    if (fromPage.length > text.length) return fromPage;
+  } catch {
+    // keep what the API gave
+  }
+  if (!text && apiErr) throw apiErr;
+  return text;
+}
+
+async function apiDetail(b, job, fetchImpl) {
   switch (b.ats) {
     case 'greenhouse': {
       const d = await getJson(fetchImpl, `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(b.token)}/jobs/${encodeURIComponent(job.id)}`);
@@ -262,56 +456,144 @@ async function jobDetail(b, job, fetchImpl) {
 
 // ---------------- which jobs are relevant ----------------
 
-const STOP = new Set(['of', 'the', 'and', 'a', 'an', 'to', 'for', 'in', 'at', 'senior', 'sr', 'junior', 'jr', 'lead', 'i', 'ii', 'iii', 'iv']);
-const SAME = { ops: 'operations', operation: 'operations', mgr: 'manager', mgmt: 'management', eng: 'engineer', engineering: 'engineer', dev: 'developer', pm: 'product manager', bizops: 'business operations', cos: 'chief staff', strategy: 'strategy', strategic: 'strategy' };
+const STOP = new Set(['of', 'the', 'and', 'or', 'a', 'an', 'to', 'for', 'in', 'at', 'on', 'with', 'senior', 'sr', 'junior', 'jr', 'lead', 'i', 'ii', 'iii', 'iv', 'v']);
+// Abbreviations and spellings that mean the same thing in a job title.
+const SAME = {
+  ops: 'operations',
+  mgr: 'manager',
+  mngr: 'manager',
+  mgmt: 'management',
+  eng: 'engineer',
+  engineering: 'engineer',
+  engr: 'engineer',
+  dev: 'developer',
+  swe: 'software engineer',
+  sde: 'software development engineer',
+  pm: 'product manager',
+  tpm: 'technical program manager',
+  bizops: 'business operations',
+  biz: 'business',
+  bd: 'business development',
+  bizdev: 'business development',
+  cos: 'chief staff',
+  strategic: 'strategy',
+  vp: 'vice president',
+  svp: 'vice president',
+  evp: 'vice president',
+  dir: 'director',
+  assoc: 'associate',
+  coord: 'coordinator',
+  exec: 'executive',
+  ea: 'executive assistant',
+  gm: 'general manager',
+  mktg: 'marketing',
+  hr: 'human resources',
+  ml: 'machine learning',
+  ai: 'artificial intelligence',
+  ux: 'user experience',
+  frontend: 'front end',
+  backend: 'back end',
+  fullstack: 'full stack',
+  internship: 'intern',
+};
+const JUNIOR_TRACK = /\b(intern|internship|co-?op|apprentice(ship)?)\b/i;
+
+// "Operations" and "Operation", "Sales" and "Sale" are the same word here.
+const stem = (w) => (w.length > 3 && /s$/.test(w) && !/(ss|us|is)$/.test(w) ? w.slice(0, -1) : w);
 
 function words(s) {
   return String(s || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/&/g, ' and ')
+    .replace(/\b(front|back|full)-(end|stack)\b/g, '$1$2')
+    .replace(/\bco-op\b/g, 'coop')
     .split(/[^a-z0-9]+/)
     .filter(Boolean)
     .flatMap((w) => (SAME[w] || w).split(' '))
-    .filter((w) => !STOP.has(w));
+    .filter((w) => !STOP.has(w))
+    .map(stem);
 }
 
-// A title matches a role when it has every meaningful word of it, in any
-// order: "Operations Manager" matches "Manager, Business Operations" and
-// "Sr. Ops Manager". Keywords match on their own ("chief of staff", "strategy").
+// Does `title` (a list of words) contain every word of `phrase`, close together?
+// In the phrase's order a few words may sit between them ("Head of Global
+// Business Operations" for "Head of Operations"); in another order they must
+// sit almost side by side ("Manager, Business Operations" for "Operations
+// Manager"), so "Staff Engineer, Office of the Chief Scientist" isn't a
+// "Chief of Staff" job.
+function phraseIn(t, phrase) {
+  const want = [...new Set(phrase)];
+  if (!want.length || !want.every((w) => t.includes(w))) return false;
+  if (want.length === 1) return true;
+  // The shortest run of title words holding all of them.
+  let best = null;
+  for (let i = 0; i < t.length; i++) {
+    if (!want.includes(t[i])) continue;
+    const need = new Set(want);
+    for (let j = i; j < t.length; j++) {
+      need.delete(t[j]);
+      if (!need.size) {
+        if (!best || j - i < best.end - best.start) best = { start: i, end: j };
+        break;
+      }
+    }
+  }
+  if (!best) return false;
+  const run = t.slice(best.start, best.end + 1);
+  const order = want.map((w) => run.indexOf(w));
+  const inOrder = order.every((x, k) => k === 0 || x > order[k - 1]);
+  return run.length <= want.length + (inOrder ? 3 : 1);
+}
+
+// A title matches a role when it has every meaningful word of it, close
+// together: "Operations Manager" matches "Manager, Business Operations" and
+// "Sr. Ops Manager". Keywords match on their own ("chief of staff",
+// "strategy"). Internships only match when you asked for one.
 function titleMatches(title, roles = [], keywords = []) {
-  const t = new Set(words(title));
-  if (!t.size) return false;
-  const all = (phrase) => {
+  const t = words(title);
+  if (!t.length) return false;
+  const junior = JUNIOR_TRACK.test(String(title));
+  const fits = (phrase) => {
     const w = words(phrase);
-    return w.length > 0 && w.every((x) => t.has(x));
+    return w.length > 0 && phraseIn(t, w) && (!junior || JUNIOR_TRACK.test(String(phrase)));
   };
-  return roles.some(all) || keywords.some(all);
+  return roles.some(fits) || keywords.some(fits);
 }
 
 // ---------------- checking a company ----------------
 
-// Find a company's board: its careers link, then the careers page's HTML,
-// then its name tried on the boards that live at predictable addresses.
+// Find a company's board: its careers link, then the careers page (where it
+// redirects to, or what its HTML links to), then its name tried on the boards
+// that live at predictable addresses. When nothing turns up only because the
+// sites couldn't be reached, that's an error to retry, not "no board".
 async function findBoard(company, fetchImpl) {
-  const link = String(company.careersUrl || '').trim();
+  const link = normalizeLink(company.careersUrl);
   const direct = detectBoard(link);
   if (direct) return direct;
+  let unreachable = null;
   if (/^https?:\/\//i.test(link)) {
     try {
-      const b = boardFromHtml(await getText(fetchImpl, link));
+      const page = await getText(fetchImpl, link);
+      const b = detectBoard(page.url) || boardFromHtml(page.text);
       if (b) return { ...b, via: 'page' };
-    } catch {
+    } catch (err) {
+      if (err.transient) unreachable = err;
       // fall through to guessing
     }
   }
+  let answered = false;
   for (const slug of slugsFor(company.name)) {
     for (const ats of ['greenhouse', 'lever', 'ashby']) {
       const b = board(ats, slug);
       try {
         const jobs = await listJobs(b, fetchImpl);
+        answered = true;
         if (jobs.length) return { ...b, guessed: true };
-      } catch {
-        // not there
+      } catch (err) {
+        if (!err.transient) answered = true;
+        // Unreachable before any board answered: offline, so stop guessing.
+        else if (!answered) throw unreachable || err;
       }
     }
   }
@@ -321,30 +603,57 @@ async function findBoard(company, fetchImpl) {
 const KEEP = 60; // matching jobs kept per company
 const SEEN = 3000; // job ids remembered per company
 
+const splitKeywords = (s) => [
+  ...new Set(
+    String(s || '')
+      .split(/[,;\n|·]+/)
+      .map((x) => x.trim())
+      .filter(Boolean),
+  ),
+];
+
 // Check one company: returns the fields to save on it, and the matching
 // jobs that are new since the last check.
 async function checkCompany(company, { fetchImpl, roles = [], now = Date.now() } = {}) {
   const at = new Date(now).toISOString();
-  let b = company.board && company.board.ats && company.board.ats !== 'none' ? company.board : null;
-  if (!b && !(company.board && company.board.ats === 'none')) b = await findBoard(company, fetchImpl);
+  const saidNotThem = !!(company.board && company.board.ats === 'none');
+  let b = company.board && company.board.ats && !saidNotThem ? company.board : null;
+  if (!b && !saidNotThem) b = await findBoard(company, fetchImpl);
   if (!b) return { patch: { board: null, lastCheckedAt: at, checkError: 'no-board', openCount: 0, jobs: [] }, fresh: [] };
 
-  const keywords = String(company.keywords || '')
-    .split(/[,;\n]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const all = await listJobs(b, fetchImpl, { searchTerms: b.ats === 'workday' ? [...roles, ...keywords] : [], now });
-  const firstCheck = !company.seen;
-  const seen = new Set(company.seen || []);
-  const before = new Map((company.jobs || []).map((j) => [j.id, j]));
+  roles = [...new Set(roles.map((r) => String(r).trim()).filter(Boolean))];
+  const keywords = splitKeywords(company.keywords);
+  const list = (brd) => listJobs(brd, fetchImpl, { searchTerms: brd.ats === 'workday' ? [...roles, ...keywords] : [], now });
+  let all;
+  try {
+    all = await list(b);
+  } catch (err) {
+    if (!err.notFound) throw err;
+    // The board is gone. One Sprout found for itself (from the page or the
+    // name) may have moved, so look again; one you linked to, say so.
+    const found = b.guessed || b.via ? await findBoard(company, fetchImpl) : null;
+    if (found && boardKey(found) !== boardKey(b)) {
+      b = found;
+      all = await list(b);
+    } else if (b.guessed || b.via) {
+      return { patch: { board: null, lastCheckedAt: at, checkError: 'no-board', openCount: 0, jobs: [] }, fresh: [] };
+    } else {
+      throw failure(`That ${ATS_LABEL[b.ats] || 'job'} board isn't there anymore. Check the careers link?`);
+    }
+  }
+  // A different board than last time: its job ids are all new to us, so treat it like a first check.
+  const sameBoard = company.board && company.board.ats && boardKey(company.board) === boardKey(b);
+  const firstCheck = !company.seen || !sameBoard;
+  const seen = new Set(firstCheck ? [] : company.seen);
+  const before = new Map((sameBoard ? company.jobs || [] : []).map((j) => [j.id, j]));
   const matching = all.filter((j) => (roles.length || keywords.length ? titleMatches(j.title, roles, keywords) : true));
   const jobs = matching
     .map((j) => ({ ...j, firstSeenAt: (before.get(j.id) || {}).firstSeenAt || (seen.has(j.id) || firstCheck ? null : at) }))
     .sort((x, y) => String(y.postedAt || y.firstSeenAt || '').localeCompare(String(x.postedAt || x.firstSeenAt || '')))
     .slice(0, KEEP);
-  const fresh = jobs.filter((j) => !seen.has(j.id) && !firstCheck);
-  const ids = [...new Set([...all.map((j) => j.id), ...(company.seen || [])])].slice(0, SEEN);
+  const fresh = firstCheck ? [] : jobs.filter((j) => !seen.has(j.id));
+  const ids = [...new Set([...all.map((j) => j.id), ...seen])].slice(0, SEEN);
   return { patch: { board: b, lastCheckedAt: at, checkError: null, openCount: all.length, jobs, seen: ids }, fresh };
 }
 
-module.exports = { ATS_LABEL, detectBoard, boardUrl, boardFromHtml, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };
+module.exports = { ATS_LABEL, http, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };

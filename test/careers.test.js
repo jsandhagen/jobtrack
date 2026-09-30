@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const C = require('../src/main/careers');
 
+C.http.retryDelays = [0, 0]; // retry at once in tests
+
 const NOW = Date.parse('2026-09-30T12:00:00Z');
 const daysAgo = (n) => new Date(NOW - n * 86400000).toISOString();
 
@@ -174,4 +176,199 @@ test('a company with no readable board says so; "not them" stops the guessing', 
 test('a board that fails to answer is an error, not an empty list', async () => {
   const f = async () => ({ ok: false, status: 503, json: async () => ({}) });
   await assert.rejects(C.checkCompany({ name: 'X', board: C.detectBoard('https://jobs.lever.co/x') }, { fetchImpl: f, roles: ['a'] }), /answered 503/);
+});
+
+test('board links as people paste them, embeds and API addresses', () => {
+  const cases = [
+    ['jobs.lever.co/plaid', 'lever', 'plaid'],
+    ['<https://jobs.ashbyhq.com/ramp>', 'ashby', 'ramp'],
+    ['https://jobs.lever.co/plaid.', 'lever', 'plaid'],
+    ['https://boards.greenhouse.io/embed/job_app?for=octa&token=123', 'greenhouse', 'octa'],
+    ['https://boards.greenhouse.io/embed/job_board?b=x&amp;for=octa', 'greenhouse', 'octa'],
+    ['https://boards-api.greenhouse.io/v1/boards/octa/jobs', 'greenhouse', 'octa'],
+    ['https://api.lever.co/v0/postings/plaid?mode=json', 'lever', 'plaid'],
+    ['https://api.ashbyhq.com/posting-api/job-board/ramp', 'ashby', 'ramp'],
+    ['https://api.smartrecruiters.com/v1/companies/Visa/postings', 'smartrecruiters', 'Visa'],
+    ['https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/External/jobs', 'workday', 'acme'],
+    ['https://acme.wd1.myworkdayjobs.com/External', 'workday', 'acme'],
+  ];
+  for (const [url, ats, token] of cases) {
+    const b = C.detectBoard(url);
+    assert.ok(b, url);
+    assert.deepEqual([b.ats, b.token], [ats, token], url);
+  }
+  assert.equal(C.detectBoard('https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/External/jobs').site, 'External');
+  assert.equal(C.detectBoard('https://jobs.workable.com/search'), null);
+  assert.equal(C.detectBoard(''), null);
+});
+
+test('a careers page linking to several boards gives the one it uses most', () => {
+  const html = `<a href="https://jobs.lever.co/partner">Our partner is hiring</a>
+    <a href="//jobs.ashbyhq.com/acme/1">Job 1</a><a href="//jobs.ashbyhq.com/acme/2">Job 2</a>`;
+  assert.equal(C.boardFromHtml(html).token, 'acme');
+  assert.equal(C.boardFromHtml('<a href="https:&#x2F;&#x2F;jobs.lever.co&#x2F;acme">').token, 'acme');
+});
+
+test('more names to try: accents, "formerly", and the full name after the short one', () => {
+  assert.deepEqual(C.slugsFor('Mercury Technologies, Inc.'), ['mercury', 'mercurytechnologies', 'mercury-technologies']);
+  assert.deepEqual(C.slugsFor('Block (formerly Square)'), ['block']);
+  assert.deepEqual(C.slugsFor('Café Labs'), ['cafe', 'cafelabs', 'cafe-labs']);
+  assert.ok(C.slugsFor('A Very Long Company Name Holdings').length <= 4);
+});
+
+test('titles: close together, plurals, more abbreviations, and no internships unless asked', () => {
+  const roles = ['Chief of Staff', 'Operations Manager', 'Head of Operations'];
+  assert.ok(!C.titleMatches('Staff Engineer, Office of the Chief Scientist', roles), 'the words are there but far apart and out of order');
+  assert.ok(C.titleMatches('Head of Global Business Operations', roles));
+  assert.ok(C.titleMatches('Operations Managers', roles));
+  assert.ok(C.titleMatches('Senior Manager, Sales Operations & Strategy', roles));
+  assert.ok(!C.titleMatches('Chief of Staff Intern', roles));
+  assert.ok(!C.titleMatches('Operations Manager (Co-op)', roles));
+  assert.ok(C.titleMatches('Operations Intern', ['Operations Internship']));
+  assert.ok(C.titleMatches('VP, Finance', ['Vice President of Finance']));
+  assert.ok(C.titleMatches('SWE II, Payments', ['Software Engineer']));
+  assert.ok(C.titleMatches('Front-End Engineer', ['Frontend Engineer']));
+  assert.ok(C.titleMatches('Gérant des opérations', ['gerant']));
+});
+
+test('dates: seconds or milliseconds, and nonsense counts as unknown', async () => {
+  const f = fakeFetch([
+    [
+      'https://api.lever.co/v0/postings/lv?mode=json',
+      [
+        { id: 'ms', text: 'A', hostedUrl: 'https://x/ms', createdAt: NOW - 86400000 },
+        { id: 's', text: 'B', hostedUrl: 'https://x/s', createdAt: Math.floor((NOW - 86400000) / 1000) },
+        { id: 'zero', text: 'C', hostedUrl: 'https://x/0', createdAt: 0 },
+        { id: 'future', text: 'D', hostedUrl: 'https://x/f', createdAt: Date.now() + 30 * 86400000 },
+      ],
+    ],
+  ]);
+  const jobs = await C.listJobs(C.detectBoard('https://jobs.lever.co/lv'), f);
+  assert.deepEqual(
+    jobs.map((j) => [j.id, j.postedAt]),
+    [
+      ['ms', daysAgo(1)],
+      ['s', daysAgo(1)],
+      ['zero', null],
+      ['future', null],
+    ],
+  );
+  assert.equal(C.workdayPosted('Posted 2 Weeks Ago', NOW), daysAgo(14));
+});
+
+test('listed jobs are tidied: no blank titles or ids, entities decoded, each id once, a link always', async () => {
+  const f = fakeFetch([
+    [
+      'https://boards-api.greenhouse.io/v1/boards/gh/jobs',
+      {
+        jobs: [
+          { id: 1, title: '  R&amp;D   Operations Manager ', location: { name: 'NYC' } },
+          { id: 1, title: 'duplicate' },
+          { id: 2, title: '' },
+          { title: 'no id' },
+        ],
+      },
+    ],
+  ]);
+  const jobs = await C.listJobs(C.detectBoard('https://boards.greenhouse.io/gh'), f);
+  assert.deepEqual(jobs.map((j) => [j.id, j.title, j.url]), [['1', 'R&D Operations Manager', 'https://job-boards.greenhouse.io/gh/jobs/1']]);
+});
+
+test('Workday: pages past the first (which say total 0) are still read, and one failing search keeps the others', async () => {
+  const posting = (n) => ({ title: `Operations Manager ${n}`, externalPath: `/job/R${n}`, postedOn: 'Posted Today' });
+  const f = fakeFetch([
+    [
+      'https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs',
+      (url, opts) => {
+        const { offset, searchText } = JSON.parse(opts.body);
+        if (searchText === 'bad') return { __status: 400 };
+        const all = Array.from({ length: 45 }, (_, i) => posting(i));
+        return { total: offset === 0 ? 45 : 0, jobPostings: all.slice(offset, offset + 20) };
+      },
+    ],
+  ]);
+  const wrapped = async (url, opts) => {
+    const r = await f(url, opts);
+    const body = await r.json();
+    return body && body.__status ? { ok: false, status: body.__status, json: async () => ({}) } : { ...r, json: async () => body };
+  };
+  const jobs = await C.listJobs(C.detectBoard('https://acme.wd5.myworkdayjobs.com/Ext'), wrapped, { searchTerms: ['Operations Manager', 'bad'], now: NOW });
+  assert.equal(jobs.length, 45);
+});
+
+test('busy or flaky careers sites are retried; a page instead of JSON is a readable error', async () => {
+  let n = 0;
+  const flaky = async () => (++n < 3 ? { ok: false, status: n === 1 ? 503 : 429, headers: { get: () => null } } : { ok: true, status: 200, json: async () => ({ jobs: [{ id: 1, title: 'Ops Manager', absolute_url: 'https://x/1' }] }) });
+  const jobs = await C.listJobs(C.detectBoard('https://boards.greenhouse.io/gh'), flaky);
+  assert.equal(jobs.length, 1);
+  assert.equal(n, 3);
+
+  let offline = 0;
+  await assert.rejects(
+    C.listJobs(C.detectBoard('https://boards.greenhouse.io/gh'), async () => {
+      offline++;
+      throw new TypeError('fetch failed');
+    }),
+    /couldn't reach/,
+  );
+  assert.equal(offline, 3, 'tried three times');
+
+  const html = async () => ({ ok: true, status: 200, json: async () => JSON.parse('<html>') });
+  await assert.rejects(C.listJobs(C.detectBoard('https://boards.greenhouse.io/gh'), html), /page instead of its job list/);
+
+  let forbidden = 0;
+  await assert.rejects(
+    C.listJobs(C.detectBoard('https://boards.greenhouse.io/gh'), async () => {
+      forbidden++;
+      return { ok: false, status: 403 };
+    }),
+    /answered 403/,
+  );
+  assert.equal(forbidden, 1, 'a refusal is not retried');
+});
+
+test('a careers link that redirects to its board is followed', async () => {
+  const f = async (url) => {
+    if (url === 'https://acme.com/careers') return { ok: true, status: 200, url: 'https://jobs.ashbyhq.com/acme', text: async () => '<div id="app"></div>' };
+    if (url === 'https://api.ashbyhq.com/posting-api/job-board/acme') return { ok: true, status: 200, json: async () => ({ jobs: [{ id: 'j', title: 'Chief of Staff', jobUrl: 'https://jobs.ashbyhq.com/acme/j' }] }) };
+    return { ok: false, status: 404 };
+  };
+  const r = await C.checkCompany({ name: 'Acme', careersUrl: 'acme.com/careers' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
+  assert.equal(r.patch.board.ats, 'ashby');
+  assert.equal(r.patch.board.via, 'page');
+  assert.equal(r.patch.jobs.length, 1);
+});
+
+test('being offline is an error to retry later, not "no careers site"', async () => {
+  const f = async () => {
+    throw new TypeError('fetch failed');
+  };
+  await assert.rejects(C.checkCompany({ name: 'Ramp' }, { fetchImpl: f, roles: ['x'], now: NOW }), /couldn't reach/);
+});
+
+test('a board Sprout found that disappears is looked for again; the new board is not all "new"', async () => {
+  let where = 'lever';
+  const f = fakeFetch([
+    ['https://api.lever.co/v0/postings/ramp?mode=json', () => (where === 'lever' ? [{ id: 'a', text: 'Chief of Staff', hostedUrl: 'https://x/a', createdAt: NOW }] : 404)],
+    ['https://api.ashbyhq.com/posting-api/job-board/ramp', () => (where === 'ashby' ? { jobs: [{ id: 'b', title: 'Chief of Staff', jobUrl: 'https://x/b', publishedAt: daysAgo(40) }] } : 404)],
+  ]);
+  const first = await C.checkCompany({ name: 'Ramp' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
+  assert.equal(first.patch.board.ats, 'lever');
+  where = 'ashby';
+  const second = await C.checkCompany({ name: 'Ramp', ...first.patch }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW + 3600000 });
+  assert.equal(second.patch.board.ats, 'ashby');
+  assert.deepEqual(second.fresh, [], 'switching boards does not announce every job as new');
+  assert.equal(second.patch.jobs[0].firstSeenAt, null);
+
+  // A board you linked to that disappears says so.
+  await assert.rejects(C.checkCompany({ name: 'X', careersUrl: 'https://jobs.lever.co/gone', board: C.detectBoard('https://jobs.lever.co/gone') }, { fetchImpl: fakeFetch([]), roles: ['a'] }), /isn't there anymore/);
+});
+
+test('descriptions: numeric entities, and the posting page when the API has nothing', async () => {
+  assert.equal(C.htmlToPlain('<p>We&#8217;re &#x201C;hiring&#x201D;&nbsp;now &mdash; apply</p>'), 'We\u2019re \u201chiring\u201d now \u2014 apply');
+  const long = 'Lead our operating cadence across every team, run planning, and own the metrics that matter to the business.';
+  const page = `<html><script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization"},{"@type":"JobPosting","title":"Chief of Staff","description":"<p>${long}</p>"}]}</script></html>`;
+  const f = fakeFetch([['https://jobs.ashbyhq.com/ab/x', page]]);
+  const text = await C.jobDetail(C.detectBoard('https://jobs.ashbyhq.com/ab'), { id: 'x', url: 'https://jobs.ashbyhq.com/ab/x' }, f);
+  assert.equal(text, long);
 });
