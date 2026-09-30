@@ -25,7 +25,22 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - Postings you've already seen are recognised ("You applied on Sep 12") instead of duplicated.
 - **Optional game**: turn it on in Settings to make applying a game, either **Sprout the Spire** (turn-based card battles in the style of Slay the Spire) or just **Sprout's garden** (goals, streaks and badges). See [Sprout the Spire](#sprout-the-spire) and [Sprout's garden](#sprouts-garden).
 
+## Install
+
+Download the installer for your computer from the [latest release](../../releases/latest):
+
+| Computer | File | How to install |
+|---|---|---|
+| **Windows** | `Sprout-…-win-x64.exe` | Double-click it. Sprout installs and opens, with Start menu and desktop shortcuts. If Windows shows "Windows protected your PC", click **More info → Run anyway** (this only appears while the app isn't code-signed). |
+| **Mac** (Apple Silicon: M1 and newer) | `Sprout-…-mac-arm64.dmg` | Open it and drag Sprout into Applications. The first time, macOS may say it can't verify the developer: open **System Settings → Privacy & Security** and click **Open Anyway** (only while the app isn't notarized). |
+| **Mac** (Intel) | `Sprout-…-mac-x64.dmg` | Same as above. |
+| **Linux** | `Sprout-…-linux-x86_64.AppImage` | Make it executable (`chmod +x`) and run it. |
+
+Then add the [browser extension](#browser-extension): Settings → *Browser extension* → **Show folder** opens the copy that comes with the app.
+
 ## Getting started
+
+To run from source instead:
 
 ```bash
 npm install
@@ -288,11 +303,23 @@ npm run test:browser  # browser-extension tests in Chromium
 npm run eval:prompts  # real Claude calls: consistency and fact-check pass rates (needs ANTHROPIC_API_KEY)
 ```
 
-## Packaging note
-When packaging with `electron-builder`:
-- Unpack Tesseract's worker and model from the asar archive: `"asarUnpack": ["node_modules/tesseract.js/**", "node_modules/tesseract.js-core/**", "node_modules/@tesseract.js-data/**"]`.
-- Ship the extension folder alongside the app: `"extraResources": [{ "from": "browser-extension", "to": "browser-extension" }]`.
-- To install the extension without developer mode, publish it to the Chrome Web Store (and Edge Add-ons).
+## Building the installers
+
+`npm run dist` builds an installer for the computer you're on into `dist/` (`dist:win`, `dist:mac` and `dist:linux` pick one). `npm run smoke-test:packaged` then launches the packaged app with `--smoke-test`, which loads OCR, the dashboard and the bundled extension from inside the package and exits, so a broken package fails loudly.
+
+**Releases are built by GitHub Actions** (`.github/workflows/release.yml`) on Windows, macOS and Linux:
+
+1. Bump `version` in `package.json` and commit.
+2. `git tag v0.2.0 && git push origin v0.2.0`
+3. The workflow runs the tests, builds all three installers, smoke-tests each packaged app, and attaches the installers to a **draft release**. Check it on GitHub and press **Publish**.
+
+You can also run it by hand (Actions → *Build installers* → *Run workflow*) to get the installers as a downloadable artifact without making a release.
+
+**Code signing** is optional. Without it, the Mac build is signed ad hoc so it opens on Apple Silicon, and people confirm it once as described in [Install](#install). To remove those warnings, add repository secrets:
+- **Mac** (Apple Developer account, $99/year): `MAC_CSC_LINK` (Developer ID Application certificate as a base64 `.p12`), `MAC_CSC_KEY_PASSWORD`, and for notarization `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
+- **Windows**: `WIN_CSC_LINK` (base64 `.pfx`) and `WIN_CSC_KEY_PASSWORD`.
+
+Packaging details (in `package.json` → `build`): Tesseract's worker, WebAssembly core and English model are unpacked from the asar archive (worker threads can't read inside it), and `browser-extension/` ships next to the app for "Load unpacked". To install the extension without developer mode, publish it to the Chrome Web Store and Edge Add-ons.
 
 ## Ideas for next steps
 - Package installers with `electron-builder` (.dmg / .exe / AppImage).

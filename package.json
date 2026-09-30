@@ -1,6 +1,6 @@
 {
   "name": "jobtrack",
-  "productName": "Sprout \u2014 Job Application Buddy",
+  "productName": "Sprout — Job Application Buddy",
   "version": "0.1.0",
   "description": "A cute-but-professional desktop buddy that scores your fit for job postings and generates tailored resumes with Claude.",
   "main": "src/main/main.js",
@@ -8,7 +8,13 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "test:browser": "node --test test/browser/*.test.js",
-    "eval:prompts": "node scripts/eval-prompts.js"
+    "eval:prompts": "node scripts/eval-prompts.js",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "smoke-test": "electron . --smoke-test",
+    "smoke-test:packaged": "node scripts/smoke-packaged.js"
   },
   "license": "MIT",
   "dependencies": {
@@ -21,6 +27,74 @@
   },
   "devDependencies": {
     "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "playwright": "^1.56.1"
+  },
+  "build": {
+    "appId": "app.sprout.jobbuddy",
+    "artifactName": "Sprout-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/tesseract.js/**",
+      "node_modules/tesseract.js-core/**",
+      "node_modules/@tesseract.js-data/**"
+    ],
+    "extraResources": [
+      {
+        "from": "browser-extension",
+        "to": "browser-extension"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Sprout ${version}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "synopsis": "Job application buddy",
+      "executableName": "sprout"
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "draft"
+    }
   }
 }

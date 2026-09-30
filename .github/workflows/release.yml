@@ -1,0 +1,83 @@
+# Builds the installers on Windows, macOS and Linux, smoke-tests each packaged
+# app, and publishes them.
+#
+# - Push a version tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`): the
+#   installers are attached to a draft GitHub Release. Review it and press
+#   Publish on GitHub.
+# - Run it by hand (Actions → Build installers → Run workflow): the installers
+#   are uploaded as a downloadable artifact of the run instead.
+#
+# Code signing is optional. Without certificates, Windows shows a SmartScreen
+# warning and macOS asks to confirm the app on first launch (see README). To
+# sign, add these repository secrets:
+#   macOS:   MAC_CSC_LINK (base64 .p12), MAC_CSC_KEY_PASSWORD,
+#            APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID (notarization)
+#   Windows: WIN_CSC_LINK (base64 .pfx), WIN_CSC_KEY_PASSWORD
+name: Build installers
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build installers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          extra=()
+          if [[ "$RUNNER_OS" == "macOS" && -z "$CSC_LINK" ]]; then
+            # No Apple certificate: sign ad hoc so the app still opens on Apple Silicon.
+            unset CSC_LINK CSC_KEY_PASSWORD
+            extra+=(-c.mac.identity=- -c.mac.hardenedRuntime=false)
+          fi
+          [[ -z "$CSC_LINK" ]] && unset CSC_LINK CSC_KEY_PASSWORD
+          [[ -z "$WIN_CSC_LINK" ]] && unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+          [[ -z "$APPLE_ID" ]] && unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          npx electron-builder --publish "$PUBLISH" "${extra[@]}"
+
+      - name: Smoke-test the packaged app
+        run: npm run smoke-test:packaged
+
+      - name: Upload installers
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprout-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+          if-no-files-found: error
