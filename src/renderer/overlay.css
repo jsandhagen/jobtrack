@@ -14,8 +14,10 @@ body { padding: 10px; user-select: none; }
 }
 .pop::before {
   content: "";
-  position: absolute; inset: 0 0 auto 0; height: 84px;
+  position: absolute; inset: 0 0 auto 0; height: 118px;
   background: linear-gradient(120deg, var(--sage-soft), var(--lavender-soft) 60%, var(--peach-soft));
+  -webkit-mask: linear-gradient(#000 45%, transparent);
+  mask: linear-gradient(#000 45%, transparent);
   z-index: 0;
 }
 .pop > * { position: relative; z-index: 1; }
@@ -23,7 +25,7 @@ body { padding: 10px; user-select: none; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(16px) scale(0.96); } to { opacity: 1; transform: none; } }
 
 .close { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 4px 9px; }
-.top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; padding-right: 22px; }
 .top .speech { flex: 1; background: var(--surface); border-radius: 14px; padding: 8px 12px; font-weight: 700; font-size: 13px; box-shadow: var(--shadow); position: relative; }
 .top .speech::before { content: ""; position: absolute; left: -6px; top: 18px; border: 6px solid transparent; border-right-color: var(--surface); border-left: 0; }
 .role { font-weight: 800; font-size: 15px; margin: 2px 0 0; }

@@ -184,12 +184,12 @@ async function renderEditor(appId, app) {
       <div class="ed-main">
         <div class="ed-bar">
           <span class="ed-pages" id="edPages"></span>
-          <span class="faint ed-hint">Click anywhere on the page to edit · Enter = new bullet</span>
+          <span class="ed-spacer"></span>
           <button class="ghost small" id="edCopy" title="${info.standalone ? 'Make a new resume starting from this one' : 'Keep this resume on your Resumes page to reuse or edit later'}">${icon('doc', 14)} ${info.standalone ? 'Duplicate' : 'Save to Resumes'}</button>
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
         </div>
-        <div class="ed-desk" id="edDesk"><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
+        <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click anywhere on the page to edit · Enter = new bullet</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
       </div>
       <aside class="ed-tray" id="edTray"></aside>
     </div>`;
