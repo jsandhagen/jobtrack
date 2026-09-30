@@ -326,34 +326,55 @@ const views = {
     const f = (k, label, ph, full) => `<div class="${full ? 'full' : ''}"><label>${label}</label><input data-k="${k}" value="${esc(p[k])}" placeholder="${ph}"></div>`;
     const sel = (k, label, opts) =>
       `<div><label>${label}</label><select data-k="${k}"><option value="">Not answered</option>${opts.map(([v, l]) => `<option value="${v}" ${p[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
+    const card = (ic, title, badge, intro, fields) => `<div class="card profile-card">
+        <h2 class="with-icon">${icon(ic, 22)} ${title} ${badge}</h2>
+        <p class="faint">${intro}</p>
+        <div class="form-grid">${fields}</div>
+        <div class="profile-save"><button class="primary save-profile">Save</button></div>
+      </div>`;
+    const onResume = '<span class="chip good">On your resume</span>';
+    const private_ = '<span class="chip">Private</span>';
     return `<div class="page">
-      ${pageHead('Profile', p.name ? 'happy' : 'curious', `${p.name ? `Hi, <b>${esc(p.name.split(' ')[0])}</b>. ` : "What should I call you? "}This goes in your resume header — only what you enter here ends up on it.`)}
-      <div class="card"><div class="form-grid">
-        ${f('name', 'Full name', 'Jordan Rivera')}${f('email', 'Email', 'jordan@example.com')}
-        ${f('phone', 'Phone', '(555) 123-4567')}${f('location', 'Location', 'Portland, OR · Open to remote')}
-        ${f('links', 'Links', 'linkedin.com/in/jordan · jordan.dev', true)}
-        ${f('targetRoles', 'Roles you are aiming for', 'Frontend engineer, design engineer', true)}
+      ${pageHead('Profile', p.name ? 'happy' : 'curious', `${p.name ? `Hi, <b>${esc(p.name.split(' ')[0])}</b>. ` : 'What should I call you? '}Only your resume header ends up on a resume; everything else stays private and helps me score and search.`)}
+      <div class="grid two profile-grid">
+        ${card(
+          'doc',
+          'Resume header',
+          onResume,
+          'Exactly what goes at the top of your resume. Your location is also used for "must live near" requirements.',
+          `${f('name', 'Full name', 'Jordan Rivera')}${f('email', 'Email', 'jordan@example.com')}
+          ${f('phone', 'Phone', '(555) 123-4567')}${f('location', 'Location', 'Portland, OR · Open to remote')}
+          ${f('links', 'Links', 'linkedin.com/in/jordan · jordan.dev', true)}`
+        )}
+        ${card(
+          'target',
+          'What you\'re looking for',
+          private_,
+          'Your target roles shape the fit score. Postings that hit a dealbreaker are capped at 30 and labelled "Dealbreaker", so they don\'t pop up as good matches.',
+          `${f('targetRoles', 'Roles you are aiming for', 'Frontend engineer, design engineer', true)}
+          ${f('workModes', 'Work arrangements', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
+          ${f('avoidKeywords', 'Skip postings that mention', 'commission only, night shift', true)}`
+        )}
+        ${card(
+          'shield',
+          'Screening questions',
+          private_,
+          'The knockout questions on application forms. They\'re answered before anyone reads your resume, and a mismatch is rejected automatically, so I check each posting against your answers.',
+          `${sel('workAuth', 'Work authorization (U.S.)', [['citizen', 'U.S. citizen'], ['permanent-resident', 'Permanent resident'], ['authorized', 'Authorized, no sponsorship needed'], ['needs-sponsorship', 'Need visa sponsorship']])}
+          ${sel('clearance', 'Security clearance', [['none', 'None'], ['public-trust', 'Public Trust'], ['secret', 'Secret'], ['top-secret', 'Top Secret'], ['ts-sci', 'TS/SCI']])}
+          ${sel('relocate', 'Willing to relocate', [['yes', 'Yes'], ['no', 'No']])}
+          ${sel('driversLicense', "Valid driver's license", [['yes', 'Yes'], ['no', 'No']])}
+          ${f('maxTravel', 'Max travel (%)', '25')}`
+        )}
+        ${card(
+          'chat',
+          'Your people',
+          private_,
+          'Used to find people you have something in common with, and to fill in outreach messages.',
+          `${f('schools', 'Schools you went to', 'University of Virginia, Thomas Jefferson HS', true)}
+          ${f('pastEmployers', 'Places you have worked', 'Appian, Deloitte', true)}`
+        )}
       </div>
-      <h3 style="margin-top:22px">Your people <span class="faint">(for finding people and jobs)</span></h3>
-      <p class="faint" style="margin-top:0">Used to find people you have something in common with, and to fill in outreach messages. Never put on your resume.</p>
-      <div class="form-grid">
-        ${f('schools', 'Schools you went to', 'University of Virginia, Thomas Jefferson HS')}${f('pastEmployers', 'Places you have worked', 'Appian, Deloitte')}
-      </div>
-      <h3 style="margin-top:22px">Dealbreakers <span class="faint">(for the free fit score)</span></h3>
-      <p class="faint" style="margin-top:0">Roles that hit one of these are capped at 30 and labelled "Dealbreaker", so they don't pop up as good matches.</p>
-      <div class="form-grid">
-        ${f('workModes', 'Work arrangements you want', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
-        ${f('avoidKeywords', 'Skip postings that mention', 'security clearance, 100% travel, commission only', true)}
-      </div>
-      <h3 style="margin-top:22px">Screening questions <span class="faint">(the knockout questions on application forms)</span></h3>
-      <p class="faint" style="margin-top:0">Applications ask these before anyone reads your resume, and a mismatch is rejected automatically. Sprout checks each posting against your answers. Never put on your resume.</p>
-      <div class="form-grid">
-        ${sel('workAuth', 'Work authorization (U.S.)', [['citizen', 'U.S. citizen'], ['permanent-resident', 'Permanent resident'], ['authorized', 'Authorized, no sponsorship needed'], ['needs-sponsorship', 'Need visa sponsorship']])}
-        ${sel('clearance', 'Security clearance', [['none', 'None'], ['public-trust', 'Public Trust'], ['secret', 'Secret'], ['top-secret', 'Top Secret'], ['ts-sci', 'TS/SCI']])}
-        ${sel('relocate', 'Willing to relocate', [['yes', 'Yes'], ['no', 'No']])}
-        ${sel('driversLicense', "Valid driver's license", [['yes', 'Yes'], ['no', 'No']])}
-        ${f('maxTravel', 'Most travel you would do (%)', '25')}
-      </div><div style="margin-top:16px"><button class="primary" id="saveProfile">Save profile</button></div></div>
     </div>`;
   },
 
@@ -980,14 +1001,15 @@ const binders = {
     );
   },
   profile() {
-    $('#saveProfile').addEventListener('click', (e) =>
+    // Every card's Save saves the whole profile, so nothing edited elsewhere is lost.
+    $$('.save-profile').forEach((b) => b.addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const patch = {};
         $$('[data-k]').forEach((i) => (patch[i.dataset.k] = i.value.trim()));
         await S.updateProfile(patch);
         toast('Profile saved', 'good');
       }, 'Saving…')
-    );
+    ));
   },
   settings() {
     renderExtensionCard();
