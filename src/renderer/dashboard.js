@@ -756,7 +756,7 @@ async function renderExtensionCard() {
         .join('')}`
     : '';
   card.innerHTML = `<h2 class="with-icon">${icon('globe', 22)} Browser extension</h2>
-    <p class="muted">Reads the whole job posting straight from the web page — no screenshots, no scrolling — and pops up your score automatically on LinkedIn, Indeed, Greenhouse, Lever, Workday and more.</p>
+    <p class="muted">Reads the whole job posting straight from the web page — no screenshots, no scrolling — and pops up your score right on the page on LinkedIn, Indeed, Greenhouse, Lever, Workday, company careers pages and more, and asks before adding a job to your saved jobs.</p>
     ${st.port ? '' : '<div class="note-box" style="background:var(--peach-soft)">The connection for the extension couldn\'t start (another program may be using the port). Restart Sprout to try again.</div>'}
     <ol class="tidy muted" style="padding-left:20px">
       <li>In Chrome, Edge or Brave open <b>chrome://extensions</b> and turn on <b>Developer mode</b>.</li>

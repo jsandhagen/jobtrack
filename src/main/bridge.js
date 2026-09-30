@@ -17,6 +17,9 @@ const DEFAULT_PORT = 47321;
 const PORT_RANGE = 5; // the extension probes 47321-47325
 const MAX_BODY = 2 * 1024 * 1024;
 
+// What the extension's card may ask the app to do with a saved job.
+const ACTIONS = ['analyze', 'resume', 'resume-ats', 'letter', 'open', 'open-letter', 'skip'];
+
 function isExtensionOrigin(origin) {
   return /^(chrome|moz)-extension:\/\/[a-z0-9-]+$/i.test(origin || '');
 }
@@ -54,10 +57,14 @@ function readJson(req) {
  * @param {() => {origin:string, token:string, name?:string}[]} opts.getPairings  approved extensions
  * @param {(p:{origin:string, token:string, name:string}) => void} opts.savePairing
  * @param {(req:{origin:string, name:string}) => Promise<boolean>} opts.askToPair  show "Allow?" UI
- * @param {(posting:object) => Promise<object>} opts.onPosting
+ * @param {(posting:object) => Promise<object>} opts.onPosting  save a posting
+ * @param {(posting:object) => Promise<object>} [opts.onPreview]  score a posting without saving it
+ * @param {(id:string) => Promise<object>} [opts.onGet]  a saved job, for the extension's card
+ * @param {(req:{id:string, action:string}) => Promise<object>} [opts.onAction]  act on a saved job
  * @param {(id:string) => void} opts.onOpen
  * @param {(origin:string) => void} [opts.onSeen]
  * @param {string} [opts.version]
+ * @param {string} [opts.extensionVersion]  the extension that ships with this app
  */
 function createBridge(opts) {
   const pending = new Map(); // requestId -> { status, token?, origin, expires }
@@ -111,12 +118,12 @@ function createBridge(opts) {
       // --- everything else needs a paired token ---
       if (url.pathname === '/ping') {
         // Lets the extension find the app's port before pairing.
-        return send(res, 200, { app: 'sprout', version: opts.version || '', paired: authorized(req) });
+        return send(res, 200, { app: 'sprout', version: opts.version || '', extensionVersion: opts.extensionVersion || '', paired: authorized(req) });
       }
       if (!authorized(req)) return send(res, 401, { error: 'Not paired. Click "Connect" in the extension.' });
       if (opts.onSeen) opts.onSeen(origin);
 
-      if (url.pathname === '/posting') {
+      if (url.pathname === '/posting' || url.pathname === '/preview') {
         const b = await readJson(req);
         const text = String(b.text || '').trim();
         if (text.length < 80) return send(res, 422, { error: "That doesn't look like a full job posting." });
@@ -129,8 +136,23 @@ function createBridge(opts) {
           salary: String(b.salary || '').slice(0, 200),
           source: String(b.source || 'page').slice(0, 40),
           auto: !!b.auto,
+          // The browser shows its own card, so the app's popup stays out of the way.
+          silent: !!b.silent,
         };
-        return send(res, 200, await opts.onPosting(posting));
+        if (url.pathname === '/posting') return send(res, 200, await opts.onPosting(posting));
+        if (!opts.onPreview) return send(res, 404, { error: 'Not found' });
+        return send(res, 200, await opts.onPreview(posting));
+      }
+      if (url.pathname === '/app') {
+        if (!opts.onGet) return send(res, 404, { error: 'Not found' });
+        const b = await readJson(req);
+        return send(res, 200, await opts.onGet(String(b.id || '')));
+      }
+      if (url.pathname === '/action') {
+        if (!opts.onAction) return send(res, 404, { error: 'Not found' });
+        const b = await readJson(req);
+        if (!ACTIONS.includes(b.action)) return send(res, 400, { error: 'Unknown action.' });
+        return send(res, 200, await opts.onAction({ id: String(b.id || ''), action: b.action }));
       }
       if (url.pathname === '/open') {
         const b = await readJson(req);
@@ -164,4 +186,4 @@ function createBridge(opts) {
   return { server, listen, close: () => new Promise((r) => server.close(() => r())) };
 }
 
-module.exports = { createBridge, isExtensionOrigin, DEFAULT_PORT };
+module.exports = { createBridge, isExtensionOrigin, DEFAULT_PORT, ACTIONS };

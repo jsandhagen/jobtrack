@@ -28,7 +28,7 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
 
 - **Document library**: drop in resumes, old cover letters, project write-ups, performance reviews and certificates (PDF, DOCX, TXT, MD), or paste text.
 - **Automatic job detection**:
-  - **Browser extension** (recommended, Chrome/Edge/Brave): reads the whole posting straight from the page, including the parts you haven't scrolled to. It pops up your score automatically on LinkedIn, Indeed, Greenhouse, Lever, Workday and other job sites, and works on any other site with one click or `Alt+Shift+J`. See [Browser extension](#browser-extension).
+  - **Browser extension** (recommended, Chrome/Edge/Brave): reads the whole posting straight from the page, including the parts you haven't scrolled to. When you open a job posting, it pops up the full Sprout card right on the page and asks whether to add the job to your saved jobs. This works on LinkedIn, Indeed, Greenhouse, Lever, Workday, other job sites and company careers pages, and on any other page with `Alt+Shift+J`. See [Browser extension](#browser-extension).
   - **Clipboard**: copy a job description anywhere and a popup appears with a score. This runs locally and makes no API calls.
   - **Hotkey** (`Ctrl/Cmd + Shift + J`): reads the job posting on your screen with free, on-device OCR.
   - **Screen watching** (off by default): reads the screen with OCR whenever it changes and then stays still.
@@ -79,7 +79,7 @@ Sprout keeps running in the system tray after you close the window, so detection
 | File | What it does |
 |---|---|
 | `src/main/main.js` | Electron app: windows, tray, hotkey, IPC, and the detect → score → generate pipeline |
-| `browser-extension/` | Chrome/Edge/Brave extension: reads the posting from the page and sends it to the app |
+| `browser-extension/` | Chrome/Edge/Brave extension: finds the posting on the page, shows the Sprout card there and saves the job to the app when you say so |
 | `src/main/bridge.js` | Local, paired connection between the extension and the app |
 | `src/main/ocr.js`, `src/main/pageText.js` | Free on-device OCR, and finding the posting in the recognised text |
 | `src/main/watcher.js` | Clipboard polling, screen-change detection (screenshot diff + wait until settled), dedupe |
@@ -194,16 +194,24 @@ The extension in `browser-extension/` reads the job straight from the web page, 
 2. **Known layouts** for LinkedIn, Indeed, Greenhouse, Lever, Workday and Glassdoor. On sites where the page changes without reloading (LinkedIn, Indeed, Glassdoor) these are checked first, because the embedded data can be left over from the previous job. Clicking through LinkedIn's job list is followed live.
 3. **A general finder** for any other site. It starts at a heading like "Responsibilities" or "Qualifications" and widens to the smallest part of the page that reads like a whole posting, stopping before menus, sidebars ("Other openings") and footers.
 
-It runs automatically only on well-known job sites. Everywhere else it reads a page only when you click its icon or press `Alt+Shift+J`, so it isn't reading the rest of your browsing.
+**The card.** When you open a job posting, Sprout pops up in the corner of the page with the same card the app shows: your fit score, the ATS match for your current resume, and the skills you match. It asks **"Add this job to your saved jobs?"** and nothing is saved until you press **Save job**. After that, the card offers everything the app's popup does: an ATS resume (free), a Claude resume, a cover letter, a deeper read from Claude, and **Open in Sprout**. Press **–** to tuck it into a small bubble with the score, or **✕** / **No thanks** to put it away for that job. The toolbar button shows the same card for the tab you're on, read fresh each time you open it.
+
+**Following the page.** On sites that change the page without reloading (LinkedIn, Indeed, Glassdoor), clicking another job switches the card to it. If the address changes before the site has swapped in the new description, the extension waits for the new text, so a card never shows the old job under the new address. Leaving the posting puts the card away and clears the toolbar badge.
+
+**Which pages it reads.** The content script loads on every site, but only reads a page that looks like a job: job boards and applicant-tracking systems (LinkedIn, Indeed, Greenhouse, Lever, Workday, Ashby, SmartRecruiters and more), pages whose address or title mention jobs, careers or openings, and pages that carry `JobPosting` data. The text it finds goes only to the Sprout app on your computer (`127.0.0.1`), which scores it without saving. You can turn the automatic card off in the toolbar popup; `Alt+Shift+J` still shows it on any page.
 
 **Install (developer mode):**
 1. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
 2. Click **Load unpacked** and choose the `browser-extension` folder. Settings → *Browser extension* has a button that opens it.
 3. Click the Sprout icon → **Connect**, then press **Allow** in the Sprout popup.
 
+**Updates:** the extension is loaded from the folder that comes with the app, so updating Sprout updates its files too. Release builds give the extension the app's version number. When the app reports a newer extension than the one running, the extension reloads itself from that folder (once per version). If it was loaded from a different folder, the toolbar popup says where to find the new one.
+
 **How it connects to the app:** the app listens on `127.0.0.1` only (ports 47321–47325). It accepts requests only from browser extensions: every request is a POST, which makes Chrome include an `Origin` header that web pages can't fake. Each request also needs the secret token handed out when you pressed **Allow**. You can disconnect a browser in Settings at any time. The code is in `src/main/bridge.js`.
 
-Tests: `npm run test:browser` loads the real extension into Chromium and serves mock LinkedIn, Greenhouse and company-careers pages at their real addresses. It checks pairing, text far below the fold, LinkedIn's in-page navigation, structured data, and that menus and sidebars are left out. On Linux without a display, use `xvfb-run`, or it runs headless as-is.
+**Shared look.** The card uses the app's own mascot, icons, lines, score explanations and theme. `browser-extension/vendor/` holds copies of those files from `src/renderer/`. After changing any of them, run `npm run sync:extension`. `npm test` fails while the copies are out of date.
+
+Tests: `npm run test:browser` loads the real extension into Chromium and serves mock LinkedIn, Greenhouse and company-careers pages at their real addresses. It checks pairing, text far below the fold, structured data, and that menus and sidebars are left out. It also checks that the card pops up and asks before saving, that **Save job**, **No thanks** and the ATS resume button work, that a saved job shows as saved, and that the card follows LinkedIn's in-page navigation and goes away when you leave the posting. On Linux without a display, use `xvfb-run`, or it runs headless as-is.
 
 ### Reading the screen without AI (OCR)
 

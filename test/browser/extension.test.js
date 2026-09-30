@@ -1,5 +1,7 @@
 // Loads the real browser extension into Chromium and checks it reads whole
-// job postings (including text below the fold) and delivers them to the app.
+// job postings (including text below the fold), pops up the Sprout card on
+// the page, follows single-page navigation, and only saves a job when you
+// say so on the card.
 // Run with: npm run test:browser   (needs Chromium; on Linux CI use xvfb-run)
 const test = require('node:test');
 const assert = require('node:assert');
@@ -16,16 +18,58 @@ const page = (name) => fs.readFileSync(path.join(PAGES, name), 'utf8');
 let context;
 let sw;
 let bridge;
-const postings = [];
+const previews = []; // scored, not saved
+const postings = []; // saved
+const actions = [];
 const pairings = [];
 let askedToPair = 0;
+
+// A pretend app: every job scores 81; saved jobs live in `saved`.
+const saved = new Map();
+const quick = { score: 81, label: 'Excellent match', confidence: 'high', matchedSkills: ['React', 'TypeScript'], dealbreakers: [] };
+const env = { hasDocs: true, hasKey: true };
+const card = (app, seen = false) => ({ saved: true, seen, app, ...env });
+function newApp(p) {
+  const app = {
+    id: 'a' + (saved.size + 1),
+    status: 'scored',
+    createdAt: new Date().toISOString(),
+    job: { title: p.title, company: p.company, location: p.location, url: p.url },
+    quick,
+    analysis: null,
+    ats: { before: { score: 72, grade: 'B', skillsMatch: 'Good' }, after: null },
+    hasResume: false,
+    hasLetter: false,
+  };
+  saved.set(app.id, app);
+  return app;
+}
+const findSaved = (p) => [...saved.values()].find((a) => a.job.title === p.title && a.job.company === p.company);
 
 test.before(async () => {
   bridge = createBridge({
     getPairings: () => pairings,
     savePairing: (p) => pairings.push(p),
     askToPair: async () => (askedToPair++, true),
-    onPosting: async (p) => (postings.push(p), { id: 'a' + postings.length, score: 81, label: 'Excellent match', status: 'scored', seen: false }),
+    onPreview: async (p) => {
+      previews.push(p);
+      const dup = findSaved(p);
+      if (dup) return card(dup, true);
+      return { saved: false, preview: { job: { title: p.title, company: p.company, location: p.location, url: p.url }, quick, ats: { before: { score: 72, grade: 'B', skillsMatch: 'Good' } } }, ...env };
+    },
+    onPosting: async (p) => {
+      postings.push(p);
+      const dup = findSaved(p);
+      const app = dup || newApp(p);
+      return { id: app.id, score: 81, label: quick.label, status: app.status, ...card(app, !!dup) };
+    },
+    onGet: async (id) => card(saved.get(id)),
+    onAction: async ({ id, action }) => {
+      actions.push({ id, action });
+      const app = saved.get(id);
+      if (action === 'resume-ats') Object.assign(app, { hasResume: true, resumeStatus: 'ready', resumeSource: 'ats', status: 'resume-ready', ats: { ...app.ats, after: { score: 88, grade: 'A' } } });
+      return card(app);
+    },
     onOpen: () => {},
   });
   await bridge.listen(47321);
@@ -56,6 +100,40 @@ const waitFor = async (fn, ms = 10000) => {
   throw new Error('timed out');
 };
 
+// The card lives in a closed shadow root (so the page can't read it). The
+// DevTools protocol can still reach it.
+async function inCard(p, fn, arg) {
+  const cdp = await context.newCDPSession(p);
+  try {
+    const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const find = (n) => (n.nodeName === 'SPROUT-CARD' ? n : (n.children || []).map(find).find(Boolean) || null);
+    const host = find(root);
+    if (!host || !host.shadowRoots) return null;
+    const { object } = await cdp.send('DOM.resolveNode', { backendNodeId: host.shadowRoots[0].backendNodeId });
+    const { result } = await cdp.send('Runtime.callFunctionOn', { objectId: object.objectId, functionDeclaration: fn.toString(), arguments: [{ value: arg }], returnByValue: true, awaitPromise: true });
+    return result.value;
+  } finally {
+    await cdp.detach();
+  }
+}
+// What the card says right now ('' when it's hidden).
+const cardText = (p) =>
+  inCard(p, function () {
+    const dock = this.querySelector('.dock');
+    return dock && !dock.hidden ? dock.innerText : '';
+  }).then((t) => t || '');
+const clickCard = (p, act) =>
+  inCard(
+    p,
+    function (a) {
+      const b = this.querySelector(`.dock:not([hidden]) [data-act="${a}"]`);
+      if (!b) return false;
+      b.click();
+      return true;
+    },
+    act
+  );
+
 test('pairs with the app (the app is asked to allow it)', async () => {
   await sw.evaluate(() => pair());
   assert.equal(askedToPair, 1);
@@ -65,39 +143,87 @@ test('pairs with the app (the app is asked to allow it)', async () => {
   assert.equal(token, pairings[0].token);
 });
 
-test('LinkedIn: reads the visible job, including text far below the fold, and follows in-page navigation', async () => {
+test('LinkedIn: pops up the card, asks before saving, and follows in-page navigation', async () => {
   const p = await context.newPage();
   await p.goto('https://www.linkedin.com/jobs/view/111');
-  const first = await waitFor(() => postings.find((x) => x.title === 'Senior Frontend Engineer'));
+  const first = await waitFor(() => previews.find((x) => x.title === 'Senior Frontend Engineer'));
   assert.equal(first.company, 'Acme Co.');
   assert.match(first.location, /Remote/);
   assert.match(first.text, /Experience with Storybook \(text far below the fold\)/);
   assert.ok(!first.text.includes('Globex'), 'the job list on the left is not included');
   assert.ok(!first.text.includes('Stale'), 'stale embedded data is ignored on LinkedIn');
-  assert.equal(first.auto, true);
+
+  const text = await waitFor(async () => ((await cardText(p)).includes('Senior Frontend Engineer') ? cardText(p) : null));
+  assert.match(text, /Add this job to your saved jobs\?/);
+  assert.match(text, /Excellent match/);
+  assert.match(text, /ATS match for your current resume: 72%/);
+  assert.equal(postings.length, 0, 'nothing is saved until you say so');
 
   await p.click('[data-job="pm"]'); // LinkedIn-style: no page reload
-  const second = await waitFor(() => postings.find((x) => x.title === 'Product Manager'));
+  const second = await waitFor(() => previews.find((x) => x.title === 'Product Manager'));
   assert.equal(second.company, 'Initech');
   assert.match(second.url, /\/jobs\/view\/222$/);
+  await waitFor(async () => (await cardText(p)).includes('Product Manager'));
+  assert.ok(!(await cardText(p)).includes('Senior Frontend Engineer'), 'the card switched to the new job');
+  assert.ok(!previews.some((x) => x.title === 'Senior Frontend Engineer' && /222$/.test(x.url)), 'the old job is never reported under the new address');
   const badge = await sw.evaluate(async () => chrome.action.getBadgeText({ tabId: (await chrome.tabs.query({ active: true }))[0].id }));
   assert.equal(badge, '81');
+
+  // "Save job" adds it to your saved jobs, then offers the rest of the popup.
+  assert.ok(await clickCard(p, 'save'));
+  const s = await waitFor(() => postings.find((x) => x.title === 'Product Manager'));
+  assert.equal(s.silent, true, "the app's own popup stays out of the way");
+  const after = await waitFor(async () => ((await cardText(p)).includes('Added to your saved jobs') ? cardText(p) : null));
+  assert.match(after, /ATS resume/);
+  assert.match(after, /Claude resume/);
+  assert.match(after, /Write a cover letter/);
+
+  assert.ok(await clickCard(p, 'resume-ats'));
+  await waitFor(async () => (await cardText(p)).includes('Your ATS resume is ready!'));
+  assert.deepEqual(actions.at(-1), { id: 'a1', action: 'resume-ats' });
+  assert.match(await cardText(p), /88%/);
+
+  // Leaving the job (still on LinkedIn, no reload) puts the card away.
+  await p.evaluate(() => {
+    history.pushState({}, '', '/feed/');
+    document.body.innerHTML = '<h1>Your feed</h1>';
+  });
+  await waitFor(async () => (await cardText(p)) === '');
+  const cleared = await sw.evaluate(async () => chrome.action.getBadgeText({ tabId: (await chrome.tabs.query({ active: true }))[0].id }));
+  assert.equal(cleared, '');
   await p.close();
 });
 
-test('Greenhouse: uses the structured job data (title, company, location, pay)', async () => {
+test('Greenhouse: uses the structured job data; "No thanks" saves nothing', async () => {
   const p = await context.newPage();
   await p.goto('https://boards.greenhouse.io/providence/jobs/42');
-  const g = await waitFor(() => postings.find((x) => x.company === 'Providence Health'));
+  const g = await waitFor(() => previews.find((x) => x.company === 'Providence Health'));
   assert.equal(g.title, 'Registered Nurse - Telemetry');
   assert.match(g.location, /Portland, OR/);
   assert.match(g.salary, /48 - 66 per hour/);
   assert.match(g.text, /- BLS and ACLS certification required/);
   assert.equal(g.source, 'structured-data');
+
+  await waitFor(async () => (await cardText(p)).includes('Registered Nurse'));
+  assert.ok(await clickCard(p, 'no'));
+  await waitFor(async () => (await cardText(p)) === '');
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(await cardText(p), '', 'stays away after "No thanks"');
+  assert.ok(!postings.some((x) => x.company === 'Providence Health'));
   await p.close();
 });
 
-test('any other site: finds the posting and leaves out menus and other openings', async () => {
+test('a job you already saved shows as saved, not as a new question', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.linkedin.com/jobs/view/111');
+  await p.click('[data-job="pm"]');
+  const text = await waitFor(async () => ((await cardText(p)).includes('In your saved jobs') ? cardText(p) : null));
+  assert.match(text, /Product Manager/);
+  assert.ok(!text.includes('Add this job to your saved jobs?'));
+  await p.close();
+});
+
+test('company careers pages: finds the posting, leaves out menus and other openings, and asks too', async () => {
   const p = await context.newPage();
   await p.goto('https://careers.fabrikam.example/jobs/senior-accountant');
   await p.addScriptTag({ path: path.join(EXT_DIR, 'extract.js') });
@@ -107,17 +233,18 @@ test('any other site: finds the posting and leaves out menus and other openings'
   assert.match(r.text, /CPA required/);
   assert.match(r.text, /Big 4 audit experience/);
   for (const junk of ['Warehouse Associate', 'About us', 'Privacy']) assert.ok(!r.text.includes(junk), `leaked: ${junk}`);
-  // Not a known job site, so nothing is sent automatically.
-  assert.ok(!postings.some((x) => x.title === 'Senior Accountant'));
+  await waitFor(async () => (await cardText(p)).includes('Add this job to your saved jobs?'));
+  assert.ok(!postings.some((x) => x.title === 'Senior Accountant'), 'not saved on its own');
   await p.close();
 });
 
 test('pages that are not job postings are ignored', async () => {
   await context.route('https://www.linkedin.com/jobs/search/**', (r) => r.fulfill({ contentType: 'text/html', body: '<h1>Jobs you may be interested in</h1><ul><li>Engineer</li></ul>' }));
-  const before = postings.length;
+  const before = previews.length;
   const p = await context.newPage();
   await p.goto('https://www.linkedin.com/jobs/search/?q=x');
   await new Promise((r) => setTimeout(r, 2500));
-  assert.equal(postings.length, before);
+  assert.equal(previews.length, before);
+  assert.equal(await cardText(p), '');
   await p.close();
 });

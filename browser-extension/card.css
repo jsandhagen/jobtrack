@@ -1,0 +1,87 @@
+/* The Sprout card, on the page (inside a shadow root) and in the toolbar popup.
+   Built on vendor/theme.css, like the app's popup (src/renderer/overlay.css). */
+:host { all: initial; }
+.pop {
+  position: relative;
+  font-family: var(--font);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  -webkit-font-smoothing: antialiased;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: 0 12px 36px rgba(60, 50, 30, 0.22);
+  padding: 18px 18px 16px;
+  overflow: hidden auto;
+  user-select: none;
+}
+.pop::before {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: 84px;
+  background: linear-gradient(120deg, var(--sage-soft), var(--lavender-soft) 60%, var(--peach-soft));
+  z-index: 0;
+}
+.pop > * { position: relative; z-index: 1; }
+.pop h3 { font-size: 15px; font-weight: 800; margin: 0 0 8px; }
+.pop p { margin: 0 0 10px; }
+
+.close { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 4px 9px; }
+.top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; padding-right: 22px; }
+.top .speech { flex: 1; background: var(--surface); border-radius: 14px; padding: 8px 12px; font-weight: 700; font-size: 13px; box-shadow: var(--shadow); position: relative; }
+.top .speech::before { content: ""; position: absolute; left: -6px; top: 18px; border: 6px solid transparent; border-right-color: var(--surface); border-left: 0; }
+.role { font-weight: 800; font-size: 15px; margin: 2px 0 0; }
+.company { color: var(--ink-soft); font-size: 12.5px; margin-bottom: 6px; }
+.saved-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: var(--sage-deep); background: var(--sage-soft); border-radius: 999px; padding: 2px 10px 2px 6px; margin-bottom: 4px; }
+.scoreline { display: flex; align-items: center; gap: 14px; margin: 6px 0 10px; }
+.scoreline .label { font-weight: 800; font-size: 15px; }
+.scoreline .src { font-size: 11.5px; color: var(--ink-faint); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.headline { font-size: 13px; color: var(--ink-soft); margin-bottom: 10px; }
+.chips { margin-bottom: 8px; }
+.chips .chip { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+.ask { font-weight: 800; font-size: 14px; margin: 8px 0 10px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions .primary { flex: 1 1 auto; justify-content: center; padding: 10px 16px; font-size: 14.5px; }
+.actions .soft { flex: 1; justify-content: center; }
+.actions .ghost { padding: 8px 10px; }
+.actions.minor { justify-content: center; gap: 2px; }
+.actions.minor button { padding: 6px 10px; font-size: 12.5px; }
+.center { text-align: center; }
+.center .sprout { margin: 4px auto 6px; display: block; }
+.center .actions { justify-content: center; }
+.loading p { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.note { font-size: 12px; color: var(--ink-soft); background: var(--butter-soft); border-radius: 10px; padding: 7px 10px; margin: 6px 0 10px; }
+.note.err { background: var(--rose-soft); color: var(--ink); }
+.ats-line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-soft); background: var(--surface-2); border-radius: 10px; padding: 6px 10px; margin: -2px 0 10px; }
+.ats-compare { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; background: var(--sage-soft); border-radius: 12px; padding: 6px 12px; margin-bottom: 12px; }
+.ats-compare .was { color: var(--ink-faint); text-decoration: line-through; }
+.ask-claude { margin: 0 0 4px -6px; }
+.pop .info-pop { user-select: text; }
+
+/* two ways to tailor: helpers peek over their buttons */
+.mode-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 2px 0 6px; }
+.mode-picks.single { grid-template-columns: 1fr; }
+.letter-btn { width: 100%; justify-content: center; margin: 2px 0 6px; }
+.letter-btn small { font-size: 11.5px; font-weight: 600; opacity: 0.75; margin-left: 2px; }
+button.letter-btn { background: #fdeadb; color: #c4692b; }
+button.letter-btn:hover { background: #fbdcc4; }
+@media (prefers-color-scheme: dark) { button.letter-btn { background: #45332a; color: #f9a65a; } button.letter-btn:hover { background: #553e31; } }
+
+.pop > .confetti { position: absolute; z-index: 3; }
+@media (prefers-reduced-motion: reduce) { .confetti { display: none; } .dock, .pop { animation: none !important; } }
+
+/* ---- on the page ---- */
+.dock { position: fixed; right: 16px; bottom: 16px; width: 360px; max-width: calc(100vw - 32px); z-index: 2147483647; animation: pop-in 0.35s cubic-bezier(0.2, 1.3, 0.4, 1); }
+.dock .pop { max-height: calc(100vh - 32px); }
+.dock .top { padding-right: 58px; }
+.dock .min { position: absolute; top: 8px; right: 40px; z-index: 2; padding: 4px 9px; }
+@keyframes pop-in { from { opacity: 0; transform: translateY(16px) scale(0.96); } to { opacity: 1; transform: none; } }
+/* Tucked away: a little Sprout with the score, until you click it. */
+.bubble { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(60, 50, 30, 0.22); font: 800 14px/1 var(--font); color: var(--ink); cursor: pointer; animation: pop-in 0.3s cubic-bezier(0.2, 1.3, 0.4, 1); }
+.bubble:hover { border-color: var(--sage); background: var(--surface); }
+.bubble b { font-size: 16px; }
+.bubble .hi { color: var(--sage-deep); } .bubble .mid { color: #a07a1c; } .bubble .lo { color: #b8653e; }
+
+/* ---- in the toolbar popup ---- */
+.in-popup .pop { border: 0; border-radius: 0; box-shadow: none; }
