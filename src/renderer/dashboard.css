@@ -505,6 +505,9 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .search-row .title { font-weight: 800; font-size: 13.5px; }
 .search-row .sub { color: var(--ink-soft); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-row .avatar { width: 32px; height: 32px; font-size: 12px; }
+/* Alumni & old coworkers: the label on its own line, its buttons under it. */
+.search-row.insider { flex-wrap: wrap; gap: 4px 6px; }
+.search-row.insider .grow { flex-basis: 100%; }
 .company { padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .company.dim { opacity: 0.55; }
 .company-top { display: flex; align-items: flex-start; gap: 10px; }

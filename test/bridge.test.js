@@ -154,3 +154,45 @@ test('ping tells the extension which version comes with the app', async () => {
   assert.equal(ping.extensionVersion, '0.3.41');
   await b.close();
 });
+
+test('people from LinkedIn: look up, add and open, only for real profile links', async () => {
+  const pair = { origin: EXT, token: 't0k3n' };
+  const seen = [];
+  const added = [];
+  const opened = [];
+  const { b, url } = await start({
+    getPairings: () => [pair],
+    onPerson: async (p) => (seen.push(p), { person: true, saved: false }),
+    onAddPerson: async (p) => (added.push(p), { person: true, saved: true, justAdded: true }),
+    onOpenPerson: (id) => opened.push(id),
+  });
+  const post = (p, body, token = 't0k3n') => fetch(url(p), { method: 'POST', headers: { Origin: EXT, 'X-Sprout-Token': token }, body: JSON.stringify(body) });
+  const person = { url: 'https://www.linkedin.com/in/frederick-lee', name: '  Frederick   Lee ', title: 'Chief of Staff', company: 'OCTA', schools: ['UVA', '', 42], employers: 'Appian', extra: 'dropped' };
+
+  let r = await post('/person', person);
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { person: true, saved: false });
+  assert.equal(seen[0].name, 'Frederick Lee');
+  assert.deepEqual(seen[0].schools, ['UVA', '42']);
+  assert.deepEqual(seen[0].employers, [], 'lists must be lists');
+  assert.equal(seen[0].extra, undefined);
+  assert.equal(added.length, 0, 'looking someone up adds nothing');
+
+  assert.equal((await post('/person/add', person)).status, 200);
+  assert.equal(added.length, 1);
+  assert.equal((await post('/person/open', { id: 'c1' })).status, 200);
+  assert.deepEqual(opened, ['c1']);
+
+  // Not a profile, or no name: refused.
+  assert.equal((await post('/person', { ...person, url: 'https://evil.example/in/fred' })).status, 422);
+  assert.equal((await post('/person', { ...person, url: 'https://www.linkedin.com/company/ramp' })).status, 422);
+  assert.equal((await post('/person', { ...person, name: '' })).status, 422);
+  assert.equal((await post('/person/add', person, 'wrong')).status, 401);
+  assert.equal(added.length, 1);
+  await b.close();
+
+  // An older app without these endpoints says so.
+  const old = await start({ getPairings: () => [pair] });
+  assert.equal((await fetch(old.url('/person'), { method: 'POST', headers: { Origin: EXT, 'X-Sprout-Token': 't0k3n' }, body: JSON.stringify(person) })).status, 404);
+  await old.b.close();
+});

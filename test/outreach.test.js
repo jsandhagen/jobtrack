@@ -243,3 +243,60 @@ test('store keeps people, companies, searches and templates; templates start fro
   assert.equal(reloaded.getProfile().schools, '');
   assert.throws(() => s.list('secrets'), /Unknown list/);
 });
+
+test('alumni and old coworkers at a company: one search per school and past employer, plus the role', () => {
+  const profile = { schools: 'University of Virginia, TJHSST', pastEmployers: 'Appian, Ramp', targetRoles: 'Chief of Staff' };
+  const s = O.insiderSearches({ company: 'Ramp', titles: 'Chief of Staff' }, profile);
+  assert.deepEqual(s.map((x) => x.kind), ['alumni', 'alumni', 'coworkers', 'role'], 'your old employer that is the company itself is left out');
+  assert.equal(s[0].label, 'University of Virginia alumni at Ramp');
+  assert.equal(s[2].label, 'Also worked at Appian, now at Ramp');
+  assert.equal(params(s[0].linkedin).keywords, '"Chief of Staff" "Ramp" "University of Virginia"');
+  assert.equal(params(s[2].google).q, 'site:linkedin.com/in "Chief of Staff" "Ramp" "Appian"');
+  assert.equal(s[3].label, 'Chief of Staff at Ramp');
+  assert.equal(params(s[3].linkedin).keywords, '"Chief of Staff" "Ramp"');
+  // A role alone works too (alumni in that job, anywhere); nothing at all gives nothing.
+  assert.equal(O.insiderSearches({ titles: 'Chief of Staff' }, profile)[0].label, 'University of Virginia alumni');
+  assert.deepEqual(O.insiderSearches({}, profile), []);
+  assert.deepEqual(O.insiderSearches({ company: 'Ramp' }, {}).map((x) => x.label), ['People at Ramp']);
+});
+
+test('LinkedIn profile links: tidied, and a name guessed from the link', () => {
+  assert.equal(O.linkedinProfileUrl('linkedin.com/in/fred-lee-4a5b6c/?miniProfileUrn=x'), 'https://www.linkedin.com/in/fred-lee-4a5b6c');
+  assert.equal(O.linkedinProfileUrl('https://uk.linkedin.com/in/jane'), 'https://www.linkedin.com/in/jane');
+  assert.equal(O.linkedinProfileUrl('https://www.linkedin.com/company/ramp'), '');
+  assert.equal(O.nameFromProfileUrl('https://www.linkedin.com/in/frederick-lee-4a5b6c12/'), 'Frederick Lee');
+  assert.equal(O.nameFromProfileUrl('https://www.linkedin.com/in/maria-garcia'), 'Maria Garcia');
+  assert.equal(O.nameFromProfileUrl('https://www.linkedin.com/in/ACoAAB12345'), '', 'an id is not a name');
+});
+
+test('what you share with someone: their schools and past jobs, their company, or the "in common" note', () => {
+  const me = { schools: 'University of Virginia, JMU', pastEmployers: 'Appian, Deloitte' };
+  assert.deepEqual(O.sharedBackground({ schools: ['University of Virginia - Darden School of Business'], employers: ['Appian Corporation'] }, me), { schools: ['University of Virginia'], employers: ['Appian'] });
+  assert.deepEqual(O.sharedBackground({ company: 'Deloitte' }, me), { schools: [], employers: ['Deloitte'] });
+  assert.deepEqual(O.sharedBackground({ connection: 'JMU alum · ex-Appian' }, me), { schools: ['JMU'], employers: ['Appian'] });
+  assert.deepEqual(O.sharedBackground({ connection: 'Tufts alum' }, me), { schools: ['Tufts'], employers: [] });
+  assert.deepEqual(O.sharedBackground({ schools: ['Virginia Tech'] }, me), { schools: [], employers: [] }, 'different schools that share a word');
+  assert.equal(O.sameOrg('UVA', 'UVA Health'), false, 'too short to match inside a longer name');
+  assert.equal(O.connectionText({ schools: ['JMU'], employers: ['Appian'] }), 'JMU alum · ex-Appian');
+  // A two-part note still reads naturally in a message.
+  assert.equal(O.commonPhrase('JMU alum · ex-Appian', me), 'went to JMU');
+  assert.equal(O.templateVars({ name: 'A B', connection: 'JMU alum · ex-Appian' }, me).commonShort, 'JMU');
+});
+
+test('a LinkedIn profile becomes a contact, with what you share filled in', () => {
+  const me = { schools: 'University of Virginia', pastEmployers: 'Appian' };
+  const c = O.contactFromProfile(
+    { url: 'https://www.linkedin.com/in/fred-lee-99/', name: 'Frederick Lee', headline: 'Chief of Staff at OCTA | ex-Appian', location: 'Arlington, Virginia', schools: ['University of Virginia'], employers: ['OCTA', 'Appian', 'Appian'] },
+    me
+  );
+  assert.equal(c.title, 'Chief of Staff');
+  assert.equal(c.company, 'OCTA');
+  assert.equal(c.linkedinUrl, 'https://www.linkedin.com/in/fred-lee-99');
+  assert.deepEqual(c.employers, ['Appian'], 'their current company is not a past job');
+  assert.equal(c.connection, 'University of Virginia alum · ex-Appian');
+  // Title and company from the experience section win over the headline.
+  assert.equal(O.contactFromProfile({ url: 'https://www.linkedin.com/in/x', name: 'X', headline: 'Builder at heart', title: 'Ops Lead', company: 'Ramp' }).company, 'Ramp');
+  assert.equal(O.contactFromProfile({ url: 'https://www.linkedin.com/in/jane-doe-1a2b3c' }).name, 'Jane Doe');
+  // Found again later: the same person, by their link.
+  assert.ok(O.findContact([{ name: 'Fred', linkedinUrl: 'https://www.linkedin.com/in/fred-lee-99/' }], c));
+});

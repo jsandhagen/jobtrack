@@ -1301,6 +1301,12 @@ S.onNavigate(({ view: v, id, tab }) => {
   if (tab) (openTab = tab), (currentAppId = null);
   if (location.hash === target) route(); // no hashchange when already there
   else location.hash = target;
+  // A person from the browser extension: show them (they may be brand new).
+  if (v === 'people' && id)
+    refreshState().then(() => {
+      const c = state.contacts.find((x) => x.id === id);
+      if (c) openContactModal(c);
+    });
 });
 
 document.getElementById('brandMark').innerHTML = icon('seedling', 30);

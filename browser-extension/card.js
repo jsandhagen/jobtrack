@@ -7,6 +7,8 @@
 //   { saved: false, preview }  a job on the page, scored but not saved yet:
 //                              asks whether to add it to your saved jobs
 //   { saved: true, app }       a saved job, with everything you can do next
+//   { person, saved, contact } someone's LinkedIn profile: asks whether to
+//                              add them to your people, with what you share
 //   { error }                  something went wrong
 (() => {
   if (globalThis.SproutCard) return;
@@ -78,6 +80,41 @@
       ${ui.error ? note(esc(ui.error), 'err') : ''}
       <div class="ask">Add this job to your saved jobs?</div>
       <div class="actions"><button class="primary" data-act="save">${icon('check', 16)} Save job</button><button class="ghost" data-act="no">No thanks</button></div>`;
+  }
+
+  // Someone's LinkedIn profile.
+  function personView(r, ui) {
+    const c = r.contact;
+    const name = String(c.name || '').split(' ')[0] || 'them';
+    const first = esc(name);
+    const shared = r.shared || [];
+    // (top() escapes the speech itself.)
+    const speech = r.justAdded
+      ? `Added! When you're ready, I'll help you write to ${name}.`
+      : r.saved
+        ? `${name} is already in your people.`
+        : shared.length
+          ? `You both ${shared[0]}. That's a great reason to say hi.`
+          : r.roles && r.roles.length
+            ? `${name} works where you're applying. Someone inside can make a big difference.`
+            : `Want to keep ${name} in your people?`;
+    const facts = [
+      shared.length ? `<span class="chip good">✓ You both ${esc(shared.join(' and '))}</span>` : '',
+      r.roles && r.roles.length ? `<span class="chip good" title="${esc(r.roles.join(', '))}">${icon('check', 13)} ${r.roles.length === 1 ? `Your ${esc(r.roles[0])} role is here` : `${r.roles.length} of your roles are here`}</span>` : '',
+      r.watching && !(r.roles && r.roles.length) ? `<span class="chip">A company you're watching</span>` : '',
+    ].filter(Boolean);
+    const actions = r.saved
+      ? `<div class="actions"><button class="primary" data-act="open-person">Open in Sprout</button><button class="ghost" data-act="close">Close</button></div>`
+      : `<div class="ask">Add ${first} to your people?</div>
+        <div class="actions"><button class="primary" data-act="add-person">${icon('check', 16)} Add to my people</button><button class="ghost" data-act="no">No thanks</button></div>`;
+    return `${top(r.justAdded ? 'thrilled' : shared.length || (r.roles && r.roles.length) ? 'happy' : 'wave', speech)}
+      <div class="role">${esc(c.name)}</div>
+      <div class="company">${esc([c.title, c.company].filter(Boolean).join(' · ') || c.headline || 'LinkedIn profile')}</div>
+      ${r.saved ? `<div class="saved-tag">${icon('check', 14)} ${r.justAdded ? 'Added to your people' : `In your people · ${esc(c.status)}`}</div>` : ''}
+      ${facts.length ? `<div class="chips">${facts.join('')}</div>` : ''}
+      ${!r.saved && !shared.length && !r.hasProfile ? note('Add your schools and past employers to your Profile in Sprout and I\'ll point out who you have in common.') : ''}
+      ${ui.error ? note(esc(ui.error), 'err') : ''}
+      ${actions}`;
   }
 
   function savedView(r, ui) {
@@ -211,6 +248,7 @@
       if (!result || result.loading) html = loadingView(result && result.loading);
       else if (result.message) html = messageView(result.message);
       else if (result.error) html = messageView({ mood: 'worried', title: 'Oops, a little hiccup', text: result.error, retry: opts.onRetry ? 'Try again' : '' });
+      else if (result.person) html = personView(result, ui);
       else if (!result.saved) html = previewView(result, ui);
       else if (ui.work) html = workingView(result.app, ui.work);
       else if (ui.done) html = doneView(result.app, ui.done);
@@ -222,7 +260,7 @@
     }
 
     function show(r) {
-      const sameJob = r && result && r.saved && result.saved && r.app.id === result.app.id;
+      const sameJob = r && result && r.saved && result.saved && r.app && result.app && r.app.id === result.app.id;
       const wasSaved = !!(result && result.saved);
       if (!sameJob && !(r && r.saved && !wasSaved && result && result.preview)) ui = { work: null, done: null, error: null };
       result = r;
@@ -257,6 +295,19 @@
         }
         ui.error = null;
         return show({ ...r.value, justSaved: !r.value.seen });
+      }
+      if (action === 'add-person' || action === 'open-person') {
+        const person = action === 'add-person';
+        if (btn && person) btn.innerHTML = '<span class="spinner"></span> Adding…';
+        const r = await opts.send(person ? { type: 'addPerson' } : { type: 'openPerson', id: result.contact.id });
+        if (dead) return;
+        if (!r.ok) {
+          ui.error = r.error;
+          return draw();
+        }
+        ui.error = null;
+        if (!person) return opts.onClose('open');
+        return show(r.value);
       }
       if (!app) return;
       if (action === 'resume' || action === 'resume-ats' || action === 'letter') {
