@@ -518,3 +518,6 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .choice-row input { width: auto; }
 .compose-head { display: flex; gap: 14px; align-items: center; }
 button.chip { cursor: pointer; border: 0; }
+.co-status { font-size: 12px; margin: 2px 0 4px; line-height: 1.5; }
+.co-status .spinner { width: 11px; height: 11px; vertical-align: -1px; }
+h3.with-icon .small { margin-left: 8px; }

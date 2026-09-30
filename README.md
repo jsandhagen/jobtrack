@@ -135,6 +135,10 @@ Nothing here scrapes LinkedIn: every search is a link that opens in your browser
 - **Startup job boards**: a Google search of Ashby, Greenhouse, Lever and Workable boards for the past week, which finds the smaller companies LinkedIn buries.
 - **Build a search** (titles, keywords, location, posted within, remote / hybrid / on-site), or save any other link.
 - **Companies to watch**: why each caught your eye, a careers link, and one click to its jobs this week, people you share a school or employer with there, or people in your field there. Companies from your applications and people are suggested.
+- **New at your companies**: Sprout reads each watched company's own careers site and lists the open roles whose titles match your target roles (plus any extra titles you add for that company), newest first, filtered to the past week or month. It checks a minute after starting and every 6 hours after that, and sends a desktop notification when a new matching role goes up. **Check my fit** pulls in the full posting and scores it like any other job.
+  - Works with careers sites hosted on **Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Workday**, which is most startups and many larger companies. Sprout finds the board from the careers link, from links on the careers page, or (with no link) by trying the company's name on Greenhouse, Lever and Ashby. A board found by name is marked so you can say **Not them**.
+  - For a company whose careers site Sprout can't read (a fully custom site), it says so, and you can still open the careers page yourself.
+  - It uses the job data these boards publish for their own careers pages (`src/main/careers.js`), not LinkedIn, and only for companies you added.
 
 **People** (`#people`):
 - Add people by hand or **paste a spreadsheet** (Name or First/Last, Company, Title, LinkedIn, Email, Notes, and Connection or School). Duplicates are skipped.

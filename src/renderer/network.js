@@ -490,6 +490,7 @@ views.find = () => {
     ${pageHead('Find jobs', 'curious', 'Fresh roles only: these searches show postings from <b>the last week</b>, newest first, with titles in quotes so you get the job you asked for. Each one opens in your browser.')}
     <div class="grid sidebar">
       <div>
+        ${careersFeedCard()}
         <div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('star', 20)} Your searches</h3>
           ${saved.length ? saved.map((s) => searchRow(s, true)).join('') : '<p class="muted" style="margin-top:0">None saved yet. Save a suggestion below, or build your own.</p>'}
           ${sugg.length ? `<div class="section-title">Suggested from your profile</div>${sugg.map((s) => searchRow(s, false)).join('')}` : ''}
@@ -531,14 +532,90 @@ views.find = () => {
   </div>`;
 };
 
+// ---------------- new jobs on the careers sites you watch ----------------
+
+const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday' };
+let feedWindow = 'week';
+const FEED_WINDOWS = [
+  ['week', 'Past week', 7],
+  ['month', 'Past month', 30],
+  ['all', 'All open', Infinity],
+];
+
+function ageText(isoDate) {
+  if (!isoDate) return 'post date not shown';
+  const days = Math.floor((Date.now() - Date.parse(isoDate)) / 86400000);
+  return days <= 0 ? 'posted today' : days === 1 ? 'posted yesterday' : days < 30 ? `posted ${days} days ago` : `posted ${fmtDate(isoDate)}`;
+}
+
+function careerJobs() {
+  return state.companies
+    .filter((c) => c.status !== 'pass')
+    .flatMap((c) => (c.jobs || []).map((j) => ({ co: c, job: j })));
+}
+
+function inMyList(co, job) {
+  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return state.applications.find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
+}
+
+function careersFeedCard() {
+  const cos = state.companies.filter((c) => c.status !== 'pass');
+  const all = careerJobs();
+  const days = FEED_WINDOWS.find(([k]) => k === feedWindow)[2];
+  const inWindow = ({ job }) => {
+    const d = job.postedAt || job.firstSeenAt;
+    return days === Infinity || (d ? Date.now() - Date.parse(d) <= days * 86400000 : !!job.firstSeenAt);
+  };
+  const shown = all.filter(inWindow).sort((a, b) => String(b.job.postedAt || b.job.firstSeenAt || '').localeCompare(String(a.job.postedAt || a.job.firstSeenAt || '')));
+  const checked = cos.map((c) => c.lastCheckedAt).filter(Boolean).sort().pop();
+  const readable = cos.filter((c) => c.board && c.board.ats !== 'none').length;
+  const roles = O.splitList(state.profile.targetRoles);
+  const row = ({ co, job }) => {
+    const mine = inMyList(co, job);
+    const isNew = job.firstSeenAt && Date.now() - Date.parse(job.firstSeenAt) < 3 * 86400000;
+    return `<div class="search-row"><div class="grow"><div class="title">${esc(job.title)}${isNew ? ' <span class="chip good tiny">new</span>' : ''}</div>
+      <div class="sub">${esc([co.name, job.location, ageText(job.postedAt)].filter(Boolean).join(' · '))}</div></div>
+      ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">In your list</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
+      <button class="small ghost" data-open-url="${esc(job.url)}">${icon('link', 14)} Open</button></div>`;
+  };
+  const body = !cos.length
+    ? `<p class="muted" style="margin-top:0">Add companies under <b>Companies to watch</b> and I'll read their careers sites for you: every few hours I list the open roles that match what you're looking for, and tell you when a new one goes up.</p>`
+    : !roles.length
+      ? `<p class="note-box">Add the roles you're aiming for in <a href="#profile">Profile</a>, so I know which of the ${all.length ? all.length : ''} open jobs are for you.</p>${shown.map(row).join('')}`
+      : shown.length
+        ? shown.slice(0, 40).map(row).join('') + (shown.length > 40 ? `<p class="faint">…and ${shown.length - 40} more.</p>` : '')
+        : `<p class="muted" style="margin-top:0">${
+            state.careersChecking && !checked ? 'Reading their careers sites…' : `Nothing matching ${esc(roles.slice(0, 3).join(', '))} ${feedWindow === 'all' ? 'is open' : `was posted in the ${feedWindow === 'week' ? 'past week' : 'past month'}`} at ${readable === 1 ? 'the company' : `the ${readable} companies`} I can read.`
+          } ${feedWindow !== 'all' && all.length ? `<a href="#" id="feedAll">See all ${all.length} matching open roles</a>.` : ''}</p>`;
+  return `<div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('home', 20)} New at your companies
+      <span class="faint" style="margin-left:auto;font-size:12px;font-weight:700">${state.careersChecking ? '<span class="spinner"></span> checking…' : checked ? `checked ${timeAgo(checked)}` : ''}</span>
+      ${cos.length ? `<button class="small ghost" id="checkCareers" ${state.careersChecking ? 'disabled' : ''}>${icon('refresh', 14)} Check now</button>` : ''}</h3>
+    ${cos.length ? `<div class="tabs" style="margin-bottom:6px">${FEED_WINDOWS.map(([k, l, d]) => `<button class="${feedWindow === k ? 'on' : ''}" data-feed="${k}">${l} <span class="faint">${all.filter(({ job }) => { const x = job.postedAt || job.firstSeenAt; return d === Infinity || (x ? Date.now() - Date.parse(x) <= d * 86400000 : !!job.firstSeenAt); }).length}</span></button>`).join('')}</div>
+      <p class="faint" style="margin:0 0 4px">Roles matching your target roles${cos.some((c) => c.keywords) ? ' and each company\'s extra keywords' : ''}, read from each company's own careers site. I check every 6 hours and let you know when something new goes up.</p>` : ''}
+    ${body}
+  </div>`;
+}
+
+function careersStatus(co) {
+  if (!co.lastCheckedAt) return `<div class="co-status faint">${state.careersChecking ? '<span class="spinner"></span> Looking for its careers site…' : 'Not checked yet.'}</div>`;
+  if (co.checkError === 'no-board')
+    return `<div class="co-status faint">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. If its jobs are on Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Workday, <a href="#" class="coCareers" data-id="${co.id}">paste that job board link</a> and I'll check it for you.</div>`;
+  if (co.checkError) return `<div class="co-status faint">${icon('warn', 13)} Last check didn't work: ${esc(co.checkError)}</div>`;
+  const b = co.board;
+  const n = (co.jobs || []).length;
+  return `<div class="co-status faint">${icon('check', 13)} Reading its <a href="#" data-open-url="${esc(b.url)}">${ATS_NAME[b.ats] || b.ats} job board</a> · ${co.openCount} open · <b>${n} match${n === 1 ? '' : 'es'}</b> · checked ${timeAgo(co.lastCheckedAt)}
+    ${b.guessed ? `<br>I found this board by its name. Is it really them? <a href="#" class="coNotThem" data-id="${co.id}">Not them</a>` : ''}</div>`;
+}
+
 function companiesCard() {
   const cos = state.companies;
   const sugg = O.companySuggestions(cos, state.contacts, state.applications).slice(0, 8);
   const statusRank = Object.fromEntries(O.COMPANY_STATUSES.map(([k], i) => [k, i]));
   const sorted = [...cos].sort((a, b) => (statusRank[a.status] ?? 0) - (statusRank[b.status] ?? 0) || a.name.localeCompare(b.name));
   return `<div class="card"><h3 class="with-icon">${icon('home', 20)} Companies to watch</h3>
-    <p class="faint" style="margin-top:-4px">Keep the interesting ones you stumble on, so you can check them each week in one click.</p>
-    <div class="inline" style="margin-bottom:12px"><input id="coName" placeholder="Company" style="flex:1"><input id="coWhy" placeholder="Why it caught your eye" style="flex:2"><input id="coUrl" placeholder="Careers page (optional)" style="flex:1.4"><button class="soft" id="coAdd">Add</button></div>
+    <p class="faint" style="margin-top:-4px">Keep the interesting ones you stumble on. I'll read their careers sites for roles that match yours, so you don't have to visit each one.</p>
+    <div class="inline" style="margin-bottom:12px"><input id="coName" placeholder="Company" style="flex:1"><input id="coWhy" placeholder="Why it caught your eye" style="flex:2"><input id="coUrl" placeholder="Careers page link (optional)" style="flex:1.4"><button class="soft" id="coAdd">Add</button></div>
     ${sorted.length ? `<div class="list">${sorted.map(companyRow).join('')}</div>` : '<p class="muted">No companies yet.</p>'}
     ${sugg.length ? `<div class="section-title">You've come across</div><div>${sugg.map((s) => `<button class="chip lav coSugg" data-name="${esc(s.name)}" title="${esc(s.why.join(' · '))}">+ ${esc(s.name)}</button>`).join('')}</div>` : ''}
   </div>`;
@@ -550,20 +627,68 @@ function companyRow(co) {
   const roles = openRolesAt(co.name).length;
   return `<div class="company ${co.status === 'pass' ? 'dim' : ''}" data-co="${co.id}">
     <div class="company-top"><div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
+      ${careersStatus(co)}
+      ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
       <div>${people ? `<a href="#people" class="chip lav tiny">${people} ${people === 1 ? 'person' : 'people'} you know</a>` : ''}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div></div>
       <select class="small-select coStatus" data-id="${co.id}">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <button class="small ghost danger coDel" data-id="${co.id}" title="Remove">✕</button></div>
     <div class="inline company-links">
-      ${L.careers ? `<button class="small soft" data-open-url="${esc(L.careers)}">${icon('link', 14)} Careers page</button>` : `<button class="small ghost coCareers" data-id="${co.id}">+ careers link</button>`}
+      ${L.careers ? `<button class="small soft" data-open-url="${esc(L.careers)}">${icon('link', 14)} Careers page</button><button class="small ghost coCareers" data-id="${co.id}" title="Change the careers link">${icon('pencil', 13)}</button>` : `<button class="small ghost coCareers" data-id="${co.id}">+ careers link</button>`}
       <button class="small ghost" data-open-url="${esc(L.jobs)}">Jobs this week</button>
       ${L.peopleInCommon ? `<button class="small ghost" data-open-url="${esc(L.peopleInCommon)}">People in common</button>` : ''}
       <button class="small ghost" data-open-url="${esc(L.people)}">People in your field</button>
       <button class="small ghost" data-add-person="${esc(co.name)}">+ person</button>
+      <button class="small ghost coKeywords" data-id="${co.id}" title="Extra job titles or words to match at this company">Match more titles</button>
     </div></div>`;
 }
 
 binders.find = () => {
   bindSearchRows();
+  $$('[data-feed]').forEach((b) => b.addEventListener('click', () => ((feedWindow = b.dataset.feed), route())));
+  const feedAll = $('#feedAll');
+  if (feedAll) feedAll.addEventListener('click', (e) => (e.preventDefault(), (feedWindow = 'all'), route()));
+  const check = $('#checkCareers');
+  if (check)
+    check.addEventListener('click', (e) =>
+      run(e.currentTarget, async () => {
+        const r = await S.checkCareers();
+        if (r) toast(r.fresh ? `${r.fresh} new matching role${r.fresh === 1 ? '' : 's'}!` : `Checked ${r.checked} compan${r.checked === 1 ? 'y' : 'ies'}. Nothing new since last time.`, r.fresh ? 'good' : 'info');
+        netRefresh();
+      }, 'Checking…')
+    );
+  $$('.scoreJob').forEach((b) =>
+    b.addEventListener('click', (e) =>
+      run(e.currentTarget, async () => {
+        const r = await S.scoreCareerJob(b.dataset.co, b.dataset.job);
+        await refreshState();
+        location.hash = `#application/${r.id}`;
+      }, 'Reading…')
+    )
+  );
+  $$('.coNotThem').forEach((a) =>
+    a.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await S.careersNotThem(a.dataset.id);
+      toast("Got it. Paste the link to their real job board and I'll use that.", 'info', 5000);
+      netRefresh();
+    })
+  );
+  $$('.coKeywords').forEach((b) =>
+    b.addEventListener('click', () => {
+      const co = state.companies.find((c) => c.id === b.dataset.id);
+      const card = openModal(`<h2 style="margin-top:0">Match more titles at ${esc(co.name)}</h2>
+        <p class="muted">I already match your target roles (${esc(state.profile.targetRoles || 'none set yet')}). Add other titles or words worth a look at this company, separated by commas.</p>
+        <input id="coKw" value="${esc(co.keywords || '')}" placeholder="strategy, business operations, founder's associate">
+        <div class="inline" style="margin-top:12px"><button class="primary" id="coKwSave">Save and check</button><button class="ghost" id="coKwCancel">Cancel</button></div>`);
+      $('#coKwCancel', card).addEventListener('click', closeModal);
+      $('#coKwSave', card).addEventListener('click', async () => {
+        await S.saveItem('companies', { id: co.id, keywords: $('#coKw', card).value.trim() });
+        closeModal();
+        netRefresh();
+      });
+      $('#coKw', card).focus();
+    })
+  );
   const form = () => ({
     kind: 'jobs',
     source: ($$('[name="fsSource"]').find((r) => r.checked) || {}).value || 'linkedin',
@@ -619,9 +744,12 @@ binders.find = () => {
     })
   );
   $$('.coCareers').forEach((b) =>
-    b.addEventListener('click', () => {
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
       const co = state.companies.find((c) => c.id === b.dataset.id);
-      const card = openModal(`<h2 style="margin-top:0">${esc(co.name)} careers page</h2><input id="coLink" placeholder="https://…"><div class="inline" style="margin-top:12px"><button class="primary" id="coLinkSave">Save</button><button class="ghost" id="coLinkCancel">Cancel</button></div>`);
+      const card = openModal(`<h2 style="margin-top:0">${esc(co.name)} careers page</h2>
+        <p class="muted">Their careers page, or better, the job board it uses (a link with greenhouse.io, lever.co, ashbyhq.com, workable.com, smartrecruiters.com or myworkdayjobs.com in it). Tip: click any job on their careers page and copy the address it opens.</p>
+        <input id="coLink" placeholder="https://…" value="${esc(co.careersUrl || '')}"><div class="inline" style="margin-top:12px"><button class="primary" id="coLinkSave">Save</button><button class="ghost" id="coLinkCancel">Cancel</button></div>`);
       $('#coLinkCancel', card).addEventListener('click', closeModal);
       $('#coLinkSave', card).addEventListener('click', async () => {
         const url = $('#coLink', card).value.trim();

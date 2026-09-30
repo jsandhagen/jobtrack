@@ -33,6 +33,7 @@ const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
 const outreach = require('../shared/outreach');
+const careers = require('./careers');
 
 const crypto = require('crypto');
 
@@ -798,7 +799,8 @@ function registerIpc() {
     autoBudgetOk: autoBudgetOk(),
     platform: process.platform,
     contacts: store.list('contacts'),
-    companies: store.list('companies'),
+    companies: store.list('companies').map(({ seen, ...c }) => c),
+    careersChecking,
     searches: store.list('searches'),
     templates: store.list('templates', outreach.DEFAULT_TEMPLATES),
   }));
@@ -1027,7 +1029,32 @@ function registerIpc() {
       if (dup) throw new Error(`${dup.name} is already in your people list.`);
       rec.status = rec.status || 'to-reach';
     }
-    return store.saveItem(kind, rec, kind === 'templates' ? outreach.DEFAULT_TEMPLATES : []);
+    if (kind === 'companies') {
+      const before = rec.id && store.list('companies').find((c) => c.id === rec.id);
+      // A new careers link means a new board to find; new keywords, a fresh match.
+      if (before && rec.careersUrl !== undefined && rec.careersUrl !== (before.careersUrl || '')) Object.assign(rec, { board: null, seen: null, jobs: [], checkError: null, lastCheckedAt: null });
+      else if (before && rec.keywords !== undefined && rec.keywords !== (before.keywords || '')) rec.lastCheckedAt = null;
+    }
+    const saved = store.saveItem(kind, rec, kind === 'templates' ? outreach.DEFAULT_TEMPLATES : []);
+    if (kind === 'companies' && saved.status !== 'pass' && !saved.lastCheckedAt) checkCareers([saved.id]).catch(() => {});
+    delete saved.seen;
+    return saved;
+  });
+  // Careers sites of the companies you watch.
+  handle('careers:check', (ids) => checkCareers(ids, { manual: true }));
+  handle('careers:notThem', (id) => {
+    store.saveItem('companies', { id, board: { ats: 'none' }, seen: null, jobs: [], openCount: 0, checkError: 'no-board' });
+    return true;
+  });
+  handle('careers:score', async (companyId, jobId) => {
+    const co = store.list('companies').find((c) => c.id === companyId);
+    const job = co && (co.jobs || []).find((j) => j.id === jobId);
+    if (!job || !co.board) throw new Error('That job is no longer in the list. Check the company again?');
+    const text = await careers.jobDetail(co.board, job, netFetch).catch(() => '');
+    if (!text || text.length < 80) throw new Error("I couldn't read that posting's description. Open it and copy the text instead.");
+    const header = [job.title, co.name, job.location].filter(Boolean).join('\n');
+    const rec = await handlePosting({ title: job.title, company: co.name, location: job.location, url: job.url, text: `${header}\n\n${text}`, via: 'careers' }, { fromDashboard: true });
+    return { id: rec.id };
   });
   handle('net:remove', (kind, id) => {
     if (!NET_FIELDS[kind]) throw new Error(`Unknown list: ${kind}`);
@@ -1233,10 +1260,61 @@ function applicationsCsv(apps) {
 
 const NET_FIELDS = {
   contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified'],
-  companies: ['name', 'why', 'careersUrl', 'status', 'tags'],
+  companies: ['name', 'why', 'careersUrl', 'status', 'tags', 'keywords'],
   searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
   templates: ['name', 'body'],
 };
+
+const netFetch = (url, opts) => net.fetch(url, opts); // Chromium's network stack honours system proxies
+
+// Check the careers sites of watched companies (all of them, or `ids`) for
+// jobs matching your target roles, and say so when new ones appear.
+let careersChecking = false;
+async function checkCareers(ids, { manual = false } = {}) {
+  if (careersChecking) {
+    if (manual) throw new Error('Already checking. Give me a moment.');
+    return null;
+  }
+  careersChecking = true;
+  broadcast('state-changed');
+  const roles = outreach.splitList(store.getProfile().targetRoles);
+  const fresh = [];
+  let checked = 0;
+  let failed = 0;
+  try {
+    for (const co of store.list('companies')) {
+      if (ids ? !ids.includes(co.id) : co.status === 'pass') continue;
+      try {
+        const r = await careers.checkCompany(co, { fetchImpl: netFetch, roles });
+        store.saveItem('companies', { id: co.id, ...r.patch });
+        for (const j of r.fresh) fresh.push({ company: co, job: j });
+        checked++;
+      } catch (err) {
+        store.saveItem('companies', { id: co.id, lastCheckedAt: new Date().toISOString(), checkError: err.name === 'TimeoutError' ? 'The careers site took too long to answer.' : err.message });
+        failed++;
+      }
+      broadcast('state-changed');
+    }
+  } finally {
+    careersChecking = false;
+    broadcast('state-changed');
+  }
+  // Only postings that are actually recent are worth a ping.
+  const recent = fresh.filter(({ job }) => !job.postedAt || Date.now() - Date.parse(job.postedAt) < 14 * 86400000);
+  if (recent.length && Notification.isSupported()) {
+    const first = recent[0];
+    const n = new Notification({
+      title: recent.length === 1 ? `New at ${first.company.name}: ${first.job.title}` : `${recent.length} new roles at companies you watch`,
+      body: recent.length === 1 ? 'Freshly posted, and it matches what you are looking for. Want me to check your fit?' : recent.slice(0, 3).map(({ company, job }) => `${job.title} · ${company.name}`).join('\n'),
+    });
+    n.on('click', () => {
+      const w = createDashboard();
+      w.webContents.send('navigate', { view: 'find' });
+    });
+    n.show();
+  }
+  return { checked, failed, fresh: fresh.length };
+}
 
 // Gentle nudges when a follow-up date arrives.
 function checkFollowUps() {
@@ -1391,6 +1469,9 @@ if (process.argv.includes('--smoke-test')) {
     registerHotkey(store.getSettings().hotkey);
     checkFollowUps();
     setInterval(checkFollowUps, 60 * 60 * 1000);
+    // Careers sites: shortly after start, then every six hours.
+    setTimeout(() => checkCareers().catch(() => {}), 60 * 1000);
+    setInterval(() => checkCareers().catch(() => {}), 6 * 60 * 60 * 1000);
     startBridge();
     startUpdates();
   });

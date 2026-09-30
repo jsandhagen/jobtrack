@@ -456,7 +456,7 @@ function appRow(a) {
 }
 
 function viaLabel(via) {
-  const [ic, text] = { screen: ['camera', 'spotted on screen'], clipboard: ['clipboard', 'from your clipboard'], browser: ['globe', 'from your browser'] }[via] || ['pencil', 'pasted in'];
+  const [ic, text] = { screen: ['camera', 'spotted on screen'], clipboard: ['clipboard', 'from your clipboard'], browser: ['globe', 'from your browser'], careers: ['home', 'from a careers site you watch'] }[via] || ['pencil', 'pasted in'];
   return `${icon(ic, 14)} ${text}`;
 }
 
