@@ -33,6 +33,18 @@
   --body: #fff6e8;
   --outline: #e9d6bb;
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%238a958f' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --vine: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='74' height='9' viewBox='0 0 74 9'%3E%3Cpath d='M2 5.5c6-4 10-4 15 0s9 4 15 0 10-4 15 0 9 3 13 1' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M62 6.2c2.5-4.5 6.5-5.2 10-4.4-1 3.6-4.6 5.6-10 4.4z' fill='%23000'/%3E%3C/svg%3E");
+  --leaf-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='13' viewBox='0 0 17 13'%3E%3Cpath d='M1 7.5C4.5 1.5 11 0.2 16 1.5 14.6 8.2 8 12.4 1 7.5Z'/%3E%3C/svg%3E");
+  --sheen: rgba(255, 255, 255, 0.6);
+  /* score bands (strong / possible / stretch), a step deeper than the pastels
+     so arcs read on white. Always shown with the number and a label. */
+  --band-hi: #4f9f74;
+  --band-mid: #d8a73b;
+  --band-lo: #e4876a;
+  --sage-btn: #529c71;
+  --sage-btn-hi: #5aa67a;
+  --btn-shade: #efe9df;
+  --btn-press: rgba(60, 50, 30, 0.14);
   color-scheme: light;
 }
 
@@ -57,6 +69,14 @@
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 4px 16px -4px rgba(0, 0, 0, 0.35);
     --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.3), 0 24px 60px -12px rgba(0, 0, 0, 0.6);
     --ring: 0 0 0 3px rgba(143, 208, 166, 0.3);
+    --sheen: rgba(255, 255, 255, 0.06);
+    --band-hi: #6bbf8f;
+    --band-mid: #e2b95a;
+    --band-lo: #ec9a80;
+    --sage-btn: #4a9469;
+    --sage-btn-hi: #53a074;
+    --btn-shade: rgba(0, 0, 0, 0.22);
+    --btn-press: rgba(0, 0, 0, 0.35);
     color-scheme: dark;
   }
 }
@@ -94,38 +114,49 @@ b, strong { font-weight: 800; }
 
 :focus-visible { outline: none; box-shadow: var(--ring); }
 
+/* Buttons are soft pressable tiles: a lit top edge and a shaded bottom
+   inside the shape (so it reads as raised without a heavy outline), a
+   small lift on hover, and they sink in when pressed. */
 button, .btn {
   font: inherit;
   font-weight: 700;
-  border: 1.5px solid var(--line);
+  border: 1px solid var(--line-strong);
   background: var(--surface);
   color: var(--ink);
-  border-radius: 999px;
+  border-radius: 12px;
   padding: 8px 16px;
   cursor: pointer;
-  transition: transform 0.12s var(--ease), background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s, color 0.15s;
+  box-shadow: inset 0 -2px 0 var(--btn-shade), 0 1px 2px rgba(60, 50, 30, 0.07);
+  transition: transform 0.14s var(--ease), background 0.15s ease, box-shadow 0.14s var(--ease), border-color 0.15s, color 0.15s, text-decoration-color 0.15s;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
   line-height: 1.35;
 }
-button:hover { border-color: var(--line-strong); background: var(--surface-2); }
-button:active { transform: translateY(1px) scale(0.985); }
-button:disabled { opacity: 0.55; cursor: default; transform: none; }
-button.primary {
-  background: linear-gradient(180deg, #6db48a, var(--sage));
-  border-color: transparent;
-  color: #fff;
-  box-shadow: 0 1px 2px rgba(40, 90, 60, 0.25), 0 4px 12px -2px rgba(98, 167, 127, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-button.primary:hover { background: linear-gradient(180deg, var(--sage), #4f966c); box-shadow: 0 1px 2px rgba(40, 90, 60, 0.3), 0 6px 16px -2px rgba(98, 167, 127, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.18); }
+button:hover { border-color: color-mix(in srgb, var(--line-strong) 60%, var(--ink-faint)); transform: translateY(-1px); box-shadow: inset 0 -2px 0 var(--btn-shade), 0 4px 10px -4px rgba(60, 50, 30, 0.18); }
+button:active { transform: translateY(1px); box-shadow: inset 0 2px 3px var(--btn-press); transition-duration: 0.06s; }
+button:disabled { opacity: 0.5; cursor: default; transform: none; box-shadow: none; }
+button.primary { background: var(--sage-btn); border-color: transparent; color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -2px 0 rgba(20, 60, 38, 0.28), 0 1px 2px rgba(30, 70, 45, 0.25), 0 4px 12px -6px rgba(30, 70, 45, 0.55); }
+button.primary:hover { border-color: transparent; background: var(--sage-btn-hi); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -2px 0 rgba(20, 60, 38, 0.28), 0 2px 3px rgba(30, 70, 45, 0.2), 0 8px 18px -8px rgba(30, 70, 45, 0.6); }
+button.primary:active { background: var(--sage-btn); box-shadow: inset 0 2px 4px rgba(15, 45, 28, 0.35); }
 button.primary:disabled { box-shadow: none; }
-button.soft { background: var(--sage-soft); border-color: transparent; color: var(--sage-deep); }
-button.soft:hover { background: color-mix(in srgb, var(--sage-soft) 80%, var(--sage) 20%); border-color: transparent; }
-button.ghost { background: transparent; border-color: transparent; color: var(--ink-soft); }
-button.ghost:hover { background: var(--surface-2); color: var(--ink); }
-button.danger:hover { border-color: transparent; background: var(--rose-soft); color: var(--rose); }
+button .ic { transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.5, 1); }
+button.primary:not(:disabled):hover .ic, button.soft:not(:disabled):hover .ic { transform: rotate(-10deg) scale(1.08); }
+@media (prefers-reduced-motion: reduce) { button:hover, button:active, button:not(:disabled):hover .ic { transform: none !important; } }
+button.soft { background: var(--sage-soft); border-color: transparent; color: var(--sage-deep); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--sage) 22%, transparent); }
+button.soft:hover { border-color: transparent; background: color-mix(in srgb, var(--sage-soft) 84%, var(--sage) 16%); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--sage) 28%, transparent), 0 4px 10px -5px color-mix(in srgb, var(--sage) 45%, transparent); }
+button.soft:active { box-shadow: inset 0 2px 3px color-mix(in srgb, var(--sage) 30%, transparent); }
+/* ghost buttons stay flat; hovering draws a fine wavy underline, like the vine under page titles */
+button.ghost { background: transparent; border-color: transparent; color: var(--ink-soft); box-shadow: none; text-decoration: underline wavy transparent 1px; text-underline-offset: 5px; }
+button.ghost:hover { background: transparent; border-color: transparent; color: var(--sage-deep); box-shadow: none; transform: none; text-decoration-color: color-mix(in srgb, var(--sage) 75%, transparent); }
+button.ghost:active { transform: translateY(1px); box-shadow: none; }
+button.danger:hover { color: var(--rose); text-decoration-color: color-mix(in srgb, var(--rose) 75%, transparent); }
+button.danger:not(.ghost):hover { background: var(--rose-soft); border-color: transparent; }
+/* Buttons drawn as something else (tabs, map nodes, cards, tags) don't get the lip. */
+.tabs button, button.req, button.mnode, button.camp, .ed-float button, .role-tools button, button.peek, button.info-btn, button.chip, .more-list button,
+.tabs button:hover, button.req:hover, button.mnode:hover, button.camp:hover, .ed-float button:hover, .role-tools button:hover, button.info-btn:hover, button.chip:hover, .more-list button:hover,
+.tabs button:active, button.req:active, button.mnode:active, button.camp:active, button.info-btn:active, button.chip:active, .more-list button:active { box-shadow: none; transform: none; }
 button.small { padding: 5px 11px; font-size: 12.5px; }
 
 input, textarea, select {
@@ -151,17 +182,23 @@ input[type="checkbox"] { width: auto; accent-color: var(--sage); transform: scal
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px; }
 .card > h2:first-child, .card > h3:first-child { margin-bottom: 10px; }
 
-.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 700; line-height: 1.45; background: var(--surface-2); color: var(--ink-soft); margin: 0 6px 6px 0; }
-.chip.good { background: var(--sage-soft); color: var(--sage-deep); }
-.chip.grow { background: var(--butter-soft); color: #a07a1c; }
-.chip.lav { background: var(--lavender-soft); color: #6b5aa8; }
-@media (prefers-color-scheme: dark) { .chip.grow { color: var(--butter); } .chip.lav { color: var(--lavender); } }
+/* Chips are cut like leaves: two opposite corners round, two nearly sharp,
+   with a hairline in their own colour and a little sheen. Side by side they
+   alternate, like leaves along a stem. */
+.chip { --leaf-r: 14px 2px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: var(--leaf-r); font-size: 12.5px; font-weight: 700; line-height: 1.45; background-color: var(--surface-2); background-image: linear-gradient(135deg, var(--sheen), transparent 55%); color: var(--ink-soft); margin: 0 6px 6px 0; }
+.chip:nth-child(even) { --leaf-r: 2px 14px; background-image: linear-gradient(225deg, var(--sheen), transparent 55%); }
+.chip.good { background-color: var(--sage-soft); color: var(--sage-deep); }
+.chip.grow { background-color: var(--butter-soft); color: #a07a1c; }
+.chip.lav { background-color: var(--lavender-soft); color: #6b5aa8; }
+.chip.warn { background-color: var(--rose-soft); color: #b94f4f; }
+@media (prefers-color-scheme: dark) { .chip.grow { color: var(--butter); } .chip.lav { color: var(--lavender); } .chip.warn { color: #f0a0a0; } }
 
 /* score ring */
 .ring { position: relative; display: inline-grid; place-items: center; }
 .ring svg { transform: rotate(-90deg); }
-.ring .track { stroke: var(--surface-2); }
 .ring .bar { transition: stroke-dashoffset 0.9s cubic-bezier(0.2, 0.8, 0.2, 1); stroke-linecap: round; }
+@media (prefers-reduced-motion: reduce) { .ring .bar { transition: none; } }
+.mini-ring { flex: none; display: block; }
 .ring .num { position: absolute; text-align: center; line-height: 1; }
 .ring .num b { font-size: 26px; font-weight: 900; display: block; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .ring .num small { font-size: 10.5px; color: var(--ink-faint); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }

@@ -217,7 +217,7 @@ function myPeopleTab(st) {
       <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('chat', 26)}</div><div><b>${st.replied}</b><span>wrote back or talked with you</span></div></div>
       <div class="card stat"><div class="stat-icon" style="background:var(--peach-soft);color:#b8653e">${icon('user', 26)}</div><div><b>${st.toReach}</b><span>still to contact</span></div></div>
     </div>
-    ${next.length || due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0">
+    ${next.length || due.length ? `<div class="card spotlight">
       ${due.length ? `<h3 class="with-icon">${icon('clock', 20)} Time for a nudge</h3><div class="list" style="margin-bottom:${next.length ? 14 : 0}px">${due.map(contactRow).join('')}</div>` : ''}
       ${next.length ? `<h3 class="with-icon">${icon('sparkle', 20)} Reach out next</h3><p class="faint" style="margin-top:-4px">People at companies you're applying to come first. Click <b>Message</b>: the draft is ready, you only have to send it.</p><div class="list">${next.map(({ contact }) => contactRow(contact)).join('')}</div>` : ''}
     </div>` : ''}
@@ -1165,7 +1165,7 @@ function jobRow({ co, job }) {
   const f = job.fit;
   const blocked = f && f.dealbreakers && f.dealbreakers.length;
   const fit = f
-    ? `<div class="fit-score pill ${blocked ? 'lo blocked' : pillClass(f.score)}" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${blocked ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read."><b>${f.score}</b><small>${blocked ? 'dealbreaker' : 'fit'}</small></div>`
+    ? `<div class="fit-score pill meter ${blocked ? 'lo blocked' : pillClass(f.score)}" style="--s:${f.score}" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${blocked ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read."><b>${f.score}</b><small>${blocked ? 'dealbreaker' : 'fit'}</small></div>`
     : `<div class="fit-score pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}"><b>–</b><small>fit</small></div>`;
   const chips = [isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '', knownChip(co.name)].join('');
   return `<div class="job-row ${hidden ? 'dim' : ''}">
@@ -1225,7 +1225,7 @@ function jobsTab() {
       ${hiddenCount ? `<label class="check-label faint"><input type="checkbox" id="boardHidden" ${board.showHidden ? 'checked' : ''}> Hidden (${hiddenCount})</label>` : ''}
     </div>
     <div class="board-bar2"><div class="tabs compact" style="margin:0">${FEED_WINDOWS.map(([k, l, d]) => `<button class="${board.window === k ? 'on' : ''}" data-feed="${k}">${l} <span class="faint">${filtered.filter(({ job }) => inWindow(job, d)).length}</span></button>`).join('')}</div>
-      <span class="board-status"><span class="faint">${state.careersChecking ? '<span class="spinner"></span> checking…' : checked ? `checked ${timeAgo(checked)}` : ''}</span>
+      <span class="board-status"><span class="faint">${state.careersChecking ? (checked ? '<span class="spinner"></span> checking…' : '') : checked ? `checked ${timeAgo(checked)}` : ''}</span>
       <button class="small ghost" id="checkCareers" ${state.careersChecking ? 'disabled' : ''} title="Check their careers sites now">${icon('refresh', 14)} Check now</button></span></div>`;
 
   let list = '';
@@ -1238,7 +1238,7 @@ function jobsTab() {
   const more = shown.length > board.limit ? `<button class="ghost" id="boardMore" style="width:100%;margin-top:8px">Show ${Math.min(PAGE_SIZE, shown.length - board.limit)} more of ${shown.length - board.limit}</button>` : '';
   const olderHint = board.window !== 'all' && filtered.length > shown.length ? ` <a href="#" data-feed="all">See all ${filtered.length} open</a>.` : '';
   const empty = state.careersChecking && !checked
-    ? `<p class="muted"><span class="spinner"></span> Reading their careers sites…</p>`
+    ? `<div class="empty board-reading">${mascotSvg('thinking', 64)}<h3>Reading their careers sites…</h3><p>New openings show up here as I find them.</p></div>`
     : filtersOn
       ? `<p class="muted">Nothing matches these filters.${olderHint} <a href="#" id="boardClear">Clear filters</a></p>`
       : `<p class="muted">Nothing matching ${esc(roles.slice(0, 3).join(', ') || 'your roles')} ${board.window === 'all' ? 'is open' : `was posted in the ${board.window === 'week' ? 'past week' : 'past month'}`} at ${readable === 1 ? 'the company' : `the ${readable} companies`} I can read.${olderHint}</p>`;
@@ -1453,7 +1453,7 @@ function finderCard({ company: c, match: m, dismissed, watched }, prio) {
       ${m.flags.map((f) => `<div class="co-status warn">${icon('warn', 13)} ${esc(f.text)}</div>`).join('')}
       ${c.concerns.length ? `<div class="fz-concerns">${icon('eye', 13)} <b>Worth knowing:</b> ${c.concerns.map(esc).join(' · ')}</div>` : ''}
     </div>
-    <details class="fz-score"><summary class="co-count pill ${pillClass(m.score)}" title="${esc(F.matchLabel(m.score))}. Click for why."><b>${m.score}</b><small>match</small></summary>
+    <details class="fz-score"><summary class="co-count pill meter ${pillClass(m.score)}" style="--s:${m.score}" title="${esc(F.matchLabel(m.score))}. Click for why."><b>${m.score}</b><small>match</small></summary>
       <div class="fz-breakdown"><b>${esc(F.matchLabel(m.score))}</b><ul>${breakdown}</ul><p class="faint">Worked out on your computer from the ratings and what you're looking for.</p></div></details>
     <div class="co-actions">${
       watched

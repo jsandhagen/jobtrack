@@ -184,12 +184,12 @@ async function renderEditor(appId, app) {
       <div class="ed-main">
         <div class="ed-bar">
           <span class="ed-pages" id="edPages"></span>
-          <span class="faint ed-hint">Click anywhere on the page to edit · Enter = new bullet</span>
+          <span class="ed-spacer"></span>
           <button class="ghost small" id="edCopy" title="${info.standalone ? 'Make a new resume starting from this one' : 'Keep this resume on your Resumes page to reuse or edit later'}">${icon('doc', 14)} ${info.standalone ? 'Duplicate' : 'Save to Resumes'}</button>
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
         </div>
-        <div class="ed-desk" id="edDesk"><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
+        <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click anywhere on the page to edit · Enter = new bullet</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
       </div>
       <aside class="ed-tray" id="edTray"></aside>
     </div>`;
@@ -324,7 +324,7 @@ function renderTray() {
   const aimed = !info.standalone || info.hasTarget;
   tray.innerHTML = `
     ${aimed ? `<div class="tray-card">
-      <div class="tray-score"><div><b>${covered}/${req.length}</b><span>requirements shown</span></div><div><b>${info.ats.score}% ${window.SproutInfo.infoBtn('ats')}</b><span>ATS match ${info.ats.grade ? `· <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}</span></div></div>
+      <div class="tray-score"><div>${window.SproutMascot.miniRing((req.length ? (covered / req.length) * 100 : 0), { color: barColor((req.length ? (covered / req.length) * 100 : 0)) })}<b>${covered}/${req.length}</b><span>requirements shown</span></div><div>${window.SproutMascot.miniRing(info.ats.score, { color: barColor(info.ats.score) })}<b>${info.ats.score}%${info.ats.grade ? ` <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}</b><span>ATS match ${window.SproutInfo.infoBtn('ats')}</span></div></div>
       <div class="req-list">${req.map(chip).join('')}${pref.map(chip).join('')}</div>
       <p class="faint" style="margin:6px 0 0">Tap a requirement to see bullets that prove it.</p>
     </div>` : `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS match.</p></div>`}

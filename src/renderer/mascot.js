@@ -282,26 +282,77 @@
   }
 
   function scoreColor(score) {
-    if (score >= 65) return 'var(--sage)';
-    if (score >= 45) return 'var(--butter)';
-    return 'var(--peach)';
+    if (score >= 65) return 'var(--band-hi)';
+    if (score >= 45) return 'var(--band-mid)';
+    return 'var(--band-lo)';
   }
 
-  // Animated donut showing a 0-100 score. Starts empty; call animateRings() after inserting.
-  function scoreRing(score, size = 104, caption = 'fit') {
-    const stroke = Math.round(size * 0.1);
+  // A 0-100 score as a clean ring: a soft track tinted with the score's band
+  // and a solid arc. Starts empty: call animateRings() after inserting (the
+  // number counts up alongside). `shown` is the number in the middle when it
+  // isn't the score itself (e.g. 3 of a weekly goal of 7); `color` is for
+  // rings that show progress rather than a fit band.
+  function scoreRing(score, size = 104, caption = 'fit', { shown, color: fixed } = {}) {
+    const pct = Math.max(0, Math.min(100, score));
+    const stroke = Math.round(size * 0.09);
     const r = (size - stroke) / 2;
     const c = 2 * Math.PI * r;
+    const mid = size / 2;
+    const color = fixed || scoreColor(pct);
+    const shownNum = Math.round(shown ?? score);
     return `<div class="ring" style="width:${size}px;height:${size}px">
-  <svg width="${size}" height="${size}"><circle class="track" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="${stroke}"/>
-  <circle class="bar" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${scoreColor(score)}" stroke-width="${stroke}"
-    stroke-dasharray="${c}" stroke-dashoffset="${c}" data-target="${c * (1 - Math.max(0, Math.min(100, score)) / 100)}"/></svg>
-  <div class="num"><b>${Math.round(score)}</b><small>${caption}</small></div></div>`;
+  <svg width="${size}" height="${size}" aria-hidden="true"><circle class="track" cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="color-mix(in srgb, ${color} 16%, var(--surface-2))" stroke-width="${stroke}"/>
+  <circle class="bar" cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}"
+    stroke-dasharray="${c}" stroke-dashoffset="${c}" data-target="${c * (1 - pct / 100)}"/></svg>
+  <div class="num"><b data-to="${shownNum}">${shownNum}</b><small>${caption}</small></div></div>`;
+  }
+
+  // A small static ring for stat tiles, drawn already filled (tiles redraw as
+  // you edit, so they don't animate). `segments` splits it into steps, e.g.
+  // 4 for Low / Fair / Good / Strong.
+  function miniRing(pct, { color, segments = 0, size = 26 } = {}) {
+    const v = Math.max(0, Math.min(100, pct || 0));
+    const col = color || scoreColor(v);
+    const stroke = size / 7;
+    const r = (size - stroke) / 2;
+    const c = 2 * Math.PI * r;
+    const mid = size / 2;
+    const track = `color-mix(in srgb, ${col} 22%, var(--line-strong))`;
+    let marks;
+    if (segments) {
+      const gap = c * 0.05;
+      const len = c / segments - gap;
+      const lit = Math.round((v / 100) * segments);
+      marks = Array.from({ length: segments }, (_, i) =>
+        `<circle cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="${i < lit ? col : track}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${len - stroke} ${c - len + stroke}" stroke-dashoffset="${-(i * (len + gap) + gap / 2 + stroke / 2)}"/>`
+      ).join('');
+    } else {
+      marks = `<circle cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="${track}" stroke-width="${stroke}"/>${v > 0 ? `<circle cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="${col}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - v / 100)}"/>` : ''}`;
+    }
+    return `<svg class="mini-ring" width="${size}" height="${size}" aria-hidden="true" style="transform:rotate(-90deg)">${marks}</svg>`;
   }
 
   function animateRings(root = document) {
+    const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     requestAnimationFrame(() =>
-      requestAnimationFrame(() => root.querySelectorAll('.ring .bar[data-target]').forEach((el) => el.setAttribute('stroke-dashoffset', el.dataset.target)))
+      requestAnimationFrame(() => {
+        root.querySelectorAll('.ring .bar[data-target]').forEach((el) => el.setAttribute('stroke-dashoffset', el.dataset.target));
+        if (still) return;
+        // Count the number up alongside the vine (same 0.9s, easing out).
+        root.querySelectorAll('.ring .num b[data-to]').forEach((b) => {
+          const to = +b.dataset.to;
+          delete b.dataset.to;
+          if (!(to > 0)) return;
+          const t0 = performance.now();
+          const step = (t) => {
+            const k = Math.min(1, (t - t0) / 900);
+            b.textContent = Math.round(to * (1 - Math.pow(1 - k, 3)));
+            if (k < 1) requestAnimationFrame(step);
+          };
+          b.textContent = '0';
+          requestAnimationFrame(step);
+        });
+      })
     );
   }
 
@@ -322,5 +373,5 @@
     setTimeout(() => box.remove(), 2400);
   }
 
-  window.SproutMascot = { mascotSvg, helperSvg, peekPal, HELPERS, sproutSays, moodForScore, encouragement, say, pick, scoreRing, animateRings, scoreColor, confetti, moods: Object.keys(FACES) };
+  window.SproutMascot = { mascotSvg, helperSvg, peekPal, HELPERS, sproutSays, moodForScore, encouragement, say, pick, scoreRing, miniRing, animateRings, scoreColor, confetti, moods: Object.keys(FACES) };
 })();
