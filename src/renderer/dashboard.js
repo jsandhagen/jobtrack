@@ -649,7 +649,7 @@ const COMPONENT_LABELS = [
 ];
 
 function barColor(v) {
-  return v >= 75 ? 'var(--sage)' : v >= 50 ? 'var(--butter)' : 'var(--peach)';
+  return v >= 75 ? 'var(--band-hi)' : v >= 50 ? 'var(--band-mid)' : 'var(--band-lo)';
 }
 
 function atsPanel(ats) {
@@ -664,17 +664,20 @@ function atsPanel(ats) {
         <div class="inline" style="gap:6px;margin-top:4px"><span class="grade big g-${r.grade}" title="Workday HiredScore-style grade">${r.grade}</span>
         <div class="faint" style="line-height:1.35">basic quals ${r.basic.met}/${r.basic.total}<br>preferred ${r.preferred.met}/${r.preferred.total}</div></div></div></div>`
       : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Generate the tailored resume to see its ATS score here.</div></div>`;
-  const stat = (label, value, hint) => `<div class="ats-stat" title="${esc(hint)}"><b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
+  const stat = (label, value, hint, glyph = '') => `<div class="ats-stat" title="${esc(hint)}">${glyph}<b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
+  const pctRing = (v) => (v === null || v === undefined ? '' : window.SproutMascot.miniRing(v, { color: barColor(v) }));
+  const skillSteps = { Low: 1, Fair: 2, Good: 3, Strong: 4 }[main.skillsMatch];
+  const kos = main.knockouts.length;
   return `<div class="card ats-card" id="atsCard">
     <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('chart', 22)} ATS check ${infoBtn('ats')}</h2>
       <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Aim for 75–80%+.</p></div>
       ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
     <div class="ats-stats">
-      ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more')}
-      ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search")}
-      ${stat('Smart keywords', main.normalizedKeywordRate === null ? null : main.normalizedKeywordRate + '%', 'Synonym-aware matches (AWS = Amazon Web Services), like iCIMS / SuccessFactors semantic matching')}
-      ${stat('Knockouts', main.knockouts.length, 'Required qualifications not found. Systems like Taleo can auto-filter on these')}
+      ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more', skillSteps ? window.SproutMascot.miniRing(skillSteps * 25, { segments: 4, color: barColor(skillSteps * 25) }) : '')}
+      ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search", pctRing(main.strictKeywordRate))}
+      ${stat('Smart keywords', main.normalizedKeywordRate === null ? null : main.normalizedKeywordRate + '%', 'Synonym-aware matches (AWS = Amazon Web Services), like iCIMS / SuccessFactors semantic matching', pctRing(main.normalizedKeywordRate))}
+      ${stat('Knockouts', kos, 'Required qualifications not found. Systems like Taleo can auto-filter on these', `<i class="ko ${kos ? 'warn' : 'ok'}">${icon(kos ? 'warn' : 'check', 15)}</i>`)}
     </div>
     <div class="ats-bars">${COMPONENT_LABELS.filter(([k]) => main.components[k] !== null)
       .map(([k, label, hint]) => {

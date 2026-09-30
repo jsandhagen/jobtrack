@@ -102,16 +102,10 @@ main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; backg
 .pill.mid { background: var(--butter-soft); color: #a07a1c; }
 .pill.lo { background: var(--peach-soft); color: #b8653e; }
 @media (prefers-color-scheme: dark) { .pill.mid { color: var(--butter); } .pill.lo { color: var(--peach); } }
-/* Scores in lists: the number in ink, and a little growth bar in its band's colour. */
-.pill.meter { --band: var(--band-hi); position: relative; overflow: hidden; color: var(--ink); padding-bottom: 10px; border: 1px solid color-mix(in srgb, var(--band) 22%, transparent); }
+/* Scores in lists: the number in ink on a tile tinted with its band. */
+.pill.meter { --band: var(--band-hi); color: var(--ink); background: color-mix(in srgb, var(--band) 14%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--band) 30%, transparent); }
 .pill.meter.mid { --band: var(--band-mid); }
 .pill.meter.lo { --band: var(--band-lo); }
-.pill.meter::before, .pill.meter::after { content: ""; position: absolute; left: 8px; bottom: 5px; height: 3px; border-radius: 3px; }
-.pill.meter::before { right: 8px; background: color-mix(in srgb, var(--band) 25%, transparent); }
-.pill.meter::after { width: calc((100% - 16px) * var(--s) / 100); background: var(--band); transform-origin: left; animation: meter-grow 0.7s 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
-@keyframes meter-grow { from { transform: scaleX(0); } }
-.settled .pill.meter::after { animation: none; }
-@media (prefers-reduced-motion: reduce) { .pill.meter::after { animation: none; } }
 .status { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 11.5px; font-weight: 800; padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); }
 .status { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.75; }
@@ -182,8 +176,11 @@ main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; backg
 .ats-side { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 240px; }
 .ats-arrow { font-size: 22px; color: var(--ink-faint); }
 .ats-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0 12px; }
-.ats-stat { background: var(--surface-2); border-radius: 12px; padding: 11px 14px; cursor: help; }
-.ats-stat b { display: block; font-size: 19px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.ats-stat { border-radius: 12px; cursor: help; }
+.ats-stat .ko { width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; }
+.ats-stat .ko.ok { background: color-mix(in srgb, var(--band-hi) 16%, var(--surface)); color: var(--band-hi); }
+.ats-stat .ko.warn { background: color-mix(in srgb, var(--band-mid) 18%, var(--surface)); color: color-mix(in srgb, var(--band-mid) 70%, var(--ink)); }
+.ats-stat b { font-size: 19px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .ats-stat span { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
 .ats-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px; }
 .ats-bar { display: grid; grid-template-columns: 150px 1fr 28px; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); cursor: help; }
@@ -298,8 +295,11 @@ body.drop-out .ed-tray::before { border-color: var(--rose); color: var(--rose); 
 .tray-card h4 { margin: 0 0 6px; font-size: 14px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .tray-card.focus { border-color: var(--sage); }
 .tray-score { display: flex; gap: 8px; }
-.tray-score > div { flex: 1; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
-.tray-score b { display: block; font-size: 20px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tray-score > div, .ats-stat { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 8px; row-gap: 3px; background: var(--surface-2); border-radius: 10px; padding: 9px 11px; }
+.tray-score > div > span, .ats-stat > span { grid-column: 1 / -1; display: flex; align-items: center; gap: 2px; }
+.tray-score b, .ats-stat b { display: flex; align-items: center; gap: 6px; }
+.tray-score .grade { width: 21px; height: 21px; font-size: 12px; border-radius: 7px; }
+.tray-score b { font-size: 20px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .tray-score span { font-size: 11.5px; color: var(--ink-soft); font-weight: 700; }
 .req-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
 .req { font: 700 12px var(--font); padding: 2px 10px; border-radius: 14px 2px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); box-shadow: none; background-image: linear-gradient(135deg, var(--sheen), transparent 55%); transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.5, 1), box-shadow 0.15s; }
@@ -768,4 +768,3 @@ p.way-next { display: flex; }
 .board-reading { padding: 26px 20px 18px; }
 .card.spotlight { margin-bottom: 16px; border-color: color-mix(in srgb, var(--butter) 40%, var(--line)); background: linear-gradient(135deg, var(--butter-soft), color-mix(in srgb, var(--butter-soft) 35%, var(--surface))); }
 @media (prefers-color-scheme: dark) { .card.spotlight { background: linear-gradient(135deg, color-mix(in srgb, var(--butter-soft) 70%, var(--surface)), var(--surface)); } }
-.company-top .co-count.meter, .job-row .fit-score.meter { padding-bottom: 11px; }

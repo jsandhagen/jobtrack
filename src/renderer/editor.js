@@ -324,7 +324,7 @@ function renderTray() {
   const aimed = !info.standalone || info.hasTarget;
   tray.innerHTML = `
     ${aimed ? `<div class="tray-card">
-      <div class="tray-score"><div><b>${covered}/${req.length}</b><span>requirements shown</span></div><div><b>${info.ats.score}% ${window.SproutInfo.infoBtn('ats')}</b><span>ATS match ${info.ats.grade ? `· <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}</span></div></div>
+      <div class="tray-score"><div>${window.SproutMascot.miniRing((req.length ? (covered / req.length) * 100 : 0), { color: barColor((req.length ? (covered / req.length) * 100 : 0)) })}<b>${covered}/${req.length}</b><span>requirements shown</span></div><div>${window.SproutMascot.miniRing(info.ats.score, { color: barColor(info.ats.score) })}<b>${info.ats.score}%${info.ats.grade ? ` <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}</b><span>ATS match ${window.SproutInfo.infoBtn('ats')}</span></div></div>
       <div class="req-list">${req.map(chip).join('')}${pref.map(chip).join('')}</div>
       <p class="faint" style="margin:6px 0 0">Tap a requirement to see bullets that prove it.</p>
     </div>` : `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS match.</p></div>`}
