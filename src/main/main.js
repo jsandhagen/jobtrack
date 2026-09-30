@@ -1467,6 +1467,15 @@ async function checkCareers(ids, { manual = false } = {}) {
   careersChecking = true;
   broadcast('state-changed');
   const roles = outreach.splitList(store.getProfile().targetRoles);
+  // A free fit preview for each matching job (no AI), once there's a resume to compare with.
+  const docs = scoringDocuments();
+  const profile = store.getProfile();
+  const scoreJob = docs.length
+    ? (job) => {
+        const q = localFitScore(job, docs, profile);
+        return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2) };
+      }
+    : null;
   const fresh = [];
   let checked = 0;
   let failed = 0;
@@ -1474,7 +1483,7 @@ async function checkCareers(ids, { manual = false } = {}) {
     for (const co of store.list('companies')) {
       if (ids ? !ids.includes(co.id) : co.status === 'pass') continue;
       try {
-        const r = await careers.checkCompany(co, { fetchImpl: netFetch, roles });
+        const r = await careers.checkCompany(co, { fetchImpl: netFetch, roles, scoreJob });
         store.saveItem('companies', { id: co.id, ...r.patch });
         for (const j of r.fresh) fresh.push({ company: co, job: j });
         checked++;
