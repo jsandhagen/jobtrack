@@ -32,7 +32,7 @@
   },
   "build": {
     "appId": "app.sprout.jobbuddy",
-    "artifactName": "Sprout-${version}-${os}-${arch}.${ext}",
+    "artifactName": "Sprout-${os}-${arch}.${ext}",
     "directories": {
       "buildResources": "build",
       "output": "dist"
@@ -91,10 +91,6 @@
       "category": "Office",
       "synopsis": "Job application buddy",
       "executableName": "sprout"
-    },
-    "publish": {
-      "provider": "github",
-      "releaseType": "draft"
     }
   }
 }

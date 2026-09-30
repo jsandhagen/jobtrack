@@ -1,5 +1,25 @@
 # Sprout — your job application buddy
 
+## Download
+
+| | |
+|---|---|
+| **Windows** | [**Download for Windows**](https://github.com/jsandhagen/jobtrack/releases/latest/download/Sprout-win-x64.exe) |
+| **Mac** (Apple Silicon: M1 and newer) | [**Download for Mac (Apple Silicon)**](https://github.com/jsandhagen/jobtrack/releases/latest/download/Sprout-mac-arm64.dmg) |
+| **Mac** (Intel) | [**Download for Mac (Intel)**](https://github.com/jsandhagen/jobtrack/releases/latest/download/Sprout-mac-x64.dmg) |
+| **Linux** | [**Download for Linux (AppImage)**](https://github.com/jsandhagen/jobtrack/releases/latest/download/Sprout-linux-x86_64.AppImage) |
+
+[![Build installers](https://github.com/jsandhagen/jobtrack/actions/workflows/release.yml/badge.svg)](https://github.com/jsandhagen/jobtrack/actions/workflows/release.yml) · Always the newest build · [All releases](https://github.com/jsandhagen/jobtrack/releases)
+
+**Installing:**
+- **Windows:** open the downloaded file. Sprout installs and opens, with Start menu and desktop shortcuts. If Windows says "Windows protected your PC", click **More info → Run anyway**.
+- **Mac:** open the `.dmg` and drag Sprout into Applications. The first time you open it, if macOS says it can't verify the developer, go to **System Settings → Privacy & Security** and click **Open Anyway**.
+- **Linux:** make the file executable (`chmod +x Sprout-linux-x86_64.AppImage`) and run it.
+
+Then add the [browser extension](#browser-extension): in Sprout, **Settings → Browser extension → Show folder** opens the copy that comes with the app.
+
+---
+
 A friendly desktop helper that notices when you're looking at a job posting, tells you how well you fit, and writes a resume tailored to that role when you press a button. Your own documents are the source for everything it writes.
 
 Sprout, the little seedling mascot, keeps you company the whole way. It greets you on the home page with a note about how your search is going, explains each page, pops up in every notification, cheers when you apply or land an interview or offer, and offers a hug when a role doesn't work out. Click Sprout anywhere for a pep talk. Its moods (happy, thrilled, proud, curious, thinking, waving, sleepy while detection is paused, worried when something goes wrong) are drawn in `src/renderer/mascot.js`. The rest of the app uses hand-drawn doodle icons (`src/renderer/icons.js`) instead of emoji.
@@ -24,19 +44,6 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - The tracker has filters (to apply / applied / interviewing / offers / archived), search, sorting and **CSV export**.
   - Postings you've already seen are recognised ("You applied on Sep 12") instead of duplicated.
 - **Optional game**: turn it on in Settings to make applying a game, either **Sprout the Spire** (turn-based card battles in the style of Slay the Spire) or just **Sprout's garden** (goals, streaks and badges). See [Sprout the Spire](#sprout-the-spire) and [Sprout's garden](#sprouts-garden).
-
-## Install
-
-Download the installer for your computer from the [latest release](../../releases/latest):
-
-| Computer | File | How to install |
-|---|---|---|
-| **Windows** | `Sprout-…-win-x64.exe` | Double-click it. Sprout installs and opens, with Start menu and desktop shortcuts. If Windows shows "Windows protected your PC", click **More info → Run anyway** (this only appears while the app isn't code-signed). |
-| **Mac** (Apple Silicon: M1 and newer) | `Sprout-…-mac-arm64.dmg` | Open it and drag Sprout into Applications. The first time, macOS may say it can't verify the developer: open **System Settings → Privacy & Security** and click **Open Anyway** (only while the app isn't notarized). |
-| **Mac** (Intel) | `Sprout-…-mac-x64.dmg` | Same as above. |
-| **Linux** | `Sprout-…-linux-x86_64.AppImage` | Make it executable (`chmod +x`) and run it. |
-
-Then add the [browser extension](#browser-extension): Settings → *Browser extension* → **Show folder** opens the copy that comes with the app.
 
 ## Getting started
 
@@ -307,15 +314,9 @@ npm run eval:prompts  # real Claude calls: consistency and fact-check pass rates
 
 `npm run dist` builds an installer for the computer you're on into `dist/` (`dist:win`, `dist:mac` and `dist:linux` pick one). `npm run smoke-test:packaged` then launches the packaged app with `--smoke-test`, which loads OCR, the dashboard and the bundled extension from inside the package and exits, so a broken package fails loudly.
 
-**Releases are built by GitHub Actions** (`.github/workflows/release.yml`) on Windows, macOS and Linux:
+**Every push to `main` builds and publishes the installers automatically** (`.github/workflows/release.yml`). It runs the tests, builds on Windows, macOS and Linux, smoke-tests each packaged app, and publishes them as the latest [release](../../releases), versioned `<major>.<minor>.<build number>` from `package.json`. The download links at the top of this README always point at the newest one. Pushes that only change Markdown or tests don't trigger a build. You can also run it by hand: Actions → *Build installers* → *Run workflow*.
 
-1. Bump `version` in `package.json` and commit.
-2. `git tag v0.2.0 && git push origin v0.2.0`
-3. The workflow runs the tests, builds all three installers, smoke-tests each packaged app, and attaches the installers to a **draft release**. Check it on GitHub and press **Publish**.
-
-You can also run it by hand (Actions → *Build installers* → *Run workflow*) to get the installers as a downloadable artifact without making a release.
-
-**Code signing** is optional. Without it, the Mac build is signed ad hoc so it opens on Apple Silicon, and people confirm it once as described in [Install](#install). To remove those warnings, add repository secrets:
+**Code signing** is optional. Without it, the Mac build is signed ad hoc so it opens on Apple Silicon, and people confirm it once as described in [Download](#download). To remove those warnings, add repository secrets:
 - **Mac** (Apple Developer account, $99/year): `MAC_CSC_LINK` (Developer ID Application certificate as a base64 `.p12`), `MAC_CSC_KEY_PASSWORD`, and for notarization `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
 - **Windows**: `WIN_CSC_LINK` (base64 `.pfx`) and `WIN_CSC_KEY_PASSWORD`.
 
