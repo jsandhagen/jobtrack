@@ -436,10 +436,11 @@ function wireTray() {
       const m = ed.info.roles[r].more.find((x) => x.bulletId === c.dataset.bulletId);
       e.dataTransfer.setData('application/x-sprout', JSON.stringify({ fromTray: true, r, bulletId: m.bulletId, text: m.text }));
       e.dataTransfer.effectAllowed = 'copyMove';
+      dragGhost(e, m.text);
       document.body.classList.add('dragging');
     })
   );
-  $$('.cand[draggable]', tray).forEach((c) => c.addEventListener('dragend', () => document.body.classList.remove('dragging')));
+  $$('.cand[draggable]', tray).forEach((c) => c.addEventListener('dragend', endDrag));
   $$('[data-add-role-id]', tray).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
@@ -714,8 +715,7 @@ function wirePaper() {
   });
   page.addEventListener('drop', (e) => {
     const list = e.target.closest('[data-role-list]');
-    hideDropLine();
-    document.body.classList.remove('dragging');
+    endDrag();
     if (!list) return;
     e.preventDefault();
     const data = JSON.parse(e.dataTransfer.getData('application/x-sprout') || 'null');
@@ -726,6 +726,45 @@ function wirePaper() {
     else if (data.move) moveBullet(data.move, { r, b: index });
   });
 }
+
+const MOVE_TYPE = 'application/x-sprout-move';
+
+// What you see under the cursor while dragging: the bullet itself.
+function dragGhost(e, text) {
+  const g = document.createElement('div');
+  g.className = 'drag-ghost';
+  g.textContent = (text || '').trim() || '(empty bullet)';
+  document.body.appendChild(g);
+  e.dataTransfer.setDragImage(g, 16, 16);
+  setTimeout(() => g.remove(), 0);
+}
+
+function endDrag() {
+  document.body.classList.remove('dragging', 'dragging-out', 'drop-out');
+  hideDropLine();
+}
+
+// Dragging a bullet off the page (onto the side panel or the desk around the
+// page) takes it off this resume. Bank bullets go back to "Slot in a bullet".
+const offPage = (e) => e.dataTransfer && e.dataTransfer.types.includes(MOVE_TYPE) && e.target.closest && e.target.closest('#editorSlot') && !e.target.closest('#edPage');
+document.addEventListener('dragover', (e) => {
+  if (!offPage(e)) return document.body.classList.remove('drop-out');
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.body.classList.add('drop-out');
+  hideDropLine();
+});
+document.addEventListener('drop', (e) => {
+  if (!offPage(e)) return;
+  e.preventDefault();
+  const data = JSON.parse(e.dataTransfer.getData('application/x-sprout') || 'null');
+  endDrag();
+  const m = data && data.move;
+  const bullet = m && ed.doc && ed.doc.roles[m.r] && ed.doc.roles[m.r].bullets[m.b];
+  if (!bullet) return;
+  removeBullet(m.r, m.b, false);
+  toast(bullet.bulletId ? 'Taken off this resume. It’s still in your bullet bank.' : 'Bullet removed.', 'good');
+});
 
 function offsetWithin(el, ancestor) {
   let y = 0;
@@ -788,10 +827,12 @@ function showFloat(li) {
   const handle = fl.querySelector('.handle');
   handle.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('application/x-sprout', JSON.stringify({ move: { r, b } }));
+    e.dataTransfer.setData(MOVE_TYPE, '1'); // readable during dragover, unlike the payload
     e.dataTransfer.effectAllowed = 'move';
-    document.body.classList.add('dragging');
+    dragGhost(e, ed.doc.roles[r].bullets[b].text);
+    document.body.classList.add('dragging', 'dragging-out');
   });
-  handle.addEventListener('dragend', () => document.body.classList.remove('dragging'));
+  handle.addEventListener('dragend', endDrag);
   // Keep the caret in the bullet when clicking tools.
   fl.addEventListener('mousedown', (e) => {
     if (!e.target.closest('.handle')) e.preventDefault();

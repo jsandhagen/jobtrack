@@ -253,6 +253,10 @@ details.more summary { cursor: pointer; font-weight: 700; color: var(--ink-soft)
 .ed-break span { position: absolute; right: 8px; top: -9px; background: #fff; color: #a39b8c; font: 700 10px var(--font); padding: 0 4px; }
 .ed-drop { position: absolute; left: 1in; right: 1in; height: 3px; background: var(--sage); border-radius: 2px; pointer-events: none; z-index: 3; }
 body.dragging .ed-page .rs-bullets { outline: 1.5px dashed rgba(111, 178, 138, 0.6); outline-offset: 2px; }
+/* Dragging a bullet: a card with its text under the cursor, and a drop zone to take it off the page. */
+.drag-ghost { position: fixed; top: -1000px; left: 0; max-width: 360px; padding: 8px 12px; border-radius: 10px; background: var(--surface); color: var(--ink); border: 1.5px solid var(--sage); box-shadow: var(--shadow); font: 13px/1.4 Georgia, 'Times New Roman', serif; }
+body.dragging-out .ed-tray::before { content: 'Drop here to take it off this resume'; display: block; padding: 18px 12px; border: 2px dashed var(--line); border-radius: 14px; text-align: center; font-weight: 800; color: var(--ink-soft); background: var(--surface); }
+body.drop-out .ed-tray::before { border-color: var(--rose); color: var(--rose); background: var(--rose-soft); }
 .ed-tray { position: sticky; top: 0; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 56px); overflow: auto; padding-bottom: 8px; }
 .tray-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow-sm); }
 .tray-card h4 { margin: 0 0 6px; font-size: 14px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
