@@ -401,7 +401,10 @@ function wantsAutoAnalysis(local) {
 }
 
 // silent: someone else shows the result (the browser extension's card), so no popup.
-async function handlePosting(posting, { fromDashboard = false, waitForAnalysis = true, quietDuplicate = false, silent = false } = {}) {
+// A checked job is kept (so it's recognised next time and you can open it)
+// but stays off your applications until you save it or act on it. `save`
+// is for when you've already said to keep it (the browser card asks).
+async function handlePosting(posting, { fromDashboard = false, waitForAnalysis = true, quietDuplicate = false, silent = false, save = false } = {}) {
   const docs = store.allDocuments();
   const job = { title: posting.title || guessTitle(posting.text), company: posting.company || '', location: posting.location || '', text: posting.text, url: posting.url || '' };
   const fp = fingerprint(posting.text);
@@ -410,16 +413,17 @@ async function handlePosting(posting, { fromDashboard = false, waitForAnalysis =
   // Seen this one before? Don't create a second record — remind instead.
   const dup = store.findDuplicate({ fingerprint: fp, company: job.company, title: job.title });
   if (dup) {
+    if (save) store.saveApplication(dup.id);
     const updated = store.updateApplication(dup.id, { lastSeenAt: new Date().toISOString(), seenCount: (dup.seenCount || 1) + 1, ...(job.url && !dup.job.url ? { job: { ...dup.job, url: job.url } } : {}) });
     broadcast('app-updated', updated);
     // Browsing past a job again: only speak up if it matters (you applied, etc.).
-    const worthMentioning = !['scored', 'skipped'].includes(updated.status);
+    const worthMentioning = updated.saved !== false && !['scored', 'skipped'].includes(updated.status);
     if (!fromDashboard && !silent && (!quietDuplicate || worthMentioning)) showOverlay({ mode: 'seen', app: withAts(updated) });
     return updated;
   }
 
   const quick = scoreLocally(job);
-  const rec = store.addApplication({ job, via: posting.via, fingerprint: fp, quick, analysis: null });
+  const rec = store.addApplication({ job, via: posting.via, fingerprint: fp, quick, analysis: null, saved: !!save, ...(save ? { savedAt: new Date().toISOString() } : {}) });
   broadcast('state-changed');
 
   const hasKey = !!getApiKey();
@@ -477,12 +481,33 @@ function guessTitle(text) {
   return first || 'Untitled role';
 }
 
+// The resume editor works on an application's resume or on one of your own
+// from the Resumes page. Both keep the page in \`builder\` and aim it at \`job\`
+// (a resume's job may be just a role title, or nothing).
+function getHost(id) {
+  return store.getApplication(id) || store.getResume(id);
+}
+function updateHost(id, patch) {
+  return store.getApplication(id) ? store.updateApplication(id, patch) : store.updateResume(id, patch);
+}
+function hostUpdated(rec) {
+  if (rec && store.getApplication(rec.id)) broadcast('app-updated', rec);
+}
+// Claude writes to a posting; with only a role title (or nothing), say so.
+function jobForClaude(rec) {
+  const job = rec.job || {};
+  if (String(job.text || '').trim().length >= 40) return job;
+  const aim = [job.title, job.company && `at ${job.company}`].filter(Boolean).join(' ');
+  return { ...job, title: job.title || 'General resume', text: `${aim ? `Target role: ${aim}.` : 'No specific role.'} There is no job posting: write a strong general resume ${aim ? 'for this kind of role' : 'that shows the candidate at their best'}.${job.text ? `\nFocus: ${job.text}` : ''}` };
+}
+
 async function makeResume(appId) {
-  const rec = store.getApplication(appId);
-  if (!rec) throw new Error('That application no longer exists.');
+  const rec = getHost(appId);
+  if (!rec) throw new Error('That resume no longer exists.');
   if (!evidenceDocs().length) throw new Error('Add at least one document (like your current resume) to your library first.');
-  store.updateApplication(appId, { resumeStatus: 'working' });
-  broadcast('app-updated', store.getApplication(appId));
+  store.saveApplication(appId);
+  updateHost(appId, { resumeStatus: 'working' });
+  hostUpdated(getHost(appId));
   try {
     // Claude works from the bullet bank by id, so every job's facts come from your records.
     if (!store.getBank().experiences.length) importBullets(store.allDocuments());
@@ -491,8 +516,9 @@ async function makeResume(appId) {
     const profile = store.getProfile();
     const documents = docsForPrompt();
     const ids = draft.promptIds(bank, currentDoc(rec).roles);
+    const job = jobForClaude(rec);
     const out = await claude.generateResume(claudeClient(), {
-      job: rec.job,
+      job,
       documents,
       profile,
       analysis: rec.analysis,
@@ -501,15 +527,15 @@ async function makeResume(appId) {
       picked: ids.picked,
       model: store.getSettings().model,
     });
-    const { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: rec.job.text, ids });
+    const { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
     const prev = rec.builder && rec.builder.doc;
     if (prev && prev.header && prev.header.name) doc.header = prev.header;
     saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
-    const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
-    broadcast('app-updated', updated);
+    const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
+    hostUpdated(updated);
     return updated;
   } catch (err) {
-    broadcast('app-updated', store.updateApplication(appId, { resumeStatus: 'error', resumeError: err.message }));
+    hostUpdated(updateHost(appId, { resumeStatus: 'error', resumeError: err.message }));
     throw err;
   }
 }
@@ -522,35 +548,36 @@ function undoPoint(rec) {
 }
 
 function makeBaseline(appId) {
-  const rec = store.getApplication(appId);
-  if (!rec) throw new Error('That application no longer exists.');
+  const rec = getHost(appId);
+  if (!rec) throw new Error('That resume no longer exists.');
   const doc = bulletBank.baselineDoc({ profile: store.getProfile(), bank: store.getBank(), job: rec.job });
   if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
   saveDoc(appId, doc, { resumeSource: 'baseline', builderPrev: undoPoint(rec) });
-  broadcast('app-updated', store.getApplication(appId));
+  hostUpdated(getHost(appId));
 }
 
 function undoResume(appId) {
-  const rec = store.getApplication(appId);
+  const rec = getHost(appId);
   if (!rec || !rec.builderPrev) throw new Error('Nothing to undo.');
   saveDoc(appId, rec.builderPrev.doc, { resumeSource: rec.builderPrev.source, builderPrev: undoPoint(rec) });
-  broadcast('app-updated', store.getApplication(appId));
+  hostUpdated(getHost(appId));
 }
 
 // ATS mode: free, no AI. Picks the bank bullets that cover the most posting
 // requirements, puts the posting's skills you can back up first, and keeps the
 // scanner-friendly template. Keeps the header you already set for this job.
 function makeAtsResume(appId) {
-  const rec = store.getApplication(appId);
-  if (!rec) throw new Error('That application no longer exists.');
+  const rec = getHost(appId);
+  if (!rec) throw new Error('That resume no longer exists.');
   if (!store.getBank().experiences.length && store.allDocuments().length) importBullets(store.allDocuments());
   const bank = store.getBank();
   if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add your resume to My library first.");
+  store.saveApplication(appId);
   const { doc } = bulletBank.buildDoc({ profile: store.getProfile(), bank, job: rec.job, roles: bulletBank.selectBullets(rec.job, bank).roles });
   if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
   saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, builderPrev: undoPoint(rec) });
-  const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : store.getApplication(appId);
-  broadcast('app-updated', updated);
+  const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
+  hostUpdated(updated);
   return updated;
 }
 
@@ -563,6 +590,7 @@ function resumeMode(rec) {
 async function makeCoverLetter(appId) {
   const rec = store.getApplication(appId);
   if (!rec) throw new Error('That application no longer exists.');
+  store.saveApplication(appId);
   store.updateApplication(appId, { letterStatus: 'working' });
   broadcast('app-updated', store.getApplication(appId));
   try {
@@ -638,7 +666,7 @@ function currentDoc(rec) {
 
 function saveDoc(appId, doc, extra = {}) {
   const clean = ResumeDoc.normalize(doc);
-  store.updateApplication(appId, {
+  updateHost(appId, {
     builder: { doc: clean, savedAt: new Date().toISOString() },
     resumeHtml: ResumeDoc.renderHtml(ResumeDoc.compact(clean)),
     resumeStatus: 'ready',
@@ -648,10 +676,11 @@ function saveDoc(appId, doc, extra = {}) {
 }
 
 function builderState(rec) {
+  if (!rec) throw new Error('That resume no longer exists.');
   let doc = currentDoc(rec);
   if (!rec.builder || !rec.builder.doc) {
     doc = saveDoc(rec.id, doc, { resumeSource: resumeMode(rec) });
-    rec = store.getApplication(rec.id);
+    rec = getHost(rec.id);
   }
   const bank = store.getBank();
   const { ranked, units } = bulletBank.rankBullets(rec.job, bank);
@@ -701,6 +730,10 @@ function builderState(rec) {
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 5) },
     bankSize: bank.bullets.length,
     resumeSource: resumeMode(rec),
+    // A saved resume (Resumes page) rather than an application's; and whether
+    // it has a posting or keywords to check against.
+    standalone: !!store.getResume(rec.id),
+    hasTarget: String((rec.job && rec.job.text) || '').trim().length >= 40,
     canUndo: !!rec.builderPrev,
     undoTo: rec.builderPrev ? rec.builderPrev.source : null,
     // What the code-side checks found in Claude's draft, and Claude's own notes.
@@ -818,7 +851,7 @@ async function startBridge() {
     onPosting: async (p) => {
       const job = jobFromBrowser(p);
       const before = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
-      const rec = await handlePosting({ ...job, via: 'browser' }, { waitForAnalysis: false, quietDuplicate: p.auto, silent: p.silent });
+      const rec = await handlePosting({ ...job, via: 'browser' }, { waitForAnalysis: false, quietDuplicate: p.auto, silent: p.silent, save: true });
       const score = rec.analysis ? rec.analysis.score : rec.quick.score;
       return {
         id: rec.id,
@@ -835,8 +868,8 @@ async function startBridge() {
     onPreview: async (p) => {
       const job = jobFromBrowser(p);
       const dup = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
-      if (dup) return browserCard(dup, { seen: true });
-      const quick = scoreLocally(job);
+      if (dup && dup.saved !== false) return browserCard(dup, { seen: true });
+      const quick = dup ? dup.quick : scoreLocally(job);
       return {
         saved: false,
         preview: {
@@ -899,7 +932,13 @@ function registerIpc() {
     settings: { ...store.getSettings(), bridgePairings: undefined },
     profile: store.getProfile(),
     documents: store.listDocuments(),
-    applications: store.listApplications().map(summarizeApp),
+    applications: store.listApplications().filter((a) => a.saved !== false).map(summarizeApp),
+    resumes: store.listResumes().map(summarizeResume),
+    checked: store
+      .listApplications()
+      .filter((a) => a.saved === false)
+      .sort((a, b) => String(b.lastSeenAt || b.createdAt).localeCompare(String(a.lastSeenAt || a.createdAt)))
+      .map(summarizeApp),
     hasApiKey: !!getApiKey(),
     usage: store.getUsage(),
     autoBudgetOk: autoBudgetOk(),
@@ -965,6 +1004,7 @@ function registerIpc() {
     const allowed = {};
     for (const k of ['notes', 'followUpAt', 'appliedVia', 'contact', 'salaryNote']) if (patch[k] !== undefined) allowed[k] = patch[k];
     if (patch.followUpAt !== undefined) allowed.followUpNotified = false;
+    if (patch.notes) store.saveApplication(id); // writing notes on a job means keeping it
     if (patch.job) {
       const rec = store.getApplication(id);
       allowed.job = { ...rec.job, ...pick(patch.job, ['title', 'company', 'location', 'url']) };
@@ -1064,9 +1104,11 @@ function registerIpc() {
   });
 
   // ---- resume editor (per application) ----
-  handle('builder:get', (appId) => builderState(store.getApplication(appId)));
+  handle('builder:get', (appId) => builderState(getHost(appId)));
   handle('builder:save', (appId, doc) => {
-    const rec = store.getApplication(appId);
+    store.saveApplication(appId);
+    const rec = getHost(appId);
+    if (!rec) throw new Error('That resume no longer exists.');
     const clean = saveDoc(appId, doc);
     // Role facts (employer, title, dates, location) are the same on every resume: keep the bank in step.
     store.updateBank((bank) => {
@@ -1076,17 +1118,17 @@ function registerIpc() {
         for (const k of ['organization', 'location', 'title', 'dates']) if (r[k] && r[k] !== e[k]) e[k] = r[k];
       }
     });
-    broadcast('app-updated', store.getApplication(appId));
-    return builderState(store.getApplication(rec.id));
+    hostUpdated(getHost(appId));
+    return builderState(getHost(rec.id));
   });
   // Start over from the best bullets for this job (keeps your header).
   handle('builder:auto', (appId) => {
     makeAtsResume(appId);
-    return builderState(store.getApplication(appId));
+    return builderState(getHost(appId));
   });
   // A role from the bank, with its best bullets for this job, ready to drop in.
   handle('builder:roleFromBank', (appId, experienceId) => {
-    const rec = store.getApplication(appId);
+    const rec = getHost(appId);
     const bank = store.getBank();
     const e = bank.experiences.find((x) => x.id === experienceId);
     if (!e) throw new Error('That role is no longer in your bank.');
@@ -1102,11 +1144,11 @@ function registerIpc() {
     broadcast('state-changed');
   });
   handle('builder:polish', async (appId) => {
-    const rec = store.getApplication(appId);
+    const rec = getHost(appId);
     const doc = currentDoc(rec);
     const bullets = doc.roles.flatMap((r, ri) => r.bullets.filter((b) => b.text).map((b, bi) => ({ id: `${ri}:${bi}`, text: b.text, role: r.title })));
     if (!bullets.length) throw new Error('Add some bullets first.');
-    const { edits, rejected } = await claude.polishBullets(claudeClient(), { job: rec.job, bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
+    const { edits, rejected } = await claude.polishBullets(claudeClient(), { job: jobForClaude(rec), bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
     return { edits, rejected };
   });
   handle('bridge:status', () => ({
@@ -1127,8 +1169,10 @@ function registerIpc() {
     const fields = NET_FIELDS[kind];
     if (!fields) throw new Error(`Unknown list: ${kind}`);
     const rec = pick(item || {}, ['id', ...fields]);
-    if (kind === 'contacts' && !String(rec.name || '').trim()) throw new Error('Add their name first.');
-    if (kind === 'companies' && !String(rec.name || '').trim()) throw new Error('Add the company name first.');
+    // A name is needed to add one, and can't be blanked; an update may leave it out.
+    const blankName = (!rec.id || rec.name !== undefined) && !String(rec.name || '').trim();
+    if (kind === 'contacts' && blankName) throw new Error('Add their name first.');
+    if (kind === 'companies' && blankName) throw new Error('Add the company name first.');
     if (kind === 'searches' && rec.url && !/^https?:\/\//i.test(rec.url)) throw new Error("That link doesn't look like a web address.");
     if (kind === 'contacts' && !rec.id) {
       const dup = outreach.findContact(store.list('contacts'), rec);
@@ -1239,9 +1283,53 @@ function registerIpc() {
       filters: [{ name: 'CSV', extensions: ['csv'] }],
     });
     if (res.canceled || !res.filePath) return null;
-    fs.writeFileSync(res.filePath, applicationsCsv(store.listApplications()));
+    fs.writeFileSync(res.filePath, applicationsCsv(store.listApplications().filter((a) => a.saved !== false)));
     shell.showItemInFolder(res.filePath);
     return res.filePath;
+  });
+  handle('app:save', (id) => {
+    const rec = store.saveApplication(id);
+    if (!rec) throw new Error('That job is no longer in Sprout.');
+    broadcast('app-updated', rec);
+    broadcast('state-changed');
+    return rec;
+  });
+  // ---- your own resumes (Resumes page) ----
+  handle('resume:get', (id) => {
+    const r = store.getResume(id);
+    if (!r) return null;
+    const { builderPrev, ...rest } = r;
+    return rest;
+  });
+  // A new resume: from your bank's baseline, or a copy of another resume or
+  // of an application's resume (\`from\` = { resume } or { app }).
+  handle('resume:create', ({ name, job = {}, from } = {}) => {
+    const src = from && (from.resume ? store.getResume(from.resume) : from.app ? store.getApplication(from.app) : null);
+    if (from && (from.resume || from.app) && !src) throw new Error('That resume no longer exists.');
+    const aim = { title: String(job.title || '').trim(), company: String(job.company || '').trim(), text: String(job.text || '').trim() };
+    const target = src && !aim.title && !aim.text ? { title: src.job.title || '', company: src.job.company || '', text: src.job.text || '' } : aim;
+    const fallback = src ? (store.getResume(src.id) ? `${src.name} (copy)` : [src.job.title, src.job.company].filter(Boolean).join(' · ')) : target.title || 'My resume';
+    const rec = store.addResume({ name: String(name || '').trim() || fallback, job: target, fromApp: from && from.app ? from.app : src && src.fromApp ? src.fromApp : null });
+    if (!store.getBank().experiences.length && store.allDocuments().length) importBullets(store.allDocuments());
+    const doc = src ? JSON.parse(JSON.stringify(currentDoc(src))) : bulletBank.baselineDoc({ profile: store.getProfile(), bank: store.getBank(), job: target });
+    saveDoc(rec.id, doc, { resumeSource: src ? resumeMode(src) : 'baseline', resumeChecks: src ? src.resumeChecks : undefined, resumeNotes: src ? src.resumeNotes : undefined });
+    broadcast('state-changed');
+    return store.getResume(rec.id);
+  });
+  handle('resume:update', (id, patch = {}) => {
+    const r = store.getResume(id);
+    if (!r) throw new Error('That resume no longer exists.');
+    const next = {};
+    if (patch.name !== undefined) next.name = String(patch.name).trim() || r.name;
+    if (patch.job) next.job = { ...r.job, ...pick(patch.job, ['title', 'company', 'text']) };
+    const saved = store.updateResume(id, next);
+    broadcast('state-changed');
+    return saved;
+  });
+  handle('resume:remove', (id) => {
+    store.removeResume(id);
+    broadcast('state-changed');
+    return true;
   });
   handle('app:remove', (id) => {
     store.removeApplication(id);
@@ -1249,17 +1337,17 @@ function registerIpc() {
   });
   handle('app:resume', (id) => makeResume(id));
   handle('app:atsResume', (id) => makeAtsResume(id));
-  handle('builder:baseline', (id) => (makeBaseline(id), builderState(store.getApplication(id))));
-  handle('builder:undo', (id) => (undoResume(id), builderState(store.getApplication(id))));
+  handle('builder:baseline', (id) => (makeBaseline(id), builderState(getHost(id))));
+  handle('builder:undo', (id) => (undoResume(id), builderState(getHost(id))));
   handle('app:coverLetter', (id) => makeCoverLetter(id));
   handle('app:export', async (id, which, format, editedHtml) => {
-    const rec = store.getApplication(id);
+    const rec = which === 'resume' ? getHost(id) : store.getApplication(id);
     if (!rec) throw new Error('Application not found.');
     const isLetter = which === 'letter';
     const html = editedHtml || (isLetter ? rec.letterHtml : rec.resumeHtml);
     if (!html) throw new Error('Generate it first!');
-    if (editedHtml) store.updateApplication(id, isLetter ? { letterHtml: editedHtml } : { resumeHtml: editedHtml });
-    const base = safeFileName(`${store.getProfile().name || 'Resume'} - ${rec.job.company || rec.job.title}${isLetter ? ' - Cover Letter' : ''}`);
+    if (editedHtml) updateHost(id, isLetter ? { letterHtml: editedHtml } : { resumeHtml: editedHtml });
+    const base = safeFileName(`${store.getProfile().name || 'Resume'} - ${store.getResume(id) ? rec.name : rec.job.company || rec.job.title}${isLetter ? ' - Cover Letter' : ''}`);
     const ext = format === 'md' ? 'md' : format === 'html' ? 'html' : 'pdf';
     const res = await dialog.showSaveDialog(dashboard, {
       defaultPath: path.join(app.getPath('documents'), `${base}.${ext}`),
@@ -1293,6 +1381,11 @@ function registerIpc() {
       await analyzeApp(appId, { popup: true }).catch((err) =>
         showOverlay({ mode: 'message', mood: 'worried', title: 'Oops, a little hiccup', text: err.message })
       );
+    } else if (action === 'save') {
+      if (appId) store.saveApplication(appId);
+      showOverlay({ mode: 'message', mood: 'happy', title: 'Saved to your applications', text: "It's under To apply whenever you're ready." });
+      overlayHideTimer = setTimeout(hideOverlay, 4000);
+      broadcast('state-changed');
     } else if (action === 'dismiss') {
       hideOverlay();
       // "Not now" on a fresh posting files it as skipped; never downgrade one you applied to.
@@ -1366,7 +1459,7 @@ function applicationsCsv(apps) {
 
 const NET_FIELDS = {
   contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified'],
-  companies: ['name', 'why', 'careersUrl', 'status', 'tags', 'keywords'],
+  companies: ['name', 'why', 'careersUrl', 'status', 'tags', 'keywords', 'hidden'],
   searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
   templates: ['name', 'body', 'channel', 'subject', 'when', 'weight'],
 };
@@ -1384,6 +1477,15 @@ async function checkCareers(ids, { manual = false } = {}) {
   careersChecking = true;
   broadcast('state-changed');
   const roles = outreach.splitList(store.getProfile().targetRoles);
+  // A free fit preview for each matching job (no AI), once there's a resume to compare with.
+  const docs = scoringDocuments();
+  const profile = store.getProfile();
+  const scoreJob = docs.length
+    ? (job) => {
+        const q = localFitScore(job, docs, profile);
+        return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2) };
+      }
+    : null;
   const fresh = [];
   let checked = 0;
   let failed = 0;
@@ -1391,7 +1493,7 @@ async function checkCareers(ids, { manual = false } = {}) {
     for (const co of store.list('companies')) {
       if (ids ? !ids.includes(co.id) : co.status === 'pass') continue;
       try {
-        const r = await careers.checkCompany(co, { fetchImpl: netFetch, roles });
+        const r = await careers.checkCompany(co, { fetchImpl: netFetch, roles, scoreJob });
         store.saveItem('companies', { id: co.id, ...r.patch });
         for (const j of r.fresh) fresh.push({ company: co, job: j });
         checked++;
@@ -1462,6 +1564,22 @@ function letterToMarkdown(l) {
   return [l.greeting, ...l.paragraphs, `${l.closing}\n${l.signature}`].join('\n\n') + '\n';
 }
 
+function summarizeResume(r) {
+  const doc = r.builder && r.builder.doc;
+  return {
+    id: r.id,
+    name: r.name,
+    job: { title: r.job.title || '', company: r.job.company || '' },
+    hasTarget: String(r.job.text || '').trim().length >= 40,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    source: resumeMode(r),
+    fromApp: r.fromApp || null,
+    roles: doc ? doc.roles.length : 0,
+    bullets: doc ? doc.roles.reduce((n, x) => n + x.bullets.filter((b) => b.text).length, 0) : 0,
+  };
+}
+
 function summarizeApp(a) {
   return {
     id: a.id,
@@ -1475,6 +1593,8 @@ function summarizeApp(a) {
     confidence: a.quick.confidence || null,
     dealbreaker: !!(a.quick.dealbreakers && a.quick.dealbreakers.length),
     appliedAt: a.appliedAt || null,
+    saved: a.saved !== false,
+    lastSeenAt: a.lastSeenAt || a.createdAt,
     statusHistory: a.statusHistory || [],
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
@@ -1484,6 +1604,7 @@ function summarizeApp(a) {
     })(),
     atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml), { profile: store.getProfile() }).score : null,
     hasResume: !!a.resume,
+    hasPage: !!(a.builder && a.builder.doc),
     hasLetter: !!a.letter,
   };
 }
@@ -1555,6 +1676,7 @@ if (process.argv.includes('--smoke-test')) {
 
   app.whenReady().then(() => {
     store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
+    store.pruneChecked(); // checked jobs you never saved, not seen for a month
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();
     // First run with the bullet bank: fill it from the resumes already in the library.

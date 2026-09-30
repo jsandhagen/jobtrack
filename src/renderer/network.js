@@ -537,23 +537,214 @@ function outreachHomeCard() {
 
 // ---------------- Find jobs page ----------------
 
-views.find = () => {
+// ---------------- Find jobs ----------------
+//
+// Three tabs, so each thing is one click away and none is buried under the
+// others:
+//   Jobs       the job board: open roles at the companies you watch, with a
+//              filter box, company / date / remote filters, and Hide.
+//   Searches   one-click searches (saved, suggested, build your own).
+//   Companies  the companies you watch and their careers sites.
+
+const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday' };
+const FEED_WINDOWS = [
+  ['week', 'Past week', 7],
+  ['month', 'Past month', 30],
+  ['all', 'All open', Infinity],
+];
+const PAGE_SIZE = 30;
+const FIND_TABS = ['jobs', 'searches', 'companies'];
+const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, sort: 'new', minPay: 0, limit: PAGE_SIZE };
+const BOARD_SORTS = [
+  ['new', 'Newest first'],
+  ['fit', 'Best fit first'],
+  ['pay', 'Highest pay first'],
+];
+let findTab = (() => {
+  try {
+    return FIND_TABS.includes(localStorage.getItem('sprout.findTab')) ? localStorage.getItem('sprout.findTab') : 'jobs';
+  } catch {
+    return 'jobs';
+  }
+})();
+
+function setFindTab(tab) {
+  findTab = tab;
+  try {
+    localStorage.setItem('sprout.findTab', tab);
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  route();
+}
+
+function ageText(isoDate) {
+  if (!isoDate) return 'post date not shown';
+  const days = Math.floor((Date.now() - Date.parse(isoDate)) / 86400000);
+  return days <= 0 ? 'posted today' : days === 1 ? 'posted yesterday' : days < 30 ? `posted ${days} days ago` : `posted ${fmtDate(isoDate)}`;
+}
+
+const PAY_SYMBOL = { USD: '$', CAD: 'CA$', AUD: 'A$', GBP: '£', EUR: '€' };
+// "$150K–$190K", "$45–$60/hr" (the same format as src/main/careers.js).
+function payText(p) {
+  if (!p) return '';
+  const sym = PAY_SYMBOL[p.currency] || `${p.currency} `;
+  const one = (v) => (p.interval === 'hour' ? `${sym}${Math.round(v)}` : v >= 1000 ? `${sym}${Math.round(v / 100) / 10}K`.replace('.0K', 'K') : `${sym}${Math.round(v)}`);
+  return (p.min === p.max ? one(p.min) : `${one(p.min)}–${one(p.max)}`) + (p.interval === 'hour' ? '/hr' : p.interval === 'month' ? '/mo' : '');
+}
+// Top of the range per year, for sorting and the minimum-pay filter.
+const yearly = (p) => (!p ? 0 : (p.max || p.min || 0) * (p.interval === 'hour' ? 2080 : p.interval === 'month' ? 12 : 1));
+const MIN_PAYS = [0, 80000, 100000, 120000, 150000, 180000, 220000];
+
+const watched = () => state.companies.filter((c) => c.status !== 'pass');
+const jobDate = (job) => job.postedAt || job.firstSeenAt || '';
+const isRemote = (job) => /\bremote\b|\banywhere\b/i.test(`${job.location || ''} ${job.workplace || ''}`);
+const isHidden = (co, job) => (co.hidden || []).includes(job.id);
+
+function careerJobs() {
+  return watched().flatMap((c) => (c.jobs || []).map((j) => ({ co: c, job: j })));
+}
+
+function inWindow(job, days) {
+  const d = jobDate(job);
+  return days === Infinity || (d ? Date.now() - Date.parse(d) <= days * 86400000 : !!job.firstSeenAt);
+}
+
+function inMyList(co, job) {
+  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return [...state.applications, ...(state.checked || [])].find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
+}
+
+// Every filter but the date window (the window tabs show counts under the others).
+function boardMatches({ co, job }) {
+  if (board.company && co.id !== board.company) return false;
+  if (board.remote && !isRemote(job)) return false;
+  // Minimum pay only rules out jobs that show pay below it; unknown pay stays.
+  if (board.minPay && job.pay && yearly(job.pay) < board.minPay) return false;
+  if (!board.showHidden && isHidden(co, job)) return false;
+  const q = board.q.trim().toLowerCase();
+  return !q || q.split(/\s+/).every((w) => `${job.title} ${co.name} ${job.location || ''}`.toLowerCase().includes(w));
+}
+
+// Newest first, in sections a glance can scan: today, this week, earlier.
+function daySection(job) {
+  const d = jobDate(job);
+  if (!d) return 'Date not shown';
+  const days = (Date.now() - Date.parse(d)) / 86400000;
+  return days < 1 ? 'Today' : days < 7 ? 'This week' : days < 30 ? 'This month' : 'Earlier';
+}
+
+function jobRow({ co, job }) {
+  const mine = inMyList(co, job);
+  const hidden = isHidden(co, job);
+  const isNew = job.firstSeenAt && Date.now() - Date.parse(job.firstSeenAt) < 3 * 86400000;
+  const f = job.fit;
+  const fitPill = f
+    ? `<div class="pill ${f.dealbreakers && f.dealbreakers.length ? 'lo' : pillClass(f.score)} fit-pill" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${f.dealbreakers && f.dealbreakers.length ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read.">${f.score}</div>`
+    : `<div class="pill fit-pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}">–</div>`;
+  const payChip = job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '';
+  return `<div class="job-row ${hidden ? 'dim' : ''}">
+    ${fitPill}
+    <div class="grow">
+      <a href="#" class="job-title" data-open-url="${esc(job.url)}" title="Open the posting">${esc(job.title)}</a>${isNew ? ' <span class="chip good tiny">new</span>' : ''}${isRemote(job) ? ' <span class="chip tiny">remote</span>' : ''}${payChip ? ` ${payChip}` : ''}
+      <div class="sub"><a href="#" class="job-co" data-board-co="${co.id}" title="Only ${esc(co.name)}'s roles">${esc(co.name)}</a>${job.location ? ` · ${esc(job.location)}` : ''} · ${ageText(job.postedAt)}</div>
+    </div>
+    ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">${mine.saved === false ? `Checked · ${mine.score}` : 'In your list'}</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
+    <button class="small ghost icon-btn hideJob" data-co="${co.id}" data-job="${esc(job.id)}" title="${hidden ? 'Show it again' : 'Not for me: hide it'}" aria-label="${hidden ? 'Unhide' : 'Hide'}">${hidden ? icon('eye', 15) : '✕'}</button>
+  </div>`;
+}
+
+function jobsTab() {
+  const cos = watched();
+  const roles = O.splitList(state.profile.targetRoles);
+  const all = careerJobs();
+  const days = FEED_WINDOWS.find(([k]) => k === board.window)[2];
+  const filtered = all.filter(boardMatches);
+  const byDate = (a, b) => jobDate(b.job).localeCompare(jobDate(a.job));
+  const sorters = {
+    new: byDate,
+    // Unknown fit or pay goes last; ties newest first.
+    fit: (a, b) => (b.job.fit ? b.job.fit.score - (b.job.fit.dealbreakers && b.job.fit.dealbreakers.length ? 100 : 0) : -999) - (a.job.fit ? a.job.fit.score - (a.job.fit.dealbreakers && a.job.fit.dealbreakers.length ? 100 : 0) : -999) || byDate(a, b),
+    pay: (a, b) => yearly(b.job.pay) - yearly(a.job.pay) || byDate(a, b),
+  };
+  const shown = filtered.filter(({ job }) => inWindow(job, days)).sort(sorters[board.sort] || byDate);
+  const withFit = all.filter(({ job }) => job.fit).length;
+  const withPay = all.filter(({ job }) => job.pay).length;
+  const hiddenCount = all.filter(({ co, job }) => isHidden(co, job)).length;
+  const checked = cos.map((c) => c.lastCheckedAt).filter(Boolean).sort().pop();
+  const unreadable = cos.filter((c) => c.checkError === 'no-board').length;
+  const readable = cos.filter((c) => c.board && c.board.ats !== 'none').length;
+  const withJobs = cos.filter((c) => (c.jobs || []).length);
+  const filtersOn = board.q || board.company || board.remote || board.minPay;
+
+  if (!cos.length)
+    return `<div class="card empty">${mascotSvg('curious', 72)}<h3>Your job board starts with companies</h3>
+      <p>Add companies you'd like to work at. I'll read their own careers sites and list the open roles that match what you're looking for, newest first.</p>
+      <button class="primary" data-find-tab="companies">+ Add companies</button>
+      <p class="faint" style="margin-top:12px">Or open a <a href="#" data-find-tab="searches">one-click search</a> on LinkedIn and the startup job boards.</p></div>`;
+
+  // Filters, then the list.
+  const toolbar = `<div class="board-bar">
+      <input id="boardQ" type="search" placeholder="Filter by title, company or place" title="Shortcut: press /" value="${esc(board.q)}" autocomplete="off">
+      <select id="boardCo" class="small-select" aria-label="Company"><option value="">All companies</option>${withJobs
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => `<option value="${c.id}" ${board.company === c.id ? 'selected' : ''}>${esc(c.name)} (${(c.jobs || []).length})</option>`)
+        .join('')}</select>
+      <select id="boardSort" class="small-select" aria-label="Sort">${BOARD_SORTS.map(([k, l]) => `<option value="${k}" ${board.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="boardPay" class="small-select" aria-label="Minimum pay" title="Hides jobs whose posted pay tops out below this. Jobs that don't show pay stay.">${MIN_PAYS.map((v) => `<option value="${v}" ${board.minPay === v ? 'selected' : ''}>${v ? `Pay ${payText({ min: v, max: v, currency: 'USD', interval: 'year' })}+` : 'Any pay'}</option>`).join('')}</select>
+      <label class="check-label"><input type="checkbox" id="boardRemote" ${board.remote ? 'checked' : ''}> Remote only</label>
+      ${hiddenCount ? `<label class="check-label faint"><input type="checkbox" id="boardHidden" ${board.showHidden ? 'checked' : ''}> Hidden (${hiddenCount})</label>` : ''}
+    </div>
+    <div class="board-bar2"><div class="tabs compact" style="margin:0">${FEED_WINDOWS.map(([k, l, d]) => `<button class="${board.window === k ? 'on' : ''}" data-feed="${k}">${l} <span class="faint">${filtered.filter(({ job }) => inWindow(job, d)).length}</span></button>`).join('')}</div>
+      <span class="board-status"><span class="faint">${state.careersChecking ? '<span class="spinner"></span> checking…' : checked ? `checked ${timeAgo(checked)}` : ''}</span>
+      <button class="small ghost" id="checkCareers" ${state.careersChecking ? 'disabled' : ''} title="Check their careers sites now">${icon('refresh', 14)} Check now</button></span></div>`;
+
+  let list = '';
+  let section = '';
+  for (const it of shown.slice(0, board.limit)) {
+    const sec = board.sort === 'new' ? daySection(it.job) : '';
+    if (sec && sec !== section) list += `<div class="section-title board-sec">${(section = sec)}</div>`;
+    list += jobRow(it);
+  }
+  const more = shown.length > board.limit ? `<button class="ghost" id="boardMore" style="width:100%;margin-top:8px">Show ${Math.min(PAGE_SIZE, shown.length - board.limit)} more of ${shown.length - board.limit}</button>` : '';
+  const olderHint = board.window !== 'all' && filtered.length > shown.length ? ` <a href="#" data-feed="all">See all ${filtered.length} open</a>.` : '';
+  const empty = state.careersChecking && !checked
+    ? `<p class="muted"><span class="spinner"></span> Reading their careers sites…</p>`
+    : filtersOn
+      ? `<p class="muted">Nothing matches these filters.${olderHint} <a href="#" id="boardClear">Clear filters</a></p>`
+      : `<p class="muted">Nothing matching ${esc(roles.slice(0, 3).join(', ') || 'your roles')} ${board.window === 'all' ? 'is open' : `was posted in the ${board.window === 'week' ? 'past week' : 'past month'}`} at ${readable === 1 ? 'the company' : `the ${readable} companies`} I can read.${olderHint}</p>`;
+
+  return `<div class="card">
+    ${!roles.length ? `<p class="note-box" style="margin-top:0">Add the roles you're aiming for in <a href="#profile">Profile</a>, so I only list the jobs meant for you. Until then you're seeing every open job.</p>` : ''}
+    ${toolbar}
+    ${shown.length ? `<div class="job-list">${list}</div>${more}` : empty}
+    <p class="faint board-foot">${all.length ? `The number on each job is a free fit preview from its posting${withFit < all.length ? ` (${withFit} of ${all.length} have one so far${state.documents.length ? '' : '; add your resume to My library for the rest'})` : ''}; <b>Check my fit</b> gives the full read. Pay shows where the posting lists it (${withPay} of ${all.length}). ` : ''}Read from each company's own careers site: roles matching ${roles.length ? `<b>${esc(roles.join(', '))}</b>` : 'anything'}${cos.some((c) => c.keywords) ? ' and each company\'s extra titles' : ''}. I check every 6 hours and let you know when something new goes up.${unreadable ? ` <a href="#" data-find-tab="companies">${unreadable} compan${unreadable === 1 ? 'y needs' : 'ies need'} a job board link</a>.` : ''}</p>
+  </div>`;
+}
+
+// Saved searches as one row of buttons above the board: one click opens each.
+function quickSearchesRow() {
+  const saved = state.searches.filter((s) => s.kind !== 'people');
+  return `<div class="quick-row"><span class="faint">${icon('star', 15)} Quick searches:</span>
+    ${saved.length ? saved.slice(0, 5).map((s) => `<button class="small soft" data-open-url="${esc(O.searchUrl(s))}" data-search="${s.id}" title="${esc(O.describeSearch(s))}">${icon('link', 13)} ${esc(s.name)}</button>`).join('') : '<span class="faint">none saved yet</span>'}
+    <a href="#" data-find-tab="searches" class="quick-more">${saved.length > 5 ? `all ${saved.length}` : saved.length ? 'manage' : 'set some up'} →</a></div>`;
+}
+
+function searchesTab() {
   const p = state.profile;
   const saved = state.searches.filter((s) => s.kind !== 'people');
   const savedKeys = new Set(saved.map(O.searchKey));
   const sugg = O.suggestedSearches(p).filter((s) => s.kind === 'jobs' && !savedKeys.has(s.key));
   const roles = O.splitList(p.targetRoles);
-  return `<div class="page">
-    ${pageHead('Find jobs', 'curious', 'Fresh roles only: these searches show postings from <b>the last week</b>, newest first, with titles in quotes so you get the job you asked for. Each one opens in your browser.')}
-    <div class="grid sidebar">
+  return `<div class="grid sidebar">
       <div>
-        ${careersFeedCard()}
         <div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('star', 20)} Your searches</h3>
+          <p class="faint" style="margin-top:-4px">Fresh roles only: past week, newest first, titles in quotes. Each opens in your browser.</p>
           ${saved.length ? saved.map((s) => searchRow(s, true)).join('') : '<p class="muted" style="margin-top:0">None saved yet. Save a suggestion below, or build your own.</p>'}
           ${sugg.length ? `<div class="section-title">Suggested from your profile</div>${sugg.map((s) => searchRow(s, false)).join('')}` : ''}
           ${!roles.length ? `<p class="note-box">Add the roles you're aiming for in <a href="#profile">Profile</a> and I'll set up searches for each one.</p>` : ''}
         </div>
-        <div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('search', 20)} Build a search</h3>
+        <div class="card"><h3 class="with-icon">${icon('search', 20)} Build a search</h3>
           <div class="form-grid">
             <div class="full"><label>Job titles <span class="faint">(commas mean "or")</span></label><input id="fsTitles" placeholder="${esc(roles.join(', ') || 'Chief of staff, operations manager, bizops')}"></div>
             <div><label>Also mentions <span class="faint">(optional)</span></label><input id="fsKeywords" placeholder="e.g. startup, Series B, fintech"></div>
@@ -569,13 +760,12 @@ views.find = () => {
             <div class="form-grid" style="margin-top:8px"><div><label>Name</label><input id="fsLinkName" placeholder="Climate jobs board"></div><div><label>Link</label><input id="fsLinkUrl" placeholder="https://…"></div></div>
             <button class="small soft" id="fsLinkSave" style="margin-top:8px">Save link</button></details>
         </div>
-        ${companiesCard()}
       </div>
       <div>
         <div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('sparkle', 20)} Beyond the usual names</h3>
           <p class="faint" style="margin-top:-4px">LinkedIn shows the same big companies over and over. These find the places you'd never hear of otherwise.</p>
           ${(roles.length ? roles.slice(0, 3) : ['chief of staff']).map((r) => `<div class="search-row"><div class="grow"><div class="title">Startups hiring ${esc(r)}</div><div class="sub">Startup job boards · past week</div></div><button class="small soft" data-open-url="${esc(O.startupBoardsUrl({ titles: r, within: 'week' }))}">${icon('link', 14)} Open</button></div>`).join('')}
-          ${[...O.splitList(p.schools), ...O.splitList(p.pastEmployers)].slice(0, 3).map((c) => `<div class="search-row"><div class="grow"><div class="title">Where ${esc(c)} people work now</div><div class="sub">LinkedIn people${roles.length ? ` · ${esc(roles.slice(0, 2).join(' or '))}` : ''}: see which companies they're at</div></div><button class="small soft" data-open-url="${esc(O.linkedinPeopleUrl({ titles: roles.slice(0, 2).join(', '), common: c }))}">${icon('link', 14)} Open</button></div>`).join('')}
+          ${[...O.splitList(p.schools), ...O.splitList(p.pastEmployers)].slice(0, 3).map((c) => `<div class="search-row"><div class="grow"><div class="title">Where ${esc(c)} people work now</div><div class="sub">LinkedIn people${roles.length ? ` · ${esc(roles.slice(0, 2).join(' or '))}` : ''}</div></div><button class="small soft" data-open-url="${esc(O.linkedinPeopleUrl({ titles: roles.slice(0, 2).join(', '), common: c }))}">${icon('link', 14)} Open</button></div>`).join('')}
         </div>
         <div class="card"><h3 class="with-icon">${icon('target', 20)} Cutting the noise</h3>
           <ul class="tidy">
@@ -585,96 +775,30 @@ views.find = () => {
             <li><b>Found one?</b> Copy the posting and I'll score it. Then check <a href="#people">People</a> for anyone you know there.</li>
           </ul></div>
       </div>
-    </div>
-  </div>`;
-};
-
-// ---------------- new jobs on the careers sites you watch ----------------
-
-const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday' };
-let feedWindow = 'week';
-const FEED_WINDOWS = [
-  ['week', 'Past week', 7],
-  ['month', 'Past month', 30],
-  ['all', 'All open', Infinity],
-];
-
-function ageText(isoDate) {
-  if (!isoDate) return 'post date not shown';
-  const days = Math.floor((Date.now() - Date.parse(isoDate)) / 86400000);
-  return days <= 0 ? 'posted today' : days === 1 ? 'posted yesterday' : days < 30 ? `posted ${days} days ago` : `posted ${fmtDate(isoDate)}`;
-}
-
-function careerJobs() {
-  return state.companies
-    .filter((c) => c.status !== 'pass')
-    .flatMap((c) => (c.jobs || []).map((j) => ({ co: c, job: j })));
-}
-
-function inMyList(co, job) {
-  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  return state.applications.find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
-}
-
-function careersFeedCard() {
-  const cos = state.companies.filter((c) => c.status !== 'pass');
-  const all = careerJobs();
-  const days = FEED_WINDOWS.find(([k]) => k === feedWindow)[2];
-  const inWindow = ({ job }) => {
-    const d = job.postedAt || job.firstSeenAt;
-    return days === Infinity || (d ? Date.now() - Date.parse(d) <= days * 86400000 : !!job.firstSeenAt);
-  };
-  const shown = all.filter(inWindow).sort((a, b) => String(b.job.postedAt || b.job.firstSeenAt || '').localeCompare(String(a.job.postedAt || a.job.firstSeenAt || '')));
-  const checked = cos.map((c) => c.lastCheckedAt).filter(Boolean).sort().pop();
-  const readable = cos.filter((c) => c.board && c.board.ats !== 'none').length;
-  const roles = O.splitList(state.profile.targetRoles);
-  const row = ({ co, job }) => {
-    const mine = inMyList(co, job);
-    const isNew = job.firstSeenAt && Date.now() - Date.parse(job.firstSeenAt) < 3 * 86400000;
-    return `<div class="search-row"><div class="grow"><div class="title">${esc(job.title)}${isNew ? ' <span class="chip good tiny">new</span>' : ''}</div>
-      <div class="sub">${esc([co.name, job.location, ageText(job.postedAt)].filter(Boolean).join(' · '))}</div></div>
-      ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">In your list</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
-      <button class="small ghost" data-open-url="${esc(job.url)}">${icon('link', 14)} Open</button></div>`;
-  };
-  const body = !cos.length
-    ? `<p class="muted" style="margin-top:0">Add companies under <b>Companies to watch</b> and I'll read their careers sites for you: every few hours I list the open roles that match what you're looking for, and tell you when a new one goes up.</p>`
-    : !roles.length
-      ? `<p class="note-box">Add the roles you're aiming for in <a href="#profile">Profile</a>, so I know which of the ${all.length ? all.length : ''} open jobs are for you.</p>${shown.map(row).join('')}`
-      : shown.length
-        ? shown.slice(0, 40).map(row).join('') + (shown.length > 40 ? `<p class="faint">…and ${shown.length - 40} more.</p>` : '')
-        : `<p class="muted" style="margin-top:0">${
-            state.careersChecking && !checked ? 'Reading their careers sites…' : `Nothing matching ${esc(roles.slice(0, 3).join(', '))} ${feedWindow === 'all' ? 'is open' : `was posted in the ${feedWindow === 'week' ? 'past week' : 'past month'}`} at ${readable === 1 ? 'the company' : `the ${readable} companies`} I can read.`
-          } ${feedWindow !== 'all' && all.length ? `<a href="#" id="feedAll">See all ${all.length} matching open roles</a>.` : ''}</p>`;
-  return `<div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('home', 20)} New at your companies
-      <span class="faint" style="margin-left:auto;font-size:12px;font-weight:700">${state.careersChecking ? '<span class="spinner"></span> checking…' : checked ? `checked ${timeAgo(checked)}` : ''}</span>
-      ${cos.length ? `<button class="small ghost" id="checkCareers" ${state.careersChecking ? 'disabled' : ''}>${icon('refresh', 14)} Check now</button>` : ''}</h3>
-    ${cos.length ? `<div class="tabs" style="margin-bottom:6px">${FEED_WINDOWS.map(([k, l, d]) => `<button class="${feedWindow === k ? 'on' : ''}" data-feed="${k}">${l} <span class="faint">${all.filter(({ job }) => { const x = job.postedAt || job.firstSeenAt; return d === Infinity || (x ? Date.now() - Date.parse(x) <= d * 86400000 : !!job.firstSeenAt); }).length}</span></button>`).join('')}</div>
-      <p class="faint" style="margin:0 0 4px">Roles matching your target roles${cos.some((c) => c.keywords) ? ' and each company\'s extra keywords' : ''}, read from each company's own careers site. I check every 6 hours and let you know when something new goes up.</p>` : ''}
-    ${body}
-  </div>`;
+    </div>`;
 }
 
 function careersStatus(co) {
+  if (co.status === 'pass') return `<div class="co-status faint">Not checking: you passed on this one.</div>`;
   if (!co.lastCheckedAt) return `<div class="co-status faint">${state.careersChecking ? '<span class="spinner"></span> Looking for its careers site…' : 'Not checked yet.'}</div>`;
   if (co.checkError === 'no-board')
-    return `<div class="co-status faint">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. If its jobs are on Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Workday, <a href="#" class="coCareers" data-id="${co.id}">paste that job board link</a> and I'll check it for you.</div>`;
-  if (co.checkError) return `<div class="co-status faint">${icon('warn', 13)} Last check didn't work: ${esc(co.checkError)}</div>`;
+    return `<div class="co-status warn">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. <a href="#" class="coCareers" data-id="${co.id}">Paste its job board link</a> (Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Workday) and I'll check it.</div>`;
+  if (co.checkError) return `<div class="co-status warn">${icon('warn', 13)} Last check didn't work: ${esc(co.checkError)}</div>`;
   const b = co.board;
-  const n = (co.jobs || []).length;
-  return `<div class="co-status faint">${icon('check', 13)} Reading its <a href="#" data-open-url="${esc(b.url)}">${ATS_NAME[b.ats] || b.ats} job board</a> · ${co.openCount} open · <b>${n} match${n === 1 ? '' : 'es'}</b> · checked ${timeAgo(co.lastCheckedAt)}
+  return `<div class="co-status faint">${icon('check', 13)} Reading its <a href="#" data-open-url="${esc(b.url)}">${ATS_NAME[b.ats] || b.ats} job board</a> · ${co.openCount} open · checked ${timeAgo(co.lastCheckedAt)}
     ${b.guessed ? `<br>I found this board by its name. Is it really them? <a href="#" class="coNotThem" data-id="${co.id}">Not them</a>` : ''}</div>`;
 }
 
-function companiesCard() {
+function companiesTab() {
   const cos = state.companies;
   const sugg = O.companySuggestions(cos, state.contacts, state.applications).slice(0, 8);
   const statusRank = Object.fromEntries(O.COMPANY_STATUSES.map(([k], i) => [k, i]));
   const sorted = [...cos].sort((a, b) => (statusRank[a.status] ?? 0) - (statusRank[b.status] ?? 0) || a.name.localeCompare(b.name));
   return `<div class="card"><h3 class="with-icon">${icon('home', 20)} Companies to watch</h3>
-    <p class="faint" style="margin-top:-4px">Keep the interesting ones you stumble on. I'll read their careers sites for roles that match yours, so you don't have to visit each one.</p>
-    <div class="inline" style="margin-bottom:12px"><input id="coName" placeholder="Company" style="flex:1"><input id="coWhy" placeholder="Why it caught your eye" style="flex:2"><input id="coUrl" placeholder="Careers page link (optional)" style="flex:1.4"><button class="soft" id="coAdd">Add</button></div>
-    ${sorted.length ? `<div class="list">${sorted.map(companyRow).join('')}</div>` : '<p class="muted">No companies yet.</p>'}
-    ${sugg.length ? `<div class="section-title">You've come across</div><div>${sugg.map((s) => `<button class="chip lav coSugg" data-name="${esc(s.name)}" title="${esc(s.why.join(' · '))}">+ ${esc(s.name)}</button>`).join('')}</div>` : ''}
+    <p class="faint" style="margin-top:-4px">Keep the interesting ones you stumble on. I'll read their careers sites for roles that match yours and list them under <a href="#" data-find-tab="jobs">Jobs</a>.</p>
+    <div class="co-add"><input id="coName" placeholder="Company name"><input id="coWhy" placeholder="Why it caught your eye (optional)"><input id="coUrl" placeholder="Careers page link (optional)"><button class="primary" id="coAdd">Add</button></div>
+    ${sugg.length ? `<div style="margin:-4px 0 12px"><span class="faint" style="font-size:12px;margin-right:6px">You've come across:</span>${sugg.map((s) => `<button class="chip lav coSugg" data-name="${esc(s.name)}" title="${esc(s.why.join(' · '))}">+ ${esc(s.name)}</button>`).join('')}</div>` : ''}
+    ${sorted.length ? `<div class="list">${sorted.map(companyRow).join('')}</div>` : '<p class="muted">No companies yet. Add one above.</p>'}
   </div>`;
 }
 
@@ -682,28 +806,87 @@ function companyRow(co) {
   const L = O.companyLinks(co, state.profile);
   const people = O.contactsAt(state.contacts, co.name).length;
   const roles = openRolesAt(co.name).length;
+  const n = (co.jobs || []).filter((j) => !isHidden(co, j)).length;
   return `<div class="company ${co.status === 'pass' ? 'dim' : ''}" data-co="${co.id}">
     <div class="company-top"><div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
       ${careersStatus(co)}
       ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
       <div>${people ? `<a href="#people" class="chip lav tiny">${people} ${people === 1 ? 'person' : 'people'} you know</a>` : ''}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div></div>
-      <select class="small-select coStatus" data-id="${co.id}">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <button class="small ghost danger coDel" data-id="${co.id}" title="Remove">✕</button></div>
+      <select class="small-select coStatus" data-id="${co.id}" aria-label="Status">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="small ghost danger coDel" data-id="${co.id}" title="Remove ${esc(co.name)}">✕</button></div>
     <div class="inline company-links">
-      ${L.careers ? `<button class="small soft" data-open-url="${esc(L.careers)}">${icon('link', 14)} Careers page</button><button class="small ghost coCareers" data-id="${co.id}" title="Change the careers link">${icon('pencil', 13)}</button>` : `<button class="small ghost coCareers" data-id="${co.id}">+ careers link</button>`}
-      <button class="small ghost" data-open-url="${esc(L.jobs)}">Jobs this week</button>
-      ${L.peopleInCommon ? `<button class="small ghost" data-open-url="${esc(L.peopleInCommon)}">People in common</button>` : ''}
-      <button class="small ghost" data-open-url="${esc(L.people)}">People in your field</button>
-      <button class="small ghost" data-add-person="${esc(co.name)}">+ person</button>
-      <button class="small ghost coKeywords" data-id="${co.id}" title="Extra job titles or words to match at this company">Match more titles</button>
+      ${n && co.status !== 'pass' ? `<button class="small primary" data-board-co="${co.id}">See ${n} matching role${n === 1 ? '' : 's'}</button>` : ''}
+      ${L.careers ? `<button class="small soft" data-open-url="${esc(L.careers)}">${icon('link', 14)} Careers page</button>` : `<button class="small soft coCareers" data-id="${co.id}">+ Careers link</button>`}
+      <details class="more-menu"><summary class="small ghost">More ▾</summary><div class="more-list">
+        <button class="ghost" data-open-url="${esc(L.jobs)}">${icon('link', 14)} Its jobs on LinkedIn this week</button>
+        ${L.peopleInCommon ? `<button class="ghost" data-open-url="${esc(L.peopleInCommon)}">${icon('link', 14)} People there you have something in common with</button>` : ''}
+        <button class="ghost" data-open-url="${esc(L.people)}">${icon('link', 14)} People there in your field</button>
+        <button class="ghost" data-add-person="${esc(co.name)}">+ Add a person there</button>
+        <button class="ghost coKeywords" data-id="${co.id}">Match more titles here</button>
+        ${L.careers ? `<button class="ghost coCareers" data-id="${co.id}">${icon('pencil', 13)} Change careers link</button>` : ''}
+      </div></details>
     </div></div>`;
 }
 
+views.find = () => {
+  const jobsN = careerJobs().filter(({ co, job }) => !isHidden(co, job) && inWindow(job, 7)).length;
+  const searchesN = state.searches.filter((s) => s.kind !== 'people').length;
+  const cosN = state.companies.length;
+  const line = {
+    jobs: 'Open roles at the companies you watch, newest first. Check your fit with one click.',
+    searches: 'One-click searches for fresh postings on LinkedIn and the startup job boards.',
+    companies: "The companies you're keeping an eye on. I read their careers sites for you.",
+  }[findTab];
+  const tab = (k, label, n) => `<button class="${findTab === k ? 'on' : ''}" data-find-tab="${k}">${label}${n ? ` <span class="faint">${n}</span>` : ''}</button>`;
+  return `<div class="page">
+    ${pageHead('Find jobs', 'curious', line)}
+    <div class="tabs find-tabs">${tab('jobs', `${icon('news', 17)} Jobs`, jobsN)}${tab('searches', `${icon('search', 17)} Searches`, searchesN)}${tab('companies', `${icon('home', 17)} Companies`, cosN)}</div>
+    ${findTab === 'jobs' ? `${quickSearchesRow()}${jobsTab()}` : findTab === 'searches' ? searchesTab() : companiesTab()}
+  </div>`;
+};
+
 binders.find = () => {
   bindSearchRows();
-  $$('[data-feed]').forEach((b) => b.addEventListener('click', () => ((feedWindow = b.dataset.feed), route())));
-  const feedAll = $('#feedAll');
-  if (feedAll) feedAll.addEventListener('click', (e) => (e.preventDefault(), (feedWindow = 'all'), route()));
+  $$('[data-find-tab]').forEach((b) => b.addEventListener('click', (e) => (e.preventDefault(), setFindTab(b.dataset.findTab))));
+  // Clicking a company's name (or "See N matching roles") shows just its roles.
+  $$('[data-board-co]').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      Object.assign(board, { company: b.dataset.boardCo, window: 'all', limit: PAGE_SIZE });
+      setFindTab('jobs');
+    })
+  );
+  if (findTab === 'jobs') bindJobsTab();
+  if (findTab === 'searches') bindSearchesTab();
+  if (findTab === 'companies') bindCompaniesTab();
+  bindCompanyModals();
+};
+
+function bindJobsTab() {
+  const q = $('#boardQ');
+  if (!q) return;
+  // Typing re-draws the list; keep the caret where it was.
+  q.addEventListener('input', () => {
+    board.q = q.value;
+    board.limit = PAGE_SIZE;
+    const at = q.selectionStart;
+    route();
+    const el = $('#boardQ');
+    el.focus();
+    el.setSelectionRange(at, at);
+  });
+  q.addEventListener('keydown', (e) => e.key === 'Escape' && q.value && ((board.q = ''), route(), $('#boardQ').focus()));
+  $('#boardCo').addEventListener('change', (e) => ((board.company = e.target.value), (board.limit = PAGE_SIZE), route()));
+  $('#boardSort').addEventListener('change', (e) => ((board.sort = e.target.value), (board.limit = PAGE_SIZE), route()));
+  $('#boardPay').addEventListener('change', (e) => ((board.minPay = Number(e.target.value) || 0), (board.limit = PAGE_SIZE), route()));
+  $('#boardRemote').addEventListener('change', (e) => ((board.remote = e.target.checked), (board.limit = PAGE_SIZE), route()));
+  const hid = $('#boardHidden');
+  if (hid) hid.addEventListener('change', (e) => ((board.showHidden = e.target.checked), route()));
+  $$('[data-feed]').forEach((b) => b.addEventListener('click', (e) => (e.preventDefault(), (board.window = b.dataset.feed), (board.limit = PAGE_SIZE), route())));
+  const more = $('#boardMore');
+  if (more) more.addEventListener('click', () => ((board.limit += PAGE_SIZE), route()));
+  const clear = $('#boardClear');
+  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), Object.assign(board, { q: '', company: '', remote: false, minPay: 0, limit: PAGE_SIZE }), route()));
   const check = $('#checkCareers');
   if (check)
     check.addEventListener('click', (e) =>
@@ -722,30 +905,24 @@ binders.find = () => {
       }, 'Reading…')
     )
   );
-  $$('.coNotThem').forEach((a) =>
-    a.addEventListener('click', async (e) => {
-      e.preventDefault();
-      await S.careersNotThem(a.dataset.id);
-      toast("Got it. Paste the link to their real job board and I'll use that.", 'info', 5000);
+  $$('.hideJob').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const co = state.companies.find((c) => c.id === b.dataset.co);
+      if (!co) return;
+      const hidden = new Set(co.hidden || []);
+      const was = hidden.has(b.dataset.job);
+      if (was) hidden.delete(b.dataset.job);
+      else hidden.add(b.dataset.job);
+      // Only remember ids still listed, so the list doesn't grow forever.
+      const listed = new Set((co.jobs || []).map((j) => j.id));
+      await S.saveItem('companies', { id: co.id, hidden: [...hidden].filter((id) => listed.has(id)) });
+      if (!was) toast(`Hidden. Tick "Hidden" to see it again.`, 'info', 2600);
       netRefresh();
     })
   );
-  $$('.coKeywords').forEach((b) =>
-    b.addEventListener('click', () => {
-      const co = state.companies.find((c) => c.id === b.dataset.id);
-      const card = openModal(`<h2 style="margin-top:0">Match more titles at ${esc(co.name)}</h2>
-        <p class="muted">I already match your target roles (${esc(state.profile.targetRoles || 'none set yet')}). Add other titles or words worth a look at this company, separated by commas.</p>
-        <input id="coKw" value="${esc(co.keywords || '')}" placeholder="strategy, business operations, founder's associate">
-        <div class="inline" style="margin-top:12px"><button class="primary" id="coKwSave">Save and check</button><button class="ghost" id="coKwCancel">Cancel</button></div>`);
-      $('#coKwCancel', card).addEventListener('click', closeModal);
-      $('#coKwSave', card).addEventListener('click', async () => {
-        await S.saveItem('companies', { id: co.id, keywords: $('#coKw', card).value.trim() });
-        closeModal();
-        netRefresh();
-      });
-      $('#coKw', card).focus();
-    })
-  );
+}
+
+function bindSearchesTab() {
   const form = () => ({
     kind: 'jobs',
     source: ($$('[name="fsSource"]').find((r) => r.checked) || {}).value || 'linkedin',
@@ -780,24 +957,61 @@ binders.find = () => {
       toast(err.message, 'error');
     }
   });
+}
 
+function bindCompaniesTab() {
   const addCo = async (name, extra = {}) => {
     if (!name) return toast('Add the company name first.');
     if (state.companies.some((c) => O.sameCompany(c.name, name))) return toast(`${name} is already on your list.`);
     await S.saveItem('companies', { name, status: 'interested', ...extra });
+    toast(`Added ${name}. I'll look for its careers site now.`, 'good');
     netRefresh();
   };
-  $('#coAdd').addEventListener('click', () => {
+  const add = () => {
     const url = $('#coUrl').value.trim();
     if (url && !/^https?:\/\//i.test(url)) return toast('The careers link should start with https://');
     addCo($('#coName').value.trim(), { why: $('#coWhy').value.trim(), careersUrl: url });
-  });
+  };
+  $('#coAdd').addEventListener('click', add);
+  for (const id of ['#coName', '#coWhy', '#coUrl']) $(id).addEventListener('keydown', (e) => e.key === 'Enter' && add());
   $$('.coSugg').forEach((b) => b.addEventListener('click', () => addCo(b.dataset.name)));
   $$('.coStatus').forEach((sel) => sel.addEventListener('change', async () => (await S.saveItem('companies', { id: sel.dataset.id, status: sel.value }), netRefresh())));
   $$('.coDel').forEach((b) =>
     b.addEventListener('click', async () => {
+      const co = state.companies.find((c) => c.id === b.dataset.id);
+      if (co && !confirm(`Stop watching ${co.name}?`)) return;
       await S.removeItem('companies', b.dataset.id);
       netRefresh();
+    })
+  );
+  // Close other "More" menus when one opens.
+  $$('.more-menu').forEach((d) => d.addEventListener('toggle', () => d.open && $$('.more-menu').forEach((o) => o !== d && (o.open = false))));
+}
+
+// Links and modals that can appear on either the Jobs or Companies tab.
+function bindCompanyModals() {
+  $$('.coNotThem').forEach((a) =>
+    a.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await S.careersNotThem(a.dataset.id);
+      toast("Got it. Paste the link to their real job board and I'll use that.", 'info', 5000);
+      netRefresh();
+    })
+  );
+  $$('.coKeywords').forEach((b) =>
+    b.addEventListener('click', () => {
+      const co = state.companies.find((c) => c.id === b.dataset.id);
+      const card = openModal(`<h2 style="margin-top:0">Match more titles at ${esc(co.name)}</h2>
+        <p class="muted">I already match your target roles (${esc(state.profile.targetRoles || 'none set yet')}). Add other titles or words worth a look at this company, separated by commas.</p>
+        <input id="coKw" value="${esc(co.keywords || '')}" placeholder="strategy, business operations, founder's associate">
+        <div class="inline" style="margin-top:12px"><button class="primary" id="coKwSave">Save and check</button><button class="ghost" id="coKwCancel">Cancel</button></div>`);
+      $('#coKwCancel', card).addEventListener('click', closeModal);
+      $('#coKwSave', card).addEventListener('click', async () => {
+        await S.saveItem('companies', { id: co.id, keywords: $('#coKw', card).value.trim() });
+        closeModal();
+        netRefresh();
+      });
+      $('#coKw', card).focus();
     })
   );
   $$('.coCareers').forEach((b) =>
@@ -818,4 +1032,14 @@ binders.find = () => {
       $('#coLink', card).focus();
     })
   );
-};
+}
+
+// "/" jumps to the job filter, like most job sites.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isEditing()) return;
+  const q = document.getElementById('boardQ');
+  if (!q) return;
+  e.preventDefault();
+  q.focus();
+  q.select();
+});

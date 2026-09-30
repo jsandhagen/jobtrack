@@ -537,3 +537,47 @@ h3.with-icon .small { margin-left: 8px; }
 .msg-opt-meta { color: var(--ink-soft); font-size: 11.5px; font-weight: 700; display: flex; align-items: center; justify-content: flex-start; gap: 4px; }
 .msg-opt-subj { font-size: 12px; font-weight: 700; color: var(--ink-soft); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .msg-opt-text { font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); white-space: pre-line; text-align: left; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---- Find jobs: the job board ---- */
+.find-tabs { margin-bottom: 16px; }
+.find-tabs button { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
+.board-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
+.board-bar input[type='search'] { flex: 1 1 260px; min-width: 0; }
+.board-bar .small-select { width: auto; max-width: 220px; }
+.check-label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 700; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.check-label input { width: auto; margin: 0; }
+.board-bar2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
+.board-status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.tabs.compact { padding: 3px; }
+.tabs.compact button { padding: 5px 10px; font-size: 13px; }
+.board-sec { margin: 16px 0 2px; }
+.job-row { display: flex; align-items: center; gap: 10px; padding: 10px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
+.board-sec + .job-row { border-top: 0; }
+.job-row:hover { background: var(--surface-2); }
+.job-row.dim { opacity: 0.5; }
+.job-row .grow { flex: 1; min-width: 0; }
+.job-row .job-title { font-weight: 800; font-size: 14px; color: var(--ink); text-decoration: none; }
+.job-row .job-title:hover { color: var(--sage-deep); text-decoration: underline; }
+.job-row .sub { color: var(--ink-soft); font-size: 12.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-row .job-co { color: inherit; font-weight: 700; text-decoration: none; }
+.job-row .job-co:hover { text-decoration: underline; }
+.job-row .icon-btn { padding: 4px 8px; min-width: 30px; justify-content: center; opacity: 0.55; }
+.job-row:hover .icon-btn, .job-row .icon-btn:focus-visible { opacity: 1; }
+.board-foot { margin: 14px 0 0; font-size: 12px; }
+.co-add { display: grid; grid-template-columns: 1fr 1.6fr 1.3fr auto; gap: 8px; margin-bottom: 12px; }
+@media (max-width: 900px) { .co-add { grid-template-columns: 1fr; } }
+.co-status.warn { color: #a0621c; font-size: 12.5px; }
+.more-menu { position: relative; display: inline-block; }
+.more-menu > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); }
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu > summary::marker { content: ''; }
+.more-menu > summary:hover, .more-menu[open] > summary { background: var(--surface-2); color: var(--ink); }
+.more-list { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 280px; padding: 6px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.12)); }
+.more-list button { justify-content: flex-start; text-align: left; font-size: 13px; padding: 7px 10px; border-radius: 8px; }
+.quick-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 0 14px; font-size: 13px; }
+.quick-row > .faint { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; }
+.quick-row button { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-more { font-weight: 700; font-size: 12.5px; }
+.job-row .fit-pill { width: 42px; padding: 8px 0; font-size: 14px; border-radius: 10px; }
+.job-row .fit-pill.none { background: var(--surface-2); color: var(--ink-faint); }
+.chip.pay { background: var(--sage-soft); color: var(--sage-deep); font-weight: 800; }
