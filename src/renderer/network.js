@@ -670,7 +670,7 @@ function jobRow({ co, job }) {
     : `<div class="fit-score pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}"><b>–</b><small>fit</small></div>`;
   const chips = [isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : ''].join('');
   return `<div class="job-row ${hidden ? 'dim' : ''}">
-    ${coLogo(co, 44)}
+    ${coLogo(co, 56)}
     <div class="grow">
       <a href="#" class="job-title" data-open-url="${esc(job.url)}" title="Open the posting">${esc(job.title)}</a>
       <div class="sub"><a href="#" class="job-co" data-board-co="${co.id}" title="Only ${esc(co.name)}'s roles">${esc(co.name)}</a>${job.location ? ` · ${esc(job.location)}` : ''} · ${ageText(job.postedAt)}</div>
@@ -843,7 +843,7 @@ function companyRow(co) {
     ? `<button class="co-count pill hi" data-board-co="${co.id}" title="See ${esc(co.name)}'s ${n} matching role${n === 1 ? '' : 's'} on the board"><b>${n}</b><small>role${n === 1 ? '' : 's'}</small></button>`
     : `<div class="co-count pill none" title="${passed ? 'Not checking: you passed on this one' : 'No open roles matching yours right now'}"><b>${passed ? '–' : 0}</b><small>roles</small></div>`;
   return `<div class="company ${passed ? 'dim' : ''}" data-co="${co.id}">
-    <div class="company-top">${coLogo(co, 44)}<div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
+    <div class="company-top">${coLogo(co, 64)}<div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
       ${careersStatus(co)}
       ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
       ${people || roles ? `<div class="co-chips">${people ? `<a href="#people" class="chip lav tiny">${people} ${people === 1 ? 'person' : 'people'} you know</a>` : ''}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div>` : ''}</div>

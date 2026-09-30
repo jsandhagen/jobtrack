@@ -1529,14 +1529,14 @@ async function checkCareers(ids, { manual = false } = {}) {
 }
 
 // Company logos (src/main/logos.js), for companies whose logo is missing or
-// due for another look. Bitmaps are scaled down to 64px so they stay small
+// due for another look. Bitmaps are scaled down to 128px (sharp at the board's 64px on high-res screens) so they stay small
 // in the saved data; nativeImage reads PNG and JPEG, others are kept as they are.
 function shrinkLogo(buf, type) {
   if (!/png|jpeg/.test(type)) return null;
   const img = nativeImage.createFromBuffer(buf);
   if (img.isEmpty()) return null;
   const { width, height } = img.getSize();
-  const scale = 64 / Math.max(width, height);
+  const scale = 128 / Math.max(width, height);
   if (scale >= 1) return null;
   return img.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'best' }).toDataURL();
 }

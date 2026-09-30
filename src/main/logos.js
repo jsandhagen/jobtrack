@@ -306,9 +306,12 @@ async function findLogo(company, { fetchImpl, now = Date.now(), shrink = null } 
 
 // What the logo was found from: when it changes (a new website or careers
 // link, a new board), look again.
+// LOGO_VERSION goes up when how logos are stored changes (like their size),
+// so saved ones are fetched again once.
+const LOGO_VERSION = 2;
 function logoKey(company = {}) {
   const b = company.board || {};
-  return [normalize(company.website), normalize(company.careersUrl), b.ats || '', b.token || ''].join('|').toLowerCase();
+  return [LOGO_VERSION, normalize(company.website), normalize(company.careersUrl), b.ats || '', b.token || ''].join('|').toLowerCase();
 }
 
 // Time to look for this company's logo (again)?
