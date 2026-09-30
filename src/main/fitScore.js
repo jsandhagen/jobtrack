@@ -66,7 +66,7 @@ const SKILLS = {
   CRM: [/\bcrm\b/, /\bsalesforce\b/, /\bhubspot\b/],
   'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
   Finance: [/\bfinancial (?:analysis|modeling|reporting)\b/, /\bbudget(?:s|ing)?\b/, /\bforecasting\b/],
-  Accounting: [/\baccounting\b/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
+  Accounting: [/\baccounting\b(?!\s+for\b)/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
   Operations: [/\boperations\b/, /\bprocess improvement\b/, /\blean\b/, /\bsix sigma\b/],
   'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, /\bprocurement\b/, /\binventory\b/],
   'Human Resources': [/\bhuman resources\b/, /\brecruiting\b/, /\btalent acquisition\b/, /\bonboarding\b/],
@@ -95,8 +95,16 @@ const STOPWORDS = new Set(
   ).split(' ')
 );
 
-const REQUIRED_CUE = /\b(required|requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
+// "as required" means "as needed", not a requirement.
+const REQUIRED_CUE = /\b((?<!\bas )required|requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
 const PREFERRED_CUE = /\b(preferred|nice to have|bonus|plus|desired|ideally|good to have)\b/;
+// Example lists ("languages may include Python, R, MATLAB", "other useful
+// tools include SAS") name options, not things every applicant must have.
+const OPTIONAL_CUE = /\b(may include|not limited to|such as|e\.g\.|for example|other useful|also useful|one or more of|any of the following)/;
+
+// EEO, security-policy and recruiter notices: never qualifications.
+const BOILERPLATE_LINE =
+  /benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|e-verify|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|internal career site/i;
 
 function lower(s) {
   return (s || '').toLowerCase();
@@ -136,9 +144,25 @@ function classifyLines(jobText) {
   return out;
 }
 
+// Split a line into sentences/clauses so "Python and SQL are a must; other
+// useful languages include Java, SAS" doesn't make Java and SAS required.
+// Keeps "e.g." and "Ph.D." intact.
+function clauses(original, lineKind) {
+  return original
+    .split(/(?<=[!?;])\s+|(?<=[a-z0-9)]{2}\.)\s+(?=[A-Z])/)
+    .filter((c) => c.trim())
+    .map((c) => {
+      const cl = c.toLowerCase();
+      return { original: c, line: cl, kind: PREFERRED_CUE.test(cl) || OPTIONAL_CUE.test(cl) ? 'preferred' : lineKind };
+    });
+}
+
 function classifyJobSkills(jobText) {
   const out = new Map(); // skill -> { kind, term }
-  for (const { line, kind: lineKind } of classifyLines(jobText)) {
+  const parts = classifyLines(jobText)
+    .filter((l) => !BOILERPLATE_LINE.test(l.line))
+    .flatMap((l) => clauses(l.original, l.kind));
+  for (const { line, kind: lineKind } of parts) {
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       for (const p of patterns) {
         const m = line.match(p);
@@ -234,6 +258,8 @@ module.exports = {
   STOPWORDS,
   classifyJobSkills,
   classifyLines,
+  clauses,
+  BOILERPLATE_LINE,
   significantTerms,
   looksLikeJobPosting,
   findSkills,

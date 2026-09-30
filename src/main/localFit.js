@@ -10,7 +10,7 @@
 //   years of experience           15%
 // Dealbreakers from your profile (work mode, minimum salary, words to avoid)
 // cap the score so those roles never pop up as good matches.
-const { SKILLS, STOPWORDS, classifyLines, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, STOPWORDS, BOILERPLATE_LINE, classifyLines, clauses, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeRequirements } = require('./atsScore');
 
 const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
@@ -34,8 +34,12 @@ function isDictionarySkill(term) {
   return Object.values(SKILLS).some((ps) => ps.some((p) => p.test(t)));
 }
 
-const BOILERPLATE_LINE =
-  /benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|e-verify/i;
+// "Strong programming skills" is shown by the languages you list, not the word.
+const LANGUAGE_SKILLS = ['JavaScript', 'TypeScript', 'Python', 'Java', 'C#', 'C++', 'Go', 'Rust', 'Ruby', 'PHP', 'Swift', 'Kotlin', 'SQL', 'R'];
+const GENERIC_PROGRAMMING = /^(programming|coding|computer programming|software development)$/i;
+function showsProgramming(textLower) {
+  return /\b(programming|coding)\b/.test(textLower) || LANGUAGE_SKILLS.some((s) => SKILLS[s].some((p) => p.test(textLower)));
+}
 
 // Capitalised words that are just English, not skills.
 const NOT_TERMS = new Set(
@@ -209,17 +213,23 @@ function requirementUnits(job) {
     const prev = units.get(key);
     if (!prev || rank[kind] > rank[prev.kind]) units.set(key, { key, label, kind, match });
   };
-  for (const { line, original, kind, isHeading } of lines) {
-    if (isHeading && line.length < 40) continue;
+  const parts = lines
+    .filter((l) => !(l.isHeading && l.line.length < 40))
+    .flatMap((l) => clauses(l.original, l.kind).map((c) => ({ ...c, lineKind: l.kind })));
+  for (const { line, original, kind, lineKind } of parts) {
     const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       if (patterns.some((p) => p.test(line))) addUnit('s:' + skill, skill, effKind, (t) => (patterns.some((p) => p.test(t)) ? 1 : 0));
     }
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
-    if ((kind !== 'neutral' || !hasRequiredSection) && !DEGREE_LINE.test(line)) {
+    if ((lineKind !== 'neutral' || !hasRequiredSection) && !DEGREE_LINE.test(line)) {
       for (const term of extractTerms(original, ignoreWords, `${lower(job.title)} | ${lower(job.company)}`)) {
         const words = lower(term).split(/\s+/).filter((w) => !STOPWORDS.has(w));
+        if (GENERIC_PROGRAMMING.test(term)) {
+          addUnit('programming', 'Programming', effKind, (t) => (showsProgramming(t) ? 1 : 0));
+          continue;
+        }
         addUnit('t:' + lower(term), term, effKind, (t) => {
           if (hasTerm(t, term)) return 1;
           return words.length > 1 && words.every((w) => hasTerm(t, w)) ? 0.6 : 0;

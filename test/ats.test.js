@@ -150,3 +150,20 @@ test('a preferred advanced degree is not treated as required', () => {
   assert.deepEqual(degreeRequirements("- Bachelor's or Master's degree in Finance"), { required: 2, preferred: null });
   assert.deepEqual(degreeRequirements('- MBA preferred'), { required: null, preferred: 3 });
 });
+
+test('ATS reads "Master’s" with a curly apostrophe and keeps optional languages out of the knockouts', () => {
+  const job = {
+    title: 'Quantitative Analytics Senior',
+    company: 'Freddie Mac',
+    text: `Qualifications:
+PhD in economics or a related field, or Master’s degree with 3+ years of relevant experience.
+Strong Programming skills is a must! Python and SQL are most frequently used; other useful languages include Java, SAS, MATLAB.
+These models must incorporate best practices while accounting for the unique risks of each institution.`,
+  };
+  const resume = 'Quantitative Risk Analyst June 2022-Current\nPython, SQL\nEDUCATION\nMasters of Economics';
+  const r = atsScore(job, resume, { checkFormatting: false });
+  assert.deepEqual(r.knockouts, []);
+  assert.equal(r.components.education, 100);
+  assert.ok(!r.missingSkills.some((m) => m.skill === 'Accounting'));
+  assert.ok(r.missingSkills.filter((m) => m.skill === 'Java').every((m) => m.kind === 'preferred'));
+});

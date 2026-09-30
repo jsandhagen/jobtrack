@@ -54,3 +54,27 @@ test('no documents means no score, and confidence reflects what was recognised',
   const vague = localFitScore({ title: 'Team Member', text: 'Join our friendly team! Great culture.' }, CANDIDATES.frontend.documents, {});
   assert.equal(vague.confidence, 'low');
 });
+
+test('example-language lists, "accounting for", curly apostrophes and EEO text are not required qualifications', () => {
+  const job = {
+    title: 'Quantitative Analytics Senior',
+    company: 'Freddie Mac',
+    text: `Your Impact:
+Design and code counterparty credit risk models.
+These models must incorporate best practices while simultaneously accounting for the unique risks of each institution.
+Qualifications:
+PhD in economics, finance, statistics, or a related quantitative discipline, or Master’s degree with 3+ years of relevant experience.
+Programming languages may include--but are not limited to--Python, R, SQL, and MATLAB.
+Strong Programming skills is a must! Python and SQL are most frequently used; other useful languages and software available in the company include Java, SAS, MATLAB, C.
+A safe and secure environment is critical. Employees adhere to privacy & security obligations as required via training programs and our acceptable use policy.`,
+  };
+  const resume = `Quantitative Risk Analyst  June 2022-Current
+Built credit risk models in Python, SQL and Snowflake.
+EDUCATION
+Masters of Economics, May 2022`;
+  const r = localFitScore(job, [{ kind: 'resume', text: resume }]);
+  assert.deepEqual(r.missingSkills, []);
+  assert.ok(r.missingPreferred.includes('Java') && r.missingPreferred.includes('SAS'));
+  assert.ok(!r.matchedSkills.includes('Accounting') && !r.missingSkills.includes('Accounting'));
+  assert.ok(r.matchedSkills.includes('Programming'));
+});

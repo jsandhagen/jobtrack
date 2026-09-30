@@ -35,9 +35,9 @@ const WEIGHTS = {
 const DEGREE_LEVELS = [
   [4, /(?<![a-z])(ph\.?\s?d|doctorate|doctoral)(?![a-z])/],
   // "master of" / "bachelor of" count, but not a bare "Scrum Master".
-  [3, /(?<![a-z])(master'?s|master of|m\.s\.|m\.sc|msc|mba|m\.a\.|msn)(?![a-z])/],
-  [2, /(?<![a-z])(bachelor'?s|bachelor of|b\.s\.|b\.sc|bsc|b\.a\.|bsn|undergraduate degree|4-year degree|four-year degree)(?![a-z])/],
-  [1, /(?<![a-z])(associate'?s degree|associate degree)(?![a-z])/],
+  [3, /(?<![a-z])(master['’]?s|master of|m\.s\.|m\.sc|msc|mba|m\.a\.|msn)(?![a-z])/],
+  [2, /(?<![a-z])(bachelor['’]?s|bachelor of|b\.s\.|b\.sc|bsc|b\.a\.|bsn|undergraduate degree|4-year degree|four-year degree)(?![a-z])/],
+  [1, /(?<![a-z])(associate['’]?s degree|associate degree)(?![a-z])/],
 ];
 const DEGREE_NAMES = { 1: "an associate's degree", 2: "a bachelor's degree", 3: "a master's degree", 4: 'a PhD' };
 
@@ -137,9 +137,9 @@ function scoreExperience(jobText, resumeText) {
 }
 
 // Benefits, pay and EEO boilerplate aren't things a resume should echo.
-const BOILERPLATE_LINE = /benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|apply|perks|parental leave|stock|equity/i;
+const BOILERPLATE_LINE = /benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|apply|perks|parental leave|stock|equity|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records/i;
 const FILLER = new Set(
-  'delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional'.split(' ')
+  'delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional used focus possible various unique primarily motivates'.split(' ')
 );
 
 function scoreKeywords(jobText, resumeLower, company) {
@@ -155,7 +155,7 @@ function scoreKeywords(jobText, resumeLower, company) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 25);
   if (!terms.length) return null;
-  const missing = terms.filter(([t]) => !resumeLower.includes(t)).map(([t]) => t);
+  const missing = terms.filter(([t]) => !resumeLower.includes(t) && !(t.length > 4 && t.endsWith('s') && resumeLower.includes(t.slice(0, -1)))).map(([t]) => t);
   return { score: (terms.length - missing.length) / terms.length, missing: missing.slice(0, 10) };
 }
 
