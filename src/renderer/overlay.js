@@ -10,7 +10,8 @@ function esc(s) {
 
 function fit() {
   // Let the window hug the card.
-  requestAnimationFrame(() => window.sprout.overlayResize(pop.getBoundingClientRect().height + 20));
+  // scrollHeight: the card's full content, even while it's capped and scrolling.
+  requestAnimationFrame(() => window.sprout.overlayResize(Math.max(pop.getBoundingClientRect().height, pop.scrollHeight + 2) + 20));
 }
 
 function scoreView({ app, analyzing, noDocs, noKey }) {
@@ -47,9 +48,9 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
   return `<div class="top">${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click to say hi', variant: 'random' })}<div class="speech">${esc(speech)}</div></div>
     <div class="role">${esc(app.job.title)}</div>
     <div class="company">${esc([app.job.company, app.job.location].filter(Boolean).join(' · ') || 'Job posting detected')}</div>
-    <div class="scoreline">${scoreRing(score, 84)}
+    <div class="scoreline" data-info-host>${scoreRing(score, 84)}
       <div><div class="label">${esc(label)}</div>
-      <div class="src">${analyzing ? '<span class="spinner"></span> Claude is reading closely…' : a ? 'Scored by Claude' : `Free score · ${esc(app.quick.confidence || 'medium')} confidence`}</div></div>
+      <div class="src">${analyzing ? '<span class="spinner"></span> Claude is reading closely…' : a ? 'Scored by Claude' : `Free score · ${esc(app.quick.confidence || 'medium')} confidence`} ${window.SproutInfo.infoBtn('fit')}</div></div>
     </div>
     ${atsLine(app)}
     ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : ''}
@@ -72,9 +73,9 @@ function atsLine(app) {
   const b = app.ats && app.ats.before;
   if (!b) return '';
   const grade = (app.analysis && app.analysis.grade) || b.grade;
-  return `<div class="ats-line" title="Estimated applicant-tracking-system match for your current resume">
+  return `<div class="ats-line" data-info-host title="Estimated applicant-tracking-system match for your current resume">
     <span class="grade g-${grade}">${grade}</span>
-    <span>ATS match for your current resume: <b>${b.score}%</b>${b.skillsMatch ? ` · skills ${esc(b.skillsMatch.toLowerCase())}` : ''}</span></div>`;
+    <span>ATS match for your current resume: <b>${b.score}%</b>${b.skillsMatch ? ` · skills ${esc(b.skillsMatch.toLowerCase())}` : ''}</span>${window.SproutInfo.infoBtn('ats')}</div>`;
 }
 
 function workingView({ app, engine, what }) {
@@ -144,6 +145,8 @@ function render(payload) {
   if (payload.mode === 'done' || (payload.mode === 'score' && !payload.analyzing && payload.app.analysis && payload.app.analysis.score >= 80)) confetti(pop);
   fit();
 }
+
+window.SproutInfo.wire({ inline: true, onToggle: fit });
 
 content.addEventListener('click', (e) => {
   // Poke Sprout and it says something nice.

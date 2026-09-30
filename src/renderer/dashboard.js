@@ -1,6 +1,7 @@
 const S = window.sprout;
 const { mascotSvg, sproutSays, moodForScore, encouragement, say, pick, scoreRing, animateRings, confetti } = window.SproutMascot;
 const { icon } = window.SproutIcons;
+const { infoBtn } = window.SproutInfo;
 const view = document.getElementById('view');
 let state = null;
 let currentAppId = null;
@@ -488,7 +489,7 @@ function atsPanel(ats) {
       : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Generate the tailored resume to see its ATS score here.</div></div>`;
   const stat = (label, value, hint) => `<div class="ats-stat" title="${esc(hint)}"><b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
   return `<div class="card ats-card" id="atsCard">
-    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('chart', 22)} ATS check</h2>
+    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('chart', 22)} ATS check ${infoBtn('ats')}</h2>
       <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Aim for 75–80%+.</p></div>
       ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
@@ -530,7 +531,7 @@ async function renderApplication(id) {
   const q = a.quick;
 
   const insight = an
-    ? `<p style="font-weight:700">${esc(an.headline)}</p>
+    ? `<h3 style="margin-top:4px">Claude's fit read ${infoBtn('fit')}</h3><p style="font-weight:700">${esc(an.headline)}</p>
       <div class="section-title">Why you fit</div><ul class="tidy">${an.strengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       ${an.gaps.length ? `<div class="section-title">Room to grow</div><ul class="tidy muted">${an.gaps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
       ${an.qualifications && an.qualifications.length ? `<div class="section-title">Qualifications checklist ${an.grade ? `<span class="grade g-${an.grade}" title="HiredScore-style grade from Claude's checklist">${an.grade}</span>` : ''}</div>
@@ -539,7 +540,7 @@ async function renderApplication(id) {
         .join('')}</ul>` : ''}
       <div class="section-title">Talking points</div><ul class="tidy">${an.talking_points.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>`
-    : `<h3 style="margin-top:4px">Free fit score <span class="chip" title="How much of the posting the free scorer recognised">confidence: ${esc(q.confidence || 'medium')}</span></h3>
+    : `<h3 style="margin-top:4px">Free fit score ${infoBtn('fit')} <span class="chip" title="How much of the posting the free scorer recognised">confidence: ${esc(q.confidence || 'medium')}</span></h3>
       ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Dealbreaker:</b> ${q.dealbreakers.map(esc).join('; ')}</div>` : ''}
       ${q.reasons && q.reasons.length ? `<ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
       ${q.concerns && q.concerns.length ? `<ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
@@ -596,7 +597,7 @@ async function renderApplication(id) {
       <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
         <div class="muted" style="font-weight:700">${esc([a.job.company, a.job.location].filter(Boolean).join(' · '))}</div>
-        <div style="margin-top:6px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}
+        <div style="margin-top:6px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${infoBtn('fit')}${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}
         <span class="faint">${esc(encouragement(score, a.id.charCodeAt(1)))}</span></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:170px">
@@ -1028,6 +1029,8 @@ function reportImport(res) {
   if (res.bullets && res.bullets.added) toast(`…and ${res.bullets.added} bullets to your bullet bank`, 'good', 5000, 'proud');
   (res.errors || []).forEach((e) => toast(e, 'error', 7000));
 }
+
+window.SproutInfo.wire();
 
 // ---------------- router ----------------
 

@@ -7,7 +7,8 @@ body { padding: 10px; user-select: none; }
   border-radius: 22px;
   box-shadow: 0 12px 36px rgba(60, 50, 30, 0.22);
   padding: 18px 18px 16px;
-  overflow: hidden;
+  overflow: hidden auto; /* scrolls if it grows past the window's height cap (e.g. a score explanation) */
+  max-height: calc(100vh - 20px);
   animation: pop-in 0.35s cubic-bezier(0.2, 1.3, 0.4, 1);
   -webkit-app-region: drag;
 }
@@ -61,3 +62,5 @@ body { padding: 10px; user-select: none; }
 button.letter-btn { background: #fdeadb; color: #c4692b; }
 button.letter-btn:hover { background: #fbdcc4; }
 @media (prefers-color-scheme: dark) { button.letter-btn { background: #45332a; color: #f9a65a; } button.letter-btn:hover { background: #553e31; } }
+
+.pop .info-pop { -webkit-app-region: no-drag; user-select: text; }

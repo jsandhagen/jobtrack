@@ -222,7 +222,7 @@ It captures at the screen's full resolution and enlarges standard-resolution scr
 
 ### Free fit score
 
-Runs on every posting, instantly and offline (`src/main/localFit.js`):
+Runs on every posting, instantly and offline (`src/main/localFit.js`). In the app, the **ⓘ** next to the fit score and the ATS score explains each one and how they differ. In short: the fit score asks whether *you* match the job (from everything in your library and Profile), and the ATS score asks whether *one resume* will get past the screening software.
 
 | Signal | Weight | What it checks |
 |---|---|---|
