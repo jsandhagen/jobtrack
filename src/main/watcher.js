@@ -90,27 +90,34 @@ class PostingWatcher extends EventEmitter {
   }
 
   // ---- screen ----
-  async scanScreenNow({ force = false } = {}) {
+  // Capture and read the screen once. Returns the posting, or null when
+  // there's no job on screen (or a scan is already running). Throws on errors.
+  async readScreenPosting({ force = false, onScanning } = {}) {
     if (this.busy) return null;
     this.busy = true;
     try {
       const shot = await this.deps.captureScreen('full');
       if (!shot) return null;
-      this.emit('scanning', { force });
+      if (onScanning) onScanning();
       const job = await this.deps.readScreen(shot.png, { force });
-      if (!job.is_job_posting || !job.posting_text || job.posting_text.length < 200) {
-        if (force) this.emit('no-posting');
-        return null;
-      }
+      if (!job.is_job_posting || !job.posting_text || job.posting_text.length < 200) return null;
       if (!force && !this._isNew(job.posting_text)) return null;
-      const posting = { text: job.posting_text, title: job.title, company: job.company, location: job.location, url: job.page_url || '', via: 'screen' };
-      this.emit('posting', posting);
+      return { text: job.posting_text, title: job.title, company: job.company, location: job.location, url: job.page_url || '', via: 'screen' };
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async scanScreenNow({ force = false } = {}) {
+    if (this.busy) return null;
+    try {
+      const posting = await this.readScreenPosting({ force, onScanning: () => this.emit('scanning', { force }) });
+      if (posting) this.emit('posting', posting);
+      else if (force) this.emit('no-posting');
       return posting;
     } catch (err) {
       this.emit('error', err, { force });
       return null;
-    } finally {
-      this.busy = false;
     }
   }
 

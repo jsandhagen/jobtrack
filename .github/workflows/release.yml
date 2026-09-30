@@ -89,10 +89,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ runner.os }}
+          # latest*.yml and the blockmaps let the in-app updater find and
+          # download new versions (see src/main/updater.js).
           path: |
             dist/*.exe
             dist/*.dmg
             dist/*.AppImage
+            dist/*.blockmap
+            dist/latest*.yml
           if-no-files-found: error
 
   release:

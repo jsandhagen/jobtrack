@@ -62,7 +62,7 @@ async function renderBankPage() {
     ${pageHead(
       'Bullet bank',
       total ? 'proud' : 'curious',
-      `${total ? `<b>${total}</b> accomplishments and counting! ` : ''}Every bullet you've written, filed under its role. For each job I pick the ones that fit best — reword, swap or add them anytime.`,
+      `${total ? `<b>${total}</b> accomplishments so far. ` : ''}Every bullet you've written, filed under its role. For each job I pick the ones that fit best — reword, swap or add them anytime.`,
       `<button class="soft" id="bankImport">${icon('inbox')} Import from my documents</button>
       ${state.hasApiKey ? `<button class="ghost" id="bankSuggest" title="Uses Claude">${icon('sparkle')} Find more with Claude</button>` : ''}
       <button class="primary" id="addRole">+ Add role</button>`
@@ -108,13 +108,13 @@ async function renderBankPage() {
   $('#addRole', page).addEventListener('click', () => openRoleModal({}));
   $$('[data-editrole]', page).forEach((b) => b.addEventListener('click', () => openRoleModal(bank.experiences.find((e) => e.id === b.dataset.editrole))));
   $$('[data-delrole]', page).forEach((b) => b.addEventListener('click', () => run(null, async () => (await S.deleteRole(b.dataset.delrole), renderBankPage()))));
-  $$('.bb-text', page).forEach((t) => t.addEventListener('change', () => S.updateBullet(t.dataset.id, { text: t.value }).then(() => toast('Saved', 'good', 1500))));
+  $$('.bb-text', page).forEach((t) => t.addEventListener('change', () => S.updateBullet(t.dataset.id, { text: t.value }).then(() => toast(say('saved'), 'good', 1500))));
   $$('.bb-var', page).forEach((t) =>
     t.addEventListener('change', () => {
       const b = bank.bullets.find((x) => x.id === t.dataset.id);
       const variants = [...b.variants];
       variants[+t.dataset.i] = t.value;
-      S.updateBullet(b.id, { variants }).then(() => toast('Saved', 'good', 1500));
+      S.updateBullet(b.id, { variants }).then(() => toast(say('saved'), 'good', 1500));
     })
   );
   $$('[data-promote]', page).forEach((btn) =>
@@ -159,8 +159,8 @@ async function renderBankPage() {
       run(btn, async () => (await S.addBullet({ experienceId: btn.dataset.addto, text: t.value }), toast('Added to your bank', 'good'), renderBankPage()), 'Adding…');
     })
   );
-  $('#bankSummary', page).addEventListener('change', (e) => S.updateBank({ summary: e.target.value }).then(() => toast('Saved', 'good', 1500)));
-  $('#bankSkills', page).addEventListener('change', (e) => S.updateBank({ skills: e.target.value.split(',') }).then(() => toast('Saved', 'good', 1500)));
+  $('#bankSummary', page).addEventListener('change', (e) => S.updateBank({ summary: e.target.value }).then(() => toast(say('saved'), 'good', 1500)));
+  $('#bankSkills', page).addEventListener('change', (e) => S.updateBank({ skills: e.target.value.split(',') }).then(() => toast(say('saved'), 'good', 1500)));
   $('#bankEdu', page).addEventListener('change', (e) =>
     S.updateBank({
       education: e.target.value
@@ -168,7 +168,7 @@ async function renderBankPage() {
         .map((l) => l.split(/\s+[—–-]\s+/))
         .filter((p) => p[0] && p[0].trim())
         .map(([degree, school, dates]) => ({ degree: degree.trim(), school: (school || '').trim(), dates: (dates || '').trim(), details: '' })),
-    }).then(() => toast('Saved', 'good', 1500))
+    }).then(() => toast(say('saved'), 'good', 1500))
   );
 }
 

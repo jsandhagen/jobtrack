@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld('sprout', {
   updateApplication: (id, patch) => call('app:update', id, patch),
   removeApplication: (id) => call('app:remove', id),
   generateResume: (id) => call('app:resume', id),
+  atsResume: (id) => call('app:atsResume', id),
+  baselineResume: (id) => call('builder:baseline', id),
+  undoResume: (id) => call('builder:undo', id),
   generateCoverLetter: (id) => call('app:coverLetter', id),
   exportDoc: (id, which, format, editedHtml) => call('app:export', id, which, format, editedHtml),
 
@@ -61,11 +64,15 @@ contextBridge.exposeInMainWorld('sprout', {
   polishBullets: (appId) => call('builder:polish', appId),
   bridgeRevoke: (origin) => call('bridge:revoke', origin),
   showExtensionFolder: () => call('bridge:showFolder'),
+  updateStatus: () => call('update:status'),
+  checkForUpdates: () => call('update:check'),
+  installUpdate: () => call('update:install'),
   overlayResize: (h) => call('overlay:resize', h),
 
   onStateChanged: (cb) => on('state-changed', cb),
   onAppUpdated: (cb) => on('app-updated', cb),
   onToast: (cb) => on('toast', cb),
   onNavigate: (cb) => on('navigate', cb),
+  onUpdateStatus: (cb) => on('update-status', cb),
   onOverlayShow: (cb) => on('overlay:show', cb),
 });

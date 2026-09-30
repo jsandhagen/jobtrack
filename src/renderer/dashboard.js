@@ -5,6 +5,7 @@ const view = document.getElementById('view');
 let state = null;
 let currentAppId = null;
 let appTab = 'resume';
+let openTab = null; // tab to show next time an application opens
 
 // ---------------- helpers ----------------
 
@@ -18,7 +19,7 @@ const $$ = (sel, root = view) => Array.from(root.querySelectorAll(sel));
 function toast(text, kind = 'info', ms = 3800, mood) {
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
-  el.innerHTML = mascotSvg(mood || { good: 'happy', error: 'worried' }[kind] || 'curious', 34);
+  el.innerHTML = mascotSvg(mood || { good: 'happy', error: 'worried' }[kind] || 'curious', 34, { variant: 'random' });
   const span = document.createElement('span');
   span.textContent = text;
   el.appendChild(span);
@@ -36,16 +37,39 @@ function celebrate(text, mood = 'thrilled') {
   toast(text, 'good', 5500, mood);
 }
 
-// Sprout says something nice when poked, anywhere in the app.
+// Sprout says something nice when poked, anywhere in the app, and pulls a
+// happy face for a moment. Spike and Root answer in their own voices. Poke
+// a lot and they get a little dizzy.
+const PET_FACES = ['happy', 'thrilled', 'wave', 'proud', 'hug', 'cheer'];
+let pets = [];
+let lastPetFace = null;
 function petSprout(svg) {
-  svg.classList.remove('boing');
-  void svg.getBoundingClientRect();
-  svg.classList.add('boing');
-  const bubble = svg.parentElement && svg.parentElement.querySelector(':scope > .bubble, :scope > div > .sprout-line');
+  const kind = svg.classList.contains('cast-cactus') ? 'cactus' : svg.classList.contains('cast-carrot') ? 'carrot' : 'sprout';
+  const now = Date.now();
+  pets = pets.filter((t) => now - t < 4000).concat(now);
+  // Swap in a reaction face, keeping size and classes; restore it after a moment.
+  const orig = svg._orig || svg.outerHTML;
+  const keep = [...svg.classList].filter((c) => c === 'pettable' || c === 'pal-idle' || c === 'pal-up').join(' ');
+  const tmp = document.createElement('div');
+  let face = PET_FACES[Math.floor(Math.random() * PET_FACES.length)];
+  if (face === lastPetFace) face = PET_FACES[(PET_FACES.indexOf(face) + 1) % PET_FACES.length];
+  lastPetFace = face;
+  tmp.innerHTML = mascotSvg(face, +svg.getAttribute('width'), { kind, cls: `${keep} boing`, variant: 'random', label: svg.getAttribute('aria-label') });
+  const next = tmp.firstElementChild;
+  next._orig = orig;
+  svg.replaceWith(next);
+  clearTimeout(svg._restoreFace);
+  next._restoreFace = setTimeout(() => {
+    if (!next.isConnected) return;
+    tmp.innerHTML = orig;
+    next.replaceWith(tmp.firstElementChild);
+  }, 4200);
+
+  const bubble = next.parentElement && next.parentElement.querySelector(':scope > .bubble, :scope > div > .sprout-line');
   if (!bubble) return;
-  // Say something sweet, then go back to the page's own line.
+  // Say something, then go back to the page's own line.
   if (bubble.dataset.orig === undefined) bubble.dataset.orig = bubble.innerHTML;
-  bubble.textContent = say('pet');
+  bubble.textContent = pets.length >= 4 ? say('petLots') : say(kind === 'cactus' ? 'spike' : kind === 'carrot' ? 'root' : 'pet');
   clearTimeout(bubble._restore);
   bubble._restore = setTimeout(() => {
     bubble.innerHTML = bubble.dataset.orig;
@@ -105,14 +129,18 @@ function greeting() {
 function homeMood({ apps, appliedWeek, due, allDone }) {
   const offers = apps.filter((a) => a.status === 'offer').length;
   const interviews = apps.filter((a) => a.status === 'interviewing').length;
-  if (offers) return ['thrilled', `You have ${offers === 1 ? 'an offer' : `${offers} offers`} on the table! I'm beaming.`];
+  if (offers) return ['thrilled', `You have ${offers === 1 ? 'an offer' : `${offers} offers`} on the table. That's huge.`];
   if (due.length) return ['curious', `${due.length === 1 ? 'One follow-up is' : `${due.length} follow-ups are`} due. A quick, friendly note can make a big difference.`];
-  if (interviews) return ['cheer', `${interviews === 1 ? 'An interview' : `${interviews} interviews`} in progress — you've got this!`];
-  if (appliedWeek >= 3) return ['proud', `${appliedWeek} applications this week! I'm so proud of you.`];
-  if (appliedWeek) return ['happy', `You applied to ${appliedWeek === 1 ? 'a role' : `${appliedWeek} roles`} this week. Lovely momentum!`];
-  if (!allDone) return ['wave', "Hi, I'm Sprout! Let's get you set up — it only takes a few minutes."];
-  if (!apps.length) return ['curious', "Let's find you something wonderful. Copy a job posting and I'll take a look."];
-  return ['happy', pick(["Let's find you something wonderful today.", "Ready when you are. Let's go find your next role.", 'New day, new postings. I’ll keep watch with you.'], new Date().getDate())];
+  if (interviews) return ['cheer', `${interviews === 1 ? 'An interview' : `${interviews} interviews`} in progress. Want to jot some prep notes?`];
+  if (appliedWeek >= 3) return ['proud', `${appliedWeek} applications this week. That's a real week's work.`];
+  if (appliedWeek) return ['happy', `You applied to ${appliedWeek === 1 ? 'a role' : `${appliedWeek} roles`} this week. Nice momentum.`];
+  if (!allDone) return ['wave', "Hi, I'm Sprout. Setup takes a few minutes — let's do it together."];
+  if (!apps.length) return ['curious', "Copy a job posting anywhere and I'll take a look."];
+  // Stable for the hour, so the line doesn't change every time the page redraws.
+  const d = new Date();
+  const h = d.getHours();
+  const key = h < 5 || h >= 23 ? 'idleLate' : h < 12 ? 'idleMorning' : h < 18 ? 'idleAfternoon' : 'idleEvening';
+  return [h < 5 || h >= 23 ? 'sleepy' : 'happy', say(key, d.getDate() * 24 + h)];
 }
 
 const KIND_LABEL = {
@@ -276,7 +304,7 @@ const views = {
   library() {
     const docs = state.documents;
     return `<div class="page">
-      ${pageHead('My library', docs.length ? 'happy' : 'wave', docs.length ? `I've got <b>${docs.length}</b> document${docs.length === 1 ? '' : 's'} to draw from when tailoring. Old cover letters, project write-ups, reviews, certificates — the more, the merrier!` : 'Everything I can draw from when tailoring goes here: resumes, old cover letters, project write-ups, performance reviews, certificates… The more, the merrier!')}
+      ${pageHead('My library', docs.length ? 'happy' : 'wave', docs.length ? `I've got <b>${docs.length}</b> document${docs.length === 1 ? '' : 's'} to draw from when tailoring. Old cover letters, project write-ups and reviews all help.` : 'Everything I can draw from when tailoring goes here: resumes, old cover letters, project write-ups, performance reviews, certificates. The more I have, the better I can tailor.')}
       <div class="dropzone" id="drop"><div class="big">${icon('inbox', 44)}</div><h3>Drop files here</h3><p class="muted">PDF, Word (.docx), text or Markdown</p>
         <div class="inline" style="justify-content:center"><button class="primary" id="pickBtn">Choose files</button><button class="soft" id="pasteDocBtn">Paste text instead</button></div></div>
       <div class="list" style="margin-top:18px">${docs.filter((d) => d.kind !== 'writing-sample').map(docRow).join('')}</div>
@@ -295,7 +323,7 @@ const views = {
     const p = state.profile;
     const f = (k, label, ph, full) => `<div class="${full ? 'full' : ''}"><label>${label}</label><input data-k="${k}" value="${esc(p[k])}" placeholder="${ph}"></div>`;
     return `<div class="page">
-      ${pageHead('Profile', p.name ? 'happy' : 'curious', `${p.name ? `Nice to see you, <b>${esc(p.name.split(' ')[0])}</b>! ` : "What should I call you? "}This goes in your resume header — only what you enter here ends up on it.`)}
+      ${pageHead('Profile', p.name ? 'happy' : 'curious', `${p.name ? `Hi, <b>${esc(p.name.split(' ')[0])}</b>. ` : "What should I call you? "}This goes in your resume header — only what you enter here ends up on it.`)}
       <div class="card"><div class="form-grid">
         ${f('name', 'Full name', 'Jordan Rivera')}${f('email', 'Email', 'jordan@example.com')}
         ${f('phone', 'Phone', '(555) 123-4567')}${f('location', 'Location', 'Portland, OR · Open to remote')}
@@ -341,6 +369,7 @@ const views = {
           <div class="usage">${usageSummary()}</div>
           <button class="primary" id="saveClaudeUse" style="margin-top:10px">Save</button>
         </div>
+        <div class="card" id="updCard"><h2 class="with-icon">${icon('sparkle', 22)} Updates</h2><p class="muted"><span class="spinner"></span></p></div>
         <div class="card" id="extCard"><h2 class="with-icon">${icon('globe', 22)} Browser extension</h2><p class="muted"><span class="spinner"></span></p></div>
         <div class="card"><h2>Tracking</h2>
           <label>Remind me to follow up after (days)</label>
@@ -394,7 +423,7 @@ function applicationsLine(all) {
   const applied = all.filter((a) => a.appliedAt).length;
   if (!all.length) return 'Every role you check lands here, so nothing slips through the cracks.';
   if (!applied) return `You've checked <b>${all.length}</b> role${all.length === 1 ? '' : 's'} so far. Ready to send one out?`;
-  return `<b>${all.length}</b> role${all.length === 1 ? '' : 's'} checked, <b>${applied}</b> applied. Every one of those took effort — nice work.`;
+  return `<b>${all.length}</b> role${all.length === 1 ? '' : 's'} checked, <b>${applied}</b> applied. That's steady progress.`;
 }
 
 function usageSummary() {
@@ -558,7 +587,7 @@ async function renderApplication(id) {
     if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}</div>`;
     if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel(a.ats) : '<div></div>'}${fitCard}</div>`;
     if (appTab === 'letter') return letterBody();
-    if (busyResume) return `<div class="empty">${mascotSvg('thinking', 80)}<h3>Claude is writing your resume…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
+    if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
     return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';
   };
 
@@ -584,7 +613,8 @@ async function renderApplication(id) {
     </div>
     <div id="tabBody">${tabBody()}</div>`;
   animateRings(page);
-  if (appTab === 'resume' && !busyResume) renderEditor(id, a);
+  // The editor loads its own data; callers can await it to act on the new page.
+  const editorReady = appTab === 'resume' && !busyResume ? renderEditor(id, a) : null;
 
   const frame = document.getElementById('preview');
   if (frame) {
@@ -608,6 +638,7 @@ async function renderApplication(id) {
       if (st === 'offer') celebrate(say('offer'));
       else if (st === 'interviewing') celebrate(say('interviewing'), 'cheer');
       else if (st === 'rejected') toast(say('rejected'), 'info', 6500, 'hug');
+      else if (st === 'skipped') toast(say('skipped'), 'good', 3800, 'proud');
       else toast('Status updated', 'good');
     });
   });
@@ -641,7 +672,7 @@ async function renderApplication(id) {
   const genLetter = async () => {
     const p = S.generateCoverLetter(id);
     renderApplication(id);
-    await run(null, () => p.then(() => toast('Cover letter ready! Give it a read.', 'good', 3800, 'proud')));
+    await run(null, () => p.then(() => toast('Cover letter ready. Give it a read.', 'good', 3800, 'proud')));
     renderApplication(id);
   };
   const gl = $('#genLetter', page);
@@ -657,15 +688,64 @@ async function renderApplication(id) {
       }, 'Saving…')
     )
   );
+  return editorReady;
 }
+
+// ---------------- updates ----------------
+
+async function renderUpdateCard(st) {
+  if (!st) st = await S.updateStatus().catch(() => null);
+  const card = document.getElementById('updCard');
+  if (!card || !st) return;
+  const when = st.checkedAt ? ` Last checked ${timeAgo(st.checkedAt)}.` : '';
+  const line = {
+    dev: "You're running Sprout from source, so updates come from git instead.",
+    idle: `You have version ${esc(st.current)}. Sprout checks for new versions on its own.`,
+    checking: '<span class="spinner"></span> Checking for a new version…',
+    current: `You're up to date (version ${esc(st.current)}).${when}`,
+    downloading: `<span class="spinner"></span> Downloading version ${esc(st.version)}… ${st.percent ? `${st.percent}%` : ''}`,
+    ready: `<b>Version ${esc(st.version)} is ready.</b> Restart to switch to it, or it installs next time you quit Sprout.`,
+    available: `<b>Version ${esc(st.version)} is out</b> (you have ${esc(st.current)}). Download it and install over this one; your documents and applications are kept.`,
+    error: `Couldn't check for updates: ${esc(st.error || 'unknown error')}`,
+  }[st.state] || '';
+  const busy = ['checking', 'downloading'].includes(st.state);
+  const btn =
+    st.state === 'ready'
+      ? `<button class="primary" id="updInstall">Restart and update</button>`
+      : st.state === 'available'
+        ? `<button class="primary" id="updDownload">${icon('download', 16)} Download ${esc(st.version)}</button>`
+        : st.state === 'dev'
+          ? ''
+          : `<button class="soft" id="updCheck" ${busy ? 'disabled' : ''}>Check now</button>`;
+  card.innerHTML = `<h2 class="with-icon">${icon('sparkle', 22)} Updates</h2><p class="muted">${line}</p>${btn}`;
+  const on = (id, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', (e) => run(e.currentTarget, fn, 'Working…'));
+  };
+  on('updCheck', async () => renderUpdateCard(await S.checkForUpdates()));
+  on('updInstall', () => S.installUpdate());
+  on('updDownload', () => S.openExternal(st.url));
+}
+S.onUpdateStatus((st) => renderUpdateCard(st));
 
 // ---------------- browser extension ----------------
 
 async function renderExtensionCard() {
   const card = document.getElementById('extCard');
   if (!card) return;
-  const st = await S.bridgeStatus().catch(() => null);
-  if (!st || !document.getElementById('extCard')) return;
+  let st = null;
+  let err = '';
+  try {
+    st = await S.bridgeStatus();
+  } catch (e) {
+    err = e.message;
+  }
+  if (!document.getElementById('extCard')) return;
+  if (!st) {
+    card.innerHTML = `<h2 class="with-icon">${icon('globe', 22)} Browser extension</h2>
+      <div class="note-box" style="background:var(--peach-soft)">Couldn't load the extension settings${err ? `: ${esc(err)}` : ''}. Restart Sprout to try again.</div>`;
+    return;
+  }
   const browsers = st.pairings.length
     ? `<div class="section-title">Connected browsers</div>${st.pairings
         .map(
@@ -718,7 +798,7 @@ function trackingCard(a) {
 function openApplyModal(a) {
   const days = Number(state.settings.followUpDays) || 7;
   const follow = new Date(Date.now() + days * 86400000);
-  const card = openModal(`<div class="modal-hero">${mascotSvg('proud', 72)}<div><h2>You applied!</h2><p class="muted">That takes guts — I'm proud of you. Let's record it so we can keep track together.</p></div></div>
+  const card = openModal(`<div class="modal-hero">${mascotSvg('proud', 72)}<div><h2>You applied!</h2><p class="muted">Nicely done. Let’s note the details so following up is easy.</p></div></div>
     <div class="form-grid">
       <div><label>Date applied</label><input type="date" id="mDate" value="${dateInput(new Date().toISOString())}"></div>
       <div><label>Where</label><input id="mVia" list="viaList" placeholder="Company site, LinkedIn…"><datalist id="viaList"><option>Company website</option><option>LinkedIn</option><option>Indeed</option><option>Referral</option><option>Recruiter</option><option>Email</option></datalist></div>
@@ -745,8 +825,13 @@ function openApplyModal(a) {
         notes: $('#mNotes', card).value,
       });
       closeModal();
+      // Count this one too: state refreshes after the save lands.
+      const n = state.applications.filter((x) => x.appliedAt && x.id !== a.id).length + 1;
       await refreshState();
-      celebrate(`${say('applied')}${gardenAppliedNote(a.id) || " I'll remind you to follow up."}`);
+      const garden = gardenAppliedNote(a.id);
+      if (n === 1) celebrate(`${say('firstApplied')}${garden}`);
+      else if ([5, 10, 15, 20, 25, 30, 40, 50, 75, 100].includes(n)) celebrate(`${say('milestone', null, { n })}${garden}`);
+      else celebrate(`${say('applied')}${garden || " I'll remind you to follow up."}`);
     }, 'Saving…')
   );
 }
@@ -777,17 +862,26 @@ function openEditJobModal(a) {
       await S.updateApplication(a.id, { job: { title: $('#mTitle', card).value.trim(), company: $('#mCompany', card).value.trim(), location: $('#mLoc', card).value.trim(), url: $('#mUrl', card).value.trim() } });
       await S.rescoreLocal(a.id); // the title feeds role and seniority matching
       closeModal();
-      toast('Saved', 'good');
+      toast(say('saved'), 'good');
     })
   );
 }
 
 // ---------------- wiring per view ----------------
 
+// Sprout minimises itself for the screenshot, then shows what it found here.
+function scanFromApp(e) {
+  return run(e.currentTarget, async () => {
+    const app = await S.scanScreen();
+    if (app) location.hash = `#application/${app.id}`;
+    else toast("I couldn't find a job posting on your screen. Open one and try again, or paste its text into Check a job.", 'error', 5000, 'curious');
+  }, 'Reading your screen…');
+}
+
 const binders = {
   home() {
     const scan = $('#scanBtn');
-    if (scan) scan.addEventListener('click', () => S.scanScreen());
+    if (scan) scan.addEventListener('click', scanFromApp);
   },
   check() {
     $('#analyzeBtn').addEventListener('click', (e) =>
@@ -796,7 +890,7 @@ const binders = {
         location.hash = `#application/${app.id}`;
       }, 'Checking…')
     );
-    $('#scanBtn').addEventListener('click', () => S.scanScreen());
+    $('#scanBtn').addEventListener('click', scanFromApp);
   },
   applications() {
     $$('[data-filter]').forEach((b) => b.addEventListener('click', () => ((appFilter = b.dataset.filter), route())));
@@ -809,7 +903,7 @@ const binders = {
       el.setSelectionRange(el.value.length, el.value.length);
     });
     $('#appSort').addEventListener('change', (e) => ((appSort = e.target.value), route()));
-    $('#csvBtn').addEventListener('click', (e) => run(e.currentTarget, async () => (await S.exportCsv()) && toast('Exported!', 'good'), 'Exporting…'));
+    $('#csvBtn').addEventListener('click', (e) => run(e.currentTarget, async () => (await S.exportCsv()) && toast('Exported.', 'good'), 'Exporting…'));
   },
   library() {
     const drop = $('#drop');
@@ -835,7 +929,7 @@ const binders = {
         run(null, async () => {
           await S.addTextDocument({ name: $('#mName', card).value.trim() || (sample ? 'Writing sample' : 'Notes'), text: $('#mText', card).value, kind: sample ? 'writing-sample' : undefined });
           closeModal();
-          toast(sample ? 'Sample added — I’ll help Claude match your voice.' : 'Added to your library. More for me to work with!', 'good');
+          toast(sample ? 'Sample added — I’ll help Claude match your voice.' : 'Added to your library.', 'good');
         })
       );
     };
@@ -863,7 +957,7 @@ const binders = {
           <textarea id="mText" style="min-height:420px">${esc(d.text)}</textarea>
           <div class="inline" style="margin-top:12px"><button class="primary" id="mSave">Save</button><button class="ghost" id="mCancel">Close</button></div>`);
         $('#mCancel', card).addEventListener('click', closeModal);
-        $('#mSave', card).addEventListener('click', () => run(null, async () => (await S.updateDocument(d.id, { text: $('#mText', card).value }), closeModal(), toast('Saved', 'good'))));
+        $('#mSave', card).addEventListener('click', () => run(null, async () => (await S.updateDocument(d.id, { text: $('#mText', card).value }), closeModal(), toast(say('saved'), 'good'))));
       })
     );
   },
@@ -879,12 +973,13 @@ const binders = {
   },
   settings() {
     renderExtensionCard();
+    renderUpdateCard();
     $('#saveKey').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const v = $('#apiKey').value.trim();
         if (!v) throw new Error('Paste your API key first.');
         await S.setApiKey(v);
-        toast('Claude connected! Now I can dig deeper for you.', 'good', 3800, 'thrilled');
+        toast('Claude connected. Root and I can dig deeper now.', 'good', 3800, 'thrilled');
       }, 'Saving…')
     );
     const clear = $('#clearKey');
@@ -897,11 +992,11 @@ const binders = {
           claudeFitThreshold: Math.max(0, Math.min(100, parseInt($('#claudeFitThreshold').value, 10) || 65)),
           autoBudgetUsd: Math.max(0, parseFloat($('#autoBudgetUsd').value) || 0),
         });
-        toast('Saved', 'good');
+        toast(say('saved'), 'good');
       }, 'Saving…')
     );
     $('#saveTracking').addEventListener('click', (e) =>
-      run(e.currentTarget, async () => (await S.updateSettings({ followUpDays: Math.max(1, parseInt($('#followUpDays').value, 10) || 7) }), toast('Saved', 'good')), 'Saving…')
+      run(e.currentTarget, async () => (await S.updateSettings({ followUpDays: Math.max(1, parseInt($('#followUpDays').value, 10) || 7) }), toast(say('saved'), 'good')), 'Saving…')
     );
     $('#saveGarden').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
@@ -929,7 +1024,7 @@ const binders = {
 
 function reportImport(res) {
   if (!res) return;
-  if (res.added && res.added.length) toast(`Added ${res.added.length} document${res.added.length > 1 ? 's' : ''}. Yum, reading material!`, 'good');
+  if (res.added && res.added.length) toast(`Added ${res.added.length} document${res.added.length > 1 ? 's' : ''}. More for me to learn from.`, 'good');
   if (res.bullets && res.bullets.added) toast(`…and ${res.bullets.added} bullets to your bullet bank`, 'good', 5000, 'proud');
   (res.errors || []).forEach((e) => toast(e, 'error', 7000));
 }
@@ -964,15 +1059,28 @@ function renderBuddy() {
   const key = mood + line;
   if (key === buddyKey) return;
   buddyKey = key;
+  buddyChatty = mood === 'happy' && !due;
   document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(line)}</div>`;
 }
+
+// While all is calm, sidebar Sprout says something new every couple of
+// minutes (a tip, a kind word), with a fresh face. Never mid-pet.
+let buddyChatty = false;
+setInterval(() => {
+  const box = document.getElementById('buddy');
+  const bubble = box && box.querySelector('.bubble');
+  if (!buddyChatty || !bubble || bubble.dataset.orig !== undefined || document.hidden) return;
+  const mood = ['happy', 'wave', 'curious', 'proud', 'cheer'][Math.floor(Math.random() * 5)];
+  box.innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', variant: 'random', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(say('buddy'))}</div>`;
+}, 150000);
 
 function route() {
   const [name, id] = (location.hash.slice(1) || 'home').split('/');
   const v = views[name] ? name : 'home';
   $$('.side a', document).forEach((a) => a.classList.toggle('active', a.dataset.view === v || (v === 'application' && a.dataset.view === 'applications')));
   if (v !== 'application' || id !== currentAppId) {
-    if (v === 'application') appTab = 'auto';
+    if (v === 'application') appTab = openTab || 'auto';
+    openTab = null;
     currentAppId = v === 'application' ? id : null;
   }
   view.innerHTML = views[v]();
@@ -999,7 +1107,13 @@ S.onAppUpdated(async (app) => {
   else if (!isEditing() && !currentAppId) route();
 });
 S.onToast(({ text, kind }) => toast(text, kind));
-S.onNavigate(({ view: v, id }) => (location.hash = v === 'application' ? `#application/${id}` : `#${v}`));
+S.onNavigate(({ view: v, id, tab }) => {
+  // Opening a role at a given tab (e.g. its new cover letter).
+  const target = v === 'application' ? `#application/${id}` : `#${v}`;
+  if (tab) (openTab = tab), (currentAppId = null);
+  if (location.hash === target) route(); // no hashchange when already there
+  else location.hash = target;
+});
 
 document.getElementById('brandMark').innerHTML = icon('seedling', 30);
 $$('.side a[data-icon]', document).forEach((a) => a.insertAdjacentHTML('afterbegin', icon(a.dataset.icon, 20)));
