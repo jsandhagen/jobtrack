@@ -128,10 +128,11 @@ function greeting() {
 }
 
 // What Sprout says on the home page, from how the search is going.
-function homeMood({ apps, appliedWeek, due, allDone }) {
+function homeMood({ apps, appliedWeek, due, allDone, standout }) {
   const offers = apps.filter((a) => a.status === 'offer').length;
   const interviews = apps.filter((a) => a.status === 'interviewing').length;
   if (offers) return ['thrilled', `You have ${offers === 1 ? 'an offer' : `${offers} offers`} on the table. That's huge.`];
+  if (standout) return ['thrilled', standout];
   if (due.length) return ['curious', `${due.length === 1 ? 'One follow-up is' : `${due.length} follow-ups are`} due. A quick, friendly note can make a big difference.`];
   if (interviews) return ['cheer', `${interviews === 1 ? 'An interview' : `${interviews} interviews`} in progress. Want to jot some prep notes?`];
   if (appliedWeek >= 3) return ['proud', `${appliedWeek} applications this week. That's a real week's work.`];
@@ -332,12 +333,14 @@ const views = {
       [apps.length > 0 || (state.checked || []).length > 0, 'Check your first job posting', 'check'],
     ];
     const allDone = steps.every(([d]) => d);
-    const [mood, line] = homeMood({ apps, appliedWeek, due, allDone });
+    const standout = standoutLine(); // network.js
+    const [mood, line] = homeMood({ apps, appliedWeek, due, allDone, standout });
     return `<div class="page">
       <div class="hero">${mascotSvg(mood, 104, { cls: 'pettable', label: 'Sprout — click to say hi' })}
         <div><h1>${greeting()}</h1><p class="sprout-line">${esc(line)}</p></div>
         <div class="actions">
-          <button class="primary" data-go="check">${icon('search')} Check a job</button>
+          ${standout ? `<button class="primary" id="standoutBtn">${icon('sparkle')} See the strong fits</button>` : ''}
+          <button class="${standout ? 'soft' : 'primary'}" data-go="check">${icon('search')} Check a job</button>
           <button class="soft" id="scanBtn">${icon('camera')} Scan my screen</button>
         </div>
       </div>
@@ -1073,6 +1076,8 @@ const binders = {
   home() {
     const scan = $('#scanBtn');
     if (scan) scan.addEventListener('click', scanFromApp);
+    const standouts = $('#standoutBtn');
+    if (standouts) standouts.addEventListener('click', showStandouts);
   },
   check() {
     $('#analyzeBtn').addEventListener('click', (e) =>
@@ -1257,13 +1262,16 @@ let buddyKey = '';
 function renderBuddy() {
   const watching = state.settings.clipboardWatch || state.settings.screenWatch;
   const due = state.applications.filter(followUpDue).length;
+  const strong = standoutJobs().length; // network.js
   const [mood, line] = !state.documents.length
     ? ['wave', "Hi! Add your resume to My library and I'll get to work."]
     : !watching
       ? ['sleepy', 'Detection is paused… zzz. Wake me in Settings.']
       : due
         ? ['curious', `${due} follow-up${due === 1 ? '' : 's'} due. Want to check in?`]
-        : ['happy', "I'm keeping an eye out for job postings."];
+        : strong
+          ? ['thrilled', `${strong === 1 ? 'A strong fit' : `${strong} strong fits`} just turned up at companies you watch. See Find jobs!`]
+          : ['happy', "I'm keeping an eye out for job postings."];
   const key = mood + line;
   if (key === buddyKey) return;
   buddyKey = key;
@@ -1328,7 +1336,8 @@ S.onAppUpdated(async (app) => {
   else if (!isEditing() && !currentAppId && !currentResumeId) route();
 });
 S.onToast(({ text, kind }) => toast(text, kind));
-S.onNavigate(({ view: v, id, tab }) => {
+S.onNavigate(({ view: v, id, tab, standouts }) => {
+  if (v === 'find' && standouts) return showStandouts(); // network.js
   // Opening a role at a given tab (e.g. its new cover letter).
   const target = v === 'application' ? `#application/${id}` : `#${v}`;
   if (tab) (openTab = tab), (currentAppId = null);

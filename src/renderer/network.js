@@ -1078,6 +1078,37 @@ function inWindow(job, days) {
   return days === Infinity || (d ? Date.now() - Date.parse(d) <= days * 86400000 : !!job.firstSeenAt);
 }
 
+// Strong fits that just turned up at companies you watch and aren't in your
+// list yet (see standoutJobs in src/shared/outreach.js). Home and sidebar Sprout call them out.
+function standoutJobs() {
+  return O.standoutJobs(state.companies).filter(({ co, job }) => !inMyList(co, job));
+}
+
+// What Sprout says about them, or '' when there are none.
+function standoutLine(list = standoutJobs()) {
+  if (!list.length) return '';
+  const [{ co, job, justAdded }] = list;
+  const what = `${job.title} (${job.fit.score}/100)`;
+  if (list.length === 1)
+    return justAdded ? `You just added ${co.name}, and it already has a role that fits you really well: ${what}. Take a look?` : `A new role at ${co.name} looks like a strong fit for you: ${what}. Want to check it?`;
+  const oneCo = list.every((x) => x.co.id === co.id);
+  if (oneCo && list.every((x) => x.justAdded)) return `${co.name}, which you just added, has ${list.length} roles that fit you well, led by ${what}.`;
+  return `${list.length} roles that just turned up look like a strong fit for you, led by ${what}${oneCo ? '' : ` at ${co.name}`}.`;
+}
+
+// The job board with the best fits on top.
+function showStandouts() {
+  Object.assign(board, { company: '', q: '', window: 'all', sort: 'fit', showHidden: false, limit: PAGE_SIZE });
+  findTab = 'jobs';
+  try {
+    localStorage.setItem('sprout.findTab', 'jobs');
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  if (location.hash === '#find') route();
+  else location.hash = '#find';
+}
+
 function inMyList(co, job) {
   const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   return [...state.applications, ...(state.checked || [])].find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
@@ -1595,15 +1626,16 @@ views.find = () => {
   const searchesN = state.searches.filter((s) => s.kind !== 'people').length;
   const cosN = state.companies.length;
   const discoverN = state.finder.results.filter((c) => !isDismissed(c.name) && !watchedCo(c.name)).length;
+  const standout = standoutLine();
   const line = {
-    jobs: 'Open roles at the companies you watch, newest first. Check your fit with one click.',
+    jobs: standout || 'Open roles at the companies you watch, newest first. Check your fit with one click.',
     searches: 'One-click searches for fresh postings on LinkedIn and the startup job boards.',
     companies: "The companies you're keeping an eye on. I read their careers sites for you.",
     discover: 'Find companies you would like to work for, by how their employees rate them, their industry, size and where they are.',
   }[findTab];
   const tab = (k, label, n) => `<button class="${findTab === k ? 'on' : ''}" data-find-tab="${k}">${label}${n ? ` <span class="faint">${n}</span>` : ''}</button>`;
   return `<div class="page">
-    ${pageHead('Find jobs', 'curious', line)}
+    ${pageHead('Find jobs', findTab === 'jobs' && standout ? 'thrilled' : 'curious', line)}
     <div class="tabs find-tabs">${tab('jobs', `${icon('news', 17)} Jobs`, jobsN)}${tab('searches', `${icon('search', 17)} Searches`, searchesN)}${tab('companies', `${icon('home', 17)} Companies`, cosN)}${tab('discover', `${icon('sparkle', 17)} Discover`, discoverN)}</div>
     ${findTab === 'jobs' ? `${quickSearchesRow()}${jobsTab()}` : findTab === 'searches' ? searchesTab() : findTab === 'discover' ? discoverTab() : companiesTab()}
   </div>`;

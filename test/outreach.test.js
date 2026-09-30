@@ -428,3 +428,34 @@ test('re-importing LinkedIn connections replaces the list but keeps ids stable',
   assert.deepEqual(s.list('connections').map((x) => [x.id, x.company]), [[a.id, 'Stripe']]);
   assert.equal(new Store(s.dir).list('connections').length, 1, 'saved to disk');
 });
+
+test('standout jobs: strong fits that are new, or at a company you just added', () => {
+  const now = Date.parse('2026-09-30T12:00:00Z');
+  const ago = (days) => new Date(now - days * 86400000).toISOString();
+  const fit = (score, dealbreakers = []) => ({ score, label: 'x', dealbreakers });
+  const companies = [
+    {
+      id: 'a',
+      name: 'Acme',
+      firstCheckedAt: ago(30),
+      hidden: ['hid'],
+      jobs: [
+        { id: 'new-strong', title: 'Chief of Staff', firstSeenAt: ago(1), fit: fit(82) },
+        { id: 'new-weak', title: 'Ops Lead', firstSeenAt: ago(1), fit: fit(50) },
+        { id: 'old-strong', title: 'Ops Manager', firstSeenAt: null, fit: fit(90) },
+        { id: 'stale', title: 'Ops Director', firstSeenAt: ago(5), fit: fit(90) },
+        { id: 'blocked', title: 'Ops VP', firstSeenAt: ago(1), fit: fit(95, ['Requires relocation']) },
+        { id: 'hid', title: 'Hidden', firstSeenAt: ago(1), fit: fit(95) },
+        { id: 'unscored', title: 'Unscored', firstSeenAt: ago(1) },
+      ],
+    },
+    // Just added: every open role counts, even ones up before its first check.
+    { id: 'b', name: 'Brio', firstCheckedAt: ago(1), jobs: [{ id: 'b1', title: 'Chief of Staff', firstSeenAt: null, fit: fit(88) }, { id: 'b2', title: 'Analyst', firstSeenAt: null, fit: fit(40) }] },
+    { id: 'c', name: 'Passed', status: 'pass', firstCheckedAt: ago(1), jobs: [{ id: 'c1', title: 'x', fit: fit(99) }] },
+  ];
+  const out = O.standoutJobs(companies, { now });
+  assert.deepEqual(out.map((x) => x.job.id), ['b1', 'new-strong'], 'best fit first');
+  assert.deepEqual(out.map((x) => x.justAdded), [true, false]);
+  assert.equal(O.standoutJobs(companies, { now: now + 4 * 86400000 }).length, 0, 'only for a few days');
+  assert.deepEqual(O.standoutJobs([]), []);
+});

@@ -139,6 +139,8 @@ test('checking a company: finds its board, keeps matching roles, and flags only 
   assert.deepEqual(first.patch.jobs.map((j) => j.title), ['Chief of Staff']);
   assert.equal(first.patch.jobs[0].firstSeenAt, null, 'jobs already up on the first check are not "new"');
   assert.deepEqual(first.fresh, []);
+  assert.equal(first.firstLook, true, 'the first look at a company is flagged');
+  assert.equal(first.patch.firstCheckedAt, new Date(NOW).toISOString());
 
   // A new matching role goes up, and a new non-matching one.
   jobs = [...jobs, { id: 3, title: 'Deputy Chief of Staff', location: { name: 'Remote' }, absolute_url: 'u3', first_published: daysAgo(0) }, { id: 4, title: 'Designer', absolute_url: 'u4' }];
@@ -147,6 +149,8 @@ test('checking a company: finds its board, keeps matching roles, and flags only 
   assert.deepEqual(second.fresh.map((j) => j.title), ['Deputy Chief of Staff']);
   assert.deepEqual(second.patch.jobs.map((j) => j.title), ['Deputy Chief of Staff', 'Chief of Staff'], 'newest first');
   assert.equal(second.patch.jobs[0].firstSeenAt, new Date(later).toISOString());
+  assert.equal(second.firstLook, false);
+  assert.equal(second.patch.firstCheckedAt, undefined, 'the first check time is kept, not moved');
 
   // The next check doesn't announce it again.
   const third = await C.checkCompany({ ...co, ...second.patch }, { fetchImpl: f, roles: ['Chief of Staff'], now: later + 3600000 });
