@@ -44,6 +44,12 @@ contextBridge.exposeInMainWorld('sprout', {
   exportDoc: (id, which, format, editedHtml) => call('app:export', id, which, format, editedHtml),
 
   overlayAction: (action, appId, extra = {}) => call('overlay:action', { action, appId, ...extra }),
+  saveItem: (kind, item) => call('net:save', kind, item),
+  removeItem: (kind, id) => call('net:remove', kind, id),
+  resetTemplates: () => call('net:resetTemplates'),
+  importContacts: (text) => call('net:importContacts', text),
+  markReached: (id, info) => call('net:reached', id, info),
+  setContactStatus: (id, status) => call('net:status', id, status),
   bridgeStatus: () => call('bridge:status'),
   getSpire: () => call('spire:get'),
   saveSpire: (run) => call('spire:save', run),

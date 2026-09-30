@@ -240,6 +240,7 @@ const views = {
         </div>
       </div>
       ${spireHomeCard() || gardenHomeCard()}
+      ${outreachHomeCard()}
       <div class="grid three" style="margin-bottom:16px">
         <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('seedling', 26)}</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
         <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('send', 26)}</div><div><b>${appliedWeek}</b><span>applied in the last 7 days · ${appliedAll} total</span></div></div>
@@ -330,6 +331,11 @@ const views = {
         ${f('phone', 'Phone', '(555) 123-4567')}${f('location', 'Location', 'Portland, OR · Open to remote')}
         ${f('links', 'Links', 'linkedin.com/in/jordan · jordan.dev', true)}
         ${f('targetRoles', 'Roles you are aiming for', 'Frontend engineer, design engineer', true)}
+      </div>
+      <h3 style="margin-top:22px">Your people <span class="faint">(for finding people and jobs)</span></h3>
+      <p class="faint" style="margin-top:0">Used to find people you have something in common with, and to fill in outreach messages. Never put on your resume.</p>
+      <div class="form-grid">
+        ${f('schools', 'Schools you went to', 'University of Virginia, Thomas Jefferson HS')}${f('pastEmployers', 'Places you have worked', 'Appian, Deloitte')}
       </div>
       <h3 style="margin-top:22px">Dealbreakers <span class="faint">(for the free fit score)</span></h3>
       <p class="faint" style="margin-top:0">Roles that hit one of these are capped at 30 and labelled "Dealbreaker", so they don't pop up as good matches.</p>
@@ -585,7 +591,7 @@ async function renderApplication(id) {
 
   const tabBody = () => {
     if (appTab === 'posting') return `<div class="posting-text card">${esc(a.job.text)}</div>`;
-    if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}</div>`;
+    if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}${peopleAtCard(a)}</div>`;
     if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel(a.ats) : '<div></div>'}${fitCard}</div>`;
     if (appTab === 'letter') return letterBody();
     if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
@@ -1120,5 +1126,5 @@ S.onNavigate(({ view: v, id, tab }) => {
 
 document.getElementById('brandMark').innerHTML = icon('seedling', 30);
 $$('.side a[data-icon]', document).forEach((a) => a.insertAdjacentHTML('afterbegin', icon(a.dataset.icon, 20)));
-// Start once bank.js, editor.js and garden.js have added their views.
+// Start once bank.js, network.js, editor.js and garden.js have added their views.
 document.addEventListener('DOMContentLoaded', () => refreshState().then(route));

@@ -32,6 +32,7 @@ const ResumeDoc = require('../shared/resumeDoc');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
+const outreach = require('../shared/outreach');
 
 const crypto = require('crypto');
 
@@ -796,6 +797,10 @@ function registerIpc() {
     usage: store.getUsage(),
     autoBudgetOk: autoBudgetOk(),
     platform: process.platform,
+    contacts: store.list('contacts'),
+    companies: store.list('companies'),
+    searches: store.list('searches'),
+    templates: store.list('templates', outreach.DEFAULT_TEMPLATES),
   }));
   handle('settings:update', (patch) => applySettings(patch));
   handle('profile:update', (patch) => {
@@ -1009,9 +1014,57 @@ function registerIpc() {
   handle('update:status', () => updater.status());
   handle('update:check', () => updater.check());
   handle('update:install', () => updater.install());
+  // People, companies, saved searches and message templates.
+  handle('net:save', (kind, item) => {
+    const fields = NET_FIELDS[kind];
+    if (!fields) throw new Error(`Unknown list: ${kind}`);
+    const rec = pick(item || {}, ['id', ...fields]);
+    if (kind === 'contacts' && !String(rec.name || '').trim()) throw new Error('Add their name first.');
+    if (kind === 'companies' && !String(rec.name || '').trim()) throw new Error('Add the company name first.');
+    if (kind === 'searches' && rec.url && !/^https?:\/\//i.test(rec.url)) throw new Error("That link doesn't look like a web address.");
+    if (kind === 'contacts' && !rec.id) {
+      const dup = outreach.findContact(store.list('contacts'), rec);
+      if (dup) throw new Error(`${dup.name} is already in your people list.`);
+      rec.status = rec.status || 'to-reach';
+    }
+    return store.saveItem(kind, rec, kind === 'templates' ? outreach.DEFAULT_TEMPLATES : []);
+  });
+  handle('net:remove', (kind, id) => {
+    if (!NET_FIELDS[kind]) throw new Error(`Unknown list: ${kind}`);
+    store.removeItem(kind, id, kind === 'templates' ? outreach.DEFAULT_TEMPLATES : []);
+    return true;
+  });
+  handle('net:resetTemplates', () => {
+    store.data.templates = null;
+    store.save();
+    return store.list('templates', outreach.DEFAULT_TEMPLATES);
+  });
+  handle('net:importContacts', (text) => {
+    const { contacts, skipped, error } = outreach.importContacts(text);
+    if (error) throw new Error(error);
+    let added = 0;
+    let duplicates = 0;
+    for (const c of contacts) {
+      if (outreach.findContact(store.list('contacts'), c)) duplicates++;
+      else store.saveItem('contacts', c), added++;
+    }
+    return { added, duplicates, skipped };
+  });
+  handle('net:reached', (id, info = {}) => {
+    const c = store.list('contacts').find((x) => x.id === id);
+    if (!c) throw new Error('That person was removed.');
+    const days = info.followUpDays !== undefined ? Number(info.followUpDays) : Number(store.getSettings().followUpDays) || 7;
+    return store.saveItem('contacts', outreach.markReached(c, { followUpDays: days, channel: info.channel, message: info.message }));
+  });
+  handle('net:status', (id, status) => {
+    const c = store.list('contacts').find((x) => x.id === id);
+    if (!c) throw new Error('That person was removed.');
+    if (!outreach.CONTACT_LABEL[status]) throw new Error(`Unknown status: ${status}`);
+    return store.saveItem('contacts', outreach.setContactStatus(c, status));
+  });
   handle('shell:openExternal', (url) => {
-    // Only real web links, never file:// or custom schemes.
-    if (!/^https?:\/\//i.test(url || '')) throw new Error('That link doesn\'t look like a web address.');
+    // Only real web links (and email drafts), never file:// or custom schemes.
+    if (!/^(https?:\/\/|mailto:)/i.test(url || '')) throw new Error('That link doesn\'t look like a web address.');
     return shell.openExternal(url);
   });
   handle('app:rescoreLocal', (id) => {
@@ -1178,6 +1231,13 @@ function applicationsCsv(apps) {
   return [cols, ...rows].map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
 }
 
+const NET_FIELDS = {
+  contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified'],
+  companies: ['name', 'why', 'careersUrl', 'status', 'tags'],
+  searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
+  templates: ['name', 'body'],
+};
+
 // Gentle nudges when a follow-up date arrives.
 function checkFollowUps() {
   const now = Date.now();
@@ -1192,6 +1252,21 @@ function checkFollowUps() {
       n.on('click', () => {
         const w = createDashboard();
         w.webContents.send('navigate', { view: 'application', id: a.id });
+      });
+      n.show();
+    }
+  }
+  for (const c of store.list('contacts')) {
+    if (c.status !== 'reached' || !c.followUpAt || c.followUpNotified || Date.parse(c.followUpAt) > now) continue;
+    store.saveItem('contacts', { id: c.id, followUpNotified: true });
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: `Sprout here — no word from ${c.name.split(' ')[0]} yet?`,
+        body: `You reached out${c.company ? ` about ${c.company}` : ''} on ${new Date(c.reachedAt).toLocaleDateString()}. One friendly nudge is normal, and I've got a draft ready.`,
+      });
+      n.on('click', () => {
+        const w = createDashboard();
+        w.webContents.send('navigate', { view: 'people' });
       });
       n.show();
     }

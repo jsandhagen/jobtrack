@@ -42,7 +42,14 @@ const DEFAULT_PROFILE = {
   workModes: '',
   minSalary: '',
   avoidKeywords: '',
+  // for finding people you have something in common with
+  schools: '',
+  pastEmployers: '',
 };
+
+// Lists kept by the People and Find jobs pages. Templates start with
+// Sprout's defaults (src/shared/outreach.js) until you edit them.
+const LISTS = ['contacts', 'companies', 'searches', 'templates'];
 
 class Store {
   constructor(dir) {
@@ -67,6 +74,10 @@ class Store {
       encryptedApiKey: raw.encryptedApiKey || null,
       usage: raw.usage || {},
       spire: raw.spire || null,
+      contacts: raw.contacts || [],
+      companies: raw.companies || [],
+      searches: raw.searches || [],
+      templates: raw.templates || null,
       bank: raw.bank || { experiences: [], bullets: [], education: [], skills: [], summary: '' },
     };
   }
@@ -190,6 +201,27 @@ class Store {
     return this.data.bank;
   }
 
+  // ---- people, companies, saved searches, message templates ----
+  list(kind, defaults = []) {
+    if (!LISTS.includes(kind)) throw new Error(`Unknown list: ${kind}`);
+    return (this.data[kind] || defaults).map((x) => ({ ...x }));
+  }
+  // Add (no id) or update (with id) one item; returns the saved item.
+  saveItem(kind, item, defaults = []) {
+    const items = this.list(kind, defaults);
+    const now = new Date().toISOString();
+    let rec = item.id && items.find((x) => x.id === item.id);
+    if (rec) Object.assign(rec, item, { updatedAt: now });
+    else items.push((rec = { ...item, id: item.id || crypto.randomUUID(), addedAt: now }));
+    this.data[kind] = items;
+    this.save();
+    return { ...rec };
+  }
+  removeItem(kind, id, defaults = []) {
+    this.data[kind] = this.list(kind, defaults).filter((x) => x.id !== id);
+    this.save();
+  }
+
   // ---- Sprout the Spire run (the game logic lives in src/shared/spire.js) ----
   getSpire() {
     return this.data.spire;
@@ -226,4 +258,4 @@ class Store {
   }
 }
 
-module.exports = { Store, DEFAULT_SETTINGS, DEFAULT_PROFILE };
+module.exports = { Store, DEFAULT_SETTINGS, DEFAULT_PROFILE, LISTS };

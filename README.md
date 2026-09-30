@@ -45,6 +45,8 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - Each application shows its notes and a status timeline.
   - The tracker has filters (to apply / applied / interviewing / offers / archived), search, sorting and **CSV export**.
   - Postings you've already seen are recognised ("You applied on Sep 12") instead of duplicated.
+- **Find jobs**: one-click searches for fresh postings. See [Find jobs and People](#find-jobs-and-people).
+- **People (outreach)**: a list of people you could reach out to, message templates filled in for each one, and a record of who you actually messaged, with follow-up reminders.
 - **Optional game**: turn it on in Settings to make applying a game, either **Sprout the Spire** (turn-based card battles in the style of Slay the Spire) or just **Sprout's garden** (goals, streaks and badges). See [Sprout the Spire](#sprout-the-spire) and [Sprout's garden](#sprouts-garden).
 
 ## Getting started
@@ -122,6 +124,27 @@ Every Claude button uses a prompt written for consistent, checkable results. The
   - *Cover letter*: the letter is signed with your profile name, and paragraphs with numbers or tools your documents don't show are listed for you to check.
 - **Versioned**: each result stores the prompt version it was made with (`PROMPT_VERSION`).
 - **Evals**: `ANTHROPIC_API_KEY=... npm run eval:prompts -- --runs 3` runs every task several times against synthetic candidates and reports score spread, verified-quote rate, flagged bullets, and how often polish picks the same bullets and letters stay within length. Run it after changing a prompt.
+
+### Find jobs and People
+
+Nothing here scrapes LinkedIn: every search is a link that opens in your browser.
+
+**Find jobs** (`#find`):
+- **Suggested searches** from your Profile's target roles and location: each role near you, remote, and at startups. Save the ones you like; each shows when you last opened it.
+- LinkedIn searches are limited to **the past week, newest first**, with titles in quotes (so "chief of staff" doesn't match every "staff" job) and a 25-mile distance.
+- **Startup job boards**: a Google search of Ashby, Greenhouse, Lever and Workable boards for the past week, which finds the smaller companies LinkedIn buries.
+- **Build a search** (titles, keywords, location, posted within, remote / hybrid / on-site), or save any other link.
+- **Companies to watch**: why each caught your eye, a careers link, and one click to its jobs this week, people you share a school or employer with there, or people in your field there. Companies from your applications and people are suggested.
+
+**People** (`#people`):
+- Add people by hand or **paste a spreadsheet** (Name or First/Last, Company, Title, LinkedIn, Email, Notes, and Connection or School). Duplicates are skipped.
+- No profile link? **Find profile** runs a Google search for their name and company on LinkedIn.
+- **Find people**: LinkedIn people searches by title, company and what you have in common (your Profile's schools and past employers), or the same search through Google.
+- **Message**: picks a template for the situation (something in common, a role open at their company, someone you know, a follow-up), fills it in, counts characters against LinkedIn's 300-character connection note, then copies it and opens their profile (or an email draft). Say **Yes, I reached out** and it's dated, logged and gets a follow-up reminder.
+- **Reach out next** puts people at companies you're applying to first. The same people show on that application's *Tracking* tab and on Home.
+- Templates are editable; `{first}`, `{company}`, `{common}`, `{role}`, `{job}`, `{title}`, `{me}` are filled in.
+
+The rules and link builders are in `src/shared/outreach.js`; the pages are in `src/renderer/network.js`.
 
 ### Resume editor
 
