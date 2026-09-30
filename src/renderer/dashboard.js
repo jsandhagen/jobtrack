@@ -324,6 +324,8 @@ const views = {
   profile() {
     const p = state.profile;
     const f = (k, label, ph, full) => `<div class="${full ? 'full' : ''}"><label>${label}</label><input data-k="${k}" value="${esc(p[k])}" placeholder="${ph}"></div>`;
+    const sel = (k, label, opts) =>
+      `<div><label>${label}</label><select data-k="${k}"><option value="">Not answered</option>${opts.map(([v, l]) => `<option value="${v}" ${p[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
     return `<div class="page">
       ${pageHead('Profile', p.name ? 'happy' : 'curious', `${p.name ? `Hi, <b>${esc(p.name.split(' ')[0])}</b>. ` : "What should I call you? "}This goes in your resume header — only what you enter here ends up on it.`)}
       <div class="card"><div class="form-grid">
@@ -342,6 +344,15 @@ const views = {
       <div class="form-grid">
         ${f('workModes', 'Work arrangements you want', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
         ${f('avoidKeywords', 'Skip postings that mention', 'security clearance, 100% travel, commission only', true)}
+      </div>
+      <h3 style="margin-top:22px">Screening questions <span class="faint">(the knockout questions on application forms)</span></h3>
+      <p class="faint" style="margin-top:0">Applications ask these before anyone reads your resume, and a mismatch is rejected automatically. Sprout checks each posting against your answers. Never put on your resume.</p>
+      <div class="form-grid">
+        ${sel('workAuth', 'Work authorization (U.S.)', [['citizen', 'U.S. citizen'], ['permanent-resident', 'Permanent resident'], ['authorized', 'Authorized, no sponsorship needed'], ['needs-sponsorship', 'Need visa sponsorship']])}
+        ${sel('clearance', 'Security clearance', [['none', 'None'], ['public-trust', 'Public Trust'], ['secret', 'Secret'], ['top-secret', 'Top Secret'], ['ts-sci', 'TS/SCI']])}
+        ${sel('relocate', 'Willing to relocate', [['yes', 'Yes'], ['no', 'No']])}
+        ${sel('driversLicense', "Valid driver's license", [['yes', 'Yes'], ['no', 'No']])}
+        ${f('maxTravel', 'Most travel you would do (%)', '25')}
       </div><div style="margin-top:16px"><button class="primary" id="saveProfile">Save profile</button></div></div>
     </div>`;
   },

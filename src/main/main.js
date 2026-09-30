@@ -19,6 +19,7 @@ const {
 } = require('electron');
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
+const { analyzeLayout } = require('./layout');
 const { localFitScore } = require('./localFit');
 const claude = require('./claude');
 const draft = require('./draft');
@@ -364,6 +365,15 @@ function docsForPrompt() {
 
 // Documents that describe your experience. Writing samples only teach Claude
 // your voice, so they never count as evidence for a score.
+// Documents imported before layout checks existed: inspect their files once,
+// if they're still where they were imported from.
+async function backfillLayouts() {
+  for (const d of store.allDocuments()) {
+    if (d.layout !== undefined || !d.sourcePath || !fs.existsSync(d.sourcePath)) continue;
+    store.updateDocument(d.id, { layout: await analyzeLayout(d.sourcePath, fs.readFileSync(d.sourcePath)) });
+  }
+}
+
 function evidenceDocs() {
   return store.allDocuments().filter((d) => d.kind !== 'writing-sample');
 }
@@ -454,8 +464,8 @@ async function analyzeApp(appId, { popup = false, keepTitle = true } = {}) {
 // Computed on read so it stays current as the library or the resume is edited.
 function withAts(rec) {
   if (!rec) return rec;
-  const before = libraryAtsScore(rec.job, evidenceDocs());
-  const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml)) : null;
+  const before = libraryAtsScore(rec.job, evidenceDocs(), store.getProfile());
+  const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml), { profile: store.getProfile() }) : null;
   const bank = store.getBank();
   // Which bullet proves each requirement.
   const evidence = bank.bullets.length ? bulletBank.rankBullets(rec.job, bank).evidence : [];
@@ -486,7 +496,7 @@ async function makeResume(appId) {
       documents,
       profile,
       analysis: rec.analysis,
-      ats: libraryAtsScore(rec.job, evidenceDocs()),
+      ats: libraryAtsScore(rec.job, evidenceDocs(), store.getProfile()),
       roles: ids.roles,
       picked: ids.picked,
       model: store.getSettings().model,
@@ -665,7 +675,7 @@ function builderState(rec) {
     return { key: u.key, label: u.label, kind: u.kind, covered: byBullet, skillsOnly: !byBullet && u.match(skillsText) >= 0.6 };
   });
 
-  const ats = atsScore(rec.job, htmlToText(rec.resumeHtml || ResumeDoc.renderHtml(ResumeDoc.compact(doc))));
+  const ats = atsScore(rec.job, htmlToText(rec.resumeHtml || ResumeDoc.renderHtml(ResumeDoc.compact(doc))), { profile: store.getProfile() });
   return {
     doc,
     roles: doc.roles.map((r) => ({
@@ -832,7 +842,7 @@ async function startBridge() {
         preview: {
           job: { title: job.title || guessTitle(job.text), company: job.company, location: job.location, url: job.url },
           quick: pickQuick(quick),
-          ats: { before: pickAts(libraryAtsScore(job, evidenceDocs())) },
+          ats: { before: pickAts(libraryAtsScore(job, evidenceDocs(), store.getProfile())) },
         },
         ...cardEnv(),
       };
@@ -1203,7 +1213,7 @@ function registerIpc() {
     const days = Number(store.getSettings().followUpDays) || 7;
     const appliedAt = info.appliedAt ? new Date(info.appliedAt).toISOString() : new Date().toISOString();
     const followUpAt = info.followUpAt === '' ? null : info.followUpAt ? new Date(info.followUpAt).toISOString() : new Date(Date.parse(appliedAt) + days * 86400000).toISOString();
-    const best = libraryAtsScore(rec.job, evidenceDocs());
+    const best = libraryAtsScore(rec.job, evidenceDocs(), store.getProfile());
     const sent =
       info.resumeChoice === 'tailored' && rec.resumeHtml
         ? { resume: 'tailored', resumeHtml: rec.resumeHtml, letterHtml: info.includeLetter && rec.letterHtml ? rec.letterHtml : null }
@@ -1469,10 +1479,10 @@ function summarizeApp(a) {
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
     atsBefore: (() => {
-      const b = libraryAtsScore(a.job, evidenceDocs());
+      const b = libraryAtsScore(a.job, evidenceDocs(), store.getProfile());
       return b ? b.score : null;
     })(),
-    atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml)).score : null,
+    atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml), { profile: store.getProfile() }).score : null,
     hasResume: !!a.resume,
     hasLetter: !!a.letter,
   };
@@ -1549,6 +1559,7 @@ if (process.argv.includes('--smoke-test')) {
     registerIpc();
     // First run with the bullet bank: fill it from the resumes already in the library.
     if (!store.getBank().bullets.length && store.allDocuments().length) importBullets(store.allDocuments());
+    backfillLayouts().catch(() => {});
     createDashboard();
     createOverlay();
     try {

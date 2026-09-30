@@ -12,6 +12,7 @@
 // cap the score so those roles never pop up as good matches.
 const { SKILLS, INTERPERSONAL, STOPWORDS, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeRequirements } = require('./atsScore');
+const { screeningCheck } = require('./screening');
 
 const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
 
@@ -335,7 +336,9 @@ function localFitScore(job, documents, profile = {}) {
   const wsum = active.reduce((s, [k]) => s + WEIGHTS[k], 0);
   let score = documents.length && wsum ? Math.round((active.reduce((s, [k, v]) => s + v * WEIGHTS[k], 0) / wsum) * 100) : 0;
 
-  const breakers = dealbreakers(job, profile);
+  // Screening-question conflicts get an application rejected outright.
+  const screening = screeningCheck(job, profile);
+  const breakers = [...dealbreakers(job, profile), ...screening.conflicts];
   if (breakers.length) score = Math.min(score, 30);
 
   // How much should you trust this number?
@@ -350,6 +353,7 @@ function localFitScore(job, documents, profile = {}) {
   if (experience !== null && experience >= 1) reasons.push(`Your ~${haveYears} years cover the ${needYears}+ asked for`);
   if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`This is a ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}`);
   if (experience !== null && experience < 0.8) concerns.push(`Asks for ${needYears}+ years; your documents show about ${haveYears ?? 'unclear'}`);
+  concerns.push(...screening.unanswered);
   const missingReq = req.filter((u) => u.met < 0.5).map((u) => u.label);
   if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
 

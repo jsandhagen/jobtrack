@@ -1,6 +1,7 @@
 // Turns files the user drops into the library into plain text.
 const fs = require('fs');
 const path = require('path');
+const { analyzeLayout } = require('./layout');
 
 const SUPPORTED = ['.pdf', '.docx', '.txt', '.md', '.markdown', '.json'];
 
@@ -52,7 +53,8 @@ async function extractText(filePath) {
 async function importFile(filePath) {
   const text = await extractText(filePath);
   const name = path.basename(filePath);
-  return { name, kind: guessKind(name, text), text, sourcePath: filePath };
+  const layout = await analyzeLayout(filePath, fs.readFileSync(filePath));
+  return { name, kind: guessKind(name, text), text, sourcePath: filePath, layout };
 }
 
 module.exports = { importFile, extractText, guessKind, SUPPORTED };

@@ -42,6 +42,12 @@ const DEFAULT_PROFILE = {
   workModes: '',
   minSalary: '',
   avoidKeywords: '',
+  // answers to common application screening (knockout) questions
+  workAuth: '', // citizen | permanent-resident | authorized | needs-sponsorship
+  clearance: '', // none | public-trust | secret | top-secret | ts-sci
+  relocate: '', // yes | no
+  maxTravel: '', // percent
+  driversLicense: '', // yes | no
   // for finding people you have something in common with
   schools: '',
   pastEmployers: '',
@@ -115,13 +121,14 @@ class Store {
     // which is what makes prompt caching hit.
     return [...this.data.documents].sort((a, b) => a.addedAt.localeCompare(b.addedAt) || a.id.localeCompare(b.id));
   }
-  addDocument({ name, kind, text, sourcePath }) {
+  addDocument({ name, kind, text, sourcePath, layout }) {
     const doc = {
       id: crypto.randomUUID(),
       name,
       kind: kind || 'other',
       text,
       sourcePath: sourcePath || null,
+      layout: layout || null,
       addedAt: new Date().toISOString(),
     };
     this.data.documents.push(doc);

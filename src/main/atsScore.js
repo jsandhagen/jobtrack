@@ -18,6 +18,8 @@
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
 const { SKILLS, SOFT_SKILLS, INTERPERSONAL, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience } = require('./fitScore');
+const { layoutChecks } = require('./layout');
+const { screeningCheck } = require('./screening');
 
 
 const WEIGHTS = {
@@ -216,7 +218,7 @@ function scoreKeywords(jobText, resumeLower, company) {
 }
 
 // What a parser needs to fill a candidate profile cleanly.
-function scoreParseability(resumeText) {
+function scoreParseability(resumeText, layout) {
   const t = resumeText;
   const tl = lower(t);
   const words = (t.match(/\S+/g) || []).length;
@@ -244,6 +246,7 @@ function scoreParseability(resumeText) {
       tip: 'Give each role clear dates like "Mar 2021 – Present" so years of experience can be calculated.',
     },
     dateFormatCheck(t),
+    ...layoutChecks(layout),
     { id: 'length', ok: words >= 250 && words <= 1100, tip: words < 250 ? 'The resume is quite short — add detail to your most relevant roles.' : 'Keep it to about two pages; some systems truncate long resumes.' },
     { id: 'quantified', ok: quantified >= 3, tip: 'Add numbers to a few bullets (%, $, team size, time saved) — both ATS rankers and recruiters favour quantified impact.' },
   ];
@@ -310,7 +313,8 @@ function skillsMatchLabel(ratio) {
 /**
  * @param {object} job   { title, text }
  * @param {string} resumeText  plain text of one resume
- * @param {object} [opts]  { checkFormatting: false } when scoring a pile of documents rather than one resume
+ * @param {object} [opts]  { checkFormatting: false } when scoring a pile of documents rather than one resume;
+ *   { layout } from layout.js for file-level checks; { profile } for screening questions
  */
 function atsScore(job, resumeText, opts = {}) {
   const checkFormatting = opts.checkFormatting !== false;
@@ -324,7 +328,7 @@ function atsScore(job, resumeText, opts = {}) {
   const education = scoreEducation(job.text, resumeText);
   const experience = scoreExperience(job.text, resumeText);
   const keywords = scoreKeywords(job.text, resumeLower, job.company);
-  const parse = checkFormatting ? scoreParseability(resumeText) : null;
+  const parse = checkFormatting ? scoreParseability(resumeText, opts.layout) : null;
 
   const components = {
     hardSkills: skills.hard.total ? skills.hard.have / skills.hard.total : null,
@@ -360,6 +364,10 @@ function atsScore(job, resumeText, opts = {}) {
     if (experience.score >= 0.8) basicMet++;
     else knockouts.push(`${experience.need}+ years of experience`);
   }
+  // Screening questions answered from the profile: a conflict is a knockout
+  // before any ranking (Taleo disqualification questions and the like).
+  const screening = opts.profile ? screeningCheck(job, opts.profile) : { conflicts: [], unanswered: [] };
+  for (const c of screening.conflicts) knockouts.push(`Screening question: ${c}`);
   const preferredMet = preferred.filter((u) => u.met).length;
   const grade = hiredScoreStyleGrade({ basicMet, basicTotal, preferredMet, preferredTotal: preferred.length, score });
 
@@ -367,6 +375,7 @@ function atsScore(job, resumeText, opts = {}) {
   const skillsRatio = weighted ? (skills.hard.have + skills.soft.have) / weighted : null;
 
   const tips = [];
+  for (const u of screening.unanswered) tips.push(u);
   for (const m of skills.hard.missing.filter((m) => m.kind === 'required')) {
     tips.push(m.anyOf ? `Required: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}; none found. Add whichever you have.` : `Required skill not found: "${m.term}". Add it if you have it.`);
   }
@@ -386,6 +395,7 @@ function atsScore(job, resumeText, opts = {}) {
     basic: { met: basicMet, total: basicTotal },
     preferred: { met: preferredMet, total: preferred.length },
     knockouts,
+    screening,
     matchedSkills: [...skills.hard.matched, ...skills.soft.matched].map((m) => m.skill),
     missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),
     wordingTerms: skills.wordingTips.map((w) => w.term),
@@ -397,18 +407,18 @@ function atsScore(job, resumeText, opts = {}) {
 
 // Score the user's existing library the way an ATS would see what they'd
 // submit today: their best single resume if they have one, else everything.
-function libraryAtsScore(job, documents) {
+function libraryAtsScore(job, documents, profile) {
   const resumes = documents.filter((d) => d.kind === 'resume');
   if (resumes.length) {
     let best = null;
     for (const d of resumes) {
-      const r = atsScore(job, d.text);
+      const r = atsScore(job, d.text, { layout: d.layout, profile });
       if (!best || r.score > best.score) best = { ...r, basis: d.name };
     }
     return best;
   }
   if (!documents.length) return null;
-  return { ...atsScore(job, documents.map((d) => d.text).join('\n\n'), { checkFormatting: false }), basis: 'your whole library (add a resume for formatting checks)' };
+  return { ...atsScore(job, documents.map((d) => d.text).join('\n\n'), { checkFormatting: false, profile }), basis: 'your whole library (add a resume for formatting checks)' };
 }
 
 module.exports = { atsScore, libraryAtsScore, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };
