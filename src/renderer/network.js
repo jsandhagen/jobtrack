@@ -892,21 +892,27 @@ let coShowAll = false;
 const STATUS_LABEL_SHORT = { scored: 'checked', 'resume-ready': 'resume ready', applied: 'applied', interviewing: 'interviewing' };
 
 // Your LinkedIn network, from its Connections.csv export.
+function connectionsHow(summary) {
+  return `<details class="net-how"><summary>${summary}</summary><ol>
+      <li>On LinkedIn, click <b>Me</b> (your photo, top right) → <b>Settings & Privacy</b> → <b>Data privacy</b> → <b>Get a copy of your data</b>. Or use the button below.</li>
+      <li>Choose <b>Want something in particular?</b>, tick only <b>Connections</b>, and click <b>Request archive</b>. LinkedIn may ask for your password.</li>
+      <li>LinkedIn emails you when it's ready, usually within 10 minutes (the full archive can take a day, which is why you only tick Connections). Download it from the email or the same page.</li>
+      <li>Unzip the download (double-click it) and choose <b>Connections.csv</b> from the folder here.</li></ol>
+      <p class="faint" style="margin:0 0 8px">Emails are usually blank: LinkedIn only includes them for people who allow it. Nothing leaves your computer. To refresh later, request a new copy and re-import; it replaces the old list.</p>
+      <button class="small ghost" data-open-url="https://www.linkedin.com/mypreferences/d/download-my-data">Open LinkedIn's data page</button></details>`;
+}
+
 function networkCard() {
   const n = (state.connections || []).length;
   const input = '<input type="file" id="connFile" accept=".csv,text/csv" hidden>';
   if (n)
     return `<div class="net-line">${icon('user', 15)} <span><b>${n.toLocaleString()}</b> LinkedIn connections${state.settings.connectionsImportedAt ? `, imported ${fmtDate(state.settings.connectionsImportedAt)}` : ''}. They show up at their companies below.</span>
-      <button class="small ghost" id="connPick">Re-import</button><button class="small ghost danger" id="connClear">Remove</button>${input}</div>`;
+      <button class="small ghost" id="connPick">Re-import</button><button class="small ghost danger" id="connClear">Remove</button>${input}
+      ${connectionsHow('How to get a fresh Connections.csv')}</div>`;
   return `<div class="card net-card">
     <div class="grow"><h3 class="with-icon" style="margin-bottom:4px">${icon('user', 20)} See who you already know at every company</h3>
       <p class="muted" style="margin:0">Import your LinkedIn connections and I'll match them to the companies you're aiming at, and point out companies where you already know people. It stays on your computer.</p>
-      <details class="net-how"><summary>How to get the file (2 minutes, plus LinkedIn's wait)</summary><ol>
-        <li>On LinkedIn, open <b>Me → Settings & Privacy → Data privacy → Get a copy of your data</b>.</li>
-        <li>Choose <b>Want something in particular?</b>, tick <b>Connections</b>, and request the archive.</li>
-        <li>LinkedIn emails you a link, usually within 10 minutes. Download it and unzip it.</li>
-        <li>Choose <b>Connections.csv</b> here.</li></ol>
-        <button class="small ghost" data-open-url="https://www.linkedin.com/mypreferences/d/download-my-data">Open LinkedIn's data page</button></details></div>
+      ${connectionsHow("How to get the file (2 minutes, plus LinkedIn's wait)")}</div>
     <button class="primary" id="connPick">${icon('clipboard', 15)} Choose Connections.csv</button>${input}
   </div>`;
 }

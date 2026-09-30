@@ -703,6 +703,7 @@ p.way-next { display: flex; }
 .net-how ol { margin: 8px 0; padding-left: 20px; }
 .net-line { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 13px; color: var(--ink-soft); flex-wrap: wrap; }
 .net-line > span { flex: 1; min-width: 200px; }
+.net-line > .net-how { flex-basis: 100%; margin-top: 0; }
 @media (max-width: 760px) { .way-head .faces { display: none; } .net-card { flex-direction: column; } }
 
 /* Find jobs company cards: the way in there, linking to People → Companies. */
