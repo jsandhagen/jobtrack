@@ -15,6 +15,7 @@ const {
   Notification,
   safeStorage,
   shell,
+  net,
 } = require('electron');
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
@@ -25,6 +26,7 @@ const { voiceProfile } = require('./voice');
 const { PostingWatcher, fingerprint } = require('./watcher');
 const ocr = require('./ocr');
 const { createBridge } = require('./bridge');
+const { createUpdater } = require('./updater');
 const bulletBank = require('./bullets');
 const ResumeDoc = require('../shared/resumeDoc');
 const { postingFromLines } = require('./pageText');
@@ -43,6 +45,7 @@ let tray = null;
 let watcher = null;
 let overlayHideTimer = null;
 let bridge = null;
+let updater = null;
 let bridgePort = null;
 const pairRequests = new Map(); // key -> resolve(boolean)
 
@@ -258,7 +261,13 @@ function setupWatcher() {
     // OCR is free; only a Claude-only reader is limited by the budget.
     canAutoScan: () => store.getSettings().screenReader !== 'claude' || autoBudgetOk(),
   });
-  watcher.on('posting', (posting) => handlePosting(posting).catch((e) => console.error(e)));
+  watcher.on('posting', (posting) => {
+    // Copied while Sprout is in front (e.g. to paste into Check a job): show it in the app, not the popup.
+    const inApp = posting.via === 'clipboard' && dashboard && !dashboard.isDestroyed() && dashboard.isFocused();
+    handlePosting(posting, { fromDashboard: inApp })
+      .then((rec) => inApp && rec && openInDashboard(rec.id))
+      .catch((e) => console.error(e));
+  });
   watcher.on('scanning', ({ force }) => {
     if (force) showOverlay({ mode: 'message', mood: 'thinking', title: 'Taking a peek…', text: 'Reading the job posting on your screen.' });
   });
@@ -309,6 +318,33 @@ async function scanNow() {
   hideOverlay();
   await new Promise((r) => setTimeout(r, 250));
   await watcher.scanScreenNow({ force: true });
+}
+
+// "Scan my screen" from inside the app: step out of the way for the
+// screenshot, then show the result in the app rather than in the popup.
+async function scanFromApp() {
+  if (store.getSettings().screenReader === 'claude' && !getApiKey()) throw new Error('Add a Claude API key first, or switch "Read the screen with" to free OCR in Settings.');
+  hideOverlay();
+  const win = dashboard && !dashboard.isDestroyed() ? dashboard : null;
+  const wasVisible = !!win && win.isVisible() && !win.isMinimized();
+  if (wasVisible) win.minimize();
+  let posting;
+  try {
+    await new Promise((r) => setTimeout(r, wasVisible ? 600 : 250)); // let the minimise animation finish
+    posting = await watcher.readScreenPosting({ force: true });
+  } finally {
+    if (wasVisible) win.restore();
+  }
+  if (!posting) return null;
+  return handlePosting(posting, { fromDashboard: true });
+}
+
+// Show a posting in the dashboard (used when Sprout itself is in front).
+function openInDashboard(id) {
+  const w = createDashboard();
+  const go = () => w.webContents.send('navigate', { view: 'application', id });
+  if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go);
+  else go();
 }
 
 // ---------------- core pipeline ----------------
@@ -728,12 +764,7 @@ async function startBridge() {
         seen: !!before,
       };
     },
-    onOpen: (id) => {
-      const w = createDashboard();
-      const go = () => w.webContents.send('navigate', { view: 'application', id });
-      if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go);
-      else go();
-    },
+    onOpen: openInDashboard,
   });
   try {
     bridgePort = await bridge.listen(Number(process.env.JOBTRACK_BRIDGE_PORT) || undefined);
@@ -812,9 +843,10 @@ function registerIpc() {
 
   handle('job:analyze', (posting) => {
     if (!posting.text || posting.text.trim().length < 80) throw new Error('That looks a little short for a job posting — paste the full description?');
+    hideOverlay(); // results open in the app; drop any popup the copy set off
     return handlePosting({ ...posting, text: posting.text.trim(), via: 'manual' }, { fromDashboard: true });
   });
-  handle('job:scanScreen', () => scanNow());
+  handle('job:scanScreen', () => scanFromApp());
   handle('app:get', (id) => withAts(store.getApplication(id)));
   handle('app:update', (id, patch) => {
     const allowed = {};
@@ -964,6 +996,19 @@ function registerIpc() {
     const { edits, rejected } = await claude.polishBullets(claudeClient(), { job: rec.job, bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
     return { edits, rejected };
   });
+  handle('bridge:status', () => ({
+    port: bridgePort,
+    folder: extensionDir(),
+    pairings: (store.getSettings().bridgePairings || []).map(({ origin, name, pairedAt, lastSeenAt }) => ({ origin, name, pairedAt, lastSeenAt })),
+  }));
+  handle('bridge:revoke', (origin) => {
+    store.updateSettings({ bridgePairings: (store.getSettings().bridgePairings || []).filter((p) => p.origin !== origin) });
+    broadcast('state-changed');
+  });
+  handle('bridge:showFolder', () => shell.openPath(extensionDir()));
+  handle('update:status', () => updater.status());
+  handle('update:check', () => updater.check());
+  handle('update:install', () => updater.install());
   handle('shell:openExternal', (url) => {
     // Only real web links, never file:// or custom schemes.
     if (!/^https?:\/\//i.test(url || '')) throw new Error('That link doesn\'t look like a web address.');
@@ -1200,6 +1245,24 @@ async function importPaths(paths) {
   return { added, errors, bullets };
 }
 
+// ---------------- updates ----------------
+
+function startUpdates() {
+  let told = '';
+  updater.events.on('status', (st) => {
+    broadcast('update-status', st);
+    // Mention each new version once, when there's something to do about it.
+    const key = `${st.state}:${st.version}`;
+    if (told === key || !['ready', 'available'].includes(st.state)) return;
+    told = key;
+    broadcast('toast', {
+      kind: 'good',
+      text: st.state === 'ready' ? `Sprout ${st.version} is ready. Restart from Settings → Updates, or it installs next time you quit.` : `Sprout ${st.version} is out! Download it from Settings → Updates.`,
+    });
+  });
+  updater.start();
+}
+
 // ---------------- lifecycle ----------------
 
 // `--smoke-test` proves a packaged build works, then exits: the OCR worker,
@@ -1233,6 +1296,7 @@ if (process.argv.includes('--smoke-test')) {
 
   app.whenReady().then(() => {
     store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
+    updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();
     // First run with the bullet bank: fill it from the resumes already in the library.
     if (!store.getBank().bullets.length && store.allDocuments().length) importBullets(store.allDocuments());
@@ -1253,6 +1317,7 @@ if (process.argv.includes('--smoke-test')) {
     checkFollowUps();
     setInterval(checkFollowUps, 60 * 60 * 1000);
     startBridge();
+    startUpdates();
   });
 
   // Keep running in the tray so detection keeps working after the dashboard closes.

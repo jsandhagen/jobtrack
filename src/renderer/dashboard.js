@@ -369,6 +369,7 @@ const views = {
           <div class="usage">${usageSummary()}</div>
           <button class="primary" id="saveClaudeUse" style="margin-top:10px">Save</button>
         </div>
+        <div class="card" id="updCard"><h2 class="with-icon">${icon('sparkle', 22)} Updates</h2><p class="muted"><span class="spinner"></span></p></div>
         <div class="card" id="extCard"><h2 class="with-icon">${icon('globe', 22)} Browser extension</h2><p class="muted"><span class="spinner"></span></p></div>
         <div class="card"><h2>Tracking</h2>
           <label>Remind me to follow up after (days)</label>
@@ -690,13 +691,61 @@ async function renderApplication(id) {
   return editorReady;
 }
 
+// ---------------- updates ----------------
+
+async function renderUpdateCard(st) {
+  if (!st) st = await S.updateStatus().catch(() => null);
+  const card = document.getElementById('updCard');
+  if (!card || !st) return;
+  const when = st.checkedAt ? ` Last checked ${timeAgo(st.checkedAt)}.` : '';
+  const line = {
+    dev: "You're running Sprout from source, so updates come from git instead.",
+    idle: `You have version ${esc(st.current)}. Sprout checks for new versions on its own.`,
+    checking: '<span class="spinner"></span> Checking for a new version…',
+    current: `You're up to date (version ${esc(st.current)}).${when}`,
+    downloading: `<span class="spinner"></span> Downloading version ${esc(st.version)}… ${st.percent ? `${st.percent}%` : ''}`,
+    ready: `<b>Version ${esc(st.version)} is ready.</b> Restart to switch to it, or it installs next time you quit Sprout.`,
+    available: `<b>Version ${esc(st.version)} is out</b> (you have ${esc(st.current)}). Download it and install over this one; your documents and applications are kept.`,
+    error: `Couldn't check for updates: ${esc(st.error || 'unknown error')}`,
+  }[st.state] || '';
+  const busy = ['checking', 'downloading'].includes(st.state);
+  const btn =
+    st.state === 'ready'
+      ? `<button class="primary" id="updInstall">Restart and update</button>`
+      : st.state === 'available'
+        ? `<button class="primary" id="updDownload">${icon('download', 16)} Download ${esc(st.version)}</button>`
+        : st.state === 'dev'
+          ? ''
+          : `<button class="soft" id="updCheck" ${busy ? 'disabled' : ''}>Check now</button>`;
+  card.innerHTML = `<h2 class="with-icon">${icon('sparkle', 22)} Updates</h2><p class="muted">${line}</p>${btn}`;
+  const on = (id, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', (e) => run(e.currentTarget, fn, 'Working…'));
+  };
+  on('updCheck', async () => renderUpdateCard(await S.checkForUpdates()));
+  on('updInstall', () => S.installUpdate());
+  on('updDownload', () => S.openExternal(st.url));
+}
+S.onUpdateStatus((st) => renderUpdateCard(st));
+
 // ---------------- browser extension ----------------
 
 async function renderExtensionCard() {
   const card = document.getElementById('extCard');
   if (!card) return;
-  const st = await S.bridgeStatus().catch(() => null);
-  if (!st || !document.getElementById('extCard')) return;
+  let st = null;
+  let err = '';
+  try {
+    st = await S.bridgeStatus();
+  } catch (e) {
+    err = e.message;
+  }
+  if (!document.getElementById('extCard')) return;
+  if (!st) {
+    card.innerHTML = `<h2 class="with-icon">${icon('globe', 22)} Browser extension</h2>
+      <div class="note-box" style="background:var(--peach-soft)">Couldn't load the extension settings${err ? `: ${esc(err)}` : ''}. Restart Sprout to try again.</div>`;
+    return;
+  }
   const browsers = st.pairings.length
     ? `<div class="section-title">Connected browsers</div>${st.pairings
         .map(
@@ -820,10 +869,19 @@ function openEditJobModal(a) {
 
 // ---------------- wiring per view ----------------
 
+// Sprout minimises itself for the screenshot, then shows what it found here.
+function scanFromApp(e) {
+  return run(e.currentTarget, async () => {
+    const app = await S.scanScreen();
+    if (app) location.hash = `#application/${app.id}`;
+    else toast("I couldn't find a job posting on your screen. Open one and try again, or paste its text into Check a job.", 'error', 5000, 'curious');
+  }, 'Reading your screen…');
+}
+
 const binders = {
   home() {
     const scan = $('#scanBtn');
-    if (scan) scan.addEventListener('click', () => S.scanScreen());
+    if (scan) scan.addEventListener('click', scanFromApp);
   },
   check() {
     $('#analyzeBtn').addEventListener('click', (e) =>
@@ -832,7 +890,7 @@ const binders = {
         location.hash = `#application/${app.id}`;
       }, 'Checking…')
     );
-    $('#scanBtn').addEventListener('click', () => S.scanScreen());
+    $('#scanBtn').addEventListener('click', scanFromApp);
   },
   applications() {
     $$('[data-filter]').forEach((b) => b.addEventListener('click', () => ((appFilter = b.dataset.filter), route())));
@@ -915,6 +973,7 @@ const binders = {
   },
   settings() {
     renderExtensionCard();
+    renderUpdateCard();
     $('#saveKey').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const v = $('#apiKey').value.trim();

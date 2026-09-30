@@ -64,11 +64,15 @@ contextBridge.exposeInMainWorld('sprout', {
   polishBullets: (appId) => call('builder:polish', appId),
   bridgeRevoke: (origin) => call('bridge:revoke', origin),
   showExtensionFolder: () => call('bridge:showFolder'),
+  updateStatus: () => call('update:status'),
+  checkForUpdates: () => call('update:check'),
+  installUpdate: () => call('update:install'),
   overlayResize: (h) => call('overlay:resize', h),
 
   onStateChanged: (cb) => on('state-changed', cb),
   onAppUpdated: (cb) => on('app-updated', cb),
   onToast: (cb) => on('toast', cb),
   onNavigate: (cb) => on('navigate', cb),
+  onUpdateStatus: (cb) => on('update-status', cb),
   onOverlayShow: (cb) => on('overlay:show', cb),
 });

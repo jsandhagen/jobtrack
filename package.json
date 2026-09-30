@@ -20,6 +20,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
     "@tesseract.js-data/eng": "^1.0.0",
+    "electron-updater": "^6.8.9",
     "mammoth": "^1.13.0",
     "pdf-parse": "^1.1.1",
     "tesseract.js": "^7.0.0",
@@ -33,6 +34,13 @@
   "build": {
     "appId": "app.sprout.jobbuddy",
     "artifactName": "Sprout-${os}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jsandhagen",
+        "repo": "jobtrack"
+      }
+    ],
     "directories": {
       "buildResources": "build",
       "output": "dist"

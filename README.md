@@ -16,6 +16,8 @@
 - **Mac:** open the `.dmg` and drag Sprout into Applications. The first time you open it, if macOS says it can't verify the developer, go to **System Settings → Privacy & Security** and click **Open Anyway**.
 - **Linux:** make the file executable (`chmod +x Sprout-linux-x86_64.AppImage`) and run it.
 
+**Updates:** Sprout checks for new versions on its own (see **Settings → Updates**). On Windows and Linux it downloads them in the background; click **Restart and update**, or it installs the next time you quit. On a Mac it tells you when a new version is out and links to the download (installing by itself would need an Apple-signed build). Your documents and applications are kept either way.
+
 Then add the [browser extension](#browser-extension): in Sprout, **Settings → Browser extension → Show folder** opens the copy that comes with the app.
 
 ---
