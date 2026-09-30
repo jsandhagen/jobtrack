@@ -74,20 +74,68 @@ test('templates fill in the contact, the profile and the role; "in common" reads
   const tpl = O.DEFAULT_TEMPLATES.find((t) => t.id === 'tpl-common');
   const msg = O.fillTemplate(tpl.body, vars);
   assert.match(msg, /^Hi Frederick, I saw we both went to UVA\. I'm exploring chief of staff roles/);
-  assert.match(msg, /your work at OCTA\./);
+  assert.match(msg, /your work as Chief of Staff at OCTA\./);
   assert.match(msg, /\n\nJordan$/);
   assert.doesNotMatch(msg, /\{\w+\}/);
-  // Every default template fills completely and fits a LinkedIn note.
+  // Every default template fills completely, with no brackets left; notes fit LinkedIn's limit.
   for (const t of O.DEFAULT_TEMPLATES) {
     const out = O.fillTemplate(t.body, vars);
-    assert.doesNotMatch(out, /\{\w+\}/, t.id);
-    assert.ok(out.length <= O.NOTE_LIMIT, `${t.id} is ${out.length} characters`);
+    assert.doesNotMatch(out, /\{\w+\}|\[\[|\]\]/, t.id);
+    assert.ok(O.CHANNELS[t.channel], t.id);
+    if (t.channel === 'note') assert.ok(out.length <= O.NOTE_LIMIT, `${t.id} is ${out.length} characters`);
   }
+});
+
+test('optional parts appear only when their details are known', () => {
+  const body = 'Hi {first}, your work[[ as {title}]][[ at {company}]] stood out.[[ We both {common}.]]';
+  assert.equal(O.fillTemplate(body, O.templateVars({ name: 'Fred Lee', title: 'Chief of Staff', company: 'OCTA', connection: 'UVA' }, { schools: 'UVA' })), 'Hi Fred, your work as Chief of Staff at OCTA stood out. We both went to UVA.');
+  assert.equal(O.fillTemplate(body, O.templateVars({ name: 'Fred Lee', company: 'OCTA' }, {})), 'Hi Fred, your work at OCTA stood out.');
+  assert.equal(O.fillTemplate(body, O.templateVars({}, {})), 'Hi there, your work stood out.');
+  // Outside [[ ]], an unknown detail falls back to something that still reads.
+  assert.equal(O.fillTemplate('I love {company}.', O.templateVars({}, {})), 'I love your company.');
+});
+
+test("your own employer isn't repeated when it's what you share", () => {
+  const profile = { name: 'Jordan Rivera', pastEmployers: 'Appian, Deloitte', targetRoles: 'Chief of Staff' };
+  assert.equal(O.templateVars({ connection: 'ex-Appian' }, profile).myEmployer, 'Deloitte');
+  assert.equal(O.templateVars({ connection: 'UVA' }, profile).myEmployer, 'Appian');
+  assert.equal(O.templateVars({}, { links: 'jordan.dev · linkedin.com/in/jordan' }).myLinkedIn, 'linkedin.com/in/jordan');
+});
+
+test('several suggested messages per person, best first, with their details in', () => {
+  const T = O.DEFAULT_TEMPLATES;
+  const profile = { name: 'Jordan Rivera', targetRoles: 'Chief of Staff', pastEmployers: 'Appian' };
+  const fred = { name: 'Frederick Lee', company: 'OCTA', title: 'Chief of Staff', connection: 'ex-Appian', status: 'to-reach' };
+  const s = O.suggestMessages(fred, T, { profile, job: { title: 'Chief of Staff to the COO', url: 'https://x.co/1' } });
+  assert.equal(s.length, 4);
+  assert.equal(s[0].template.id, 'tpl-opening', 'a first note about the open role beats asking for a referral');
+  assert.ok(s.some((m) => m.template.id === 'tpl-referral'));
+  assert.ok(new Set(s.map((m) => m.channel)).size >= 2, 'more than one format');
+  for (const m of s) {
+    assert.match(m.text, /Frederick/);
+    assert.deepEqual(m.missing, []);
+  }
+  assert.match(s.find((m) => m.template.id === 'tpl-referral').text, /\(https:\/\/x\.co\/1\)/);
+  // Someone you know nothing about still gets messages, and is told what to add.
+  const alex = O.suggestMessages({ name: 'Alex Kim', status: 'to-reach' }, T, { profile });
+  assert.ok(alex.length >= 2);
+  assert.deepEqual(alex[0].missing, ['title', 'company']);
+  assert.doesNotMatch(alex.map((m) => m.text).join(' '), /your role|your company/);
+  const email = alex.find((m) => m.channel === 'email');
+  assert.equal(email.subject, 'Quick question about your work');
+  // Where things stand decides which messages make sense.
+  assert.equal(O.suggestMessages({ name: 'P', status: 'reached' }, T, { profile })[0].template.id, 'tpl-follow');
+  assert.equal(O.suggestMessages({ name: 'P', status: 'talked' }, T, { profile })[0].template.id, 'tpl-thanks');
+  assert.ok(!O.suggestMessages({ name: 'P', status: 'to-reach' }, T, { profile, limit: 99 }).some((m) => ['tpl-follow', 'tpl-thanks', 'tpl-opening'].includes(m.template.id)));
+  // Your own templates always show up.
+  const mine = O.suggestMessages({ name: 'P', status: 'talked' }, [...T, { id: 'x', name: 'Mine', body: 'Yo {first}' }], { profile, limit: 99 });
+  assert.ok(mine.some((m) => m.template.id === 'x' && m.text === 'Yo P'));
 });
 
 test('the suggested template fits the situation', () => {
   const T = O.DEFAULT_TEMPLATES;
   assert.equal(O.suggestTemplate({ status: 'reached' }, T).id, 'tpl-follow');
+  assert.equal(O.suggestTemplate({ status: 'replied' }, T).id, 'tpl-thanks');
   assert.equal(O.suggestTemplate({ status: 'to-reach' }, T, { job: { title: 'X' } }).id, 'tpl-opening');
   assert.equal(O.suggestTemplate({ status: 'to-reach', connection: 'former colleague' }, T).id, 'tpl-know');
   assert.equal(O.suggestTemplate({ status: 'to-reach', connection: 'UVA' }, T).id, 'tpl-common');

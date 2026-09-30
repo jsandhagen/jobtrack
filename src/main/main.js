@@ -1262,7 +1262,7 @@ const NET_FIELDS = {
   contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified'],
   companies: ['name', 'why', 'careersUrl', 'status', 'tags', 'keywords'],
   searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
-  templates: ['name', 'body'],
+  templates: ['name', 'body', 'channel', 'subject', 'when', 'weight'],
 };
 
 const netFetch = (url, opts) => net.fetch(url, opts); // Chromium's network stack honours system proxies

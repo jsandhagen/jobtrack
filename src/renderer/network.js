@@ -188,8 +188,8 @@ function searchRow(s, saved) {
 
 function templatesCard() {
   return `<div class="card"><h3 class="with-icon">${icon('letter', 20)} Message templates</h3>
-    <p class="faint" style="margin-top:-4px">Short on purpose: a LinkedIn connection note fits ${O.NOTE_LIMIT} characters, and small asks get answered.</p>
-    ${state.templates.map((t) => `<div class="search-row"><div class="grow"><div class="title">${esc(t.name)}</div><div class="sub">${esc(t.body.slice(0, 90))}…</div></div><button class="small ghost editTpl" data-id="${t.id}">${icon('pencil', 14)} Edit</button></div>`).join('')}
+    <p class="faint" style="margin-top:-4px">Each person gets the ones that suit them, with their details filled in. Notes stay under LinkedIn's ${O.NOTE_LIMIT} characters.</p>
+    ${state.templates.map((t) => `<div class="search-row"><div class="grow"><div class="title">${esc(t.name)}</div><div class="sub">${esc(O.CHANNELS[t.channel] || 'Message')} · ${esc(t.body.replace(/\[\[|\]\]/g, '').slice(0, 80))}…</div></div><button class="small ghost editTpl" data-id="${t.id}">${icon('pencil', 14)} Edit</button></div>`).join('')}
     <div class="inline" style="margin-top:10px"><button class="small soft" id="newTpl">+ New template</button><button class="small ghost" id="resetTpl" title="Put Sprout's templates back">Reset to Sprout's</button></div>
   </div>`;
 }
@@ -332,22 +332,31 @@ function openImportModal() {
 function openTemplateModal(t) {
   const editing = !!t.id;
   const card = openModal(`<h2 style="margin-top:0">${editing ? 'Edit template' : 'New template'}</h2>
-    <label>Name</label><input id="tplName" value="${esc(t.name)}" placeholder="e.g. Fellow alum">
+    <div class="form-grid"><div><label>Name</label><input id="tplName" value="${esc(t.name)}" placeholder="e.g. Fellow alum"></div>
+      <div><label>Format</label><select id="tplChannel">${Object.entries(O.CHANNELS).map(([k, l]) => `<option value="${k}" ${k === (t.channel || 'note') ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    <div id="tplSubjectRow"><label style="margin-top:10px">Subject</label><input id="tplSubject" value="${esc(t.subject || '')}" placeholder="Quick question about your work[[ at {company}]]"></div>
     <label style="margin-top:10px">Message</label><textarea id="tplBody" style="min-height:170px">${esc(t.body)}</textarea>
     <p class="faint" id="tplCount"></p>
-    <p class="faint">Fill-ins: ${Object.entries(O.PLACEHOLDERS).map(([k, v]) => `<code>{${k}}</code> ${esc(v)}`).join(' · ')}</p>
+    <p class="faint"><b>Fill-ins:</b> ${Object.entries(O.PLACEHOLDERS).map(([k, v]) => `<code>{${k}}</code> ${esc(v)}`).join(' · ')}</p>
+    <p class="faint"><b>Optional parts:</b> wrap a phrase in <code>[[ ]]</code> and it's left out when a detail inside is unknown. <code>your work[[ at {company}]]</code> becomes "your work at OCTA", or just "your work".</p>
+    <div class="section-title">Preview</div><div class="posting-text" id="tplPreview" style="max-height:200px;padding:12px 16px"></div>
     <div class="inline" style="margin-top:12px"><button class="primary" id="saveTpl">Save</button>${editing ? '<button class="ghost danger" id="delTpl">Delete</button>' : ''}<button class="ghost" id="cancelTpl">Cancel</button></div>`);
   const body = $('#tplBody', card);
-  const count = () => {
-    const sample = O.fillTemplate(body.value, O.templateVars({ name: 'Frederick Lee', title: 'Chief of Staff', company: 'OCTA', connection: state.profile.schools || 'UVA' }, state.profile));
-    $('#tplCount', card).textContent = `About ${sample.length} characters once filled in${sample.length > O.NOTE_LIMIT ? ` — too long for a LinkedIn connection note (${O.NOTE_LIMIT}), fine for a message or email` : ''}.`;
+  const chan = $('#tplChannel', card);
+  const sample = { name: 'Frederick Lee', title: 'Chief of Staff', company: 'OCTA', connection: O.splitList(state.profile.pastEmployers)[0] || O.splitList(state.profile.schools)[0] || 'UVA' };
+  const update = () => {
+    $('#tplSubjectRow', card).style.display = chan.value === 'email' ? 'block' : 'none';
+    const vars = O.templateVars(sample, state.profile, { title: 'Chief of Staff to the COO', url: 'https://example.com/job' });
+    const text = O.fillTemplate(body.value, vars);
+    $('#tplPreview', card).textContent = (chan.value === 'email' ? `Subject: ${O.fillTemplate($('#tplSubject', card).value, vars)}\n\n` : '') + text;
+    $('#tplCount', card).textContent = `About ${text.length} characters for someone like ${sample.name}${chan.value === 'note' && text.length > O.NOTE_LIMIT ? ` — too long for a LinkedIn connection note (${O.NOTE_LIMIT})` : ''}.`;
   };
-  body.addEventListener('input', count);
-  count();
+  [body, chan, $('#tplSubject', card)].forEach((el) => el.addEventListener('input', update));
+  update();
   $('#cancelTpl', card).addEventListener('click', closeModal);
   $('#saveTpl', card).addEventListener('click', async () => {
     const name = $('#tplName', card).value.trim() || 'Untitled template';
-    await S.saveItem('templates', { id: t.id, name, body: body.value }).catch((err) => toast(err.message, 'error'));
+    await S.saveItem('templates', { id: t.id, name, body: body.value, channel: chan.value, subject: chan.value === 'email' ? $('#tplSubject', card).value : '' }).catch((err) => toast(err.message, 'error'));
     closeModal();
     netRefresh();
   });
@@ -360,30 +369,34 @@ function openTemplateModal(t) {
     });
 }
 
-// Write a message: pick a template, tweak it, copy it and open their
-// profile, then say whether you sent it.
+// Write a message: several suggested messages with this person's details
+// filled in; pick one, tweak it, copy it and open their profile (or an
+// email), then say whether you sent it.
+const CHANNEL_ICON = { note: 'link', message: 'chat', email: 'letter' };
 function openComposeModal(contactId, appId) {
   const c = state.contacts.find((x) => x.id === contactId);
   if (!c) return;
   const roles = openRolesAt(c.company);
   let job = appId ? state.applications.find((a) => a.id === appId) : roles[0];
   const templates = state.templates;
-  let tpl = O.suggestTemplate(c, templates, { job: job && job.job });
   const hasEmail = /@/.test(c.email || '');
+  const jobInfo = () => (job ? { title: job.job.title, url: job.url } : null);
+  let suggestions = [];
+  let current = null; // { template, channel, text, subject, missing }
+  let channel = 'LinkedIn';
+
   const card = openModal(`<div class="compose-head">${mascotSvg('cheer', 56, { cls: 'pettable' })}<div><h2 style="margin:0">Message ${esc(c.name.split(' ')[0])}</h2>
       <div class="muted">${esc(contactLine(c))}${c.connection ? ` · ${esc(c.connection)}` : ''}</div>
       <p class="sprout-line" style="margin:6px 0 0">${esc(pick(['It\'s a small ask. Most people like being asked about their work.', 'Short and specific is perfect. You don\'t need to sound impressive, just curious.', 'Worst case, no reply. Best case, a friend on the inside.', 'You\'re not asking for a job, just 15 minutes. That\'s an easy yes.']))}</p></div></div>
-    <div class="form-grid" style="margin-top:12px">
-      <div><label>Template</label><select id="cmpTpl">${templates.map((t) => `<option value="${t.id}" ${tpl && t.id === tpl.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>
-      ${roles.length ? `<div><label>About the role</label><select id="cmpJob"><option value="">(none)</option>${roles.map((a) => `<option value="${a.id}" ${job && job.id === a.id ? 'selected' : ''}>${esc(a.job.title)}</option>`).join('')}</select></div>` : '<div></div>'}
-    </div>
+    ${roles.length ? `<div class="inline" style="margin-top:12px"><label style="margin:0">About the role</label><select id="cmpJob" class="small-select" style="width:auto"><option value="">(none)</option>${roles.map((a) => `<option value="${a.id}" ${job && job.id === a.id ? 'selected' : ''}>${esc(a.job.title)}</option>`).join('')}</select></div>` : ''}
+    <div class="section-title" style="margin-top:14px">Suggested for ${esc(c.name.split(' ')[0])} <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:600">· their details are already filled in; pick one to edit</span></div>
+    <div class="msg-opts" id="cmpOpts"></div>
+    <div class="inline" style="margin-top:8px"><span class="faint">Or start from</span><select id="cmpTpl" class="small-select" style="width:auto"><option value="">another template…</option>${templates.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
+    <div id="cmpMissing"></div>
+    <input id="cmpSubject" placeholder="Subject" style="margin-top:10px;display:none">
     <textarea id="cmpBody" style="min-height:170px;margin-top:10px"></textarea>
     <p class="faint" id="cmpCount" style="margin:4px 0 0"></p>
-    <div class="inline" style="margin-top:14px">
-      <button class="primary" id="cmpLinkedIn">${icon('link', 15)} Copy & open ${c.linkedinUrl ? 'their LinkedIn' : 'a LinkedIn search for them'}</button>
-      ${hasEmail ? `<button class="soft" id="cmpEmail">${icon('letter', 15)} Email instead</button>` : ''}
-      <button class="ghost" id="cmpCopy">Just copy</button>
-    </div>
+    <div class="inline" style="margin-top:14px" id="cmpSend"></div>
     <div class="note-box" id="cmpSent" style="display:none;margin-top:14px">
       <b>Did you send it?</b> I'll remind you to follow up if they don't answer.
       <div class="inline" style="margin-top:8px"><button class="primary small" id="cmpYes">Yes, I reached out</button>
@@ -391,60 +404,104 @@ function openComposeModal(contactId, appId) {
         <button class="ghost small" id="cmpNotYet">Not yet</button></div>
     </div>`);
   const body = $('#cmpBody', card);
-  let channel = 'LinkedIn';
-  const fill = () => {
-    body.value = tpl ? O.fillTemplate(tpl.body, O.templateVars(c, state.profile, job && job.job)) : '';
-    count();
-  };
+  const subject = $('#cmpSubject', card);
+
   const count = () => {
     const n = body.value.length;
-    $('#cmpCount', card).textContent = `${n} characters${n > O.NOTE_LIMIT ? ` · over LinkedIn's ${O.NOTE_LIMIT} for a connection note; fine for a message to a connection, InMail or email` : ' · fits in a LinkedIn connection note'}`;
+    const ch = current ? current.channel : 'message';
+    $('#cmpCount', card).textContent =
+      ch === 'email' ? `${n} characters` : `${n} characters${n > O.NOTE_LIMIT ? ` · over LinkedIn's ${O.NOTE_LIMIT} for a connection note; fine as a message to a connection or InMail` : ' · fits in a LinkedIn connection note'}`;
   };
   body.addEventListener('input', count);
+
+  const sendButtons = () => {
+    const email = current && current.channel === 'email';
+    const li = `<button class="${email && hasEmail ? 'soft' : 'primary'}" id="cmpLinkedIn">${icon('link', 15)} Copy & open ${c.linkedinUrl ? 'their LinkedIn' : 'a LinkedIn search for them'}</button>`;
+    const em = hasEmail ? `<button class="${email ? 'primary' : 'soft'}" id="cmpEmail">${icon('letter', 15)} ${email ? 'Open in my email' : 'Email instead'}</button>` : '';
+    $('#cmpSend', card).innerHTML = `${email && hasEmail ? em + li : li + em}<button class="ghost" id="cmpCopy">Just copy</button>${email && !hasEmail ? `<span class="faint">No email address for ${esc(c.name.split(' ')[0])} yet: copy it, or <a href="#" id="cmpAddEmail">add one</a>.</span>` : ''}`;
+    $('#cmpLinkedIn', card).addEventListener('click', async () => {
+      await copyText(body.value);
+      channel = 'LinkedIn';
+      toast('Copied. Paste it into LinkedIn.', 'good');
+      openUrl(O.profileUrl(c));
+      askSent();
+    });
+    const emailBtn = $('#cmpEmail', card);
+    if (emailBtn)
+      emailBtn.addEventListener('click', () => {
+        channel = 'email';
+        const subj = subject.value.trim() || (job ? `Quick question about ${job.job.title} at ${c.company}` : `Quick question about ${c.company || 'your work'}`);
+        openUrl(`mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body.value)}`);
+        askSent();
+      });
+    $('#cmpCopy', card).addEventListener('click', async () => {
+      await copyText(subject.style.display !== 'none' && subject.value ? `Subject: ${subject.value}\n\n${body.value}` : body.value);
+      channel = '';
+      toast('Copied.', 'good');
+      askSent();
+    });
+    const addEmail = $('#cmpAddEmail', card);
+    if (addEmail) addEmail.addEventListener('click', (e) => (e.preventDefault(), openContactModal(c)));
+  };
+
+  const use = (m) => {
+    current = m;
+    body.value = m.text;
+    subject.value = m.subject || '';
+    subject.style.display = m.channel === 'email' ? 'block' : 'none';
+    $$('.msg-opt', card).forEach((el) => el.classList.toggle('on', el.dataset.tpl === m.template.id));
+    $('#cmpMissing', card).innerHTML = m.missing.length
+      ? `<p class="note-box" style="margin-top:10px">${icon('pencil', 14)} Add ${m.missing.map((k) => ({ title: 'their job title', company: 'their company', common: 'what you have in common' })[k]).join(' and ')} to make this more personal. <a href="#" id="cmpEditContact">Edit ${esc(c.name.split(' ')[0])}</a></p>`
+      : '';
+    const edit = $('#cmpEditContact', card);
+    if (edit) edit.addEventListener('click', (e) => (e.preventDefault(), openContactModal(c)));
+    sendButtons();
+    count();
+  };
+
+  const render = () => {
+    suggestions = O.suggestMessages(c, templates, { profile: state.profile, job: jobInfo(), limit: 4 });
+    $('#cmpOpts', card).innerHTML = suggestions
+      .map(
+        (m, i) => `<button class="msg-opt" data-tpl="${m.template.id}">
+        <div class="msg-opt-head"><b>${esc(m.template.name)}</b>${i === 0 ? '<span class="chip good tiny">best fit</span>' : ''}</div>
+        <div class="msg-opt-meta">${icon(CHANNEL_ICON[m.channel] || 'chat', 13)} ${esc(O.CHANNELS[m.channel] || 'Message')} · ${m.text.length} chars${m.channel === 'note' && m.text.length > O.NOTE_LIMIT ? ' · too long for a note' : ''}</div>
+        ${m.subject ? `<div class="msg-opt-subj">${esc(m.subject)}</div>` : ''}
+        <div class="msg-opt-text">${esc(m.text.replace(/\n\n[^\n]{0,40}$/, ''))}</div></button>`
+      )
+      .join('');
+    $$('.msg-opt', card).forEach((el) => el.addEventListener('click', () => use(suggestions.find((m) => m.template.id === el.dataset.tpl))));
+    // Keep the chosen format when the role changes, if it's still suggested.
+    use((current && suggestions.find((m) => m.template.id === current.template.id)) || suggestions[0] || O.suggestMessages(c, templates, { profile: state.profile, job: jobInfo(), limit: 99 })[0] || { template: {}, channel: 'message', text: '', subject: '', missing: [] });
+  };
+
   $('#cmpTpl', card).addEventListener('change', (e) => {
-    tpl = templates.find((t) => t.id === e.target.value);
-    fill();
+    const t = templates.find((x) => x.id === e.target.value);
+    if (!t) return;
+    const vars = O.templateVars(c, state.profile, jobInfo());
+    const text = O.fillTemplate(t.body, vars);
+    use({ template: t, channel: t.channel || (text.length <= O.NOTE_LIMIT ? 'note' : 'message'), text, subject: t.subject ? O.fillTemplate(t.subject, vars) : '', missing: O.missingDetails(t, vars) });
+    e.target.value = '';
   });
   const jobSel = $('#cmpJob', card);
   if (jobSel)
     jobSel.addEventListener('change', () => {
       job = state.applications.find((a) => a.id === jobSel.value) || null;
-      fill();
+      render();
     });
-  fill();
+  render();
+
   const askSent = () => ($('#cmpSent', card).style.display = 'block');
-  $('#cmpLinkedIn', card).addEventListener('click', async () => {
-    await copyText(body.value);
-    channel = 'LinkedIn';
-    toast('Copied. Paste it into LinkedIn.', 'good');
-    openUrl(O.profileUrl(c));
-    askSent();
-  });
-  const emailBtn = $('#cmpEmail', card);
-  if (emailBtn)
-    emailBtn.addEventListener('click', () => {
-      channel = 'email';
-      const subject = job ? `Quick question about ${job.job.title} at ${c.company}` : `Quick question about ${c.company || 'your work'}`;
-      openUrl(`mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body.value)}`);
-      askSent();
-    });
-  $('#cmpCopy', card).addEventListener('click', async () => {
-    await copyText(body.value);
-    channel = '';
-    toast('Copied.', 'good');
-    askSent();
-  });
   $('#cmpNotYet', card).addEventListener('click', closeModal);
   $('#cmpYes', card).addEventListener('click', async (e) =>
     run(e.currentTarget, async () => {
-      await S.markReached(c.id, { channel, message: body.value, followUpDays: Number($('#cmpDays', card).value) });
+      await S.markReached(c.id, { channel, message: (subject.value && channel === 'email' ? `Subject: ${subject.value}\n\n` : '') + body.value, followUpDays: Number($('#cmpDays', card).value) });
       closeModal();
       const week = O.outreachStats(state.contacts).reachedWeek + (c.reachedAt ? 0 : 1);
       celebrate(week >= 3 ? `That's ${week} people this week. You're doing the scary part!` : `Sent! That was the hard part. I'll remind you if ${c.name.split(' ')[0]} goes quiet.`, 'proud');
       netRefresh();
     }, 'Saving…')
   );
-  body.focus();
 }
 
 // ---------------- the People card on an application, and on Home ----------------

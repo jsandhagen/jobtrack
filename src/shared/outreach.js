@@ -240,34 +240,75 @@
 
   // ---------------- templates ----------------
 
-  // Short on purpose: a LinkedIn connection note allows 300 characters, and
-  // a short, specific ask is easier to say yes to.
+  // Messages come in three formats: a LinkedIn connection note (300
+  // characters at most, so short and specific), a LinkedIn message to a
+  // connection or InMail, and an email with a subject line.
+  //
+  // {name} fills in a detail. [[ … ]] marks an optional part: it's kept only
+  // when every detail inside it is known, so a message never says "your
+  // company" when it could say "OCTA", and never says it when it can't.
   const NOTE_LIMIT = 300;
+  const CHANNELS = { note: 'LinkedIn note', message: 'LinkedIn message', email: 'Email' };
+
+  // when: which contacts a message suits (see eligible() below).
   const DEFAULT_TEMPLATES = [
+    {
+      id: 'tpl-opening',
+      name: 'Role open at their company',
+      channel: 'note',
+      when: 'job',
+      body: "Hi {first}, I'm applying for the {job} role at {company}[[ and saw we both {common}]]. Would you have 15 minutes to share your honest take on the team before I do?\n\n{me}",
+    },
+    {
+      id: 'tpl-referral',
+      name: 'Ask for a referral',
+      channel: 'message',
+      when: 'job',
+      weight: -12, // a bigger ask: better once you've talked, or with someone you know
+      body: "Hi {first},\n\n[[Since we both {common}, I hope you don't mind me reaching out. ]]I'm applying for the {job} role at {company}[[ ({jobUrl})]] and think it's a strong fit[[ with my background at {myEmployer}]].\n\nWould you be comfortable referring me, or pointing me to the hiring manager? I can send my resume and a two-line blurb so it takes you a couple of minutes.\n\nThanks either way,\n{me}",
+    },
     {
       id: 'tpl-common',
       name: 'Something in common',
-      body: "Hi {first}, I saw we both {common}. I'm exploring {role} roles and would love to hear how you got into your work at {company}. Would you be open to a 15-minute chat sometime?\n\n{me}",
+      channel: 'note',
+      when: 'common',
+      body: "Hi {first}, I saw we both {common}. I'm exploring {role} roles and would love to hear how you got into your work[[ as {title}]][[ at {company}]]. Would you be open to a 15-minute chat sometime?\n\n{me}",
     },
     {
       id: 'tpl-role',
       name: 'Curious about their job',
-      body: "Hi {first}, I'm looking at {role} roles and your path to {title} at {company} stood out. Could I ask you a few questions about what the job is really like? 15 minutes whenever suits you.\n\n{me}",
+      channel: 'note',
+      when: 'any',
+      body: "Hi {first}, I'm looking at {role} roles and your path[[ to {title}]][[ at {company}]] stood out. Could I ask you a few questions about what the job is really like? 15 minutes whenever suits you.\n\n{me}",
     },
     {
-      id: 'tpl-opening',
-      name: 'Role open at their company',
-      body: "Hi {first}, I'm applying for the {job} role at {company} and would love your honest take on the team before I do. Would you have 15 minutes this week or next?\n\n{me}",
+      id: 'tpl-email',
+      name: 'Informational chat (email)',
+      channel: 'email',
+      when: 'any',
+      subject: 'Quick question about your work[[ at {company}]][[ ({commonShort} connection)]]',
+      body: "Hi {first},\n\nMy name is {myName}[[, and we both {common}]]. I'm exploring {role} roles[[ after my time at {myEmployer}]], and your work[[ as {title}]][[ at {company}]] is exactly the kind of path I'm curious about.\n\nWould you have 15 to 20 minutes in the next couple of weeks for a quick call? I'd love to hear what the job looks like day to day, and what you'd do in my shoes.\n\nThanks so much,\n{myName}[[\n{myLinkedIn}]]",
     },
     {
       id: 'tpl-know',
       name: 'Someone you already know',
-      body: "Hi {first}! It's been a while. I'm looking for my next role and {company} is high on my list. Would you be up for a quick catch-up so I can hear how it's going there?\n\n{me}",
+      channel: 'message',
+      when: 'know',
+      body: "Hi {first}! It's been a while[[ since {common}]]. I'm looking for my next role[[ in {role}]], and {company} is high on my list[[, especially the {job} opening]]. Would you be up for a quick catch-up so I can hear how it's going there?\n\n{me}",
     },
     {
       id: 'tpl-follow',
       name: 'Friendly follow-up',
-      body: "Hi {first}, just floating this back up in case it got buried. No pressure at all; I know things get busy. I'd still love to hear about your work at {company} if you have 15 minutes.\n\n{me}",
+      channel: 'message',
+      when: 'waiting',
+      body: "Hi {first}, just floating this back up in case it got buried. No pressure at all; I know things get busy. I'd still love to hear about your work[[ at {company}]][[, especially with the {job} role open]] if you have 15 minutes.\n\n{me}",
+    },
+    {
+      id: 'tpl-thanks',
+      name: 'Thank you after a chat',
+      channel: 'message',
+      when: 'talked',
+      body: "Hi {first}, thank you again for making the time. It really helped to hear how things work[[ at {company}]].[[ I'm going ahead with my application for the {job} role and will keep you posted.]] If there's ever anything I can do in return, just say.\n\n{me}",
     },
   ];
 
@@ -276,11 +317,20 @@
     name: 'their full name',
     title: 'their job title',
     company: 'their company',
-    common: 'what you share with them',
+    common: 'what you share, e.g. "went to UVA"',
+    commonShort: 'what you share, short, e.g. "UVA"',
     role: 'the roles you want',
-    job: 'the open role you found there',
+    job: 'the open role at their company',
+    jobUrl: "that role's link",
     me: 'your first name',
+    myName: 'your full name',
+    myEmployer: 'your most recent employer (Profile)',
+    myLinkedIn: 'your LinkedIn link (Profile)',
   };
+  // Used for a detail outside [[ ]] that we don't know, so the message still reads.
+  const FALLBACK = { first: 'there', title: 'your role', company: 'your company', common: 'have a few things in common', role: 'new', job: 'open', me: '', myName: '' };
+  // Details worth adding to a contact to personalise more.
+  const CONTACT_DETAILS = { title: 'their title', company: 'their company', common: 'what you have in common' };
 
   // "went to UVA" / "worked at Appian" read naturally after "we both".
   function commonPhrase(connection, profile = {}) {
@@ -289,45 +339,110 @@
     if (/^(went|worked|studied|were|are|know|grew|live|did|attended|played)\b/i.test(c)) return c;
     const ex = /^(ex-|former\s+)/i.test(c);
     const alum = /\s+(alum|alumni|alumnus|alumna|grad|graduate)s?$/i.test(c);
-    const core = c.replace(/^(ex-|former\s+)/i, '').replace(/\s+(alum|alumni|alumnus|alumna|grad|graduate)s?$/i, '');
+    const core = commonCore(c);
     const has = (list) => splitList(list).some((x) => norm(x) === norm(core));
     if (has(profile.schools) || (alum && !has(profile.pastEmployers))) return `went to ${core}`;
     if (has(profile.pastEmployers) || ex) return `worked at ${core}`;
     return `have ${c} in common`;
   }
+  // "ex-Appian" -> "Appian", "UVA alum" -> "UVA"; long phrases aren't subject-line material.
+  function commonCore(c) {
+    return clean(c).replace(/^(ex-|former\s+)/i, '').replace(/\s+(alum|alumni|alumnus|alumna|grad|graduate)s?$/i, '');
+  }
 
+  // The known details for a message. Unknown ones are '' (see FALLBACK).
   function templateVars(contact = {}, profile = {}, job = null) {
     const roles = splitList(profile.targetRoles);
+    const core = commonCore(contact.connection || '');
+    const linkedin = String(profile.links || '').split(/[\s·,|]+/).find((l) => /linkedin\.com\//i.test(l)) || '';
     return {
-      first: clean(contact.name).split(' ')[0] || 'there',
+      first: clean(contact.name).split(' ')[0],
       name: clean(contact.name),
-      title: clean(contact.title) || 'your role',
-      company: clean(contact.company) || 'your company',
-      common: commonPhrase(contact.connection, profile) || 'have a few things in common',
-      role: roles.length ? roles.slice(0, 2).join(' / ').toLowerCase() : 'new',
-      job: clean(job && job.title) || 'open',
-      me: clean(profile.name).split(' ')[0] || '',
+      title: clean(contact.title),
+      company: clean(contact.company),
+      common: commonPhrase(contact.connection, profile),
+      commonShort: core && core.split(' ').length <= 3 && !/^(went|worked|know|met)\b/i.test(core) ? core : '',
+      role: roles.length ? roles.slice(0, 2).join(' and ').toLowerCase() : '',
+      job: clean(job && job.title),
+      jobUrl: /^https?:\/\//.test(clean(job && job.url)) ? clean(job.url) : '',
+      me: clean(profile.name).split(' ')[0],
+      myName: clean(profile.name),
+      // Not the employer you share with them: "we both worked at Appian" already says it.
+      myEmployer: splitList(profile.pastEmployers).find((e) => !core || norm(e) !== norm(core)) || '',
+      myLinkedIn: linkedin,
     };
   }
 
   function fillTemplate(body, vars) {
+    const known = (k) => vars[k] !== undefined && vars[k] !== null && String(vars[k]) !== '';
     return String(body || '')
-      .replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m))
+      .replace(/\[\[([\s\S]*?)\]\]/g, (m, inner) => ([...inner.matchAll(/\{(\w+)\}/g)].every(([, k]) => known(k)) ? inner : ''))
+      .replace(/\{(\w+)\}/g, (m, k) => (known(k) ? vars[k] : FALLBACK[k] !== undefined ? FALLBACK[k] : m))
+      .replace(/[ \t]+([,.?!])/g, '$1')
+      .replace(/[ \t]{2,}/g, ' ')
       .replace(/[ \t]+\n/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }
 
-  // Which template suits this contact best.
-  function suggestTemplate(contact, templates, { job } = {}) {
-    const byId = (id) => templates.find((t) => t.id === id);
-    const pick =
-      (contact.status === 'reached' && byId('tpl-follow')) ||
-      (job && byId('tpl-opening')) ||
-      (/\b(know|friend|former colleague|coworker|worked with|met)\b/i.test(contact.connection || '') && byId('tpl-know')) ||
-      (clean(contact.connection) && byId('tpl-common')) ||
-      byId('tpl-role');
-    return pick || templates[0] || null;
+  // Details a template would use that this contact is missing.
+  function missingDetails(tpl, vars) {
+    const used = new Set([...`${tpl.subject || ''} ${tpl.body}`.matchAll(/\{(\w+)\}/g)].map(([, k]) => k));
+    return Object.keys(CONTACT_DETAILS).filter((k) => used.has(k) && !vars[k]);
+  }
+
+  const KNOW = /\b(know|knew|friend|former colleague|colleague|coworker|co-worker|worked with|met|teammate|classmate|roommate)\b/i;
+  function eligible(tpl, contact, job) {
+    const status = contact.status || 'to-reach';
+    switch (tpl.when) {
+      case 'job':
+        return !!job && !['talked', 'referred'].includes(status);
+      case 'common':
+        return !!clean(contact.connection) && !['reached', 'talked', 'referred'].includes(status);
+      case 'know':
+        return KNOW.test(contact.connection || '') && !['reached', 'talked', 'referred'].includes(status);
+      case 'waiting':
+        return status === 'reached' || status === 'quiet';
+      case 'talked':
+        return ['replied', 'talked', 'referred'].includes(status);
+      case 'any':
+        return !['talked', 'referred'].includes(status);
+      default:
+        return true; // your own templates always show
+    }
+  }
+  const FIRST = { waiting: 60, talked: 60, job: 40, know: 30, common: 20, any: 0 };
+
+  // Several ready-to-send messages for this person, best first: the ones
+  // that suit where things stand, with their details filled in.
+  function suggestMessages(contact, templates, { profile = {}, job = null, limit = 4 } = {}) {
+    const vars = templateVars(contact, profile, job);
+    return (templates || [])
+      .filter((t) => eligible(t, contact, job))
+      .map((t, i) => {
+        const text = fillTemplate(t.body, vars);
+        const channel = t.channel || (text.length <= NOTE_LIMIT ? 'note' : 'message');
+        const missing = missingDetails(t, vars);
+        // Filled-in optional parts show a message fits this person well.
+        const personal = [...t.body.matchAll(/\[\[[\s\S]*?\]\]/g)].filter(([m]) => fillTemplate(m, vars)).length;
+        const tooLong = channel === 'note' && text.length > NOTE_LIMIT;
+        return {
+          template: t,
+          channel,
+          text,
+          subject: t.subject ? fillTemplate(t.subject, vars) : '',
+          missing,
+          rank: (FIRST[t.when] ?? 10) + (t.weight || 0) + personal * 5 - missing.length * 8 - (tooLong ? 20 : 0) - (channel === 'email' && !/@/.test(contact.email || '') ? 12 : 0) - i * 0.01,
+        };
+      })
+      .sort((a, b) => b.rank - a.rank)
+      .slice(0, limit);
+  }
+
+  // The single best template (kept for callers that want one).
+  function suggestTemplate(contact, templates, { job, profile } = {}) {
+    const [best] = suggestMessages(contact, templates, { job, profile, limit: 1 });
+    return best ? best.template : templates[0] || null;
   }
 
   // ---------------- importing a spreadsheet ----------------
@@ -434,6 +549,7 @@
     COMPANY_STATUSES,
     DEFAULT_TEMPLATES,
     PLACEHOLDERS,
+    CHANNELS,
     NOTE_LIMIT,
     splitList,
     sameCompany,
@@ -459,6 +575,8 @@
     templateVars,
     fillTemplate,
     suggestTemplate,
+    suggestMessages,
+    missingDetails,
     parseTable,
     importContacts,
     findContact,
