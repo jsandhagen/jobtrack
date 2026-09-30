@@ -490,10 +490,12 @@
       if (!t.why.includes(why)) t.why.push(why);
       Object.assign(t, extra);
     };
+    // "Not for me" on Find jobs means not here either, whoever you know there.
+    const passed = companies.filter((c) => c.status === 'pass');
     for (const a of applications) if (OPEN.includes(a.status) && a.job) add(a.job.company, 'applying');
     for (const c of companies) if (c.status !== 'pass') add(c.name, 'watching', { companyId: c.id });
     for (const c of contacts) add(c.company, 'people');
-    return out;
+    return out.filter((t) => !passed.some((c) => sameCompany(c.name, t.name)));
   }
 
   // Companies where you have the most connections, that aren't targets

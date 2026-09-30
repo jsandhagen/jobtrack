@@ -48,6 +48,12 @@ function openRolesAt(company) {
   return state.applications.filter((a) => ['scored', 'resume-ready', 'applied', 'interviewing'].includes(a.status) && O.sameCompany(a.job.company, company));
 }
 
+// The way-in line on a company card works from the keyboard too.
+document.addEventListener('keydown', (e) => {
+  const el = (e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('[data-way-co][role="link"]');
+  if (el) (e.preventDefault(), el.click());
+});
+
 // Anywhere in the app: open a link, write a message, add a person.
 document.addEventListener('click', (e) => {
   const link = e.target.closest('[data-open-url]');
@@ -73,6 +79,13 @@ document.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
     addConnection(conn.dataset.addConn);
+    return;
+  }
+  const boardOpen = e.target.closest('[data-board-open]');
+  if (boardOpen) {
+    e.preventDefault();
+    e.stopPropagation();
+    showOnBoard(boardOpen.dataset.boardOpen);
     return;
   }
   const edit = e.target.closest('[data-edit-contact]');
@@ -845,16 +858,23 @@ function wayRow(t, w) {
   const open = O.companyKey(openCo) === key;
   const co = state.companies.find((c) => c.id === t.companyId) || { name: t.name };
   const faces = w.people.slice(0, 4);
+  const watchedCo = t.companyId && state.companies.find((c) => c.id === t.companyId);
+  const openJobs = watchedCo ? (watchedCo.jobs || []).filter((j) => !isHidden(watchedCo, j)).length : 0;
   const why = [
     w.roles.length ? `${w.roles.length} role${w.roles.length === 1 ? '' : 's'} you're going for` : '',
-    t.why.includes('watching') ? 'watching' : '',
     w.people.length ? `${w.people.length} you could ask${w.warm < w.people.length ? `, ${w.warm} warm` : ''}` : '',
   ].filter(Boolean);
+  // The Find jobs side: its matching roles on the board, or watch it so its careers site gets read.
+  const jobsSide = watchedCo
+    ? openJobs
+      ? `<button class="chip tiny good" data-board-open="${watchedCo.id}" title="See them on the job board">${icon('news', 12)} ${openJobs} open on their careers site</button>`
+      : `<span class="chip tiny" title="From their careers site">${watchedCo.lastCheckedAt ? 'No matching openings right now' : 'Reading their careers site…'}</span>`
+    : `<button class="chip tiny" data-watch-co="${esc(t.name)}" title="Add to Find jobs → Companies, so I read their careers site for roles like yours">+ Watch for openings</button>`;
   return `<div class="way ${open ? 'open' : ''}" data-way="${esc(key)}">
     <div class="way-head" data-way-toggle="${esc(t.name)}" role="button" tabindex="0" aria-expanded="${open}">
       ${coLogo(co, 44)}
       <div class="grow"><div class="title">${esc(t.name)} ${stageChip(w.stage)}</div>
-        <div class="sub">${esc(why.join(' · ') || 'No one yet')}</div>
+        <div class="sub">${why.length ? `${esc(why.join(' · '))} ` : ''}${jobsSide}</div>
         <div class="way-next">${icon('sparkle', 13)} ${esc(w.next.text)}</div></div>
       <div class="faces">${faces.map((p) => `<span class="avatar warm-${p.warmth}" title="${esc(`${p.name} · ${O.warmthLabel(p.warmth, p.contact || {})}`)}">${esc(initials(p.name))}</span>`).join('')}${w.people.length > faces.length ? `<span class="more">+${w.people.length - faces.length}</span>` : ''}</div>
       ${nextButton(w)}
@@ -1280,6 +1300,30 @@ function companiesTab() {
   </div>`;
 }
 
+// A company card's link to People → Companies: where you stand there and the next step.
+function coWayLine(co, people, roles) {
+  const w = way(co.name);
+  const faces = w.people.slice(0, 3);
+  return `<div class="co-way" data-way-co="${esc(co.name)}" role="link" tabindex="0" title="Your way in at ${esc(co.name)}">
+    ${stageChip(w.stage)}${faces.length ? `<span class="faces">${faces.map((p) => `<span class="avatar warm-${p.warmth}" title="${esc(`${p.name} · ${O.warmthLabel(p.warmth, p.contact || {})}`)}">${esc(initials(p.name))}</span>`).join('')}</span>` : ''}
+    <span class="co-way-text">${people ? `<b>${people} you could ask.</b> ` : ''}${esc(w.next.text)}</span>
+    ${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}
+    <span class="co-way-go">Your way in →</span></div>`;
+}
+
+// Find jobs → Jobs, showing just this company's roles.
+function showOnBoard(companyId) {
+  Object.assign(board, { company: companyId, window: 'all', limit: PAGE_SIZE });
+  findTab = 'jobs';
+  try {
+    localStorage.setItem('sprout.findTab', 'jobs');
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  if (location.hash === '#find') route();
+  else location.hash = '#find';
+}
+
 function companyRow(co) {
   const L = O.companyLinks(co, state.profile);
   const people = knownAt(co.name);
@@ -1294,7 +1338,7 @@ function companyRow(co) {
     <div class="company-top">${coLogo(co, 64)}<div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
       ${careersStatus(co)}
       ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
-      ${!passed ? `<div class="co-chips">${people ? `<a href="#" class="chip lav tiny" data-way-co="${esc(co.name)}">${icon('user', 12)} ${people} you could ask</a>` : `<a href="#" class="chip tiny" data-way-co="${esc(co.name)}">Find a way in</a>`}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div>` : ''}</div>
+      ${!passed ? coWayLine(co, people, roles) : ''}</div>
       ${rolesBadge}
       <div class="co-actions"><select class="small-select coStatus" data-id="${co.id}" aria-label="Status">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <button class="small ghost icon-btn danger coDel" data-id="${co.id}" title="Remove ${esc(co.name)}" aria-label="Remove ${esc(co.name)}">✕</button></div></div>

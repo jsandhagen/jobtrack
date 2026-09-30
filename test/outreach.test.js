@@ -397,6 +397,7 @@ test('target companies and where your network already is', () => {
   });
   assert.deepEqual(t.map((x) => [x.name, x.why]), [['Ramp', ['applying', 'watching']], ['Figma', ['watching']], ['OCTA', ['people']]]);
   assert.equal(t[0].companyId, 'k1');
+  assert.ok(!O.targetCompanies({ companies: [{ name: 'OCTA', status: 'pass' }], contacts: [{ name: 'A', company: 'OCTA' }] }).length, '"Not for me" hides it here too');
   const n = O.networkCompanies([{ company: 'Stripe' }, { company: 'Stripe Inc' }, { company: 'Ramp' }, { company: 'Notion' }, { company: '' }], t);
   assert.deepEqual(n, [{ name: 'Stripe', count: 2 }, { name: 'Notion', count: 1 }]);
 });

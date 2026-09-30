@@ -668,3 +668,12 @@ p.way-next { display: flex; }
 .net-line { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 13px; color: var(--ink-soft); flex-wrap: wrap; }
 .net-line > span { flex: 1; min-width: 200px; }
 @media (max-width: 760px) { .way-head .faces { display: none; } .net-card { flex-direction: column; } }
+
+/* Find jobs company cards: the way in there, linking to People → Companies. */
+.co-way { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; padding: 7px 10px; border-radius: 12px; background: var(--surface-2); font-size: 12.5px; cursor: pointer; }
+.co-way:hover { background: color-mix(in srgb, var(--sage-soft) 60%, var(--surface-2)); }
+.co-way .chip { margin: 0; }
+.co-way .faces .avatar { width: 24px; height: 24px; font-size: 10px; }
+.co-way-text { flex: 1; min-width: 160px; color: var(--ink); }
+.co-way-go { font-weight: 800; color: var(--sage-deep); white-space: nowrap; }
+.way-head .sub .chip { margin: 0 0 0 6px; vertical-align: 1px; }
