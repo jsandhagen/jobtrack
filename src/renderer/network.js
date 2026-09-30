@@ -1165,7 +1165,7 @@ function jobRow({ co, job }) {
   const f = job.fit;
   const blocked = f && f.dealbreakers && f.dealbreakers.length;
   const fit = f
-    ? `<div class="fit-score pill ${blocked ? 'lo blocked' : pillClass(f.score)}" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${blocked ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read."><b>${f.score}</b><small>${blocked ? 'dealbreaker' : 'fit'}</small></div>`
+    ? `<div class="fit-score pill meter ${blocked ? 'lo blocked' : pillClass(f.score)}" style="--s:${f.score}" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${blocked ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read."><b>${f.score}</b><small>${blocked ? 'dealbreaker' : 'fit'}</small></div>`
     : `<div class="fit-score pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}"><b>–</b><small>fit</small></div>`;
   const chips = [isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '', knownChip(co.name)].join('');
   return `<div class="job-row ${hidden ? 'dim' : ''}">
@@ -1453,7 +1453,7 @@ function finderCard({ company: c, match: m, dismissed, watched }, prio) {
       ${m.flags.map((f) => `<div class="co-status warn">${icon('warn', 13)} ${esc(f.text)}</div>`).join('')}
       ${c.concerns.length ? `<div class="fz-concerns">${icon('eye', 13)} <b>Worth knowing:</b> ${c.concerns.map(esc).join(' · ')}</div>` : ''}
     </div>
-    <details class="fz-score"><summary class="co-count pill ${pillClass(m.score)}" title="${esc(F.matchLabel(m.score))}. Click for why."><b>${m.score}</b><small>match</small></summary>
+    <details class="fz-score"><summary class="co-count pill meter ${pillClass(m.score)}" style="--s:${m.score}" title="${esc(F.matchLabel(m.score))}. Click for why."><b>${m.score}</b><small>match</small></summary>
       <div class="fz-breakdown"><b>${esc(F.matchLabel(m.score))}</b><ul>${breakdown}</ul><p class="faint">Worked out on your computer from the ratings and what you're looking for.</p></div></details>
     <div class="co-actions">${
       watched

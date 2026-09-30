@@ -282,26 +282,62 @@
   }
 
   function scoreColor(score) {
-    if (score >= 65) return 'var(--sage)';
-    if (score >= 45) return 'var(--butter)';
-    return 'var(--peach)';
+    if (score >= 65) return 'var(--band-hi)';
+    if (score >= 45) return 'var(--band-mid)';
+    return 'var(--band-lo)';
   }
 
-  // Animated donut showing a 0-100 score. Starts empty; call animateRings() after inserting.
-  function scoreRing(score, size = 104, caption = 'fit') {
+  // A 0-100 score as a vine growing clockwise around a ring of seeds, with a
+  // leaf at its tip; the number counts up as it grows. Starts empty: call
+  // animateRings() after inserting. `shown` is the number in the middle when
+  // it isn't the score itself (e.g. 3 of a weekly goal of 7); `color` is for
+  // rings that show progress rather than a fit band.
+  function scoreRing(score, size = 104, caption = 'fit', { shown, color: fixed } = {}) {
+    const pct = Math.max(0, Math.min(100, score));
     const stroke = Math.round(size * 0.1);
-    const r = (size - stroke) / 2;
+    const r = (size - stroke) / 2 - stroke * 0.35; // room for the leaf
     const c = 2 * Math.PI * r;
+    const mid = size / 2;
+    const seeds = Math.max(24, Math.round(c / (stroke * 1.5)));
+    const color = fixed || scoreColor(pct);
+    // Leaf drawn pointing along +x from its stem, placed at the ring's start and
+    // turned to lean outward from the vine; the group rotates with the score.
+    const L = stroke * 2.1;
+    const leaf = pct > 2
+      ? `<g class="tip" style="--turn:${(pct * 3.6).toFixed(1)}deg"><g transform="translate(${mid + r} ${mid}) rotate(58)">
+    <path d="M0 0C${L * 0.3} ${-L * 0.42} ${L * 0.78} ${-L * 0.42} ${L} 0C${L * 0.78} ${L * 0.42} ${L * 0.3} ${L * 0.42} 0 0Z" fill="${color}" stroke="var(--surface)" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M${L * 0.14} 0H${L * 0.74}" stroke="var(--surface)" stroke-width="1" stroke-linecap="round" opacity=".55"/></g></g>`
+      : '';
+    const shownNum = Math.round(shown ?? score);
     return `<div class="ring" style="width:${size}px;height:${size}px">
-  <svg width="${size}" height="${size}"><circle class="track" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="${stroke}"/>
-  <circle class="bar" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${scoreColor(score)}" stroke-width="${stroke}"
-    stroke-dasharray="${c}" stroke-dashoffset="${c}" data-target="${c * (1 - Math.max(0, Math.min(100, score)) / 100)}"/></svg>
-  <div class="num"><b>${Math.round(score)}</b><small>${caption}</small></div></div>`;
+  <svg width="${size}" height="${size}" aria-hidden="true"><circle class="track" cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke-width="${(stroke * 0.42).toFixed(1)}" stroke-dasharray="0 ${(c / seeds).toFixed(3)}"/>
+  <circle class="bar" cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}"
+    stroke-dasharray="${c}" stroke-dashoffset="${c}" data-target="${c * (1 - pct / 100)}"/>${leaf}</svg>
+  <div class="num"><b data-to="${shownNum}">${shownNum}</b><small>${caption}</small></div></div>`;
   }
 
   function animateRings(root = document) {
+    const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     requestAnimationFrame(() =>
-      requestAnimationFrame(() => root.querySelectorAll('.ring .bar[data-target]').forEach((el) => el.setAttribute('stroke-dashoffset', el.dataset.target)))
+      requestAnimationFrame(() => {
+        root.querySelectorAll('.ring .bar[data-target]').forEach((el) => el.setAttribute('stroke-dashoffset', el.dataset.target));
+        root.querySelectorAll('.ring').forEach((el) => el.classList.add('grown'));
+        if (still) return;
+        // Count the number up alongside the vine (same 0.9s, easing out).
+        root.querySelectorAll('.ring .num b[data-to]').forEach((b) => {
+          const to = +b.dataset.to;
+          delete b.dataset.to;
+          if (!(to > 0)) return;
+          const t0 = performance.now();
+          const step = (t) => {
+            const k = Math.min(1, (t - t0) / 900);
+            b.textContent = Math.round(to * (1 - Math.pow(1 - k, 3)));
+            if (k < 1) requestAnimationFrame(step);
+          };
+          b.textContent = '0';
+          requestAnimationFrame(step);
+        });
+      })
     );
   }
 

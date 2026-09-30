@@ -74,7 +74,7 @@ function bedPlantSvg(kind) {
 const PLANT_LABEL = { bud: 'Applied', bloom: 'Interviewing', golden: 'Offer!', clover: 'Not this one' };
 
 function goalRing(week, size = 92) {
-  return window.SproutMascot.scoreRing(Math.min(100, (week.count / week.goal) * 100), size, `of ${week.goal}`).replace(/<b>\d+<\/b>/, `<b>${week.count}</b>`);
+  return window.SproutMascot.scoreRing(Math.min(100, (week.count / week.goal) * 100), size, `of ${week.goal}`, { shown: week.count, color: 'var(--band-hi)' });
 }
 
 function levelBar(level) {

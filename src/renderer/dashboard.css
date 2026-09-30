@@ -102,6 +102,16 @@ main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; backg
 .pill.mid { background: var(--butter-soft); color: #a07a1c; }
 .pill.lo { background: var(--peach-soft); color: #b8653e; }
 @media (prefers-color-scheme: dark) { .pill.mid { color: var(--butter); } .pill.lo { color: var(--peach); } }
+/* Scores in lists: the number in ink, and a little growth bar in its band's colour. */
+.pill.meter { --band: var(--band-hi); position: relative; overflow: hidden; color: var(--ink); padding-bottom: 10px; border: 1px solid color-mix(in srgb, var(--band) 22%, transparent); }
+.pill.meter.mid { --band: var(--band-mid); }
+.pill.meter.lo { --band: var(--band-lo); }
+.pill.meter::before, .pill.meter::after { content: ""; position: absolute; left: 8px; bottom: 5px; height: 3px; border-radius: 3px; }
+.pill.meter::before { right: 8px; background: color-mix(in srgb, var(--band) 25%, transparent); }
+.pill.meter::after { width: calc((100% - 16px) * var(--s) / 100); background: var(--band); transform-origin: left; animation: meter-grow 0.7s 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+@keyframes meter-grow { from { transform: scaleX(0); } }
+.settled .pill.meter::after { animation: none; }
+@media (prefers-reduced-motion: reduce) { .pill.meter::after { animation: none; } }
 .status { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 11.5px; font-weight: 800; padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); }
 .status { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.75; }
@@ -758,3 +768,4 @@ p.way-next { display: flex; }
 .board-reading { padding: 26px 20px 18px; }
 .card.spotlight { margin-bottom: 16px; border-color: color-mix(in srgb, var(--butter) 40%, var(--line)); background: linear-gradient(135deg, var(--butter-soft), color-mix(in srgb, var(--butter-soft) 35%, var(--surface))); }
 @media (prefers-color-scheme: dark) { .card.spotlight { background: linear-gradient(135deg, color-mix(in srgb, var(--butter-soft) 70%, var(--surface)), var(--surface)); } }
+.company-top .co-count.meter, .job-row .fit-score.meter { padding-bottom: 11px; }

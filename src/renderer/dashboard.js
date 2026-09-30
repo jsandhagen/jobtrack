@@ -610,7 +610,7 @@ function usageSummary() {
 
 function appRow(a) {
   const meta = [a.job.company, a.appliedAt ? `applied ${fmtDate(a.appliedAt)}` : `found ${timeAgo(a.createdAt)}`].filter(Boolean).join(' · ');
-  return `<div class="row-item" data-app="${a.id}"><div class="pill ${a.dealbreaker ? 'lo' : pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
+  return `<div class="row-item" data-app="${a.id}"><div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}" style="--s:${a.score}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     ${followUpDue(a) ? `<span class="chip due">${icon('clock', 14)} follow up</span>` : ''}
     ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
@@ -621,7 +621,7 @@ function appRow(a) {
 // A job you checked but haven't saved: open it, or keep it.
 function checkedRow(a) {
   const meta = [a.job.company, `checked ${timeAgo(a.lastSeenAt || a.createdAt)}`].filter(Boolean).join(' · ');
-  return `<div class="row-item" data-app="${a.id}"><div class="pill ${a.dealbreaker ? 'lo' : pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
+  return `<div class="row-item" data-app="${a.id}"><div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}" style="--s:${a.score}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     <button class="small soft saveChecked" data-id="${a.id}">Save</button></div>`;
 }
@@ -1309,6 +1309,7 @@ function route() {
   }
   view.innerHTML = views[v]();
   binders[v]();
+  animateRings(view); // score and goal rings grow in (the application page does its own)
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => (location.hash = '#' + b.dataset.go)));
   $$('[data-app]').forEach((row) => row.addEventListener('click', () => (location.hash = `#application/${row.dataset.app}`)));
   $$('.saveChecked').forEach((b) =>
