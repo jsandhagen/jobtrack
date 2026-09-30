@@ -1,11 +1,10 @@
-# Builds the installers on Windows, macOS and Linux, smoke-tests each packaged
-# app, and publishes them.
+# Builds the installers on Windows, macOS and Linux on every push to main,
+# smoke-tests each packaged app, and publishes them as the latest GitHub
+# Release. The README's download links point at
+# releases/latest/download/<file>, so they always get the newest build.
 #
-# - Push a version tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`): the
-#   installers are attached to a draft GitHub Release. Review it and press
-#   Publish on GitHub.
-# - Run it by hand (Actions → Build installers → Run workflow): the installers
-#   are uploaded as a downloadable artifact of the run instead.
+# Each build is versioned <major>.<minor>.<run number> (major and minor come
+# from package.json), and tagged v<that version>.
 #
 # Code signing is optional. Without certificates, Windows shows a SmartScreen
 # warning and macOS asks to confirm the app on first launch (see README). To
@@ -17,16 +16,32 @@ name: Build installers
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths-ignore: ['**.md', 'test/**']
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# One release at a time, in push order.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: echo "version=$(node -p "require('./package.json').version.split('.').slice(0, 2).join('.')").${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: version
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
@@ -44,11 +59,12 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Set version
+        run: npm version ${{ needs.version.outputs.version }} --no-git-tag-version --allow-same-version
+
       - name: Build installers
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -60,24 +76,50 @@ jobs:
           extra=()
           if [[ "$RUNNER_OS" == "macOS" && -z "$CSC_LINK" ]]; then
             # No Apple certificate: sign ad hoc so the app still opens on Apple Silicon.
-            unset CSC_LINK CSC_KEY_PASSWORD
             extra+=(-c.mac.identity=- -c.mac.hardenedRuntime=false)
           fi
           [[ -z "$CSC_LINK" ]] && unset CSC_LINK CSC_KEY_PASSWORD
           [[ -z "$WIN_CSC_LINK" ]] && unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
           [[ -z "$APPLE_ID" ]] && unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-          npx electron-builder --publish "$PUBLISH" "${extra[@]}"
+          npx electron-builder --publish never "${extra[@]}"
 
       - name: Smoke-test the packaged app
         run: npm run smoke-test:packaged
 
-      - name: Upload installers
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: sprout-${{ runner.os }}
+          name: installers-${{ runner.os }}
           path: |
             dist/*.exe
             dist/*.dmg
             dist/*.AppImage
           if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Sprout ${{ needs.version.outputs.version }}
+          make_latest: true
+          files: installers/*
+          body: |
+            Download the installer for your computer:
+
+            - **Windows:** `Sprout-win-x64.exe`
+            - **Mac with Apple Silicon (M1 and newer):** `Sprout-mac-arm64.dmg`
+            - **Mac with Intel:** `Sprout-mac-x64.dmg`
+            - **Linux:** `Sprout-linux-x86_64.AppImage`
+
+            First launch: on Windows, if you see "Windows protected your PC", click **More info → Run anyway**. On a Mac, if it says it can't verify the developer, open **System Settings → Privacy & Security** and click **Open Anyway**.
+
+            Built from ${{ github.sha }}.
