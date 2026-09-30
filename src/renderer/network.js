@@ -554,7 +554,12 @@ const FEED_WINDOWS = [
 ];
 const PAGE_SIZE = 30;
 const FIND_TABS = ['jobs', 'searches', 'companies'];
-const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, limit: PAGE_SIZE };
+const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, sort: 'new', minPay: 0, limit: PAGE_SIZE };
+const BOARD_SORTS = [
+  ['new', 'Newest first'],
+  ['fit', 'Best fit first'],
+  ['pay', 'Highest pay first'],
+];
 let findTab = (() => {
   try {
     return FIND_TABS.includes(localStorage.getItem('sprout.findTab')) ? localStorage.getItem('sprout.findTab') : 'jobs';
@@ -579,6 +584,18 @@ function ageText(isoDate) {
   return days <= 0 ? 'posted today' : days === 1 ? 'posted yesterday' : days < 30 ? `posted ${days} days ago` : `posted ${fmtDate(isoDate)}`;
 }
 
+const PAY_SYMBOL = { USD: '$', CAD: 'CA$', AUD: 'A$', GBP: '£', EUR: '€' };
+// "$150K–$190K", "$45–$60/hr" (the same format as src/main/careers.js).
+function payText(p) {
+  if (!p) return '';
+  const sym = PAY_SYMBOL[p.currency] || `${p.currency} `;
+  const one = (v) => (p.interval === 'hour' ? `${sym}${Math.round(v)}` : v >= 1000 ? `${sym}${Math.round(v / 100) / 10}K`.replace('.0K', 'K') : `${sym}${Math.round(v)}`);
+  return (p.min === p.max ? one(p.min) : `${one(p.min)}–${one(p.max)}`) + (p.interval === 'hour' ? '/hr' : p.interval === 'month' ? '/mo' : '');
+}
+// Top of the range per year, for sorting and the minimum-pay filter.
+const yearly = (p) => (!p ? 0 : (p.max || p.min || 0) * (p.interval === 'hour' ? 2080 : p.interval === 'month' ? 12 : 1));
+const MIN_PAYS = [0, 80000, 100000, 120000, 150000, 180000, 220000];
+
 const watched = () => state.companies.filter((c) => c.status !== 'pass');
 const jobDate = (job) => job.postedAt || job.firstSeenAt || '';
 const isRemote = (job) => /\bremote\b|\banywhere\b/i.test(`${job.location || ''} ${job.workplace || ''}`);
@@ -602,6 +619,8 @@ function inMyList(co, job) {
 function boardMatches({ co, job }) {
   if (board.company && co.id !== board.company) return false;
   if (board.remote && !isRemote(job)) return false;
+  // Minimum pay only rules out jobs that show pay below it; unknown pay stays.
+  if (board.minPay && job.pay && yearly(job.pay) < board.minPay) return false;
   if (!board.showHidden && isHidden(co, job)) return false;
   const q = board.q.trim().toLowerCase();
   return !q || q.split(/\s+/).every((w) => `${job.title} ${co.name} ${job.location || ''}`.toLowerCase().includes(w));
@@ -619,9 +638,15 @@ function jobRow({ co, job }) {
   const mine = inMyList(co, job);
   const hidden = isHidden(co, job);
   const isNew = job.firstSeenAt && Date.now() - Date.parse(job.firstSeenAt) < 3 * 86400000;
+  const f = job.fit;
+  const fitPill = f
+    ? `<div class="pill ${f.dealbreakers && f.dealbreakers.length ? 'lo' : pillClass(f.score)} fit-pill" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${f.dealbreakers && f.dealbreakers.length ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read.">${f.score}</div>`
+    : `<div class="pill fit-pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}">–</div>`;
+  const payChip = job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '';
   return `<div class="job-row ${hidden ? 'dim' : ''}">
+    ${fitPill}
     <div class="grow">
-      <a href="#" class="job-title" data-open-url="${esc(job.url)}" title="Open the posting">${esc(job.title)}</a>${isNew ? ' <span class="chip good tiny">new</span>' : ''}${isRemote(job) ? ' <span class="chip tiny">remote</span>' : ''}
+      <a href="#" class="job-title" data-open-url="${esc(job.url)}" title="Open the posting">${esc(job.title)}</a>${isNew ? ' <span class="chip good tiny">new</span>' : ''}${isRemote(job) ? ' <span class="chip tiny">remote</span>' : ''}${payChip ? ` ${payChip}` : ''}
       <div class="sub"><a href="#" class="job-co" data-board-co="${co.id}" title="Only ${esc(co.name)}'s roles">${esc(co.name)}</a>${job.location ? ` · ${esc(job.location)}` : ''} · ${ageText(job.postedAt)}</div>
     </div>
     ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">${mine.saved === false ? `Checked · ${mine.score}` : 'In your list'}</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
@@ -635,13 +660,22 @@ function jobsTab() {
   const all = careerJobs();
   const days = FEED_WINDOWS.find(([k]) => k === board.window)[2];
   const filtered = all.filter(boardMatches);
-  const shown = filtered.filter(({ job }) => inWindow(job, days)).sort((a, b) => jobDate(b.job).localeCompare(jobDate(a.job)));
+  const byDate = (a, b) => jobDate(b.job).localeCompare(jobDate(a.job));
+  const sorters = {
+    new: byDate,
+    // Unknown fit or pay goes last; ties newest first.
+    fit: (a, b) => (b.job.fit ? b.job.fit.score - (b.job.fit.dealbreakers && b.job.fit.dealbreakers.length ? 100 : 0) : -999) - (a.job.fit ? a.job.fit.score - (a.job.fit.dealbreakers && a.job.fit.dealbreakers.length ? 100 : 0) : -999) || byDate(a, b),
+    pay: (a, b) => yearly(b.job.pay) - yearly(a.job.pay) || byDate(a, b),
+  };
+  const shown = filtered.filter(({ job }) => inWindow(job, days)).sort(sorters[board.sort] || byDate);
+  const withFit = all.filter(({ job }) => job.fit).length;
+  const withPay = all.filter(({ job }) => job.pay).length;
   const hiddenCount = all.filter(({ co, job }) => isHidden(co, job)).length;
   const checked = cos.map((c) => c.lastCheckedAt).filter(Boolean).sort().pop();
   const unreadable = cos.filter((c) => c.checkError === 'no-board').length;
   const readable = cos.filter((c) => c.board && c.board.ats !== 'none').length;
   const withJobs = cos.filter((c) => (c.jobs || []).length);
-  const filtersOn = board.q || board.company || board.remote;
+  const filtersOn = board.q || board.company || board.remote || board.minPay;
 
   if (!cos.length)
     return `<div class="card empty">${mascotSvg('curious', 72)}<h3>Your job board starts with companies</h3>
@@ -656,6 +690,8 @@ function jobsTab() {
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((c) => `<option value="${c.id}" ${board.company === c.id ? 'selected' : ''}>${esc(c.name)} (${(c.jobs || []).length})</option>`)
         .join('')}</select>
+      <select id="boardSort" class="small-select" aria-label="Sort">${BOARD_SORTS.map(([k, l]) => `<option value="${k}" ${board.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="boardPay" class="small-select" aria-label="Minimum pay" title="Hides jobs whose posted pay tops out below this. Jobs that don't show pay stay.">${MIN_PAYS.map((v) => `<option value="${v}" ${board.minPay === v ? 'selected' : ''}>${v ? `Pay ${payText({ min: v, max: v, currency: 'USD', interval: 'year' })}+` : 'Any pay'}</option>`).join('')}</select>
       <label class="check-label"><input type="checkbox" id="boardRemote" ${board.remote ? 'checked' : ''}> Remote only</label>
       ${hiddenCount ? `<label class="check-label faint"><input type="checkbox" id="boardHidden" ${board.showHidden ? 'checked' : ''}> Hidden (${hiddenCount})</label>` : ''}
     </div>
@@ -666,8 +702,8 @@ function jobsTab() {
   let list = '';
   let section = '';
   for (const it of shown.slice(0, board.limit)) {
-    const sec = daySection(it.job);
-    if (sec !== section) list += `<div class="section-title board-sec">${(section = sec)}</div>`;
+    const sec = board.sort === 'new' ? daySection(it.job) : '';
+    if (sec && sec !== section) list += `<div class="section-title board-sec">${(section = sec)}</div>`;
     list += jobRow(it);
   }
   const more = shown.length > board.limit ? `<button class="ghost" id="boardMore" style="width:100%;margin-top:8px">Show ${Math.min(PAGE_SIZE, shown.length - board.limit)} more of ${shown.length - board.limit}</button>` : '';
@@ -682,7 +718,7 @@ function jobsTab() {
     ${!roles.length ? `<p class="note-box" style="margin-top:0">Add the roles you're aiming for in <a href="#profile">Profile</a>, so I only list the jobs meant for you. Until then you're seeing every open job.</p>` : ''}
     ${toolbar}
     ${shown.length ? `<div class="job-list">${list}</div>${more}` : empty}
-    <p class="faint board-foot">Read from each company's own careers site: roles matching ${roles.length ? `<b>${esc(roles.join(', '))}</b>` : 'anything'}${cos.some((c) => c.keywords) ? ' and each company\'s extra titles' : ''}. I check every 6 hours and let you know when something new goes up.${unreadable ? ` <a href="#" data-find-tab="companies">${unreadable} compan${unreadable === 1 ? 'y needs' : 'ies need'} a job board link</a>.` : ''}</p>
+    <p class="faint board-foot">${all.length ? `The number on each job is a free fit preview from its posting${withFit < all.length ? ` (${withFit} of ${all.length} have one so far${state.documents.length ? '' : '; add your resume to My library for the rest'})` : ''}; <b>Check my fit</b> gives the full read. Pay shows where the posting lists it (${withPay} of ${all.length}). ` : ''}Read from each company's own careers site: roles matching ${roles.length ? `<b>${esc(roles.join(', '))}</b>` : 'anything'}${cos.some((c) => c.keywords) ? ' and each company\'s extra titles' : ''}. I check every 6 hours and let you know when something new goes up.${unreadable ? ` <a href="#" data-find-tab="companies">${unreadable} compan${unreadable === 1 ? 'y needs' : 'ies need'} a job board link</a>.` : ''}</p>
   </div>`;
 }
 
@@ -841,6 +877,8 @@ function bindJobsTab() {
   });
   q.addEventListener('keydown', (e) => e.key === 'Escape' && q.value && ((board.q = ''), route(), $('#boardQ').focus()));
   $('#boardCo').addEventListener('change', (e) => ((board.company = e.target.value), (board.limit = PAGE_SIZE), route()));
+  $('#boardSort').addEventListener('change', (e) => ((board.sort = e.target.value), (board.limit = PAGE_SIZE), route()));
+  $('#boardPay').addEventListener('change', (e) => ((board.minPay = Number(e.target.value) || 0), (board.limit = PAGE_SIZE), route()));
   $('#boardRemote').addEventListener('change', (e) => ((board.remote = e.target.checked), (board.limit = PAGE_SIZE), route()));
   const hid = $('#boardHidden');
   if (hid) hid.addEventListener('change', (e) => ((board.showHidden = e.target.checked), route()));
@@ -848,7 +886,7 @@ function bindJobsTab() {
   const more = $('#boardMore');
   if (more) more.addEventListener('click', () => ((board.limit += PAGE_SIZE), route()));
   const clear = $('#boardClear');
-  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), Object.assign(board, { q: '', company: '', remote: false, limit: PAGE_SIZE }), route()));
+  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), Object.assign(board, { q: '', company: '', remote: false, minPay: 0, limit: PAGE_SIZE }), route()));
   const check = $('#checkCareers');
   if (check)
     check.addEventListener('click', (e) =>

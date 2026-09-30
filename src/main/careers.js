@@ -231,6 +231,7 @@ async function listJobs(b, fetchImpl, opts = {}) {
     const title = tidyTitle(j.title);
     if (!id || id === 'undefined' || !title || out.has(id)) continue;
     const job = { ...j, id, title, location: tidyTitle(j.location), url: /^https?:\/\//i.test(j.url || '') ? j.url : b.url || '' };
+    if (!job.pay && job.text) job.pay = payFromText(job.text);
     for (const k of Object.keys(job)) if (job[k] === undefined) delete job[k];
     out.set(id, job);
   }
@@ -246,8 +247,9 @@ function tidyTitle(s) {
 async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}) {
   switch (b.ats) {
     case 'greenhouse': {
-      const d = await getJson(fetchImpl, `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(b.token)}/jobs`);
-      return (d.jobs || []).map((j) => ({ id: String(j.id), title: j.title, location: (j.location && j.location.name) || '', url: j.absolute_url || `${boardUrl(b)}/jobs/${j.id}`, postedAt: iso(j.first_published || j.updated_at) }));
+      // content=true: every description in one request (for pay and a fit preview).
+      const d = await getJson(fetchImpl, `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(b.token)}/jobs?content=true`);
+      return (d.jobs || []).map((j) => ({ id: String(j.id), title: j.title, location: (j.location && j.location.name) || '', url: j.absolute_url || `${boardUrl(b)}/jobs/${j.id}`, postedAt: iso(j.first_published || j.updated_at), text: j.content ? htmlToPlain(j.content) : undefined }));
     }
     case 'lever': {
       const d = await getJson(fetchImpl, `https://api.${b.region === 'eu' ? 'eu.' : ''}lever.co/v0/postings/${encodeURIComponent(b.token)}?mode=json`);
@@ -259,16 +261,18 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
         postedAt: iso(j.createdAt),
         department: (j.categories && (j.categories.team || j.categories.department)) || '',
         workplace: j.workplaceType || '',
+        pay: leverPay(j.salaryRange),
+        text: leverText(j) || undefined,
       }));
     }
     case 'ashby': {
-      const d = await getJson(fetchImpl, `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(b.token)}`);
+      const d = await getJson(fetchImpl, `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(b.token)}?includeCompensation=true`);
       return (d.jobs || [])
         .filter((j) => j.isListed !== false)
-        .map((j) => ({ id: String(j.id), title: j.title, location: [j.location, j.isRemote ? 'Remote' : ''].filter(Boolean).join(' · '), url: j.jobUrl, postedAt: iso(j.publishedAt), department: j.department || j.team || '' }));
+        .map((j) => ({ id: String(j.id), title: j.title, location: [j.location, j.isRemote ? 'Remote' : ''].filter(Boolean).join(' · '), url: j.jobUrl, postedAt: iso(j.publishedAt), department: j.department || j.team || '', pay: ashbyPay(j.compensation), text: j.descriptionPlain || (j.descriptionHtml ? htmlToPlain(j.descriptionHtml) : undefined) }));
     }
     case 'workable': {
-      const d = await getJson(fetchImpl, `https://apply.workable.com/api/v1/widget/accounts/${encodeURIComponent(b.token)}`);
+      const d = await getJson(fetchImpl, `https://apply.workable.com/api/v1/widget/accounts/${encodeURIComponent(b.token)}?details=true`);
       return (d.jobs || []).map((j) => ({
         id: String(j.shortcode || j.id),
         title: j.title,
@@ -276,6 +280,7 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
         url: j.url || j.shortlink || `https://apply.workable.com/${b.token}/j/${j.shortcode}/`,
         postedAt: iso(j.published_on || j.created_at),
         department: j.department || '',
+        text: j.description ? htmlToPlain([j.description, j.requirements, j.benefits].filter(Boolean).join('\n')) : undefined,
       }));
     }
     case 'smartrecruiters': {
@@ -324,6 +329,88 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
     default:
       throw new Error(`Unknown careers site: ${b.ats}`);
   }
+}
+
+// ---------------- pay ----------------
+//
+// { min, max, currency, interval: 'year' | 'month' | 'hour' } from a board's
+// own pay fields (Lever, Ashby) or, failing that, from a range written in the
+// posting ("$150,000 - $190,000", "$150K–$190K", "£60k to £75k", "$45-$60/hr").
+
+const CURRENCY_OF = { $: 'USD', '£': 'GBP', '€': 'EUR' };
+const SYMBOL_OF = { USD: '$', CAD: 'CA$', AUD: 'A$', GBP: '£', EUR: '€' };
+
+function pay(min, max, currency, interval) {
+  min = Number(min) || null;
+  max = Number(max) || null;
+  if (!min && !max) return null;
+  if (min && max && max < min) [min, max] = [max, min];
+  const hi = max || min;
+  // Nonsense for the interval (funding amounts, typos) is no pay at all.
+  const ok = interval === 'hour' ? hi >= 7 && hi <= 2000 : interval === 'month' ? hi >= 500 && hi <= 200000 : hi >= 10000 && hi <= 3000000;
+  return ok ? { min: min || max, max: max || min, currency: String(currency || 'USD').toUpperCase(), interval } : null;
+}
+
+function leverPay(r) {
+  if (!r || typeof r !== 'object') return null;
+  const interval = /hour/i.test(r.interval || '') ? 'hour' : /month/i.test(r.interval || '') ? 'month' : 'year';
+  return pay(r.min, r.max, r.currency, interval);
+}
+
+function ashbyPay(c) {
+  if (!c) return null;
+  const parts = [...(c.summaryComponents || []), ...((c.compensationTiers || []).flatMap((t) => t.components || []))];
+  const salary = parts.find((x) => /salary|hourly/i.test(x.compensationType || '') && (x.minValue || x.maxValue));
+  if (salary) {
+    const iv = String(salary.interval || '');
+    return pay(salary.minValue, salary.maxValue, salary.currencyCode, /HOUR/i.test(iv) ? 'hour' : /MONTH/i.test(iv) ? 'month' : 'year');
+  }
+  return payFromText(c.scrapeableCompensationSalarySummary || c.compensationTierSummary || '');
+}
+
+function leverText(j) {
+  const lists = (j.lists || []).map((l) => `${l.text}\n${htmlToPlain(l.content)}`).join('\n\n');
+  return [j.descriptionPlain || htmlToPlain(j.description), lists, j.additionalPlain || htmlToPlain(j.additional)].filter(Boolean).join('\n\n');
+}
+
+const NUM = '(\\d{1,3}(?:[,.]\\d{3})+|\\d+(?:\\.\\d+)?)\\s?([kK])?';
+const CODE = '(?:USD|CAD|AUD|GBP|EUR)';
+// Groups: 1 code, 2 symbol after a code, 3 "CA"/"A" prefix, 4 symbol, 5-6 low (and k), 7-8 high (and k).
+const RANGE_RE = new RegExp(`(?:\\b(${CODE})\\s?([$£€])?|(?:\\b(CA|A))?([$£€]))\\s?${NUM}\\s*${CODE}?\\s*(?:-|–|—|to)\\s*${CODE}?\\s?(?:CA|A)?[$£€]?\\s?${NUM}`, 'g');
+
+function money(n, k) {
+  const v = Number(String(n).replace(/[,.](?=\d{3}\b)/g, ''));
+  return Number.isFinite(v) ? (k ? v * 1000 : v) : null;
+}
+
+function payFromText(text) {
+  const t = String(text || '');
+  for (const m of t.matchAll(RANGE_RE)) {
+    const after = t.slice(m.index + m[0].length, m.index + m[0].length + 40);
+    if (/^\s*(m\b|mm\b|million|b\b|bn\b|billion)/i.test(after)) continue; // funding, not pay
+    const code = m[1] || (m[3] === 'CA' ? 'CAD' : m[3] === 'A' ? 'AUD' : '') || CURRENCY_OF[m[2] || m[4]] || 'USD';
+    const interval = /^\s*(\/\s*h(ou)?r|per hour|an hour|hourly)/i.test(after) ? 'hour' : /^\s*(\/\s*mo|per month|a month|monthly)/i.test(after) ? 'month' : 'year';
+    // "$150 - 190k": the k on the high end applies to both.
+    const p = pay(money(m[5], m[6] || (m[8] && Number(m[5]) < 1000)), money(m[7], m[8]), code, interval);
+    if (p) return p;
+  }
+  return null;
+}
+
+// "$150K–$190K", "£60K", "$45–$60/hr".
+function formatPay(p) {
+  if (!p) return '';
+  const sym = SYMBOL_OF[p.currency] || `${p.currency} `;
+  const one = (v) => (p.interval === 'hour' ? `${sym}${Math.round(v)}` : v >= 1000 ? `${sym}${Math.round(v / 100) / 10}K`.replace('.0K', 'K') : `${sym}${Math.round(v)}`);
+  const unit = p.interval === 'hour' ? '/hr' : p.interval === 'month' ? '/mo' : '';
+  return (p.min === p.max ? one(p.min) : `${one(p.min)}–${one(p.max)}`) + unit;
+}
+
+// Yearly figure for sorting and comparing (hourly at 2,080 hours).
+function yearlyPay(p) {
+  if (!p) return 0;
+  const v = p.max || p.min || 0;
+  return p.interval === 'hour' ? v * 2080 : p.interval === 'month' ? v * 12 : v;
 }
 
 // ---------------- one posting's full text, for scoring ----------------
@@ -614,7 +701,14 @@ const splitKeywords = (s) => [
 
 // Check one company: returns the fields to save on it, and the matching
 // jobs that are new since the last check.
-async function checkCompany(company, { fetchImpl, roles = [], now = Date.now() } = {}) {
+//
+// With `scoreJob` (the free local fit score), each matching job also gets a
+// fit preview. Most boards list descriptions with the jobs; for the ones that
+// don't (SmartRecruiters, Workday), up to DETAIL_BUDGET new jobs per check are
+// read one by one, and earlier previews are kept. Descriptions aren't saved.
+const DETAIL_BUDGET = 8;
+
+async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), scoreJob = null } = {}) {
   const at = new Date(now).toISOString();
   const saidNotThem = !!(company.board && company.board.ats === 'none');
   let b = company.board && company.board.ats && !saidNotThem ? company.board : null;
@@ -647,13 +741,37 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now() }
   const seen = new Set(firstCheck ? [] : company.seen);
   const before = new Map((sameBoard ? company.jobs || [] : []).map((j) => [j.id, j]));
   const matching = all.filter((j) => (roles.length || keywords.length ? titleMatches(j.title, roles, keywords) : true));
-  const jobs = matching
+  const kept = matching
     .map((j) => ({ ...j, firstSeenAt: (before.get(j.id) || {}).firstSeenAt || (seen.has(j.id) || firstCheck ? null : at) }))
     .sort((x, y) => String(y.postedAt || y.firstSeenAt || '').localeCompare(String(x.postedAt || x.firstSeenAt || '')))
     .slice(0, KEEP);
+  let budget = DETAIL_BUDGET;
+  const jobs = [];
+  for (const j of kept) {
+    const { text: listed, ...job } = j;
+    const prev = before.get(j.id) || {};
+    let text = listed;
+    if (!text && scoreJob && !prev.fit && budget > 0) {
+      budget--;
+      text = await jobDetail(b, j, fetchImpl).catch(() => '');
+      if (text && !job.pay) job.pay = payFromText(text);
+    }
+    if (!job.pay && prev.pay) job.pay = prev.pay;
+    if (!job.pay) delete job.pay;
+    let fit = prev.fit || null;
+    if (scoreJob && text && text.length >= 80) {
+      try {
+        fit = scoreJob({ title: job.title, company: company.name, location: job.location, text }) || null;
+      } catch {
+        // keep the earlier preview
+      }
+    }
+    if (fit) job.fit = fit;
+    jobs.push(job);
+  }
   const fresh = firstCheck ? [] : jobs.filter((j) => !seen.has(j.id));
   const ids = [...new Set([...all.map((j) => j.id), ...seen])].slice(0, SEEN);
   return { patch: { board: b, lastCheckedAt: at, checkError: null, openCount: all.length, jobs, seen: ids }, fresh };
 }
 
-module.exports = { ATS_LABEL, http, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };
+module.exports = { ATS_LABEL, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };

@@ -85,10 +85,10 @@ test('Workday "posted" text becomes a date', () => {
 
 test('reads jobs from each kind of board', async () => {
   const f = fakeFetch([
-    ['https://boards-api.greenhouse.io/v1/boards/gh/jobs', { jobs: [{ id: 1, title: 'Chief of Staff', location: { name: 'NYC' }, absolute_url: 'https://job-boards.greenhouse.io/gh/jobs/1', first_published: daysAgo(2), updated_at: daysAgo(1) }] }],
+    ['https://boards-api.greenhouse.io/v1/boards/gh/jobs?content=true', { jobs: [{ id: 1, title: 'Chief of Staff', location: { name: 'NYC' }, absolute_url: 'https://job-boards.greenhouse.io/gh/jobs/1', first_published: daysAgo(2), updated_at: daysAgo(1) }] }],
     ['https://api.lever.co/v0/postings/lv?mode=json', [{ id: 'a1', text: 'Ops Manager', categories: { location: 'Remote', team: 'Ops' }, hostedUrl: 'https://jobs.lever.co/lv/a1', createdAt: NOW - 86400000 }]],
-    ['https://api.ashbyhq.com/posting-api/job-board/ab', { jobs: [{ id: 'x', title: 'BizOps Lead', location: 'SF', isRemote: true, jobUrl: 'https://jobs.ashbyhq.com/ab/x', publishedAt: daysAgo(5) }, { id: 'hidden', title: 'Secret', isListed: false }] }],
-    ['https://apply.workable.com/api/v1/widget/accounts/wk', { jobs: [{ shortcode: 'S1', title: 'Chief of Staff', city: 'Austin', state: 'TX', country: 'US', url: 'https://apply.workable.com/wk/j/S1/', published_on: '2026-09-20' }] }],
+    ['https://api.ashbyhq.com/posting-api/job-board/ab?includeCompensation=true', { jobs: [{ id: 'x', title: 'BizOps Lead', location: 'SF', isRemote: true, jobUrl: 'https://jobs.ashbyhq.com/ab/x', publishedAt: daysAgo(5) }, { id: 'hidden', title: 'Secret', isListed: false }] }],
+    ['https://apply.workable.com/api/v1/widget/accounts/wk?details=true', { jobs: [{ shortcode: 'S1', title: 'Chief of Staff', city: 'Austin', state: 'TX', country: 'US', url: 'https://apply.workable.com/wk/j/S1/', published_on: '2026-09-20' }] }],
     [/smartrecruiters\.com\/v1\/companies\/sr\/postings\?/, { totalFound: 1, content: [{ id: 'p1', name: 'Operations Manager', location: { city: 'Denver', region: 'CO', country: 'us' }, releasedDate: daysAgo(3) }] }],
     ['https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs', (url, opts) => ({ total: 1, jobPostings: [{ title: `Chief of Staff (${JSON.parse(opts.body).searchText})`, externalPath: '/job/NYC/Chief-of-Staff_R1', locationsText: 'New York', postedOn: 'Posted 2 Days Ago' }] })],
   ]);
@@ -129,7 +129,7 @@ test('checking a company: finds its board, keeps matching roles, and flags only 
   ];
   const f = fakeFetch([
     ['https://octa.example.com/careers', '<iframe src="https://boards.greenhouse.io/embed/job_board?for=octa"></iframe>'],
-    ['https://boards-api.greenhouse.io/v1/boards/octa/jobs', () => ({ jobs })],
+    ['https://boards-api.greenhouse.io/v1/boards/octa/jobs?content=true', () => ({ jobs })],
   ]);
   const co = { id: 'c1', name: 'OCTA', careersUrl: 'https://octa.example.com/careers' };
   const first = await C.checkCompany(co, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
@@ -155,7 +155,7 @@ test('checking a company: finds its board, keeps matching roles, and flags only 
 });
 
 test('without a careers link, the company name is tried on the common boards', async () => {
-  const f = fakeFetch([['https://api.ashbyhq.com/posting-api/job-board/ramp', { jobs: [{ id: 'j', title: 'Chief of Staff', jobUrl: 'u', publishedAt: daysAgo(1) }] }]]);
+  const f = fakeFetch([['https://api.ashbyhq.com/posting-api/job-board/ramp?includeCompensation=true', { jobs: [{ id: 'j', title: 'Chief of Staff', jobUrl: 'u', publishedAt: daysAgo(1) }] }]]);
   const r = await C.checkCompany({ name: 'Ramp' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
   assert.equal(r.patch.board.ats, 'ashby');
   assert.equal(r.patch.board.guessed, true);
@@ -185,7 +185,7 @@ test('board links as people paste them, embeds and API addresses', () => {
     ['https://jobs.lever.co/plaid.', 'lever', 'plaid'],
     ['https://boards.greenhouse.io/embed/job_app?for=octa&token=123', 'greenhouse', 'octa'],
     ['https://boards.greenhouse.io/embed/job_board?b=x&amp;for=octa', 'greenhouse', 'octa'],
-    ['https://boards-api.greenhouse.io/v1/boards/octa/jobs', 'greenhouse', 'octa'],
+    ['https://boards-api.greenhouse.io/v1/boards/octa/jobs?content=true', 'greenhouse', 'octa'],
     ['https://api.lever.co/v0/postings/plaid?mode=json', 'lever', 'plaid'],
     ['https://api.ashbyhq.com/posting-api/job-board/ramp', 'ashby', 'ramp'],
     ['https://api.smartrecruiters.com/v1/companies/Visa/postings', 'smartrecruiters', 'Visa'],
@@ -259,7 +259,7 @@ test('dates: seconds or milliseconds, and nonsense counts as unknown', async () 
 test('listed jobs are tidied: no blank titles or ids, entities decoded, each id once, a link always', async () => {
   const f = fakeFetch([
     [
-      'https://boards-api.greenhouse.io/v1/boards/gh/jobs',
+      'https://boards-api.greenhouse.io/v1/boards/gh/jobs?content=true',
       {
         jobs: [
           { id: 1, title: '  R&amp;D   Operations Manager ', location: { name: 'NYC' } },
@@ -330,7 +330,7 @@ test('busy or flaky careers sites are retried; a page instead of JSON is a reada
 test('a careers link that redirects to its board is followed', async () => {
   const f = async (url) => {
     if (url === 'https://acme.com/careers') return { ok: true, status: 200, url: 'https://jobs.ashbyhq.com/acme', text: async () => '<div id="app"></div>' };
-    if (url === 'https://api.ashbyhq.com/posting-api/job-board/acme') return { ok: true, status: 200, json: async () => ({ jobs: [{ id: 'j', title: 'Chief of Staff', jobUrl: 'https://jobs.ashbyhq.com/acme/j' }] }) };
+    if (url === 'https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true') return { ok: true, status: 200, json: async () => ({ jobs: [{ id: 'j', title: 'Chief of Staff', jobUrl: 'https://jobs.ashbyhq.com/acme/j' }] }) };
     return { ok: false, status: 404 };
   };
   const r = await C.checkCompany({ name: 'Acme', careersUrl: 'acme.com/careers' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
@@ -350,7 +350,7 @@ test('a board Sprout found that disappears is looked for again; the new board is
   let where = 'lever';
   const f = fakeFetch([
     ['https://api.lever.co/v0/postings/ramp?mode=json', () => (where === 'lever' ? [{ id: 'a', text: 'Chief of Staff', hostedUrl: 'https://x/a', createdAt: NOW }] : 404)],
-    ['https://api.ashbyhq.com/posting-api/job-board/ramp', () => (where === 'ashby' ? { jobs: [{ id: 'b', title: 'Chief of Staff', jobUrl: 'https://x/b', publishedAt: daysAgo(40) }] } : 404)],
+    ['https://api.ashbyhq.com/posting-api/job-board/ramp?includeCompensation=true', () => (where === 'ashby' ? { jobs: [{ id: 'b', title: 'Chief of Staff', jobUrl: 'https://x/b', publishedAt: daysAgo(40) }] } : 404)],
   ]);
   const first = await C.checkCompany({ name: 'Ramp' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
   assert.equal(first.patch.board.ats, 'lever');
@@ -371,4 +371,67 @@ test('descriptions: numeric entities, and the posting page when the API has noth
   const f = fakeFetch([['https://jobs.ashbyhq.com/ab/x', page]]);
   const text = await C.jobDetail(C.detectBoard('https://jobs.ashbyhq.com/ab'), { id: 'x', url: 'https://jobs.ashbyhq.com/ab/x' }, f);
   assert.equal(text, long);
+});
+
+test('pay: ranges written in postings, in the usual ways, and never funding amounts', () => {
+  const cases = [
+    ['Salary: $150,000 - $190,000 per year', '$150K–$190K'],
+    ['The range is $150K–$190K + equity', '$150K–$190K'],
+    ['£60k to £75k', '£60K–£75K'],
+    ['$45-$60/hr', '$45–$60/hr'],
+    ['USD 120,000 – 140,000', '$120K–$140K'],
+    ['CA$90,000 - CA$110,000', 'CA$90K–CA$110K'],
+    ['€55.000 - €70.000', '€55K–€70K'],
+    ['$150 - 190k', '$150K–$190K'],
+    ['$5,000 - $6,000 per month', '$5K–$6K/mo'],
+    ['We raised $20 - $30 million', ''],
+    ['Series B $50M - $100M', ''],
+    ['401k and 3 - 5 weeks off', ''],
+  ];
+  for (const [text, want] of cases) assert.equal(C.formatPay(C.payFromText(text)), want, text);
+  assert.equal(C.yearlyPay(C.payFromText('$50 - $60/hr')), 60 * 2080);
+});
+
+test('pay from the boards\' own fields (Lever, Ashby) and from Greenhouse descriptions', async () => {
+  const f = fakeFetch([
+    ['https://api.lever.co/v0/postings/lv?mode=json', [{ id: 'a', text: 'Ops Manager', hostedUrl: 'https://x/a', salaryRange: { min: 120000, max: 150000, currency: 'USD', interval: 'per-year-salary' }, descriptionPlain: 'Run ops.' }]],
+    ['https://api.ashbyhq.com/posting-api/job-board/ab?includeCompensation=true', { jobs: [{ id: 'x', title: 'Chief of Staff', jobUrl: 'https://x/x', compensation: { summaryComponents: [{ compensationType: 'EquityPercentage', minValue: 0.1 }, { compensationType: 'Salary', interval: '1 YEAR', currencyCode: 'USD', minValue: 180000, maxValue: 220000 }] } }] }],
+    ['https://boards-api.greenhouse.io/v1/boards/gh/jobs?content=true', { jobs: [{ id: 1, title: 'Ops Lead', absolute_url: 'https://x/1', content: '&lt;p&gt;Pay range: $130,000&amp;nbsp;-&amp;nbsp;$160,000 USD&lt;/p&gt;' }] }],
+  ]);
+  const [lv] = await C.listJobs(C.detectBoard('https://jobs.lever.co/lv'), f);
+  assert.equal(C.formatPay(lv.pay), '$120K–$150K');
+  const [ab] = await C.listJobs(C.detectBoard('https://jobs.ashbyhq.com/ab'), f);
+  assert.equal(C.formatPay(ab.pay), '$180K–$220K');
+  const [gh] = await C.listJobs(C.detectBoard('https://boards.greenhouse.io/gh'), f);
+  assert.equal(C.formatPay(gh.pay), '$130K–$160K');
+  assert.match(gh.text, /Pay range/);
+});
+
+test('fit preview: scored from listed descriptions, read one by one where the list has none, and descriptions are not saved', async () => {
+  const text = 'Operations Manager. You will run planning, budgets and vendors. Requirements: 5+ years operations, SQL. Pay: $120,000 - $140,000.';
+  let scored = 0;
+  const scoreJob = (job) => (scored++, { score: job.text.includes('SQL') ? 72 : 40, label: 'Good fit' });
+  const f = fakeFetch([
+    ['https://boards-api.greenhouse.io/v1/boards/gh/jobs?content=true', { jobs: [{ id: 1, title: 'Operations Manager', absolute_url: 'https://x/1', content: text }, { id: 2, title: 'Designer', absolute_url: 'https://x/2', content: text }] }],
+  ]);
+  const r = await C.checkCompany({ name: 'GH', board: C.detectBoard('https://boards.greenhouse.io/gh') }, { fetchImpl: f, roles: ['Operations Manager'], now: NOW, scoreJob });
+  assert.equal(r.patch.jobs.length, 1);
+  assert.deepEqual(r.patch.jobs[0].fit, { score: 72, label: 'Good fit' });
+  assert.equal(C.formatPay(r.patch.jobs[0].pay), '$120K–$140K');
+  assert.equal(r.patch.jobs[0].text, undefined, 'descriptions are not stored');
+  assert.equal(scored, 1, 'only matching jobs are scored');
+
+  // SmartRecruiters lists no descriptions: read the new matching ones, then keep their previews.
+  const sr = fakeFetch([
+    [/smartrecruiters\.com\/v1\/companies\/sr\/postings\?/, { totalFound: 2, content: [{ id: 'p1', name: 'Operations Manager', releasedDate: daysAgo(1) }, { id: 'p2', name: 'Operations Manager II', releasedDate: daysAgo(2) }] }],
+    [/smartrecruiters\.com\/v1\/companies\/sr\/postings\/p\d$/, { jobAd: { sections: { jobDescription: { title: 'About', text: `<p>${text}</p>` } } } }],
+  ]);
+  const co = { name: 'SR', board: C.detectBoard('https://careers.smartrecruiters.com/sr') };
+  const first = await C.checkCompany(co, { fetchImpl: sr, roles: ['Operations Manager'], now: NOW, scoreJob });
+  assert.ok(first.patch.jobs.every((j) => j.fit && j.fit.score === 72 && j.pay));
+  const reads = sr.calls.filter((c) => /postings\/p\d$/.test(c.url)).length;
+  assert.equal(reads, 2);
+  const again = await C.checkCompany({ ...co, ...first.patch }, { fetchImpl: sr, roles: ['Operations Manager'], now: NOW, scoreJob });
+  assert.equal(sr.calls.filter((c) => /postings\/p\d$/.test(c.url)).length, reads, 'previews already made are kept, not re-read');
+  assert.ok(again.patch.jobs.every((j) => j.fit && j.pay));
 });
