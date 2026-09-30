@@ -800,6 +800,62 @@ function browserCard(rec, { seen = false } = {}) {
   };
 }
 
+// A LinkedIn profile, as the extension's card shows it: are they in your
+// people already, what you share, and whether you have roles open there.
+function personCard(p, { justAdded = false } = {}) {
+  const profile = store.getProfile();
+  const read = outreach.contactFromProfile(p, profile);
+  const existing = outreach.findContact(store.list('contacts'), read);
+  const c = existing ? { ...read, ...existing, schools: existing.schools || read.schools, employers: existing.employers || read.employers } : read;
+  const company = c.company;
+  const roles = company
+    ? store.listApplications().filter((a) => a.saved !== false && ['scored', 'resume-ready', 'applied', 'interviewing'].includes(a.status) && outreach.sameCompany(a.job.company, company)).map((a) => a.job.title)
+    : [];
+  const watching = !!company && store.list('companies').some((x) => x.status !== 'pass' && outreach.sameCompany(x.name, company));
+  return {
+    person: true,
+    saved: !!existing,
+    justAdded,
+    contact: {
+      id: existing ? existing.id : null,
+      name: c.name,
+      title: c.title,
+      company,
+      headline: c.headline || '',
+      location: c.location || '',
+      status: existing ? outreach.CONTACT_LABEL[existing.status || 'to-reach'] : '',
+    },
+    shared: outreach.sharedPhrases(outreach.sharedBackground(c, profile)),
+    roles: roles.slice(0, 3),
+    watching,
+    hasProfile: !!(profile.schools || profile.pastEmployers),
+  };
+}
+
+// Add a person from their LinkedIn profile, or fill in what's missing on
+// someone already saved (their title, company, schools and past jobs).
+function addPerson(p) {
+  const read = outreach.contactFromProfile(p, store.getProfile());
+  const existing = outreach.findContact(store.list('contacts'), read);
+  if (existing) {
+    const patch = { id: existing.id };
+    for (const k of ['title', 'company', 'headline', 'location', 'linkedinUrl', 'connection']) if (!String(existing[k] || '').trim() && read[k]) patch[k] = read[k];
+    for (const k of ['schools', 'employers']) if (read[k].length) patch[k] = [...new Set([...(existing[k] || []), ...read[k]])];
+    store.saveItem('contacts', patch);
+  } else {
+    store.saveItem('contacts', { ...read, status: 'to-reach', addedVia: 'linkedin' });
+  }
+  broadcast('state-changed');
+  return personCard(p, { justAdded: !existing });
+}
+
+function openPersonInDashboard(id) {
+  const w = createDashboard();
+  const go = () => w.webContents.send('navigate', { view: 'people', id });
+  if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go);
+  else go();
+}
+
 function extensionDir() {
   return app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(__dirname, '..', '..', 'browser-extension');
 }
@@ -907,6 +963,9 @@ async function startBridge() {
       return browserCard(store.getApplication(id));
     },
     onOpen: openInDashboard,
+    onPerson: async (p) => personCard(p),
+    onAddPerson: async (p) => addPerson(p),
+    onOpenPerson: openPersonInDashboard,
   });
   try {
     bridgePort = await bridge.listen(Number(process.env.JOBTRACK_BRIDGE_PORT) || undefined);
@@ -1460,7 +1519,7 @@ function applicationsCsv(apps) {
 }
 
 const NET_FIELDS = {
-  contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified'],
+  contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified', 'headline', 'location', 'schools', 'employers'],
   companies: ['name', 'why', 'careersUrl', 'website', 'status', 'tags', 'keywords', 'hidden'],
   searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
   templates: ['name', 'body', 'channel', 'subject', 'when', 'weight'],

@@ -510,6 +510,17 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .search-row .title { font-weight: 800; font-size: 13.5px; }
 .search-row .sub { color: var(--ink-soft); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-row .avatar { width: 32px; height: 32px; font-size: 12px; }
+/* Alumni & old coworkers: the label on its own line, its buttons under it. */
+.search-row.insider { flex-wrap: wrap; gap: 4px 6px; }
+.search-row.insider .grow { flex-basis: 100%; }
+.insider-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 24px; }
+/* My people: search, then the alumni / ex-coworkers toggles. */
+.people-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.people-bar input[type="search"] { flex: 1 1 240px; width: auto; margin: 0; }
+.people-bar .check-label .faint { font-size: 11px; }
+/* Long "in common" notes stay on one line. */
+.row-item.person .chip.tiny { display: inline-block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
+.row-item.person .chip.tiny svg { vertical-align: -2px; }
 .company { padding: 14px 14px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .company.dim { opacity: 0.55; }
 .company-top { display: flex; align-items: flex-start; gap: 14px; }

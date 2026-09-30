@@ -6,6 +6,9 @@
 // Follows single-page sites like LinkedIn, where clicking another job swaps
 // the page without a reload: the card switches to the new job, and goes away
 // when you leave the posting.
+//
+// On someone's LinkedIn profile, the card offers to add them to your people
+// instead, with what you have in common (same school, same old employer).
 (() => {
   if (globalThis.__sproutContent) return;
   globalThis.__sproutContent = true;
@@ -24,6 +27,8 @@
     if (JOBBY.test(host + location.pathname) || JOBBY.test(document.title)) return true;
     return [...document.querySelectorAll('script[type="application/ld+json"]')].some((s) => s.textContent.includes('JobPosting'));
   }
+
+  const isProfilePage = () => /(^|\.)linkedin\.com$/.test(location.hostname) && location.pathname.startsWith('/in/');
 
   // After the extension updates, this copy is cut off; the new one takes over on the next page load.
   const alive = () => !!(chrome.runtime && chrome.runtime.id);
@@ -79,12 +84,13 @@
   function layout() {
     if (!shadow || !card) return; // (mount draws once before `card` is set)
     const r = card.result;
-    const q = r && (r.saved ? r.app.analysis || r.app.quick : r.preview && r.preview.quick);
-    const tuck = collapsed && !!q;
+    const q = r && !r.person && (r.saved ? r.app && (r.app.analysis || r.app.quick) : r.preview && r.preview.quick);
+    const tuck = collapsed && (!!q || !!(r && r.person));
     shadow.querySelector('.dock').hidden = !showing || tuck;
     const bubble = shadow.querySelector('.bubble');
     bubble.hidden = !showing || !tuck;
-    if (tuck) {
+    if (tuck && r.person) bubble.innerHTML = `${window.SproutMascot.mascotSvg('wave', 34)}<b class="hi">${r.saved ? '✓' : '+'}</b>`;
+    else if (tuck) {
       const cls = q.score >= 65 ? 'hi' : q.score >= 45 ? 'mid' : 'lo';
       bubble.innerHTML = `${window.SproutMascot.mascotSvg(window.SproutMascot.moodForScore(q.score), 34)}<b class="${cls}">${q.score}</b>`;
     }
@@ -117,6 +123,7 @@
     firstChange = 0;
     if (!alive()) return stop();
     if (busy) return schedule(400);
+    if (isProfilePage()) return runPerson({ force });
     if (!force && !mayBeJobPage()) return leave();
     let p;
     try {
@@ -161,6 +168,48 @@
         return hide();
       }
       await showCard(key, result);
+    } finally {
+      busy = false;
+    }
+  }
+
+  // Someone's LinkedIn profile: are they in your people, and what do you share?
+  async function runPerson({ force = false } = {}) {
+    let p;
+    try {
+      p = globalThis.sproutPerson();
+    } catch {
+      return;
+    }
+    if (!p || !p.isProfile) {
+      misses++;
+      return leave();
+    }
+    misses = 0;
+    // Sections load in as you scroll; a new school or job is worth a new look.
+    const key = ['person', p.url, p.name, p.company, (p.schools || []).join(','), (p.employers || []).join(',')].join('|');
+    if (!force && current && current.key === key) return;
+    current = { url: p.url, key };
+    const dkey = `person|${p.url}`;
+    if (!force && dismissed.has(dkey)) return hide();
+    busy = true;
+    try {
+      if (force) await showCard(dkey, { loading: 'Reading this profile…' });
+      const r = await ask({ type: 'personDetected', person: p, force });
+      if (!current || current.key !== key) return;
+      if (!r.ok) {
+        if (force) await showCard(dkey, { error: r.error });
+        else hide();
+        return;
+      }
+      const { result, skipped, dismissed: wasDismissed } = r.value;
+      if (skipped || (wasDismissed && !force)) {
+        if (wasDismissed) dismissed.add(dkey);
+        return hide();
+      }
+      // Don't undo "Added!" just because another section loaded.
+      if (showing === dkey && card.result && card.result.justAdded && result.saved) return;
+      await showCard(dkey, result);
     } finally {
       busy = false;
     }
@@ -225,9 +274,17 @@
       }
       return;
     }
+    if (msg.type === 'extractPerson') {
+      try {
+        reply(globalThis.sproutPerson());
+      } catch {
+        reply(null);
+      }
+      return;
+    }
     if (msg.type === 'showCard') {
       // Alt+Shift+J: show it even if you said "No thanks", on any site.
-      if (current) dismissed.delete(current.key);
+      if (current) dismissed.delete(current.key), dismissed.delete(`person|${current.url}`);
       run({ force: true });
       return reply(true);
     }
