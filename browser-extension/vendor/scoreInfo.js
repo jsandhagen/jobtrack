@@ -28,6 +28,7 @@
         </ul>
         <p class="faint">Parts that don't apply to a posting are left out and the rest re-weighted.</p>
         <p>The A–D grade works like Workday's: A = every basic qualification, most preferred ones and a score of 75+, B = every basic one, C = most basic ones, D = fewer.</p>
+        <p class="faint">A list like "Python, R, or SAS" is one qualification that any of them meets; the strict keyword rate still checks every term word for word, as Taleo-style searches do.</p>
         <p>It goes up as you tailor and edit. Aim for 75–80%+.</p>`,
     },
   };

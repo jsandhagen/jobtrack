@@ -98,15 +98,15 @@ function degreeLevel(text) {
 function skillUnits(jobSkills) {
   const units = [];
   const byGroup = new Map();
-  for (const [skill, { kind, term, group }] of jobSkills) {
+  for (const [skill, { kind, term, group, mentions = 1 }] of jobSkills) {
     if (group === undefined) {
-      units.push({ skills: [skill], anyOf: [skill], kind, terms: [term] });
+      units.push({ skills: [skill], anyOf: [skill], kind, terms: [term], mentions });
       continue;
     }
     let u = byGroup.get(group);
     if (!u) {
       // Match against every listed option, including ones also asked for on their own.
-      u = { skills: [], anyOf: jobSkills.groups[group], kind, terms: [] };
+      u = { skills: [], anyOf: jobSkills.groups[group], kind, terms: [], mentions: 1 };
       byGroup.set(group, u);
       units.push(u);
     }
@@ -129,7 +129,8 @@ function scoreSkills(jobSkills, resumeLower, resumeSkills) {
   const units = skillUnits(jobSkills);
   for (const u of units) {
     const bucket = u.skills.every((s) => SOFT_SKILLS.has(s)) ? soft : hard;
-    const w = u.kind === 'required' ? 2 : u.kind === 'preferred' ? 0.75 : 1;
+    // Skills a posting keeps coming back to matter more (as in Jobscan), capped at 1.5x.
+    const w = (u.kind === 'required' ? 2 : u.kind === 'preferred' ? 0.75 : 1) * Math.min(1.5, 1 + 0.25 * (u.mentions - 1));
     bucket.total += w;
     const have = u.anyOf.filter((s) => resumeSkills.has(s));
     u.met = have.length > 0;
@@ -190,6 +191,10 @@ const FILLER = new Set(
   'delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional used focus possible various unique primarily motivates'.split(' ')
 );
 
+function wordStem(w) {
+  return w.replace(/(?:ations?|ments?|ings?|ers?|ed|es|s)$/, '').replace(/(?:e|y|i)$/, '');
+}
+
 function scoreKeywords(jobText, resumeLower, company) {
   const companyWords = new Set(lower(company).split(/\W+/));
   jobText = jobText.split('\n').filter((l) => !BOILERPLATE_LINE.test(l)).join('\n');
@@ -203,7 +208,10 @@ function scoreKeywords(jobText, resumeLower, company) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 25);
   if (!terms.length) return null;
-  const missing = terms.filter(([t]) => !resumeLower.includes(t) && !(t.length > 4 && t.endsWith('s') && resumeLower.includes(t.slice(0, -1)))).map(([t]) => t);
+  // Like Taleo's "related terms" search: other forms of the word count too
+  // ("managed" finds "management"), but not synonyms.
+  const resumeStems = new Set((resumeLower.match(/[a-z][a-z+#]{3,}/g) || []).map(wordStem));
+  const missing = terms.filter(([t]) => !resumeLower.includes(t) && !resumeStems.has(wordStem(t))).map(([t]) => t);
   return { score: (terms.length - missing.length) / terms.length, missing: missing.slice(0, 10) };
 }
 
@@ -235,10 +243,33 @@ function scoreParseability(resumeText) {
       ok: /\b(?:19|20)\d{2}\s*(?:-|–|—|to)\s*(?:(?:19|20)\d{2}|present|current)\b/i.test(tl) || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?:19|20)\d{2}\b/i.test(t),
       tip: 'Give each role clear dates like "Mar 2021 – Present" so years of experience can be calculated.',
     },
+    dateFormatCheck(t),
     { id: 'length', ok: words >= 250 && words <= 1100, tip: words < 250 ? 'The resume is quite short — add detail to your most relevant roles.' : 'Keep it to about two pages; some systems truncate long resumes.' },
     { id: 'quantified', ok: quantified >= 3, tip: 'Add numbers to a few bullets (%, $, team size, time saved) — both ATS rankers and recruiters favour quantified impact.' },
   ];
   return { score: checks.filter((c) => c.ok).length / checks.length, checks, words };
+}
+
+// Parsers fill structured start/end fields from these, and Workday / iCIMS
+// reportedly leave them blank for "Current"/"Now", seasons or two-digit
+// years, which breaks their years-of-experience checks.
+// "Month YYYY – Present", in one format throughout, is the safe choice.
+function dateFormatCheck(text) {
+  const t = String(text);
+  const problems = [];
+  const endWord = t.match(/\b(?:19|20)\d{2}\s*(?:-|–|—|to)\s*(current|now|ongoing|to date|today)\b/i);
+  if (endWord) problems.push(`"${endWord[1]}" for a current role (use "Present")`);
+  if (/\b(?:spring|summer|fall|autumn|winter)\s+(?:19|20)\d{2}\b/i.test(t)) problems.push('seasons instead of months');
+  const MON = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?';
+  if (/\b\d{1,2}\/\d{2}\b(?!\d)/.test(t)) problems.push('two-digit years like 3/22');
+  const named = new RegExp(`\\b${MON}\\s+(?:19|20)\\d{2}\\b`, 'i').test(t);
+  const numeric = /\b\d{1,2}\/(?:19|20)\d{2}\b/.test(t);
+  if (named && numeric) problems.push('a mix of "Jan 2020" and "01/2020" formats');
+  return {
+    id: 'date-format',
+    ok: problems.length === 0,
+    tip: `Date format: ${problems.join('; ')}. Use "Mon YYYY – Present" consistently so parsers can calculate your years of experience.`,
+  };
 }
 
 // ---------- grades ----------
@@ -248,7 +279,7 @@ function hiredScoreStyleGrade({ basicMet, basicTotal, preferredMet, preferredTot
   const prefRatio = preferredTotal ? preferredMet / preferredTotal : 1;
   if (basicRatio === 1 && prefRatio >= 0.5 && score >= 75) return 'A';
   if (basicRatio === 1) return 'B';
-  if (basicRatio >= 0.5) return 'C';
+  if (basicRatio > 0.5) return 'C'; // "most" basic qualifications
   return 'D';
 }
 
@@ -264,7 +295,7 @@ function gradeFromQualifications(quals, score) {
   const prefRatio = pref.length ? pref.reduce((s, q) => s + val(q), 0) / pref.length : 1;
   if (allBasic && prefRatio >= 0.5 && score >= 75) return 'A';
   if (allBasic) return 'B';
-  if (basicRatio >= 0.5) return 'C';
+  if (basicRatio > 0.5) return 'C'; // "most" basic qualifications
   return 'D';
 }
 
@@ -343,7 +374,7 @@ function atsScore(job, resumeText, opts = {}) {
   if (title && !title.exact) tips.push(`Include the job title "${job.title}" (e.g. in your headline) if it honestly describes you.`);
   if (education && education.score < 1) tips.push(`The posting asks for ${DEGREE_NAMES[education.need]}${education.equivalentOk ? ' or equivalent experience' : ''}; make your education easy to find.`);
   if (parse) for (const c of parse.checks) if (!c.ok) tips.push(c.tip);
-  for (const m of skills.hard.missing.filter((m) => m.kind !== 'required').slice(0, 3)) tips.push(`Nice-to-have not found: "${m.term}".`);
+  for (const m of skills.hard.missing.filter((m) => m.kind !== 'required').slice(0, 3)) tips.push(m.anyOf ? `Nice-to-have: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}.` : `Nice-to-have not found: "${m.term}".`);
 
   return {
     score,

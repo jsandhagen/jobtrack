@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { findSkills, requiredYears, yearsOfExperience, classifyLines } = require('../src/main/fitScore');
-const { degreeRequirements, degreeLevel, atsScore } = require('../src/main/atsScore');
+const { degreeRequirements, degreeLevel, atsScore, hiredScoreStyleGrade } = require('../src/main/atsScore');
 const { localFitScore, titleLevel, workMode, postingSalaryMax } = require('../src/main/localFit');
 
 const NOW = new Date('2026-09-30');
@@ -130,4 +130,26 @@ test('titles, pay and work mode edge cases', () => {
   assert.equal(workMode('This is not a remote position. On-site in McLean, VA'), 'onsite');
   assert.equal(workMode('Remote: No'), null);
   assert.equal(workMode('Work from home'), 'remote');
+});
+
+// Behaviour documented (or widely reported) for real systems.
+
+test('date formats parsers reportedly drop are flagged; "Mon YYYY – Present" is not', () => {
+  const tip = (resume) => atsScore({ title: 'Analyst', text: 'Requirements\n- SQL' }, resume).tips.find((t) => t.startsWith('Date format')) || null;
+  assert.match(tip('Analyst June 2022-Current'), /"Current"/);
+  assert.match(tip('Analyst Jan 2020 – Present\nIntern Summer 2019 - Fall 2019'), /seasons/);
+  assert.match(tip('Analyst 3/22 - 5/24'), /two-digit/);
+  assert.match(tip('Analyst Jan 2020 – Present\nIntern 06/2018 - 08/2018'), /mix/);
+  assert.equal(tip('Analyst Jan 2020 – Present\nAssociate Mar 2017 – Dec 2019'), null);
+});
+
+test('HiredScore-style C needs "most" (more than half) of the basic qualifications', () => {
+  assert.equal(hiredScoreStyleGrade({ basicMet: 2, basicTotal: 4, preferredMet: 0, preferredTotal: 0, score: 60 }), 'D');
+  assert.equal(hiredScoreStyleGrade({ basicMet: 3, basicTotal: 4, preferredMet: 0, preferredTotal: 0, score: 60 }), 'C');
+});
+
+test('ATS keywords accept other forms of the same word (Taleo "related terms"), not synonyms', () => {
+  const job = { title: 'Analyst', text: 'Responsibilities\n- Managed vendor relationships and reconciled accounts' };
+  const r = atsScore(job, 'Relationship management with vendors; account reconciliation', { checkFormatting: false });
+  for (const w of ['managed', 'relationships', 'vendor']) assert.ok(!r.missingKeywords.includes(w), w);
 });

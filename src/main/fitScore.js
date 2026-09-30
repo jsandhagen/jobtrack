@@ -238,12 +238,13 @@ function alternativeRuns(line, items) {
   return runs;
 }
 
-// skill -> { kind, term, group? }. `group` is set only when every mention of
+// skill -> { kind, term, mentions, group? }. `group` is set only when every mention of
 // the skill was one option in a list of alternatives; the map's `groups`
 // property lists each such set of skills.
 function classifyJobSkills(jobText) {
   const out = new Map();
   const groups = [];
+  const mentions = new Map();
   const parts = classifyLines(jobText)
     .filter((l) => !BOILERPLATE_LINE.test(l.line))
     .flatMap((l) => clauses(l.original, l.kind, l.section));
@@ -267,6 +268,7 @@ function classifyJobSkills(jobText) {
       const id = groups.push(run.map((f) => f.skill)) - 1;
       for (const f of run) groupOf.set(f.skill, id);
     }
+    for (const { skill } of found) mentions.set(skill, (mentions.get(skill) || 0) + 1);
     for (const { skill, term } of found) {
       const prev = out.get(skill);
       const group = groupOf.get(skill);
@@ -278,6 +280,7 @@ function classifyJobSkills(jobText) {
       }
     }
   }
+  for (const [skill, v] of out) v.mentions = mentions.get(skill);
   out.groups = groups;
   return out;
 }
