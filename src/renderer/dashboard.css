@@ -205,7 +205,7 @@ details[open] > summary::before { transform: rotate(90deg); }
 .center { text-align: center; }
 .center .sprout { margin: 0 auto; display: block; }
 .status.rejected { background: var(--peach-soft); color: #b8653e; }
-.chip.due { background: var(--butter-soft); color: #a07a1c; }
+.chip.due { background-color: var(--butter-soft); color: #a07a1c; }
 .row-item > .chip { flex: none; margin: 0; }
 .chip.ic-only { padding: 3px 7px; gap: 3px; }
 
@@ -292,10 +292,13 @@ body.drop-out .ed-tray::before { border-color: var(--rose); color: var(--rose); 
 .tray-score b { display: block; font-size: 20px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .tray-score span { font-size: 11.5px; color: var(--ink-soft); font-weight: 700; }
 .req-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
-.req { font: 700 12px var(--font); padding: 2px 9px; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); box-shadow: none; }
-.req.ok { background: var(--sage-soft); color: var(--sage-deep); }
-.req.gap { background: var(--peach-soft); color: #b8653e; }
-.req.half { background: var(--butter-soft); color: #a07a1c; }
+.req { font: 700 12px var(--font); padding: 2px 10px; border-radius: 14px 2px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); box-shadow: none; background-image: linear-gradient(135deg, var(--sheen), transparent 55%); transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.5, 1), box-shadow 0.15s; }
+.req:nth-child(even) { border-radius: 2px 14px; background-image: linear-gradient(225deg, var(--sheen), transparent 55%); }
+button.req:hover { transform: rotate(-2deg) translateY(-1px); }
+button.req:nth-child(even):hover { transform: rotate(2deg) translateY(-1px); }
+.req.ok { background-color: var(--sage-soft); color: var(--sage-deep); }
+.req.gap { background-color: var(--peach-soft); color: #b8653e; }
+.req.half { background-color: var(--butter-soft); color: #a07a1c; }
 .req.pref { font-style: italic; opacity: 0.85; }
 .req.sel { border-color: currentColor; box-shadow: 0 0 0 1px currentColor; }
 .cand { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 6px; background: var(--surface); cursor: grab; font-size: 13px; }
@@ -489,13 +492,13 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .sts-card.locked { filter: grayscale(.85); opacity: .7; }
 .sts-card .from.need { color: #a07a1c; }
 .rare-blue { color: #2f5a93; } .rare-gold { color: #a07a1c; }
-.chip.power { background: #efe4c2; color: #7a5a10; }
+.chip.power { background-color: #efe4c2; color: #7a5a10; }
 .deck-scroll { max-height: 62vh; overflow: auto; }
 .deck-scroll .deck-list { max-height: none; overflow: visible; }
 @media (prefers-color-scheme: dark) {
   .sts-card.r-uncommon .cname { background: linear-gradient(180deg, #2e4260, #26364f); color: #b9d2f5; }
   .sts-card.r-rare .cname { background: linear-gradient(180deg, #5c4a1c, #4a3b14); color: #ffe08a; }
-  .chip.power { background: #43391f; color: #f2d58a; }
+  .chip.power { background-color: #43391f; color: #f2d58a; }
   .rare-blue { color: #9fc0ee; } .rare-gold { color: #f2d58a; }
 }
 .sts-card .cname { overflow-wrap: normal; } /* never split a card name mid-word */
@@ -571,7 +574,9 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .choice-row label { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 600; }
 .choice-row input { width: auto; }
 .compose-head { display: flex; gap: 14px; align-items: center; }
-button.chip { cursor: pointer; border: 0; }
+button.chip { cursor: pointer; transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.5, 1); }
+button.chip:hover { transform: rotate(-2deg) translateY(-1px); }
+button.chip:nth-child(even):hover { transform: rotate(2deg) translateY(-1px); }
 .co-status { font-size: 12px; margin: 2px 0 4px; line-height: 1.5; }
 .co-status .spinner { width: 11px; height: 11px; vertical-align: -1px; }
 h3.with-icon .small { margin-left: 8px; }
@@ -648,7 +653,7 @@ h3.with-icon .small { margin-left: 8px; }
 .co-logo img { width: 100%; height: 100%; object-fit: contain; padding: 4px; box-sizing: border-box; }
 .co-logo.mono { background: hsl(var(--hue) 45% 90%); color: hsl(var(--hue) 40% 30%); border-color: transparent; font-weight: 800; font-size: calc(var(--size, 32px) * 0.46); line-height: 1; }
 @media (prefers-color-scheme: dark) { .co-logo.mono { background: hsl(var(--hue) 25% 24%); color: hsl(var(--hue) 55% 82%); } }
-.chip.pay { background: var(--sage-soft); color: var(--sage-deep); font-weight: 800; }
+.chip.pay { background-color: var(--sage-soft); color: var(--sage-deep); font-weight: 800; }
 
 /* People → Companies: a way in at each company. */
 .ways { display: flex; flex-direction: column; gap: 10px; }
