@@ -782,6 +782,9 @@ function registerIpc() {
     return updated;
   });
   handle('app:analyze', (id) => analyzeApp(id));
+  handle('spire:get', () => store.getSpire());
+  // No broadcast: nothing else shows the run, and a re-render mid-fight would be jarring.
+  handle('spire:save', (run) => store.saveSpire(run && typeof run === 'object' ? run : null));
 
   // ---- bullet bank ----
   handle('bank:get', () => {
@@ -1110,6 +1113,7 @@ function summarizeApp(a) {
     confidence: a.quick.confidence || null,
     dealbreaker: !!(a.quick.dealbreakers && a.quick.dealbreakers.length),
     appliedAt: a.appliedAt || null,
+    statusHistory: a.statusHistory || [],
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
     atsBefore: (() => {
@@ -1140,7 +1144,31 @@ async function importPaths(paths) {
 
 // ---------------- lifecycle ----------------
 
-if (!app.requestSingleInstanceLock()) {
+// `--smoke-test` proves a packaged build works, then exits: the OCR worker,
+// its WebAssembly core and the English model load from inside the package,
+// the dashboard page loads, and the browser extension folder is there.
+// The release workflow runs it on every installer it builds.
+async function smokeTest() {
+  const timer = setTimeout(() => (console.error('SMOKE FAIL: timed out'), app.exit(1)), 120000);
+  try {
+    const blank = nativeImage.createFromBitmap(Buffer.alloc(200 * 60 * 4, 255), { width: 200, height: 60 });
+    await ocr.recognizeLines(blank.toPNG(), { cachePath: path.join(app.getPath('temp'), 'sprout-smoke-ocr') });
+    await ocr.terminate();
+    const win = new BrowserWindow({ show: false, webPreferences: { preload: PRELOAD } });
+    await win.loadFile(path.join(RENDERER, 'dashboard.html'));
+    if (!fs.existsSync(path.join(extensionDir(), 'manifest.json'))) throw new Error(`browser extension missing at ${extensionDir()}`);
+    console.log(`SMOKE OK (${app.isPackaged ? 'packaged' : 'dev'})`);
+    clearTimeout(timer);
+    app.exit(0);
+  } catch (err) {
+    console.error('SMOKE FAIL:', err && err.stack ? err.stack : err);
+    app.exit(1);
+  }
+}
+
+if (process.argv.includes('--smoke-test')) {
+  app.whenReady().then(smokeTest);
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => createDashboard());

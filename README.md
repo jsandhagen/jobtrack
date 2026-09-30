@@ -23,8 +23,24 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - Each application shows its notes and a status timeline.
   - The tracker has filters (to apply / applied / interviewing / offers / archived), search, sorting and **CSV export**.
   - Postings you've already seen are recognised ("You applied on Sep 12") instead of duplicated.
+- **Optional game**: turn it on in Settings to make applying a game, either **Sprout the Spire** (turn-based card battles in the style of Slay the Spire) or just **Sprout's garden** (goals, streaks and badges). See [Sprout the Spire](#sprout-the-spire) and [Sprout's garden](#sprouts-garden).
+
+## Install
+
+Download the installer for your computer from the [latest release](../../releases/latest):
+
+| Computer | File | How to install |
+|---|---|---|
+| **Windows** | `Sprout-…-win-x64.exe` | Double-click it. Sprout installs and opens, with Start menu and desktop shortcuts. If Windows shows "Windows protected your PC", click **More info → Run anyway** (this only appears while the app isn't code-signed). |
+| **Mac** (Apple Silicon: M1 and newer) | `Sprout-…-mac-arm64.dmg` | Open it and drag Sprout into Applications. The first time, macOS may say it can't verify the developer: open **System Settings → Privacy & Security** and click **Open Anyway** (only while the app isn't notarized). |
+| **Mac** (Intel) | `Sprout-…-mac-x64.dmg` | Same as above. |
+| **Linux** | `Sprout-…-linux-x86_64.AppImage` | Make it executable (`chmod +x`) and run it. |
+
+Then add the [browser extension](#browser-extension): Settings → *Browser extension* → **Show folder** opens the copy that comes with the app.
 
 ## Getting started
+
+To run from source instead:
 
 ```bash
 npm install
@@ -239,6 +255,46 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 - Rough cost per call with Claude Opus 5.5: a fit read is a few cents, and a resume a few more. Your document library is cached, so repeat calls are cheaper. Settings → *When to use Claude* shows this month's estimated total.
 - Reading jobs **from the screen** is free by default (on-device OCR). Claude is only used for it if you pick that in Settings.
 
+## Sprout the Spire
+
+The default style of the optional game (Settings → *Sprout's garden* → *Game style*). Sprout, a thorny little seedling, climbs a tower of woodland creatures in turn-based card battles, but only as fast as you apply:
+
+- **One climb per application.** Each role you mark as applied this week lets Sprout take one floor. You can't play ahead of your search.
+- **Each week is an Act.** Your weekly goal (default 7 applications) is how many floors come before the boss, *the Crow Council*. Reaching the boss is free, so hitting your goal is what earns the boss fight. A new Act starts each Monday at full HP.
+- **A branching map**, like Slay the Spire's: 2–3 nodes per floor (fights, elites, campfires, treasure), each linked to only one or two nodes above it, so every choice closes some paths off. Paths you can no longer reach fade out, and the side panel lists your current choices by name. At a campfire, rest (heal 30%) or tend a card to upgrade it for the rest of the climb.
+- **Battles work like Slay the Spire**: 3 energy and 5 cards a turn, Block, Strength, Weak, poison-like *Nettle*, and enemies that show their next move. You'll meet the Hollow Wisp, the Gatekeeper Golem, the Pinchpenny Goblin and the Tangle Hydra, plus the elites Knight of Five Trials and Mirage Unicorn. Keys `1`–`9` play cards and `E` ends the turn.
+- **Cards work like Slay the Spire's rarities.** Fights and treasure only offer **commons**: simple cards that combo with each other around *Nettle* (Creeping Nettle, Nettle Sting, Spore Cloud), *Block and Thorns* (Thicket, Timber!, Petal Shield, Oak Slam) and *Strength / multi-hits / 0-cost* (Twin Thorns, Seed Scatter, Morning Dew). The **blue (uncommon) and gold (rare) enablers** that make those combos take off never drop from fights; only your real search unlocks them:
+
+  | Card | Rarity | Unlocked by |
+  |---|---|---|
+  | Deep Roots (+Strength) | uncommon | hitting your weekly goal |
+  | Thorn Mantle (Thorns) | uncommon | applying 3 days in a row |
+  | Photosynthesis (Block from 0-cost cards) | uncommon | applying again within 3 days of a "no" |
+  | Spreading Rot (Nettle every turn) | uncommon | 10 applications |
+  | Sunburst (big hit + Strength) | rare | your first interview |
+  | Evergreen (Block stays between turns) | rare | your second interview |
+  | Old Growth (Strength every turn) | rare | your third interview |
+  | Overgrowth (double Nettle) | rare | 25 applications |
+  | Golden Bloom (+1 Energy every turn) | rare | an offer |
+
+  A tailored resume, a cover letter, 3/5/8 applications and a rejection also add commons. Every 5 applications upgrades a card. The deck view shows how each card was earned and which enablers are still to unlock, and a new one is announced when you earn it.
+- **Garden badges become relics**, e.g. *Lucky Acorn* (first application: start fights with 4 Block) and *Busy Bee* (big week: draw an extra card).
+- **Losing never ends the run.** Sprout gets back up at half HP, and your next application is the next try. After the boss, each extra application opens a bonus card.
+
+The rules live in `src/shared/spire.js` (pure and seeded, tested in `test/spire.test.js`). The page is `src/renderer/spire.js`, and the run is saved in `jobtrack.json`.
+
+## Sprout's garden
+
+An optional game, off by default (Settings → *Sprout's garden*), that rewards sending applications:
+
+- **Weekly goal** (default 7, Monday to Sunday), shown as a ring on the home page, with a streak of weeks you hit it. A week in progress never breaks the streak.
+- **Day streak** for applying on consecutive days. Weekends without an application are skipped, so they never break it.
+- **Points** grow Sprout's plant through nine stages, from a seed to an old oak: +10 for each application, +4 with a tailored resume, +3 with a cover letter, +15 for an interview, +40 for an offer, +5 when a role says no (it still took effort), +1 for each role you check.
+- **Garden bed**: one plant per application. It buds when you apply, blooms at an interview, turns gold with an offer, and becomes a clover if it doesn't work out. Click a plant to open that application.
+- **15 badges**, such as *Bounce back* (apply again within 3 days of a "no") and *Steady gardener* (3 weeks in a row on goal). Each new badge and level-up is celebrated once.
+
+Everything is computed from your application history (`src/shared/garden.js`, tested in `test/garden.test.js`), so editing a date or deleting a role updates the garden too, and turning the game off and on again keeps your progress.
+
 ## Development
 
 ```bash
@@ -247,11 +303,23 @@ npm run test:browser  # browser-extension tests in Chromium
 npm run eval:prompts  # real Claude calls: consistency and fact-check pass rates (needs ANTHROPIC_API_KEY)
 ```
 
-## Packaging note
-When packaging with `electron-builder`:
-- Unpack Tesseract's worker and model from the asar archive: `"asarUnpack": ["node_modules/tesseract.js/**", "node_modules/tesseract.js-core/**", "node_modules/@tesseract.js-data/**"]`.
-- Ship the extension folder alongside the app: `"extraResources": [{ "from": "browser-extension", "to": "browser-extension" }]`.
-- To install the extension without developer mode, publish it to the Chrome Web Store (and Edge Add-ons).
+## Building the installers
+
+`npm run dist` builds an installer for the computer you're on into `dist/` (`dist:win`, `dist:mac` and `dist:linux` pick one). `npm run smoke-test:packaged` then launches the packaged app with `--smoke-test`, which loads OCR, the dashboard and the bundled extension from inside the package and exits, so a broken package fails loudly.
+
+**Releases are built by GitHub Actions** (`.github/workflows/release.yml`) on Windows, macOS and Linux:
+
+1. Bump `version` in `package.json` and commit.
+2. `git tag v0.2.0 && git push origin v0.2.0`
+3. The workflow runs the tests, builds all three installers, smoke-tests each packaged app, and attaches the installers to a **draft release**. Check it on GitHub and press **Publish**.
+
+You can also run it by hand (Actions → *Build installers* → *Run workflow*) to get the installers as a downloadable artifact without making a release.
+
+**Code signing** is optional. Without it, the Mac build is signed ad hoc so it opens on Apple Silicon, and people confirm it once as described in [Install](#install). To remove those warnings, add repository secrets:
+- **Mac** (Apple Developer account, $99/year): `MAC_CSC_LINK` (Developer ID Application certificate as a base64 `.p12`), `MAC_CSC_KEY_PASSWORD`, and for notarization `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
+- **Windows**: `WIN_CSC_LINK` (base64 `.pfx`) and `WIN_CSC_KEY_PASSWORD`.
+
+Packaging details (in `package.json` → `build`): Tesseract's worker, WebAssembly core and English model are unpacked from the asar archive (worker threads can't read inside it), and `browser-extension/` ships next to the app for "Load unpacked". To install the extension without developer mode, publish it to the Chrome Web Store and Edge Add-ons.
 
 ## Ideas for next steps
 - Package installers with `electron-builder` (.dmg / .exe / AppImage).

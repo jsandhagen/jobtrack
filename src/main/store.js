@@ -22,6 +22,13 @@ const DEFAULT_SETTINGS = {
   // How to read job postings off the screen: 'ocr' (free, on this computer),
   // 'ocr-then-claude' (free first, Claude only if that finds nothing), or 'claude'.
   screenReader: 'ocr',
+  // Sprout's Garden, the optional game that rewards applying (off by default).
+  gardenEnabled: false,
+  // 'spire' (Slay the Spire style card battles) or 'garden' (just the garden).
+  gameStyle: 'spire',
+  weeklyGoal: 7,
+  // Badges and level already celebrated, so each is celebrated once.
+  gardenSeen: null,
 };
 
 const DEFAULT_PROFILE = {
@@ -59,6 +66,7 @@ class Store {
       applications: raw.applications || [],
       encryptedApiKey: raw.encryptedApiKey || null,
       usage: raw.usage || {},
+      spire: raw.spire || null,
       bank: raw.bank || { experiences: [], bullets: [], education: [], skills: [], summary: '' },
     };
   }
@@ -180,6 +188,15 @@ class Store {
     if (next) this.data.bank = next;
     this.save();
     return this.data.bank;
+  }
+
+  // ---- Sprout the Spire run (the game logic lives in src/shared/spire.js) ----
+  getSpire() {
+    return this.data.spire;
+  }
+  saveSpire(run) {
+    this.data.spire = run;
+    this.save();
   }
 
   // ---- Claude usage, per calendar month ----
