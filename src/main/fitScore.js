@@ -157,12 +157,53 @@ function clauses(original, lineKind) {
     });
 }
 
+// Lists of alternatives — "Python, R, or SAS", "Tableau/Power BI", "such as
+// Java, SAS, MATLAB" — are one requirement that any item satisfies, not
+// several. Given the items found in a clause (with their positions), returns
+// the runs that form such a list. Plain "X and Y" stays separate requirements.
+// Between two listed items: commas, slashes, "and", "or", "and/or" — and
+// unrecognised one-letter entries like the "R" in "Python, R, or SAS".
+const LIST_GAP = /^(?:[\s,/]|\band\b|\bor\b|\b[a-z]\b[#+]*)*$/;
+const OR_GAP = /\/|\bor\b/;
+function alternativeRuns(line, items) {
+  const optional = OPTIONAL_CUE.test(line);
+  const sorted = [...items].sort((a, b) => a.index - b.index);
+  const runs = [];
+  let run = [];
+  let hasOr = false;
+  const close = () => {
+    if (run.length >= 2 && (hasOr || optional)) runs.push(run);
+    run = [];
+    hasOr = false;
+  };
+  for (const it of sorted) {
+    const prev = run[run.length - 1];
+    if (prev) {
+      const gap = line.slice(prev.end, it.index);
+      if (it.index >= prev.end && LIST_GAP.test(gap)) {
+        hasOr = hasOr || OR_GAP.test(gap);
+        run.push(it);
+        continue;
+      }
+      close();
+    }
+    run.push(it);
+  }
+  close();
+  return runs;
+}
+
+// skill -> { kind, term, group? }. `group` is set only when every mention of
+// the skill was one option in a list of alternatives; the map's `groups`
+// property lists each such set of skills.
 function classifyJobSkills(jobText) {
-  const out = new Map(); // skill -> { kind, term }
+  const out = new Map();
+  const groups = [];
   const parts = classifyLines(jobText)
     .filter((l) => !BOILERPLATE_LINE.test(l.line))
     .flatMap((l) => clauses(l.original, l.kind));
-  for (const { line, kind: lineKind } of parts) {
+  for (const { line, kind } of parts) {
+    const found = [];
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       for (const p of patterns) {
         const m = line.match(p);
@@ -170,12 +211,27 @@ function classifyJobSkills(jobText) {
         // Extend to the whole word so "rest api" becomes "rest apis", as written.
         const tail = line.slice(m.index + m[0].length).match(/^[a-z0-9+#]*/)[0];
         const term = (m[0] + tail).trim();
-        const prev = out.get(skill);
-        if (!prev || KIND_RANK[lineKind] > KIND_RANK[prev.kind]) out.set(skill, { kind: lineKind, term });
+        found.push({ skill, term, index: m.index, end: m.index + term.length });
         break;
       }
     }
+    const groupOf = new Map();
+    for (const run of alternativeRuns(line, found)) {
+      const id = groups.push(run.map((f) => f.skill)) - 1;
+      for (const f of run) groupOf.set(f.skill, id);
+    }
+    for (const { skill, term } of found) {
+      const prev = out.get(skill);
+      const group = groupOf.get(skill);
+      if (group === undefined) {
+        // A standalone mention makes the skill a requirement in its own right.
+        if (!prev || prev.group !== undefined || KIND_RANK[kind] > KIND_RANK[prev.kind]) out.set(skill, { kind, term });
+      } else if (!prev || (prev.group !== undefined && KIND_RANK[kind] > KIND_RANK[prev.kind])) {
+        out.set(skill, { kind, term, group });
+      }
+    }
   }
+  out.groups = groups;
   return out;
 }
 
@@ -259,6 +315,7 @@ module.exports = {
   classifyJobSkills,
   classifyLines,
   clauses,
+  alternativeRuns,
   BOILERPLATE_LINE,
   significantTerms,
   looksLikeJobPosting,

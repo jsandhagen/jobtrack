@@ -10,7 +10,7 @@
 //   years of experience           15%
 // Dealbreakers from your profile (work mode, minimum salary, words to avoid)
 // cap the score so those roles never pop up as good matches.
-const { SKILLS, STOPWORDS, BOILERPLATE_LINE, classifyLines, clauses, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, STOPWORDS, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeRequirements } = require('./atsScore');
 
 const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
@@ -218,24 +218,40 @@ function requirementUnits(job) {
     .flatMap((l) => clauses(l.original, l.kind).map((c) => ({ ...c, lineKind: l.kind })));
   for (const { line, original, kind, lineKind } of parts) {
     const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
+    const found = []; // { key, label, match, index, end }
     for (const [skill, patterns] of Object.entries(SKILLS)) {
-      if (patterns.some((p) => p.test(line))) addUnit('s:' + skill, skill, effKind, (t) => (patterns.some((p) => p.test(t)) ? 1 : 0));
+      const hit = patterns.map((p) => line.match(p)).find(Boolean);
+      if (hit) found.push({ key: 's:' + skill, label: skill, match: (t) => (patterns.some((p) => p.test(t)) ? 1 : 0), index: hit.index, end: hit.index + hit[0].length });
     }
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
     if ((lineKind !== 'neutral' || !hasRequiredSection) && !DEGREE_LINE.test(line)) {
       for (const term of extractTerms(original, ignoreWords, `${lower(job.title)} | ${lower(job.company)}`)) {
-        const words = lower(term).split(/\s+/).filter((w) => !STOPWORDS.has(w));
+        const index = line.indexOf(lower(term));
+        const pos = { index, end: index + term.length };
         if (GENERIC_PROGRAMMING.test(term)) {
-          addUnit('programming', 'Programming', effKind, (t) => (showsProgramming(t) ? 1 : 0));
+          found.push({ key: 'programming', label: 'Programming', match: (t) => (showsProgramming(t) ? 1 : 0), ...pos });
           continue;
         }
-        addUnit('t:' + lower(term), term, effKind, (t) => {
-          if (hasTerm(t, term)) return 1;
-          return words.length > 1 && words.every((w) => hasTerm(t, w)) ? 0.6 : 0;
+        const words = lower(term).split(/\s+/).filter((w) => !STOPWORDS.has(w));
+        found.push({
+          key: 't:' + lower(term),
+          label: term,
+          match: (t) => {
+            if (hasTerm(t, term)) return 1;
+            return words.length > 1 && words.every((w) => hasTerm(t, w)) ? 0.6 : 0;
+          },
+          ...pos,
         });
       }
     }
+    // "Python, R, or SAS": one requirement, met by whichever you have.
+    const grouped = new Set();
+    for (const run of alternativeRuns(line, found.filter((f) => f.index >= 0))) {
+      run.forEach((f) => grouped.add(f));
+      addUnit('any:' + run.map((f) => f.key).join('|'), `one of ${run.map((f) => f.label).join(', ')}`, effKind, (t) => Math.max(...run.map((f) => f.match(t))));
+    }
+    for (const f of found) if (!grouped.has(f)) addUnit(f.key, f.label, effKind, f.match);
   }
   const DEGREE_NAMES = ['', 'associate degree', "bachelor's degree", "master's degree", 'PhD'];
   const deg = degreeRequirements(job.text);

@@ -301,7 +301,7 @@ function pickedBlock(picked) {
 
 function atsBlock(job, ats) {
   if (!ats) return '';
-  const terms = [...new Set([...(ats.missingSkills || []).map((m) => m.term), ...(ats.wordingTerms || [])])];
+  const terms = [...new Set([...(ats.missingSkills || []).flatMap((m) => m.anyOf || [m.term]), ...(ats.wordingTerms || [])])];
   return `<ats_notes>
 The candidate's current resume scores ${ats.score}% on Sprout's ATS check for this posting.${terms.length ? ` Posting terms it lacks or words differently: ${terms.join(', ')}. Use the posting's exact wording for any of these the documents support; leave the rest out.` : ''}${job.title ? ` If the candidate has held the title "${job.title}" or its equivalent, use that wording in the summary.` : ''}
 </ats_notes>`;

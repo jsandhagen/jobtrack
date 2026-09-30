@@ -74,7 +74,14 @@ EDUCATION
 Masters of Economics, May 2022`;
   const r = localFitScore(job, [{ kind: 'resume', text: resume }]);
   assert.deepEqual(r.missingSkills, []);
-  assert.ok(r.missingPreferred.includes('Java') && r.missingPreferred.includes('SAS'));
+  assert.deepEqual(r.missingPreferred, ['one of Java, SAS, MATLAB']);
   assert.ok(!r.matchedSkills.includes('Accounting') && !r.missingSkills.includes('Accounting'));
   assert.ok(r.matchedSkills.includes('Programming'));
+});
+
+test('"X, Y, or Z" is one requirement that any one of them meets; "X and Y" stays two', () => {
+  const job = { title: 'Data Analyst', company: 'Acme', text: 'Requirements\n- Experience with Python, R, or Java\n- SQL and Excel' };
+  const r = localFitScore(job, [{ kind: 'resume', text: 'Analyst 2019-2024. Python, SQL.' }]);
+  assert.ok(r.matchedSkills.includes('one of Python, Java'));
+  assert.deepEqual(r.missingSkills, ['Excel']);
 });

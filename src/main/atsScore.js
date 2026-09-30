@@ -80,29 +80,64 @@ function degreeLevel(text) {
 
 // ---------- components ----------
 
+// One unit per requirement: a skill asked for on its own, or a list of
+// alternatives ("Python, R, or SAS") that any one of them satisfies.
+function skillUnits(jobSkills) {
+  const units = [];
+  const byGroup = new Map();
+  for (const [skill, { kind, term, group }] of jobSkills) {
+    if (group === undefined) {
+      units.push({ skills: [skill], anyOf: [skill], kind, terms: [term] });
+      continue;
+    }
+    let u = byGroup.get(group);
+    if (!u) {
+      // Match against every listed option, including ones also asked for on their own.
+      u = { skills: [], anyOf: jobSkills.groups[group], kind, terms: [] };
+      byGroup.set(group, u);
+      units.push(u);
+    }
+    u.skills.push(skill);
+    u.terms.push(term);
+    if (KIND_RANK[kind] > KIND_RANK[u.kind]) u.kind = kind;
+  }
+  return units.map((u) => ({
+    ...u,
+    label: u.skills.length > 1 ? `one of ${u.skills.join(', ')}` : u.skills[0],
+    term: u.terms.length > 1 ? u.terms.join(' / ') : u.terms[0],
+  }));
+}
+const KIND_RANK = { preferred: 0, neutral: 1, required: 2 };
+
 function scoreSkills(jobSkills, resumeLower, resumeSkills) {
   const hard = { have: 0, total: 0, matched: [], missing: [] };
   const soft = { have: 0, total: 0, matched: [], missing: [] };
-  let literalHits = 0;
   const wordingTips = [];
-  for (const [skill, { kind, term }] of jobSkills) {
-    const bucket = SOFT_SKILLS.has(skill) ? soft : hard;
-    const w = kind === 'required' ? 2 : kind === 'preferred' ? 0.75 : 1;
+  const units = skillUnits(jobSkills);
+  for (const u of units) {
+    const bucket = u.skills.every((s) => SOFT_SKILLS.has(s)) ? soft : hard;
+    const w = u.kind === 'required' ? 2 : u.kind === 'preferred' ? 0.75 : 1;
     bucket.total += w;
-    const normalized = resumeSkills.has(skill);
-    const literal = containsTerm(resumeLower, term);
-    if (literal) literalHits++;
-    if (normalized) {
+    const have = u.anyOf.filter((s) => resumeSkills.has(s));
+    u.met = have.length > 0;
+    if (u.met) {
       bucket.have += w;
-      bucket.matched.push({ skill, kind });
-      if (!literal) wordingTips.push({ skill, term });
+      for (const skill of have.filter((s) => u.skills.includes(s))) {
+        bucket.matched.push({ skill, kind: u.kind });
+        const term = u.terms[u.skills.indexOf(skill)];
+        if (!containsTerm(resumeLower, term)) wordingTips.push({ skill, term });
+      }
     } else {
-      bucket.missing.push({ skill, kind, term });
+      bucket.missing.push({ skill: u.label, kind: u.kind, term: u.term, anyOf: u.skills.length > 1 ? u.terms : undefined });
     }
   }
+  // Strict systems (Taleo keyword search, recruiter boolean searches) check
+  // every term on its own, "or" or not — so this rate stays per keyword.
+  const literalHits = [...jobSkills.values()].filter(({ term }) => containsTerm(resumeLower, term)).length;
   return {
     hard,
     soft,
+    units,
     strictRate: jobSkills.size ? literalHits / jobSkills.size : null,
     wordingTips,
   };
@@ -262,13 +297,13 @@ function atsScore(job, resumeText, opts = {}) {
 
   // "Basic qualifications": required skills (or all mentioned skills if the
   // posting has no clear required section), plus stated degree / years.
-  const hasRequired = [...jobSkills.values()].some((s) => s.kind === 'required');
+  const hasRequired = skills.units.some((u) => u.kind === 'required');
   const basicKinds = hasRequired ? ['required'] : ['required', 'neutral'];
-  const basic = [...jobSkills].filter(([, v]) => basicKinds.includes(v.kind));
-  const preferred = [...jobSkills].filter(([, v]) => v.kind === 'preferred');
-  let basicMet = basic.filter(([k]) => resumeSkills.has(k)).length;
+  const basic = skills.units.filter((u) => basicKinds.includes(u.kind));
+  const preferred = skills.units.filter((u) => u.kind === 'preferred');
+  let basicMet = basic.filter((u) => u.met).length;
   let basicTotal = basic.length;
-  const knockouts = basic.filter(([k]) => !resumeSkills.has(k)).map(([k, v]) => `${k} (posting says "${v.term}")`);
+  const knockouts = basic.filter((u) => !u.met).map((u) => `${u.label} (posting says "${u.term}")`);
   if (education) {
     basicTotal++;
     if (education.score >= 0.5) basicMet++;
@@ -279,14 +314,16 @@ function atsScore(job, resumeText, opts = {}) {
     if (experience.score >= 0.8) basicMet++;
     else knockouts.push(`${experience.need}+ years of experience`);
   }
-  const preferredMet = preferred.filter(([k]) => resumeSkills.has(k)).length;
+  const preferredMet = preferred.filter((u) => u.met).length;
   const grade = hiredScoreStyleGrade({ basicMet, basicTotal, preferredMet, preferredTotal: preferred.length, score });
 
   const weighted = skills.hard.total + skills.soft.total;
   const skillsRatio = weighted ? (skills.hard.have + skills.soft.have) / weighted : null;
 
   const tips = [];
-  for (const m of skills.hard.missing.filter((m) => m.kind === 'required')) tips.push(`Required skill not found: "${m.term}". Add it if you have it.`);
+  for (const m of skills.hard.missing.filter((m) => m.kind === 'required')) {
+    tips.push(m.anyOf ? `Required: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}; none found. Add whichever you have.` : `Required skill not found: "${m.term}". Add it if you have it.`);
+  }
   for (const w of skills.wordingTips.slice(0, 4)) tips.push(`Use the posting's exact wording "${w.term}" at least once (strict systems like Taleo match literally).`);
   if (title && !title.exact) tips.push(`Include the job title "${job.title}" (e.g. in your headline) if it honestly describes you.`);
   if (education && education.score < 1) tips.push(`The posting asks for ${DEGREE_NAMES[education.need]}${education.equivalentOk ? ' or equivalent experience' : ''}; make your education easy to find.`);
@@ -304,7 +341,7 @@ function atsScore(job, resumeText, opts = {}) {
     preferred: { met: preferredMet, total: preferred.length },
     knockouts,
     matchedSkills: [...skills.hard.matched, ...skills.soft.matched].map((m) => m.skill),
-    missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term })),
+    missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),
     wordingTerms: skills.wordingTips.map((w) => w.term),
     missingKeywords: keywords ? keywords.missing : [],
     formatChecks: parse ? parse.checks.map(({ id, ok }) => ({ id, ok })) : null,

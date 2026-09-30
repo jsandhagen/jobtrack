@@ -173,3 +173,14 @@ test('quantified-bullet check reads numbers on a wrapped bullet’s continuation
   const r = atsScore({ title: 'Analyst', text: 'Requirements\n- SQL' }, resume);
   assert.ok(r.formatChecks.find((c) => c.id === 'quantified').ok);
 });
+
+test('ATS treats an "or" list as one qualification but still counts each keyword literally', () => {
+  const job = { title: 'Data Analyst', text: 'Requirements\n- Experience with Python, Java, or C++\n- SQL' };
+  const met = atsScore(job, 'Python and SQL', { checkFormatting: false });
+  assert.deepEqual(met.knockouts, []);
+  assert.deepEqual(met.basic, { met: 2, total: 2 });
+  assert.equal(met.strictKeywordRate, 50); // python + sql of python, java, c++, sql
+  const unmet = atsScore(job, 'SQL only', { checkFormatting: false });
+  assert.deepEqual(unmet.knockouts, ['one of Python, Java, C++ (posting says "python / java / c++")']);
+  assert.deepEqual(unmet.missingSkills.find((m) => m.anyOf).anyOf, ['python', 'java', 'c++']);
+});
