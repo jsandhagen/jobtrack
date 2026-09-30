@@ -17,7 +17,7 @@
 
 const { voiceProfile } = require('./voice');
 
-const PROMPT_VERSION = '2026-09-29.2';
+const PROMPT_VERSION = '2026-09-30.1';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -224,6 +224,42 @@ When it is a posting:
 - page_url: the address shown in the browser's address bar, if one is visible; otherwise empty.
 When it is not a posting, set every text field to an empty string.
 </task>`,
+
+  // Company finder, step 1: research with web search. Its notes are turned
+  // into structured data by finderExtract, and every rating's source link is
+  // checked against the pages the search really returned.
+  finderResearch: `<task>
+Help a job seeker find companies they would like to work for. <search_request> says what they're looking for; <candidate> says who they are. Use web search to find real companies that fit, and to find how each company's own employees rate it.
+
+Why this matters: the job seeker will spend weeks applying and networking at the companies you pick, and will trust the ratings you report when deciding. A wrong rating or an invented company costs them far more than a short list does.
+
+Finding companies:
+- Find up to 10 companies (fewer is fine) that are hiring for, or plausibly employ, the candidate's target roles, and that fit the request: industries, size, location or remote work, and anything in its notes. Mix well-known names with smaller ones the candidate may not have heard of.
+- When <look_up> lists companies, research exactly those instead, and nothing else.
+- Leave out every company in <exclude>: the candidate already knows about them or said no.
+- Leave out companies that recently shut down, were acquired and absorbed, or are in mass layoffs; if you find that about a company you'd otherwise include, mention it as a concern instead.
+
+Employee ratings, for each company:
+- Search for the company's employee review pages (Glassdoor, Indeed, Comparably, Kununu or similar). Report only numbers you actually saw on a page returned by your searches, with that page's exact URL, the site's name, the number of reviews if shown, and the date or "as of" the page gives.
+- Report the overall rating and, where the page shows them, the sub-ratings: work-life balance, pay and benefits (compensation), culture and values, career growth (opportunities), and senior leadership (management). Leave a sub-rating out rather than guess it, and never estimate one rating from another.
+- Ratings on different sites use different scales; report only 1-to-5 scales as they are.
+- If you can't find ratings for a company, say so; it can still be a good suggestion.
+
+Also note for each company: its website, careers page URL if you found it, industry in a few words, approximate employee count, headquarters and main offices, whether it hires remotely, one sentence on what it does, one sentence on why it fits this candidate's request, and any concern worth knowing (recent layoffs, low sub-ratings, a pattern in reviews).
+
+Write your findings as plain notes, one section per company, with the source URL next to every rating. The notes are read by another step that fills in a form, not by the candidate, so be complete and exact rather than polished.
+</task>`,
+
+  finderExtract: `<task>
+<research_notes> are notes from web research about companies a job seeker might like to work for. Turn them into the structured list. Copy facts from the notes; add nothing that isn't in them.
+
+- One entry per company the notes recommend or were asked to look up, in the order the notes give them. Skip a company the notes say to leave out.
+- ratings: one entry per review site the notes report numbers from. source_url must be the exact URL the notes give for those numbers; the app drops any rating whose page wasn't among the search results. Use 0 for any rating the notes don't give, and 0 for review_count when it isn't given. Only 1-to-5 ratings.
+- size: "startup" under about 200 employees, "mid" about 200 to 2,000, "large" over 2,000, "unknown" when the notes don't say.
+- remote_policy: "remote" when it hires fully remote for most roles, "hybrid" when it mixes office and home, "onsite" when it expects people in the office, "unknown" when the notes don't say.
+- website and careers_url: full https:// links from the notes, or "".
+- why_it_fits: one sentence to the job seeker ("you"), about their request. concerns: short items, only from the notes; an empty list is fine.
+</task>`,
 };
 
 // ---------------------------------------------------------------------------
@@ -317,4 +353,32 @@ Posting keywords: ${analysis.keywords.join(', ')}
 </earlier_fit_assessment>`;
 }
 
-module.exports = { PROMPT_VERSION, SYSTEM, TASKS, systemBlocks, libraryBlock, jobBlock, roleListBlock, pickedBlock, atsBlock, fitBlock, escapeAttr };
+// Company finder: what the candidate is looking for, from the finder form
+// and their Profile. No documents: this is about employers, not their work.
+function finderBlock({ prefs = {}, profile = {}, exclude = [], lookup = [], sizes = {}, priorities = {} }) {
+  const lines = [
+    prefs.industries && prefs.industries.length && `Industries: ${prefs.industries.join(', ')}`,
+    prefs.sizes && prefs.sizes.length && `Company size: ${prefs.sizes.map((s) => sizes[s] || s).join(' or ')}`,
+    (prefs.location || profile.location) && `Location: ${prefs.location || profile.location}`,
+    prefs.remote && 'Wants remote work (or at least hybrid)',
+    prefs.minRating && `Employee rating of at least ${prefs.minRating} out of 5`,
+    prefs.priorities && prefs.priorities.length && `Cares most about: ${prefs.priorities.map((k) => priorities[k] || k).join(', ')}`,
+    prefs.notes && `Notes: ${prefs.notes}`,
+  ].filter(Boolean);
+  const cand = [
+    profile.targetRoles && `Target roles: ${profile.targetRoles}`,
+    profile.location && `Lives in: ${profile.location}`,
+    profile.pastEmployers && `Has worked at: ${profile.pastEmployers}`,
+    profile.avoidKeywords && `Wants to avoid: ${profile.avoidKeywords}`,
+  ].filter(Boolean);
+  return [
+    `<candidate>\n${cand.join('\n') || '(no profile details)'}\n</candidate>`,
+    `<search_request>\n${lines.join('\n') || '(no preferences given: find well-rated employers for the target roles)'}\n</search_request>`,
+    lookup.length ? `<look_up>\n${lookup.join('\n')}\n</look_up>` : '',
+    `<exclude>\n${exclude.join('\n') || '(none)'}\n</exclude>`,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+module.exports = { PROMPT_VERSION, SYSTEM, TASKS, systemBlocks, libraryBlock, jobBlock, roleListBlock, pickedBlock, atsBlock, fitBlock, finderBlock, escapeAttr };

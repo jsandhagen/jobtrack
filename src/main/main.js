@@ -34,6 +34,7 @@ const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
 const outreach = require('../shared/outreach');
+const finder = require('../shared/finder');
 const careers = require('./careers');
 const logos = require('./logos');
 
@@ -1021,6 +1022,8 @@ function registerIpc() {
     careersChecking,
     searches: store.list('searches'),
     templates: store.list('templates', outreach.DEFAULT_TEMPLATES),
+    finder: store.getFinder(),
+    finderRunning,
   }));
   handle('settings:update', (patch) => applySettings(patch));
   handle('profile:update', (patch) => {
@@ -1263,6 +1266,26 @@ function registerIpc() {
     else if (kind === 'companies' && logos.logoDue(saved)) refreshLogos([saved.id]).catch(() => {});
     delete saved.seen;
     return saved;
+  });
+  // Company finder (Find jobs → Discover).
+  handle('finder:prefs', (prefs) => {
+    const f = store.updateFinder({ prefs: finder.normalizePrefs(prefs) });
+    broadcast('state-changed');
+    return f.prefs;
+  });
+  handle('finder:run', (opts) => runFinder(opts || {}));
+  handle('finder:dismiss', (name, undo) => {
+    const f = store.getFinder();
+    const dismissed = f.dismissed.filter((n) => !outreach.sameCompany(n, name));
+    if (!undo) dismissed.push(String(name || '').trim());
+    store.updateFinder({ dismissed: dismissed.slice(-300) });
+    broadcast('state-changed');
+    return true;
+  });
+  handle('finder:clear', () => {
+    store.updateFinder({ results: [] });
+    broadcast('state-changed');
+    return true;
   });
   // Careers sites of the companies you watch.
   handle('careers:check', (ids) => checkCareers(ids, { manual: true }));
@@ -1555,10 +1578,61 @@ function applicationsCsv(apps) {
 
 const NET_FIELDS = {
   contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified', 'headline', 'location', 'schools', 'employers', 'degree', 'mutual'],
-  companies: ['name', 'why', 'careersUrl', 'website', 'status', 'tags', 'keywords', 'hidden'],
+  companies: ['name', 'why', 'careersUrl', 'website', 'status', 'tags', 'keywords', 'hidden', 'employer'],
   searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
   templates: ['name', 'body', 'channel', 'subject', 'when', 'weight'],
 };
+
+// Company finder: Claude researches companies with web search, and the
+// ratings it can't trace to a search result are dropped (claude.findCompanies).
+// `lookup` names companies to look up instead of finding new ones; `watched`
+// looks up the companies you watch, to put their ratings on their cards.
+let finderRunning = false;
+async function runFinder({ lookup = '', watched = false } = {}) {
+  if (finderRunning) throw new Error("I'm already looking. Give me a minute.");
+  const f = store.getFinder();
+  const cos = store.list('companies');
+  let names = outreach.splitList(lookup).slice(0, 10);
+  if (watched) names = cos.filter((c) => c.status !== 'pass' && !(c.employer && c.employer.checkedAt && Date.now() - Date.parse(c.employer.checkedAt) < 30 * 86400000)).map((c) => c.name).slice(0, 10);
+  if (watched && !names.length) throw new Error('Every company you watch was looked up in the last month.');
+  const exclude = names.length ? [] : [...new Set([...cos.map((c) => c.name), ...f.dismissed, ...f.results.map((r) => r.name)])].slice(0, 200);
+  const client = claudeClient();
+  const costBefore = store.getUsage().cost;
+  finderRunning = true;
+  broadcast('state-changed');
+  try {
+    const out = await claude.findCompanies(client, {
+      prefs: finder.normalizePrefs(f.prefs),
+      profile: store.getProfile(),
+      exclude,
+      lookup: names,
+      sizes: Object.fromEntries(finder.SIZES),
+      priorities: Object.fromEntries(finder.PRIORITIES),
+      model: store.getSettings().model,
+    });
+    const now = new Date().toISOString();
+    const found = out.companies.map((c) => ({ ...c, checkedAt: now }));
+    // Newest first; a company found again replaces its old entry.
+    const results = [...found, ...f.results.filter((r) => !found.some((c) => outreach.sameCompany(c.name, r.name)))].slice(0, 60);
+    // Companies you watch get their ratings on their card.
+    for (const c of found) {
+      const w = cos.find((x) => outreach.sameCompany(x.name, c.name));
+      if (w) store.saveItem('companies', { id: w.id, employer: employerSummary(c), ...(w.website || !c.website ? {} : { website: c.website }) });
+    }
+    const lastRun = { at: now, mode: watched ? 'watched' : names.length ? 'lookup' : 'find', found: found.length, unverified: out.unverified, cost: Math.max(0, store.getUsage().cost - costBefore) };
+    store.updateFinder({ results, lastRun });
+    return lastRun;
+  } finally {
+    finderRunning = false;
+    broadcast('state-changed');
+  }
+}
+
+// What a watched company's card shows from the finder.
+function employerSummary(c) {
+  const r = finder.combinedRatings(c.ratings);
+  return { industry: c.industry, size: c.size, remotePolicy: c.remotePolicy, overall: r.overall, ratings: c.ratings, checkedAt: c.checkedAt || new Date().toISOString() };
+}
 
 const netFetch = (url, opts) => net.fetch(url, opts); // Chromium's network stack honours system proxies
 

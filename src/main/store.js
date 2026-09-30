@@ -87,6 +87,7 @@ class Store {
       searches: raw.searches || [],
       templates: raw.templates || null,
       connections: raw.connections || [],
+      finder: raw.finder || null,
       bank: raw.bank || { experiences: [], bullets: [], education: [], skills: [], summary: '' },
     };
   }
@@ -291,6 +292,17 @@ class Store {
   removeItem(kind, id, defaults = []) {
     this.data[kind] = this.list(kind, defaults).filter((x) => x.id !== id);
     this.save();
+  }
+
+  // ---- company finder (src/shared/finder.js): what you're looking for,
+  // the companies found, and the ones you said no to ----
+  getFinder() {
+    return { prefs: {}, results: [], dismissed: [], lastRun: null, ...(this.data.finder || {}) };
+  }
+  updateFinder(patch) {
+    this.data.finder = { ...this.getFinder(), ...patch };
+    this.save();
+    return this.getFinder();
   }
 
   // ---- Sprout the Spire run (the game logic lives in src/shared/spire.js) ----

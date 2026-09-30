@@ -1021,7 +1021,7 @@ const FEED_WINDOWS = [
   ['all', 'All open', Infinity],
 ];
 const PAGE_SIZE = 30;
-const FIND_TABS = ['jobs', 'searches', 'companies'];
+const FIND_TABS = ['jobs', 'searches', 'companies', 'discover'];
 const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, sort: 'new', minPay: 0, limit: PAGE_SIZE };
 const BOARD_SORTS = [
   ['new', 'Newest first'],
@@ -1324,6 +1324,15 @@ function showOnBoard(companyId) {
   else location.hash = '#find';
 }
 
+// Employee rating and industry, once the company finder has looked it up.
+function employerLine(co) {
+  const e = co.employer;
+  if (!e) return '';
+  const src = (e.ratings || [])[0];
+  const rating = e.overall ? `<a href="#" class="chip tiny co-rating" ${src ? `data-open-url="${esc(src.url)}"` : ''} title="Employee rating${src ? ` from ${esc(src.source)}` : ''}, looked up ${esc(fmtDate(e.checkedAt))}"><span class="stars">★</span> ${e.overall.toFixed(1)}</a>` : '';
+  return rating || e.industry ? `<div class="co-chips">${rating}${e.industry ? `<span class="chip tiny lav">${esc(e.industry)}</span>` : ''}</div>` : '';
+}
+
 function companyRow(co) {
   const L = O.companyLinks(co, state.profile);
   const people = knownAt(co.name);
@@ -1335,7 +1344,7 @@ function companyRow(co) {
     ? `<button class="co-count pill hi" data-board-co="${co.id}" title="See ${esc(co.name)}'s ${n} matching role${n === 1 ? '' : 's'} on the board"><b>${n}</b><small>role${n === 1 ? '' : 's'}</small></button>`
     : `<div class="co-count pill none" title="${passed ? 'Not checking: you passed on this one' : 'No open roles matching yours right now'}"><b>${passed ? '–' : 0}</b><small>roles</small></div>`;
   return `<div class="company ${passed ? 'dim' : ''}" data-co="${co.id}">
-    <div class="company-top">${coLogo(co, 64)}<div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
+    <div class="company-top">${coLogo(co, 64)}<div class="grow"><div class="title">${esc(co.name)}</div>${employerLine(co)}${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
       ${careersStatus(co)}
       ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
       ${!passed ? coWayLine(co, people, roles) : ''}</div>
@@ -1356,20 +1365,247 @@ function companyRow(co) {
     </div></div>`;
 }
 
+// ---------------- Find jobs → Discover (company finder) ----------------
+// Claude finds companies and their employee ratings with web search; the
+// match score is worked out on your computer (src/shared/finder.js), so
+// changing what you're looking for re-ranks the list for free.
+
+const F = window.SproutFinder;
+const finderView = { sort: 'match', hideLow: false, showDismissed: false };
+const MIN_RATINGS = [0, 3.5, 3.8, 4, 4.3];
+
+const finderPrefs = () => F.normalizePrefs(state.finder.prefs);
+const isDismissed = (name) => state.finder.dismissed.some((n) => O.sameCompany(n, name));
+const watchedCo = (name) => state.companies.find((c) => O.sameCompany(c.name, name));
+
+async function saveFinderPrefs(patch) {
+  try {
+    await S.saveFinderPrefs({ ...finderPrefs(), ...patch });
+    await netRefresh();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function finderResults() {
+  const prefs = finderPrefs();
+  const avoid = state.profile.avoidKeywords;
+  return state.finder.results.map((c) => ({ company: c, match: F.matchScore(c, prefs, { connections: knownAt(c.name), avoid }), dismissed: isDismissed(c.name), watched: watchedCo(c.name) }));
+}
+
+const stars = (v) => (v ? `<span class="stars" aria-hidden="true">★</span> ${v.toFixed(1)}` : '–');
+
+function ratingsBlock(c, prio) {
+  if (!c.ratings.length) return `<div class="fz-ratings faint">No employee ratings found. <span class="muted">Check the review sites below.</span></div>`;
+  const r = F.combinedRatings(c.ratings);
+  const subs = F.PRIORITIES.filter(([k]) => r[k]).map(([k, label]) => `<span class="fz-sub ${prio.includes(k) ? 'on' : ''}" title="${esc(label)}${prio.includes(k) ? ': matters most to you' : ''}"><small>${esc(label)}</small><b>${r[k].toFixed(1)}</b></span>`);
+  const srcs = c.ratings
+    .map((x) => `<a href="#" data-open-url="${esc(x.url)}" title="Open the page these ratings came from">${esc(x.source)}${x.reviewCount ? ` · ${x.reviewCount.toLocaleString()} reviews` : ''}${x.asOf ? ` · ${esc(x.asOf)}` : ''}</a>`)
+    .join(' · ');
+  return `<div class="fz-ratings"><span class="fz-overall" title="Overall employee rating out of 5">${stars(r.overall)}</span>${subs.length ? `<span class="fz-subs">${subs.join('')}</span>` : ''}</div>
+    <div class="fz-src faint">From ${srcs}</div>`;
+}
+
+function finderCard({ company: c, match: m, dismissed, watched }, prio) {
+  const sizeTxt = c.employees || (F.SIZES.find(([k]) => k === c.size) || [])[1] || '';
+  const where = [c.headquarters, c.remotePolicy === 'remote' ? 'Remote' : c.remotePolicy === 'hybrid' ? 'Hybrid' : c.remotePolicy === 'onsite' ? 'On-site' : ''].filter(Boolean);
+  const chips = [c.industry && `<span class="chip tiny lav">${esc(c.industry)}</span>`, sizeTxt && `<span class="chip tiny">${esc(sizeTxt)}</span>`, ...where.map((w) => `<span class="chip tiny">${esc(w)}</span>`), knownChip(c.name)].filter(Boolean).join('');
+  const breakdown = m.parts.map((p) => `<li><span class="grow">${esc(p.label)}</span><b>${p.pts}</b><span class="faint">/${p.max}</span></li>`).join('');
+  const links = F.reviewLinks(c.name).map(([n, u]) => `<a href="#" data-open-url="${esc(u)}" title="Search ${esc(n)} for ${esc(c.name)}">${esc(n)}</a>`).join(' · ');
+  return `<div class="company fz-co ${dismissed ? 'dim' : ''}">
+    <div class="company-top">${coLogo(c, 56)}<div class="grow">
+      <div class="title">${esc(c.name)}</div>
+      <div class="co-chips">${chips}</div>
+      ${c.summary ? `<div class="sub">${esc(c.summary)}</div>` : ''}
+      ${c.why ? `<div class="fz-why">${icon('sparkle', 13)} ${esc(c.why)}</div>` : ''}
+      ${ratingsBlock(c, prio)}
+      ${m.flags.map((f) => `<div class="co-status warn">${icon('warn', 13)} ${esc(f.text)}</div>`).join('')}
+      ${c.concerns.length ? `<div class="fz-concerns">${icon('eye', 13)} <b>Worth knowing:</b> ${c.concerns.map(esc).join(' · ')}</div>` : ''}
+    </div>
+    <details class="fz-score"><summary class="co-count pill ${pillClass(m.score)}" title="${esc(F.matchLabel(m.score))}. Click for why."><b>${m.score}</b><small>match</small></summary>
+      <div class="fz-breakdown"><b>${esc(F.matchLabel(m.score))}</b><ul>${breakdown}</ul><p class="faint">Worked out on your computer from the ratings and what you're looking for.</p></div></details>
+    <div class="co-actions">${
+      watched
+        ? `<button class="small soft" data-find-tab="companies" title="On your Companies list">${icon('check', 14)} Watching</button>`
+        : dismissed
+          ? `<button class="small ghost fzUndismiss" data-name="${esc(c.name)}">Undo</button>`
+          : `<button class="small primary fzWatch" data-name="${esc(c.name)}" title="Add to Companies: I'll read its careers site for roles like yours">+ Watch</button><button class="small ghost icon-btn fzDismiss" data-name="${esc(c.name)}" title="Not for me" aria-label="Not for me: ${esc(c.name)}">✕</button>`
+    }</div></div>
+    <div class="inline company-links">
+      ${c.website ? `<button class="small soft" data-open-url="${esc(c.website)}">${icon('globe', 14)} Website</button>` : ''}
+      ${c.careersUrl ? `<button class="small soft" data-open-url="${esc(c.careersUrl)}">${icon('link', 14)} Careers</button>` : ''}
+      <span class="fz-read faint">Read the reviews: ${links}</span>
+    </div></div>`;
+}
+
+function finderForm() {
+  const p = finderPrefs();
+  const on = (b) => (b ? 'good' : '');
+  const custom = p.industries.filter((i) => !F.INDUSTRIES.some((x) => x.toLowerCase() === i.toLowerCase()));
+  return `<div class="card fz-form"><h3 class="with-icon">${icon('target', 20)} What you're looking for</h3>
+    <label>Industries</label>
+    <div class="fz-chips">${F.INDUSTRIES.map((i) => `<button class="chip ${on(p.industries.some((x) => x.toLowerCase() === i.toLowerCase()))} fzInd" data-v="${esc(i)}" aria-pressed="${p.industries.includes(i)}">${esc(i)}</button>`).join('')}</div>
+    <input id="fzIndOther" placeholder="Others, separated by commas" value="${esc(custom.join(', '))}">
+    <label>Company size</label>
+    <div class="fz-chips">${F.SIZES.map(([k, l]) => `<button class="chip ${on(p.sizes.includes(k))} fzSize" data-v="${k}" aria-pressed="${p.sizes.includes(k)}">${esc(l)}</button>`).join('')}</div>
+    <label>Where</label>
+    <input id="fzLoc" placeholder="${esc(state.profile.location || 'City, or leave empty for anywhere')}" value="${esc(p.location)}">
+    <label class="check-label fz-remote"><input type="checkbox" id="fzRemote" ${p.remote ? 'checked' : ''}> Remote-friendly</label>
+    <label>Lowest employee rating</label>
+    <select id="fzMin">${MIN_RATINGS.map((v) => `<option value="${v}" ${v === p.minRating ? 'selected' : ''}>${v ? `${v.toFixed(1)} stars or more` : 'Any rating'}</option>`).join('')}</select>
+    <label>What matters most <span class="faint">(up to ${F.MAX_PRIORITIES})</span></label>
+    <div class="fz-chips">${F.PRIORITIES.map(([k, l]) => `<button class="chip ${on(p.priorities.includes(k))} fzPrio" data-v="${k}" aria-pressed="${p.priorities.includes(k)}">${esc(l)}</button>`).join('')}</div>
+    <label>Anything else <span class="faint">(optional)</span></label>
+    <input id="fzNotes" placeholder="e.g. mission-driven, B Corp, no ad tech" value="${esc(p.notes)}">
+    <p class="faint" style="margin:10px 0 0">I also use the target roles and places to avoid from your <a href="#profile">Profile</a>.</p>
+  </div>`;
+}
+
+function finderStatus() {
+  const f = state.finder;
+  if (state.finderRunning) return `<p class="fz-status"><span class="spinner"></span> Searching the web for companies and their employee ratings. This takes a minute or two.</p>`;
+  const r = f.lastRun;
+  if (!r) return '';
+  const what = r.mode === 'find' ? `Found ${r.found} compan${r.found === 1 ? 'y' : 'ies'}` : `Looked up ${r.found} compan${r.found === 1 ? 'y' : 'ies'}`;
+  return `<p class="fz-status faint">${what} ${timeAgo(r.at)}${r.cost ? `, for about $${r.cost.toFixed(2)} of Claude use` : ''}.${r.unverified ? ` I left out ${r.unverified} rating${r.unverified === 1 ? '' : 's'} I couldn't check (not from a page the search returned, or not out of 5).` : ''}</p>`;
+}
+
+function discoverTab() {
+  const all = finderResults();
+  const p = finderPrefs();
+  let shown = all.filter((x) => finderView.showDismissed || !x.dismissed);
+  if (finderView.hideLow) shown = shown.filter((x) => !x.match.flags.length);
+  shown = F.sortResults(shown, finderView.sort);
+  const dismissedN = all.filter((x) => x.dismissed).length;
+  const watchedN = state.companies.filter((c) => c.status !== 'pass').length;
+  const busy = state.finderRunning ? 'disabled' : '';
+  const actions = `<div class="fz-actions">
+      <button class="primary" id="fzFind" ${busy}>${icon('search', 15)} ${all.length ? 'Find more companies' : 'Find companies'}</button>
+      <div class="fz-lookup"><input id="fzLookup" placeholder="Or look up companies: Stripe, Notion"><button class="soft" id="fzLookupGo" ${busy}>Look up</button></div>
+      ${watchedN ? `<button class="ghost small" id="fzWatched" ${busy} title="Put employee ratings on the companies you already watch">Rate the companies I watch</button>` : ''}
+    </div>
+    ${state.hasApiKey ? '' : `<p class="note-box">The company finder uses Claude with web search. Add your Claude API key in <a href="#settings">Settings</a> to use it.</p>`}
+    ${finderStatus()}`;
+  const list = !all.length
+    ? `<div class="card empty">${mascotSvg('curious', 72)}<h3>Find places you'd love to work</h3>
+        <p>Tell me what you're looking for on the right, and I'll search the web for companies that fit, with how their own employees rate them. Every rating links to the page it came from.</p>
+        ${actions}</div>`
+    : `<div class="card"><div class="fz-head">${actions}</div>
+        <div class="board-bar fz-controls">
+          <select id="fzSort" class="small-select" aria-label="Sort">${[['match', 'Best match first'], ['rating', 'Highest rated first'], ['name', 'By name']].map(([k, l]) => `<option value="${k}" ${finderView.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          ${p.minRating ? `<label class="check-label"><input type="checkbox" id="fzHideLow" ${finderView.hideLow ? 'checked' : ''}> Hide ones below ${p.minRating.toFixed(1)} or to avoid</label>` : ''}
+          ${dismissedN ? `<label class="check-label"><input type="checkbox" id="fzShowDis" ${finderView.showDismissed ? 'checked' : ''}> Not for me <span class="faint">${dismissedN}</span></label>` : ''}
+          <button class="ghost small" id="fzClear" style="margin-left:auto">Clear list</button>
+        </div>
+        ${shown.length ? `<div class="list">${shown.map((x) => finderCard(x, p.priorities)).join('')}</div>` : '<p class="muted">Nothing to show with these filters.</p>'}
+        <p class="faint board-foot">Ratings are what employees gave on review sites, found by Claude with web search when you asked. Each one links to its page; I drop any rating whose page wasn't among the search results. The match score is worked out here from those ratings and what you're looking for, so change it on the right and the list re-sorts for free.</p>
+      </div>`;
+  return `<div class="grid sidebar">${`<div>${list}</div>`}<div>${finderForm()}</div></div>`;
+}
+
+// A match score's breakdown closes when you click anywhere else.
+document.addEventListener('click', (e) => {
+  for (const d of document.querySelectorAll('.fz-score[open]')) if (!d.contains(e.target)) d.open = false;
+});
+
+function bindDiscoverTab() {
+  const p = () => finderPrefs();
+  const toggle = (list, v, max) => (list.includes(v) ? list.filter((x) => x !== v) : max && list.length >= max ? (toast(`Pick up to ${max}.`), list) : [...list, v]);
+  $$('.fzInd').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ industries: toggle(p().industries, b.dataset.v) })));
+  $$('.fzSize').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ sizes: toggle(p().sizes, b.dataset.v) })));
+  $$('.fzPrio').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ priorities: toggle(p().priorities, b.dataset.v, F.MAX_PRIORITIES) })));
+  const other = $('#fzIndOther');
+  if (other)
+    other.addEventListener('change', () => {
+      const chips = p().industries.filter((i) => F.INDUSTRIES.some((x) => x.toLowerCase() === i.toLowerCase()));
+      saveFinderPrefs({ industries: [...chips, ...O.splitList(other.value)] });
+    });
+  const text = (id, key) => {
+    const el = $(id);
+    if (el) el.addEventListener('change', () => saveFinderPrefs({ [key]: el.value }));
+  };
+  text('#fzLoc', 'location');
+  text('#fzNotes', 'notes');
+  const remote = $('#fzRemote');
+  if (remote) remote.addEventListener('change', () => saveFinderPrefs({ remote: remote.checked }));
+  const min = $('#fzMin');
+  if (min) min.addEventListener('change', () => saveFinderPrefs({ minRating: Number(min.value) }));
+
+  const go = (btn, opts, busy) =>
+    run(btn, async () => {
+      const r = await S.runFinder(opts);
+      toast(r.found ? `${r.mode === 'find' ? 'Found' : 'Looked up'} ${r.found} compan${r.found === 1 ? 'y' : 'ies'}.` : "I didn't find any this time. Try loosening what you're looking for.", r.found ? 'good' : 'info');
+      netRefresh();
+    }, busy);
+  const find = $('#fzFind');
+  if (find) find.addEventListener('click', (e) => go(e.currentTarget, {}, 'Searching…'));
+  const lookup = () => {
+    const v = $('#fzLookup').value.trim();
+    if (!v) return toast('Type a company name first.');
+    go($('#fzLookupGo'), { lookup: v }, 'Looking up…');
+  };
+  const lk = $('#fzLookupGo');
+  if (lk) lk.addEventListener('click', lookup);
+  const lkIn = $('#fzLookup');
+  if (lkIn) lkIn.addEventListener('keydown', (e) => e.key === 'Enter' && lookup());
+  const w = $('#fzWatched');
+  if (w) w.addEventListener('click', (e) => go(e.currentTarget, { watched: true }, 'Looking up…'));
+
+  const sort = $('#fzSort');
+  if (sort) sort.addEventListener('change', () => ((finderView.sort = sort.value), route()));
+  const low = $('#fzHideLow');
+  if (low) low.addEventListener('change', () => ((finderView.hideLow = low.checked), route()));
+  const dis = $('#fzShowDis');
+  if (dis) dis.addEventListener('change', () => ((finderView.showDismissed = dis.checked), route()));
+  const clear = $('#fzClear');
+  if (clear)
+    clear.addEventListener('click', async () => {
+      if (!confirm('Clear the companies found so far? Ones you watch stay on your Companies list.')) return;
+      await S.clearFinder();
+      netRefresh();
+    });
+
+  $$('.fzWatch').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const c = state.finder.results.find((x) => O.sameCompany(x.name, b.dataset.name));
+      if (!c) return;
+      const r = F.combinedRatings(c.ratings);
+      try {
+        await S.saveItem('companies', {
+          name: c.name,
+          status: 'interested',
+          why: c.why || c.summary,
+          website: c.website,
+          careersUrl: c.careersUrl,
+          employer: { industry: c.industry, size: c.size, remotePolicy: c.remotePolicy, overall: r.overall, ratings: c.ratings, checkedAt: c.checkedAt },
+        });
+        toast(`Watching ${c.name}. I'll look for roles like yours on its careers site.`, 'good');
+        netRefresh();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    })
+  );
+  $$('.fzDismiss').forEach((b) => b.addEventListener('click', async () => (await S.dismissFinder(b.dataset.name), toast("Got it. I won't suggest it again.", 'info', 2600), netRefresh())));
+  $$('.fzUndismiss').forEach((b) => b.addEventListener('click', async () => (await S.dismissFinder(b.dataset.name, true), netRefresh())));
+}
+
 views.find = () => {
   const jobsN = careerJobs().filter(({ co, job }) => !isHidden(co, job) && inWindow(job, 7)).length;
   const searchesN = state.searches.filter((s) => s.kind !== 'people').length;
   const cosN = state.companies.length;
+  const discoverN = state.finder.results.filter((c) => !isDismissed(c.name) && !watchedCo(c.name)).length;
   const line = {
     jobs: 'Open roles at the companies you watch, newest first. Check your fit with one click.',
     searches: 'One-click searches for fresh postings on LinkedIn and the startup job boards.',
     companies: "The companies you're keeping an eye on. I read their careers sites for you.",
+    discover: 'Find companies you would like to work for, by how their employees rate them, their industry, size and where they are.',
   }[findTab];
   const tab = (k, label, n) => `<button class="${findTab === k ? 'on' : ''}" data-find-tab="${k}">${label}${n ? ` <span class="faint">${n}</span>` : ''}</button>`;
   return `<div class="page">
     ${pageHead('Find jobs', 'curious', line)}
-    <div class="tabs find-tabs">${tab('jobs', `${icon('news', 17)} Jobs`, jobsN)}${tab('searches', `${icon('search', 17)} Searches`, searchesN)}${tab('companies', `${icon('home', 17)} Companies`, cosN)}</div>
-    ${findTab === 'jobs' ? `${quickSearchesRow()}${jobsTab()}` : findTab === 'searches' ? searchesTab() : companiesTab()}
+    <div class="tabs find-tabs">${tab('jobs', `${icon('news', 17)} Jobs`, jobsN)}${tab('searches', `${icon('search', 17)} Searches`, searchesN)}${tab('companies', `${icon('home', 17)} Companies`, cosN)}${tab('discover', `${icon('sparkle', 17)} Discover`, discoverN)}</div>
+    ${findTab === 'jobs' ? `${quickSearchesRow()}${jobsTab()}` : findTab === 'searches' ? searchesTab() : findTab === 'discover' ? discoverTab() : companiesTab()}
   </div>`;
 };
 
@@ -1387,6 +1623,7 @@ binders.find = () => {
   if (findTab === 'jobs') bindJobsTab();
   if (findTab === 'searches') bindSearchesTab();
   if (findTab === 'companies') bindCompaniesTab();
+  if (findTab === 'discover') bindDiscoverTab();
   bindCompanyModals();
 };
 

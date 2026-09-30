@@ -47,6 +47,7 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - The tracker has filters (to apply / applied / interviewing / offers / archived), search, sorting and **CSV export**.
   - Postings you've already seen are recognised ("You applied on Sep 12") instead of duplicated.
 - **Find jobs**: one-click searches for fresh postings. See [Find jobs and People](#find-jobs-and-people).
+- **Company finder**: find companies you'd like to work for, by how their employees rate them (overall, work-life balance, pay, culture, growth, leadership), industry, size and location. Every rating links to the page it came from, and one click adds a company to your watch list. See [Company finder](#company-finder).
 - **People (outreach)**: a list of people you could reach out to, message templates filled in for each one, and a record of who you actually messaged, with follow-up reminders.
 - **Optional game**: turn it on in Settings to make applying a game, either **Sprout the Spire** (turn-based card battles in the style of Slay the Spire) or just **Sprout's garden** (goals, streaks and badges). See [Sprout the Spire](#sprout-the-spire) and [Sprout's garden](#sprouts-garden).
 
@@ -93,7 +94,8 @@ Sprout keeps running in the system tray after you close the window, so detection
 | `src/main/bullets.js` | Bullet bank: parsing resumes into roles and bullets, merging rewordings, ranking bullets for a posting, picking and assembling a resume |
 | `src/main/localFit.js` | Free offline fit score, confidence, dealbreakers, and the requirement detection shared with the bullet bank |
 | `src/main/fitScore.js` | Shared helpers: skill dictionary, posting-line classification, years parsing, posting detection |
-| `src/main/claude.js` | Claude API calls using structured outputs (Zod schemas): screenshot → posting, fit analysis, resume, polish, bullet suggestions, cover letter |
+| `src/main/claude.js` | Claude API calls using structured outputs (Zod schemas): screenshot → posting, fit analysis, resume, polish, bullet suggestions, cover letter, and the company finder's web research |
+| `src/shared/finder.js` | Company finder: what you're looking for, combining ratings from several sites, and the match score |
 | `src/main/prompts.js` | Every prompt Sprout sends to Claude, with a version number |
 | `src/main/grounding.js` | Checks Claude's output against your documents: quotes, numbers and named tools |
 | `src/main/draft.js` | Turns Claude's resume draft into an editor document, with facts taken from your bullet bank |
@@ -131,7 +133,7 @@ Every Claude button uses a prompt written for consistent, checkable results. The
 
 Nothing here scrapes LinkedIn: every search is a link that opens in your browser.
 
-**Find jobs** (`#find`) has three tabs, and remembers the one you used last:
+**Find jobs** (`#find`) has four tabs, and remembers the one you used last:
 - **Jobs**, the job board: open roles at the companies you watch, newest first, grouped into *Today*, *This week*, *This month* and *Earlier*.
   - **Filter** by title, company or place (press `/` to jump to the box, `Esc` to clear it), pick one company, or tick **Remote only**. The *Past week / Past month / All open* tabs show how many roles each has.
   - **Fit preview and pay on every role.** Each job shows the company's logo on the left and, on the right, Sprout's free fit score (the same one-on-your-computer score as everywhere else) worked out from the posting itself, with dealbreakers in orange and marked as such. New, remote and pay show as tags under the title. Pay shows wherever the posting lists it: from Lever's and Ashby's own pay fields, or a range written in the description ("$150K–$190K", "£60k to £75k", "$45–$60/hr"). Funding amounts like "$20M" are never mistaken for pay.
@@ -155,6 +157,22 @@ Nothing here scrapes LinkedIn: every search is a link that opens in your browser
   - It uses the job data these boards publish for their own careers pages (`src/main/careers.js`), not LinkedIn, and only for companies you added.
 - **Company logos** show on every job and company. Sprout takes each company's own icon from its website (the square *apple-touch-icon* phones use, or its favicon), and only from a website it has reason to trust: the one you set, the careers link when it's on the company's own site, the site its job postings link to, or the website its Lever or Ashby board names. With none of those it tries the name (`acme.com`, `acme.ai`…) and keeps that only if the site's title names the company. Anything else gets the company's initial instead, so a missing logo is far more likely than a wrong one. If one is wrong, **More → Set its website** fixes it.
   - Logos are fetched by the app after each careers check, checked to really be images, shrunk to 128px and saved with the company, so the dashboard never loads images from the web and they show offline. Sprout looks again every month (every week for companies with none yet), and straight away when the website or careers link changes (`src/main/logos.js`).
+
+- **Discover**: the [company finder](#company-finder).
+
+#### Company finder
+
+*Find jobs → Discover* finds companies you might like to work for, and shows how their own employees rate them.
+
+- **Say what you're looking for** on the right: industries (one click each, or type your own), company size (startup, mid-size, large), where (your Profile's location unless you change it) and **Remote-friendly**, the lowest employee rating you'd consider, **what matters most** (up to three of work-life balance, pay & benefits, culture & values, career growth and leadership) and anything else ("mission-driven, no ad tech"). Sprout also uses your target roles, past employers and the things you want to avoid from Profile.
+- **Find companies** asks Claude to search the web for up to 10 companies that fit, mixing well-known names with smaller ones, and for their ratings on employee review sites (Glassdoor, Indeed, Comparably and others). **Find more companies** leaves out the ones already found, the ones you watch and the ones you said no to. **Look up** researches companies you name instead, and **Rate the companies I watch** puts ratings on your watched companies' cards (those not looked up in the last month, 10 at a time).
+- **Each company shows** its industry, size, headquarters and remote policy, what it does, why it fits your request, the overall rating and the sub-ratings (the ones you care most about are highlighted), anything worth knowing (layoffs, a weak sub-rating), how many people you know there, and links to its website, careers page and its reviews on Glassdoor, Indeed, Comparably and Blind.
+- **Ratings are checked, not just trusted.** Claude researches first and writes notes; a second step turns them into data. Every rating must name the page it came from, and Sprout keeps it only if that page was among the results the web search actually returned; a rating that isn't on a 1-to-5 scale is left out too. The page says how many were left out. Ratings from several sites are combined by how many reviews each has.
+- **The match score (0–100) is worked out on your computer** (`src/shared/finder.js`), so changing what you're looking for re-sorts the list straight away and costs nothing: employee ratings 50 (overall 30, what matters most to you 20), industry 20, size 10, location or remote 10, people you know there 10. Unknown ratings count as middling rather than zero. A company rated under your minimum is capped at 40 and one that mentions something you want to avoid at 25, and both say why. Click the score to see each part.
+- **+ Watch** adds a company to *Companies*, with its website and careers link, so Sprout reads its careers site for roles like yours; its rating and industry then show on its card. **✕** means not for me: it's hidden and never suggested again (tick **Not for me** to see or undo them).
+- **Cost**: each search is one Claude call with web search (up to 15 searches) plus a short call to structure the notes; the page shows what each run cost, and it counts toward this month's usage in Settings. It only runs when you click.
+
+The prompts are `finderResearch` and `finderExtract` in `src/main/prompts.js`; the call and the source check are `findCompanies` in `src/main/claude.js`.
 
 **People** (`#people`) has four tabs: **My people** (your list, filtered by where things stand, with **Alumni** and **Ex-coworkers** toggles), **Companies**, **Find people** and **Templates**.
 
