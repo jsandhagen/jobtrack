@@ -71,6 +71,22 @@
     return list ? [...list.children].filter((li) => li.tagName === 'LI') : [];
   }
 
+  // How you're connected, from the top card: "· 1st" / "2nd" / "3rd+", and
+  // "Priya Shah, Sam Ortiz and 10 other mutual connections".
+  function network(top) {
+    const text = clean(top.innerText || top.textContent);
+    const d = text.match(/(?:^|[\s·•])(1st|2nd|3rd)\+?(?=\s|$|·|•)/);
+    const degree = d ? { '1st': 1, '2nd': 2, '3rd': 3 }[d[1]] : null;
+    let mutual = 0;
+    const other = text.match(/and (\d[\d,]*) other mutual connections?/i);
+    const plain = text.match(/(\d[\d,]*) mutual connections?/i);
+    if (other) mutual = Number(other[1].replace(/,/g, '')) + (text.slice(0, other.index).match(/,[^,]*$/) ? 2 : 1);
+    else if (plain) mutual = Number(plain[1].replace(/,/g, ''));
+    else if (/\band [^,.]{2,60} are mutual connections\b/i.test(text)) mutual = 2;
+    else if (/\bis a mutual connection\b/i.test(text)) mutual = 1;
+    return { degree, mutual };
+  }
+
   function fromLayout() {
     const top = document.querySelector('main section') || document.querySelector('main') || document.body;
     const h1 = top.querySelector('h1') || document.querySelector('h1');
@@ -79,6 +95,7 @@
     const headline = clean(headlineEl && headlineEl.innerText).split('\n')[0];
     const locEl = top.querySelector('.text-body-small.inline, [class*="t-black--light"].text-body-small');
     const location = clean(locEl && locEl.innerText);
+    const { degree, mutual } = network(top);
 
     // Experience: "Title / Company · Full-time / dates", or for several roles
     // at one company "Company / Full-time · 3 yrs" with the roles nested.
@@ -100,6 +117,8 @@
       name,
       headline,
       location,
+      degree,
+      mutual,
       title: now.title || '',
       company: now.company || '',
       schools: uniq(schools),

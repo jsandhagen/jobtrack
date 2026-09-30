@@ -89,19 +89,31 @@
     const first = esc(name);
     const shared = r.shared || [];
     // (top() escapes the speech itself.)
+    const roles = r.roles || [];
+    const mutualOnly = !shared.length && r.degree !== 1 && r.mutual > 0;
     const speech = r.justAdded
       ? `Added! When you're ready, I'll help you write to ${name}.`
       : r.saved
         ? `${name} is already in your people.`
-        : shared.length
-          ? `You both ${shared[0]}. That's a great reason to say hi.`
-          : r.roles && r.roles.length
-            ? `${name} works where you're applying. Someone inside can make a big difference.`
-            : `Want to keep ${name} in your people?`;
+        : r.degree === 1 && roles.length
+          ? `You're already connected, and ${name} works where you're applying. Ask about the role!`
+          : shared.length
+            ? `You both ${shared[0]}. That's a great reason to say hi.`
+            : mutualOnly
+              ? `You have ${r.mutual} mutual connection${r.mutual === 1 ? '' : 's'}. One of them could introduce you.`
+              : roles.length
+                ? `${name} works where you're applying. Someone inside can make a big difference.`
+                : `Want to keep ${name} in your people?`;
+    const chip = (html, cls = 'good', title = '') => `<span class="chip ${cls}"${title ? ` title="${esc(title)}"` : ''}>${html}</span>`;
+    // One chip per thing, so none gets cut off.
     const facts = [
-      shared.length ? `<span class="chip good">✓ You both ${esc(shared.join(' and '))}</span>` : '',
-      r.roles && r.roles.length ? `<span class="chip good" title="${esc(r.roles.join(', '))}">${icon('check', 13)} ${r.roles.length === 1 ? `Your ${esc(r.roles[0])} role is here` : `${r.roles.length} of your roles are here`}</span>` : '',
-      r.watching && !(r.roles && r.roles.length) ? `<span class="chip">A company you're watching</span>` : '',
+      r.degree === 1 ? chip('✓ 1st-degree connection') : '',
+      ...shared.map((x) => chip(`✓ ${esc(x.replace(/^went to /, 'Went to ').replace(/^worked at /, 'Worked at '))}`, 'good', `You both ${x}`)),
+      r.degree !== 1 && r.mutual > 0 ? chip(`${r.mutual} mutual connection${r.mutual === 1 ? '' : 's'}`, 'lav') : '',
+      r.role ? chip(esc(r.role), '') : '',
+      roles.length ? chip(`${icon('check', 13)} ${roles.length === 1 ? `Your ${esc(roles[0])} role is here` : `${roles.length} of your roles are here`}`, 'good', roles.join(', ')) : '',
+      r.watching && !roles.length ? chip("A company you're watching", '') : '',
+      r.others ? chip(`${r.others} other${r.others === 1 ? '' : 's'} you could ask at ${esc(c.company)}`, '') : '',
     ].filter(Boolean);
     const actions = r.saved
       ? `<div class="actions"><button class="primary" data-act="open-person">Open in Sprout</button><button class="ghost" data-act="close">Close</button></div>`

@@ -812,6 +812,10 @@ function personCard(p, { justAdded = false } = {}) {
     ? store.listApplications().filter((a) => a.saved !== false && ['scored', 'resume-ready', 'applied', 'interviewing'].includes(a.status) && outreach.sameCompany(a.job.company, company)).map((a) => a.job.title)
     : [];
   const watching = !!company && store.list('companies').some((x) => x.status !== 'pass' && outreach.sameCompany(x.name, company));
+  const connections = store.list('connections');
+  const w = outreach.warmth(c, profile, { connected: c.degree === 1 || outreach.findContact(connections, c) !== null });
+  const way = company ? outreach.wayIn(company, { contacts: store.list('contacts'), connections, profile }) : null;
+  const others = way ? way.people.filter((x) => !(existing && x.contact && x.contact.id === existing.id) && x.name !== c.name).length : 0;
   return {
     person: true,
     saved: !!existing,
@@ -826,6 +830,11 @@ function personCard(p, { justAdded = false } = {}) {
       status: existing ? outreach.CONTACT_LABEL[existing.status || 'to-reach'] : '',
     },
     shared: outreach.sharedPhrases(outreach.sharedBackground(c, profile)),
+    warmth: w === 'cold' || w === 'alumni' || w === 'coworker' ? '' : outreach.warmthLabel(w, c),
+    degree: c.degree || null,
+    mutual: c.mutual || 0,
+    role: outreach.ROLE_KINDS[outreach.roleKind(c.title, profile)] || '',
+    others,
     roles: roles.slice(0, 3),
     watching,
     hasProfile: !!(profile.schools || profile.pastEmployers),
@@ -841,6 +850,9 @@ function addPerson(p) {
     const patch = { id: existing.id };
     for (const k of ['title', 'company', 'headline', 'location', 'linkedinUrl', 'connection']) if (!String(existing[k] || '').trim() && read[k]) patch[k] = read[k];
     for (const k of ['schools', 'employers']) if (read[k].length) patch[k] = [...new Set([...(existing[k] || []), ...read[k]])];
+    // Connection degree and mutual connections change; keep the latest.
+    if (read.degree) patch.degree = read.degree;
+    if (read.mutual) patch.mutual = read.mutual;
     store.saveItem('contacts', patch);
   } else {
     store.saveItem('contacts', { ...read, status: 'to-reach', addedVia: 'linkedin' });
@@ -1004,6 +1016,7 @@ function registerIpc() {
     autoBudgetOk: autoBudgetOk(),
     platform: process.platform,
     contacts: store.list('contacts'),
+    connections: store.list('connections'),
     companies: store.list('companies').map(({ seen, ...c }) => c),
     careersChecking,
     searches: store.list('searches'),
@@ -1288,6 +1301,28 @@ function registerIpc() {
     }
     return { added, duplicates, skipped };
   });
+  // Your LinkedIn network, from LinkedIn's Connections.csv export.
+  handle('net:importConnections', (text) => {
+    const { connections, error } = outreach.parseLinkedInConnections(text);
+    if (error) throw new Error(error);
+    if (!connections.length) throw new Error('That file has no connections in it.');
+    const count = store.replaceList('connections', connections, (x) => x.linkedinUrl || `${x.name}|${x.company}`);
+    store.updateSettings({ connectionsImportedAt: new Date().toISOString() });
+    return { count, companies: new Set(connections.map((c) => c.company.toLowerCase()).filter(Boolean)).size };
+  });
+  handle('net:clearConnections', () => {
+    store.replaceList('connections', []);
+    store.updateSettings({ connectionsImportedAt: null });
+    return true;
+  });
+  // A connection you want to reach out to joins your people.
+  handle('net:addConnection', (id) => {
+    const x = store.list('connections').find((c) => c.id === id);
+    if (!x) throw new Error('That connection is no longer in your imported list.');
+    const existing = outreach.findContact(store.list('contacts'), x);
+    if (existing) return existing;
+    return store.saveItem('contacts', { name: x.name, title: x.position, company: x.company, linkedinUrl: x.linkedinUrl, email: x.email, degree: 1, status: 'to-reach', addedVia: 'connections' });
+  });
   handle('net:reached', (id, info = {}) => {
     const c = store.list('contacts').find((x) => x.id === id);
     if (!c) throw new Error('That person was removed.');
@@ -1519,7 +1554,7 @@ function applicationsCsv(apps) {
 }
 
 const NET_FIELDS = {
-  contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified', 'headline', 'location', 'schools', 'employers'],
+  contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified', 'headline', 'location', 'schools', 'employers', 'degree', 'mutual'],
   companies: ['name', 'why', 'careersUrl', 'website', 'status', 'tags', 'keywords', 'hidden'],
   searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
   templates: ['name', 'body', 'channel', 'subject', 'when', 'weight'],

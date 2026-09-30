@@ -55,7 +55,8 @@ const DEFAULT_PROFILE = {
 
 // Lists kept by the People and Find jobs pages. Templates start with
 // Sprout's defaults (src/shared/outreach.js) until you edit them.
-const LISTS = ['contacts', 'companies', 'searches', 'templates'];
+// `connections` is your LinkedIn network, from its Connections.csv export.
+const LISTS = ['contacts', 'companies', 'searches', 'templates', 'connections'];
 
 class Store {
   constructor(dir) {
@@ -85,6 +86,7 @@ class Store {
       companies: raw.companies || [],
       searches: raw.searches || [],
       templates: raw.templates || null,
+      connections: raw.connections || [],
       bank: raw.bank || { experiences: [], bullets: [], education: [], skills: [], summary: '' },
     };
   }
@@ -274,6 +276,17 @@ class Store {
     this.data[kind] = items;
     this.save();
     return { ...rec };
+  }
+  // Replace a whole list at once (an import), keeping ids stable by `key`.
+  replaceList(kind, items, key = (x) => x.id) {
+    const before = new Map(this.list(kind).map((x) => [key(x), x]));
+    const now = new Date().toISOString();
+    this.data[kind] = items.map((x) => {
+      const old = before.get(key(x));
+      return { ...x, id: old ? old.id : crypto.randomUUID(), addedAt: old ? old.addedAt : now };
+    });
+    this.save();
+    return this.data[kind].length;
   }
   removeItem(kind, id, defaults = []) {
     this.data[kind] = this.list(kind, defaults).filter((x) => x.id !== id);
