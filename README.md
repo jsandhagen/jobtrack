@@ -23,7 +23,7 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - Each application shows its notes and a status timeline.
   - The tracker has filters (to apply / applied / interviewing / offers / archived), search, sorting and **CSV export**.
   - Postings you've already seen are recognised ("You applied on Sep 12") instead of duplicated.
-- **Optional game**: turn it on in Settings to make applying a game, either **Sprout's Spire** (turn-based card battles in the style of Slay the Spire) or just **Sprout's garden** (goals, streaks and badges). See [Sprout's Spire](#sprouts-spire) and [Sprout's garden](#sprouts-garden).
+- **Optional game**: turn it on in Settings to make applying a game, either **Sprout the Spire** (turn-based card battles in the style of Slay the Spire) or just **Sprout's garden** (goals, streaks and badges). See [Sprout the Spire](#sprout-the-spire) and [Sprout's garden](#sprouts-garden).
 
 ## Getting started
 
@@ -240,7 +240,7 @@ Sources: [Workday HiredScore candidate grades](https://doc.workday.com/hiredscor
 - Rough cost per call with Claude Opus 5.5: a fit read is a few cents, and a resume a few more. Your document library is cached, so repeat calls are cheaper. Settings → *When to use Claude* shows this month's estimated total.
 - Reading jobs **from the screen** is free by default (on-device OCR). Claude is only used for it if you pick that in Settings.
 
-## Sprout's Spire
+## Sprout the Spire
 
 The default style of the optional game (Settings → *Sprout's garden* → *Game style*). Sprout, a thorny little seedling, climbs a tower of woodland creatures in turn-based card battles, but only as fast as you apply:
 

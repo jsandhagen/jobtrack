@@ -1,4 +1,4 @@
-// Sprout's Spire page: the map, card battles and rewards, drawn from the
+// Sprout the Spire page: the map, card battles and rewards, drawn from the
 // rules in src/shared/spire.js. Shares helpers (S, esc, $, $$, views,
 // binders, state, toast, celebrate, openModal…) with dashboard.js and
 // garden.js, which load first.
@@ -321,7 +321,7 @@ async function renderSpire() {
   const page = document.getElementById('spirePage');
   if (!page) return;
   if (!spireOn()) {
-    page.innerHTML = `${pageHead("Sprout's Spire", 'wave', 'Turn-based card battles, Slay the Spire style. Every application you send is one more floor.')}
+    page.innerHTML = `${pageHead("Sprout the Spire", 'wave', 'Turn-based card battles, Slay the Spire style. Every application you send is one more floor.')}
       <div class="card empty">${enemySvg('committee', 110)}<h3>Climb the Spire?</h3><p class="muted">Each application you send lets Sprout climb one floor. Hit your weekly goal to face the Crow Council at the top.</p>
       <button class="primary" id="spireOnBtn">${icon('sword')} Start climbing</button></div>`;
     $('#spireOnBtn', page).addEventListener('click', (e) => run(e.currentTarget, () => S.updateSettings({ gardenEnabled: true, gameStyle: 'spire' })));
@@ -458,9 +458,9 @@ function spireHomeCard() {
   const r = Spire.sync(JSON.parse(JSON.stringify(spireRun)), c);
   const left = Spire.climbsLeft(r, c);
   const fighting = r.combat && !r.combat.result;
-  return `<div class="card garden-home spire-home" data-go="spire" title="Open Sprout's Spire">
+  return `<div class="card garden-home spire-home" data-go="spire" title="Open Sprout the Spire">
     ${goalRing(c.garden.week, 80)}
-    <div class="grow"><div class="faint">Sprout's Spire · Act ${r.act}</div>
+    <div class="grow"><div class="faint">Sprout the Spire · Act ${r.act}</div>
       <b class="garden-home-line">${fighting ? `Mid-fight with ${esc(r.combat.enemy.name)}!` : r.cleared ? 'Act cleared this week!' : left ? `${left} climb${left === 1 ? '' : 's'} ready: floor ${r.floor + 1} of ${r.map.length} awaits.` : 'Send an application to climb the next floor.'}</b>
       ${hpBar(r.hp, r.maxHp)}</div>
     <div class="spire-home-foe">${enemySvg(r.cleared ? 'committee' : (r.map[r.floor] || [{}]).find((n) => n.enemy) ? r.map[r.floor].find((n) => n.enemy).enemy : 'committee', 72)}</div>

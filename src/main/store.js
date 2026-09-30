@@ -190,7 +190,7 @@ class Store {
     return this.data.bank;
   }
 
-  // ---- Sprout's Spire run (the game logic lives in src/shared/spire.js) ----
+  // ---- Sprout the Spire run (the game logic lives in src/shared/spire.js) ----
   getSpire() {
     return this.data.spire;
   }

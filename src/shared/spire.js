@@ -1,4 +1,4 @@
-// Sprout's Spire: the Slay the Spire style mode of the optional game.
+// Sprout the Spire: the Slay the Spire style mode of the optional game.
 //
 // Sprout climbs a tower of job-search monsters in turn-based card battles,
 // but only as fast as you apply:

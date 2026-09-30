@@ -352,7 +352,7 @@ const views = {
           <div class="toggle-row"><input type="checkbox" id="gardenEnabled" ${s.gardenEnabled ? 'checked' : ''}><div class="what"><b>Make applying a game</b><span>Every application grows Sprout's garden. Set a weekly goal, keep streaks (weekends never break them) and earn badges. Nothing is shared or sent anywhere.</span></div></div>
           <label style="margin-top:10px">Game style</label>
           <select id="gameStyle">
-            <option value="spire" ${s.gameStyle !== 'garden' ? 'selected' : ''}>Sprout's Spire: turn-based card battles (Slay the Spire style)</option>
+            <option value="spire" ${s.gameStyle !== 'garden' ? 'selected' : ''}>Sprout the Spire: turn-based card battles (Slay the Spire style)</option>
             <option value="garden" ${s.gameStyle === 'garden' ? 'selected' : ''}>Just the garden: goals, streaks and badges</option>
           </select>
           <label style="margin-top:10px">Weekly applications goal</label>
