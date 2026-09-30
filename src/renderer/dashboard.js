@@ -151,30 +151,6 @@ function heroScene(time) {
     <g class="grass">${[36, 64, 124, 206, 262, 560, 820, 900].map((x, i) => `<path d="M${x} ${i < 4 ? 118 + (i % 2) * 6 : 136}q1-6 -2-10M${x + 3} ${i < 4 ? 118 + (i % 2) * 6 : 136}q1-8 4-11"/>`).join('')}</g></svg>`;
 }
 
-// Five growth stages for the whole search: checked → saved → applied → interviewing → offer.
-function stageArt(kind) {
-  const soil = '<path d="M4 34h24" stroke="var(--stage-soil)" stroke-width="3" stroke-linecap="round"/>';
-  if (kind === 'seed') return `<svg viewBox="0 0 32 36" width="40" height="44" aria-hidden="true">${soil}<ellipse cx="16" cy="29" rx="5" ry="3.6" fill="#c9a27a" stroke="#9a7450" stroke-width="1.2"/><path d="M14 28.5q2-1.6 4 0" stroke="#9a7450" stroke-width="1" fill="none"/></svg>`;
-  if (kind === 'sprout') return `<svg viewBox="0 0 32 36" width="40" height="44" aria-hidden="true">${soil}<path d="M16 33q-1-8 0-14" stroke="var(--stem)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M16 22q-8-1-9-7 7-1 9 7z" fill="var(--leaf)" stroke="var(--stem)" stroke-width="1.2"/><path d="M16 20q7-2 9-8-7-1-9 8z" fill="var(--leaf-2)" stroke="var(--stem)" stroke-width="1.2"/></svg>`;
-  return bedPlantSvg(kind).replace('width="32" height="36"', 'width="40" height="44"').replace('aria-hidden="true">', `aria-hidden="true">${soil}`); // garden.js
-}
-
-function growthCard(apps) {
-  const reached = (a, ...st) => st.includes(a.status) || (a.statusHistory || []).some((h) => st.includes(h.status));
-  const applied = apps.filter((a) => a.appliedAt || reached(a, 'applied', 'interviewing', 'offer'));
-  const talking = apps.filter((a) => reached(a, 'interviewing', 'offer'));
-  const stages = [
-    ['seed', apps.length + (state.checked || []).length, 'checked', 'check'],
-    ['sprout', apps.length, 'saved', 'applications'],
-    ['bud', applied.length, 'applied', 'applications'],
-    ['bloom', talking.length, 'interviewing', 'applications'],
-    ['golden', apps.filter((a) => reached(a, 'offer')).length, apps.filter((a) => reached(a, 'offer')).length === 1 ? 'offer' : 'offers', 'applications'],
-  ];
-  const rate = applied.length ? `${Math.round((talking.length / applied.length) * 100)}% of applications got an interview` : 'Apply to a role and watch it grow';
-  return `<div class="card growth"><div class="growth-head"><h3 class="with-icon">${icon('seedling', 20)} Your search, growing</h3><span class="faint">${rate}</span></div>
-    <div class="stages">${stages.map(([kind, n, label, go], i) => `${i ? '<i class="stage-vine" aria-hidden="true"></i>' : ''}<button class="stage ${n ? '' : 'none'}" data-go="${go}" title="${n} ${label}">${stageArt(kind)}<b>${n}</b><span>${label}</span></button>`).join('')}</div></div>`;
-}
-
 // The last seven days, one plant per day, sized by what you did.
 function weekCard(apps) {
   const all = [...apps, ...(state.checked || [])];
@@ -195,7 +171,7 @@ function weekCard(apps) {
       <path d="M20 ${top + 9}q-8-1-9-7 7-1 9 7z" fill="var(--leaf)" stroke="var(--stem)" stroke-width="1.1"/><path d="M20 ${top + 7}q7-2 9-8-7-1-9 8z" fill="var(--leaf-2)" stroke="var(--stem)" stroke-width="1.1"/>
       ${a ? `<path d="M20 ${top + 6}q-5.5-4-0.5-11 5.5 6.5 0.5 11z" fill="var(--lavender)" stroke="#6b5aa8" stroke-width="1.1"/>${a > 1 ? `<text x="30" y="${top + 4}" class="wcount">×${a}</text>` : ''}` : ''}</svg>`;
   };
-  return `<div class="card week"><div class="growth-head"><h3 class="with-icon">${icon('clock', 20)} This week</h3><span class="faint">${checked} checked · ${applied} applied</span></div>
+  return `<div class="card week"><div class="week-head"><h3 class="with-icon">${icon('clock', 20)} This week</h3><span class="faint">${checked} checked · ${applied} applied</span></div>
     <div class="week-bed">${days.map((x, i) => `<div class="wday ${i === 6 ? 'today' : ''}" title="${x.d.toLocaleDateString(undefined, { weekday: 'long' })}: ${x.checked} checked, ${x.applied} applied">${plant(x)}<span>${i === 6 ? 'Today' : x.d.toLocaleDateString(undefined, { weekday: 'short' })}</span></div>`).join('')}</div>
     <div class="week-key faint"><span>${icon('seedling', 13)} checked a role</span><span><i class="bud-dot"></i> applied</span></div></div>`;
 }
@@ -395,6 +371,9 @@ const views = {
     const apps = state.applications;
     const weekAgo = Date.now() - 7 * 86400000;
     const appliedWeek = apps.filter((a) => a.appliedAt && Date.parse(a.appliedAt) > weekAgo).length;
+    const thisWeek = [...apps, ...(state.checked || [])].filter((a) => new Date(a.createdAt).getTime() > weekAgo).length;
+    const appliedAll = apps.filter((a) => a.appliedAt).length;
+    const responses = apps.filter((a) => a.appliedAt && ['interviewing', 'offer'].includes(a.status)).length;
     const due = apps.filter(followUpDue);
     const steps = [
       [state.documents.length > 0, 'Add your resume & documents to your library', 'library'],
@@ -419,7 +398,11 @@ const views = {
         <div class="setup-next">${steps.filter(([d]) => !d).map(([, what, go]) => `<button class="small soft" data-go="${go}">${esc(what)} →</button>`).join('')}</div></div>`}
       ${spireHomeCard() || gardenHomeCard()}
       ${outreachHomeCard()}
-      ${growthCard(apps)}
+      <div class="grid three" style="margin-bottom:16px">
+        <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('seedling', 26)}</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
+        <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('send', 26)}</div><div><b>${appliedWeek}</b><span>applied in the last 7 days · ${appliedAll} total</span></div></div>
+        <div class="card stat"><div class="stat-icon" style="background:var(--peach-soft);color:#b8653e">${icon('chat', 26)}</div><div><b>${appliedAll ? Math.round((responses / appliedAll) * 100) + '%' : '–'}</b><span>got an interview or offer</span></div></div>
+      </div>
       ${due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0"><h3 class="with-icon">${icon('clock', 20)} Follow-ups due</h3><div class="list">${due.map(appRow).join('')}</div></div>` : ''}
       <div class="grid home-split">
         ${weekCard(apps)}

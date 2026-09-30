@@ -805,27 +805,13 @@ p.way-next { display: flex; }
 .setup-next { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .setup-bar i { display: block; height: 100%; border-radius: 6px; background: var(--band-hi); }
 
-/* Growth stages: checked → saved → applied → interviewing → offer */
-.growth { margin-bottom: 16px; --stage-soil: #d9c3a5; }
-@media (prefers-color-scheme: dark) { .growth, .week { --stage-soil: #5a4a3a; } }
-.growth-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.growth-head h3 { margin: 0; }
-.stages { display: flex; align-items: flex-end; }
-.stage { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 0; padding: 8px 4px 10px; border: 0; background: transparent; box-shadow: none; border-radius: 14px; white-space: normal; }
-.stage:hover, .stage:active { background: var(--surface-2); box-shadow: none; transform: none; }
-.stage:hover svg { transform: translateY(-3px) rotate(-3deg); }
-.stage svg { transition: transform 0.3s cubic-bezier(0.3, 1.6, 0.5, 1); }
-.stage svg { width: 52px; height: 57px; }
-.stage b { font-size: 26px; font-weight: 900; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
-.stage span { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
-.stage.none svg { filter: grayscale(1); opacity: 0.4; }
-.stage.none b { color: var(--ink-faint); }
-.stage-vine { flex: 0 1 40px; align-self: center; margin-bottom: 26px; height: 8px; min-width: 14px; -webkit-mask: var(--vine) no-repeat center / 100% 100%; mask: var(--vine) no-repeat center / 100% 100%; background: var(--leaf); }
-
 /* This week: one plant per day */
 .home-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: start; }
 @media (max-width: 1000px) { .home-split { grid-template-columns: 1fr; } }
 .week { --stage-soil: #d9c3a5; }
+.week-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.week-head h3 { margin: 0; }
+@media (prefers-color-scheme: dark) { .week { --stage-soil: #5a4a3a; } }
 .week-bed { display: grid; grid-template-columns: repeat(7, 1fr); align-items: end; margin: 10px 0 10px; padding: 12px 4px 0; background: linear-gradient(transparent calc(100% - 26px), color-mix(in srgb, var(--stage-soil) 35%, transparent) calc(100% - 26px)); border-radius: 12px; }
 .week-bed .wcount { font: 800 9px var(--font); fill: #6b5aa8; }
 .wday { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-bottom: 5px; }
