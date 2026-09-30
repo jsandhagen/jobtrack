@@ -202,13 +202,33 @@ function followUpDue(a) {
 
 function openModal(html) {
   const m = document.getElementById('modal');
-  document.getElementById('modalCard').innerHTML = html;
+  const card = document.getElementById('modalCard');
+  card.innerHTML = `<button class="modal-x" type="button" aria-label="Close" title="Close (Esc)">✕</button>${html}`;
   m.hidden = false;
-  return document.getElementById('modalCard');
+  return card;
 }
 function closeModal() {
   document.getElementById('modal').hidden = true;
 }
+// Every dialog closes with ✕, Esc, a click outside it, or leaving the page.
+// If something was typed into it, ask first.
+function modalDirty() {
+  return [...document.querySelectorAll('#modalCard input, #modalCard textarea')].some((el) =>
+    el.type === 'checkbox' || el.type === 'radio' ? el.checked !== el.defaultChecked : el.value !== el.defaultValue
+  );
+}
+function dismissModal() {
+  const m = document.getElementById('modal');
+  if (m.hidden) return;
+  if (modalDirty() && !confirm('Close without saving what you typed?')) return;
+  closeModal();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const m = document.getElementById('modal');
+  m.addEventListener('click', (e) => (e.target === m || e.target.closest('.modal-x')) && dismissModal());
+});
+document.addEventListener('keydown', (e) => e.key === 'Escape' && !document.getElementById('modal').hidden && (e.preventDefault(), dismissModal()));
+window.addEventListener('hashchange', closeModal);
 document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') closeModal();
 });

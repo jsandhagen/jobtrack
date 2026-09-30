@@ -581,3 +581,8 @@ h3.with-icon .small { margin-left: 8px; }
 .job-row .fit-pill { width: 42px; padding: 8px 0; font-size: 14px; border-radius: 10px; }
 .job-row .fit-pill.none { background: var(--surface-2); color: var(--ink-faint); }
 .chip.pay { background: var(--sage-soft); color: var(--sage-deep); font-weight: 800; }
+
+/* Close button on every dialog */
+.modal-card { position: relative; }
+.modal-x { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: var(--ink-faint); font-size: 15px; cursor: pointer; z-index: 1; }
+.modal-x:hover { background: var(--surface-2); color: var(--ink); }
