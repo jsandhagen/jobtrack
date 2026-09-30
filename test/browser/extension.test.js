@@ -272,6 +272,8 @@ test('LinkedIn profile: reads the person, says what you share, and adds them whe
   assert.match(f.headline, /^Chief of Staff to the COO/);
   assert.match(f.location, /Arlington, Virginia/);
   assert.deepEqual(f.schools, ['University of Virginia']);
+  assert.equal(f.degree, 2);
+  assert.equal(f.mutual, 12);
   assert.deepEqual(f.employers, ['OCTA', 'Appian Corporation', 'Booz Allen Hamilton'], 'grouped roles count their company once');
 
   const text = await waitFor(async () => ((await cardText(p)).includes('Add Frederick to your people?') ? cardText(p) : null));

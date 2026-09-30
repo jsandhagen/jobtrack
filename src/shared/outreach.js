@@ -144,6 +144,10 @@
     for (const s of splitList(profile.schools).slice(0, 4)) out.push(make('alumni', `${s} alumni${at}`, s));
     for (const e of splitList(profile.pastEmployers).slice(0, 4)) if (!sameCompany(e, co)) out.push(make('coworkers', `Also worked at ${e}${co ? `, now${at}` : ''}`, e));
     out.push(make('role', `${who}${at}`, ''));
+    if (co) {
+      const r = { kind: 'people', titles: 'Recruiter, Talent Acquisition', company: co, common: '' };
+      out.push({ kind: 'recruiters', label: `Recruiters at ${co}`, common: '', search: r, linkedin: linkedinPeopleUrl(r), google: googlePeopleUrl(r) });
+    }
     return out;
   }
 
@@ -228,6 +232,8 @@
       linkedinUrl: linkedinProfileUrl(p.url),
       schools: list(p.schools),
       employers: list(p.employers).filter((e) => !sameCompany(e, company)),
+      degree: [1, 2, 3].includes(Number(p.degree)) ? Number(p.degree) : null,
+      mutual: Math.max(0, Math.min(9999, Math.floor(Number(p.mutual) || 0))),
     };
     c.connection = connectionText(sharedBackground(c, profile));
     return c;
@@ -330,10 +336,178 @@
       .filter((c) => c.status === 'to-reach' || !c.status)
       .map((c) => {
         const roles = openAt(c);
-        return { contact: c, roles, rank: (roles.length ? 100 : 0) + (clean(c.connection) ? 10 : 0) + (clean(c.linkedinUrl) ? 1 : 0) };
+        return { contact: c, roles, rank: (roles.length ? 100 : 0) + WARMTH[warmth(c)].score / 5 + (clean(c.linkedinUrl) ? 1 : 0) };
       })
       .sort((a, b) => b.rank - a.rank || String(a.contact.addedAt || '').localeCompare(String(b.contact.addedAt || '')))
       .slice(0, n);
+  }
+
+  // ---------------- a way in at each company ----------------
+  //
+  // For someone aiming at particular companies, the question is "who can
+  // get me in the door there?". Everyone you could ask at a company (the
+  // people on your list, and your LinkedIn connections who work there) is
+  // ranked by how warm the connection is and what they could do for you,
+  // and each company gets a stage and one next step.
+
+  // Your LinkedIn connections, from LinkedIn's data export (Settings → Data
+  // privacy → Get a copy of your data → Connections). The file opens with a
+  // few lines of notes before the header row.
+  function parseLinkedInConnections(text) {
+    const src = String(text || '').replace(/^\uFEFF/, '');
+    const at = src.search(/^"?first name"?\s*,/im);
+    if (at < 0) return { connections: [], error: "That doesn't look like LinkedIn's Connections.csv. It should have a First Name, Last Name, URL, Company and Position header." };
+    const rows = parseTable(src.slice(at));
+    const head = rows[0].map((h) => h.toLowerCase());
+    const col = (re) => head.findIndex((h) => re.test(h));
+    const c = { first: col(/^first name$/), last: col(/^last name$/), url: col(/^(url|profile url)$/), email: col(/^email/), company: col(/^company$/), position: col(/^(position|title)$/), on: col(/^connected on$/) };
+    const get = (r, k) => (c[k] >= 0 ? r[c[k]] || '' : '');
+    const seen = new Set();
+    const connections = [];
+    for (const r of rows.slice(1)) {
+      const name = clean(`${get(r, 'first')} ${get(r, 'last')}`);
+      if (!name) continue;
+      const linkedinUrl = linkedinProfileUrl(get(r, 'url'));
+      const key = linkedinUrl || `${norm(name)}|${norm(get(r, 'company'))}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      connections.push({ name, linkedinUrl, email: get(r, 'email'), company: get(r, 'company'), position: get(r, 'position'), connectedOn: get(r, 'on') });
+    }
+    return { connections };
+  }
+
+  // What someone could do for you, from their title.
+  const RECRUITER = /\b(recruit\w*|talent|sourc(er|ing)|people partner|hr business partner)\b/i;
+  const LEADER = /\b(head of|director|vp|vice president|chief|founder|co-?founder|ceo|coo|cto|cfo|cpo|president|general manager|manager|lead)\b/i;
+  const ROLE_KINDS = { recruiter: 'Recruiter', peer: 'Does your job', leader: 'Leader' };
+  function roleKind(title, profile = {}) {
+    const t = clean(title);
+    if (!t) return '';
+    if (RECRUITER.test(t)) return 'recruiter';
+    if (splitList(profile.targetRoles).some((r) => sameOrg(r, t) || norm(t).includes(norm(r)))) return 'peer';
+    return LEADER.test(t) ? 'leader' : '';
+  }
+
+  // How warm a connection is, warmest first.
+  const WARMTH = {
+    know: { label: 'You know them', score: 90 },
+    first: { label: '1st-degree connection', score: 80 },
+    coworker: { label: 'Ex-coworker', score: 70 },
+    alumni: { label: 'Fellow alum', score: 60 },
+    mutual: { label: 'Mutual connections', score: 45 },
+    common: { label: 'Something in common', score: 40 },
+    cold: { label: 'No connection yet', score: 10 },
+  };
+  function warmth(person = {}, profile = {}, { connected = false } = {}) {
+    const shared = sharedBackground(person, profile);
+    if (['replied', 'talked', 'referred'].includes(person.status) || KNOW.test(person.connection || '')) return 'know';
+    if (connected || Number(person.degree) === 1) return 'first';
+    if (shared.employers.length) return 'coworker';
+    if (shared.schools.length) return 'alumni';
+    if (Number(person.mutual) > 0) return 'mutual';
+    if (clean(person.connection)) return 'common';
+    return 'cold';
+  }
+  function warmthLabel(kind, person = {}) {
+    if (kind === 'mutual') return `${person.mutual} mutual connection${Number(person.mutual) === 1 ? '' : 's'}`;
+    return (WARMTH[kind] || WARMTH.cold).label;
+  }
+
+  const sameUrl = (a, b) => {
+    const u = (x) => linkedinProfileUrl(x).toLowerCase();
+    return !!u(a) && u(a) === u(b);
+  };
+  const isConnection = (c, connections) => (connections || []).some((x) => sameUrl(x.linkedinUrl, c.linkedinUrl) || (norm(x.name) === norm(c.name) && sameCompany(x.company, c.company)));
+
+  // Everyone you could ask at a company, best first. People on your list
+  // come with where things stand; connections not on your list yet can be
+  // added in one click.
+  function peopleAt(company, { contacts = [], connections = [], profile = {} } = {}) {
+    const out = [];
+    for (const c of contacts) {
+      if (!sameCompany(c.company, company)) continue;
+      const w = warmth(c, profile, { connected: isConnection(c, connections) });
+      out.push({ contact: c, name: c.name, title: c.title, linkedinUrl: c.linkedinUrl, warmth: w, role: roleKind(c.title, profile) });
+    }
+    for (const x of connections) {
+      if (!sameCompany(x.company, company) || findContact(contacts, x)) continue;
+      out.push({ connection: x, name: x.name, title: x.position, linkedinUrl: x.linkedinUrl, warmth: 'first', role: roleKind(x.position, profile) });
+    }
+    const roleBonus = { peer: 8, leader: 6, recruiter: 5 };
+    const rank = (p) => WARMTH[p.warmth].score + (roleBonus[p.role] || 0) + (p.warmth === 'mutual' ? Math.min(Number(p.contact && p.contact.mutual) || 0, 9) : 0);
+    return out.sort((a, b) => rank(b) - rank(a) || String(a.name).localeCompare(String(b.name)));
+  }
+
+  const STAGES = [
+    ['none', 'No one yet'],
+    ['found', 'People found'],
+    ['reached', 'Reached out'],
+    ['talking', 'Talking'],
+    ['referred', 'Referred'],
+  ];
+  const STAGE_LABEL = Object.fromEntries(STAGES);
+
+  // Where you stand at a company, and the one thing to do next there.
+  function wayIn(company, { contacts = [], connections = [], profile = {}, applications = [] } = {}) {
+    const people = peopleAt(company, { contacts, connections, profile });
+    const mine = people.filter((p) => p.contact);
+    const has = (...st) => mine.filter((p) => st.includes(p.contact.status || 'to-reach'));
+    const roles = applications.filter((a) => OPEN.includes(a.status) && sameCompany(a.job && a.job.company, company));
+    const applied = roles.some((a) => a.status === 'applied' || a.status === 'interviewing');
+    const stage = has('referred').length ? 'referred' : has('replied', 'talked').length ? 'talking' : has('reached', 'quiet').length ? 'reached' : people.length ? 'found' : 'none';
+    const first = (p) => clean(p.name).split(' ')[0];
+    const role = roles[0] && roles[0].job.title;
+    const warm = people.filter((p) => p.warmth !== 'cold');
+    let next;
+    const due = mine.find((p) => contactFollowUpDue(p.contact));
+    const referrer = has('referred')[0];
+    const talking = has('replied', 'talked')[0];
+    const toReach = has('to-reach').find((p) => p.warmth !== 'cold') || has('to-reach')[0];
+    const connection = people.find((p) => p.connection);
+    if (referrer)
+      next = applied
+        ? { kind: 'thank', person: referrer, text: `${first(referrer)} referred you. Let them know how it goes.` }
+        : { kind: 'apply', person: referrer, text: `${first(referrer)} referred you${role ? ` for ${role}` : ''}. Apply now, and mention them.` };
+    else if (due) next = { kind: 'nudge', person: due, text: `No word from ${first(due)} yet. A friendly nudge is normal.` };
+    else if (talking && role) next = { kind: 'referral', person: talking, text: `You're talking with ${first(talking)}. Ask them to refer you for ${role}.` };
+    else if (toReach) next = { kind: 'message', person: toReach, text: `Message ${first(toReach)}: ${warmthLabel(toReach.warmth, toReach.contact).toLowerCase()}${toReach.role ? `, ${ROLE_KINDS[toReach.role].toLowerCase()}` : ''}.` };
+    else if (connection) next = { kind: 'add', person: connection, text: `${first(connection)} is a 1st-degree connection there. Add them and say hi.` };
+    else if (talking) next = { kind: 'message', person: talking, text: `Keep in touch with ${first(talking)}; you'll want them when a role opens.` };
+    else if (has('reached', 'quiet').length) next = { kind: 'search', text: `Waiting to hear back. Meanwhile, find one more person there.` };
+    else next = { kind: 'search', text: `No one yet. Look for alumni and old coworkers there.` };
+    if (!referrer && role && !applied && !warm.length && stage === 'none') next.text = `No one yet, and ${role} is open. Find someone before you apply: a referral goes a long way.`;
+    return { company: clean(company), people, stage, roles, next, warm: warm.length, known: mine.length };
+  }
+
+  // Companies worth finding a way into: roles you're going for, companies
+  // you watch, and companies where people on your list work.
+  function targetCompanies({ companies = [], contacts = [], applications = [] } = {}) {
+    const out = [];
+    const add = (name, why, extra = {}) => {
+      if (!clean(name)) return;
+      let t = out.find((x) => sameCompany(x.name, name));
+      if (!t) out.push((t = { name: clean(name), why: [], ...extra }));
+      if (!t.why.includes(why)) t.why.push(why);
+      Object.assign(t, extra);
+    };
+    for (const a of applications) if (OPEN.includes(a.status) && a.job) add(a.job.company, 'applying');
+    for (const c of companies) if (c.status !== 'pass') add(c.name, 'watching', { companyId: c.id });
+    for (const c of contacts) add(c.company, 'people');
+    return out;
+  }
+
+  // Companies where you have the most connections, that aren't targets
+  // yet: good places to look.
+  function networkCompanies(connections = [], targets = [], n = 8) {
+    const count = new Map();
+    for (const x of connections) {
+      const k = norm(x.company);
+      if (!k || targets.some((t) => sameCompany(t.name, x.company))) continue;
+      const e = count.get(k) || { name: clean(x.company), count: 0 };
+      e.count++;
+      count.set(k, e);
+    }
+    return [...count.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, n);
   }
 
   // How the outreach is going, for the page head and the home page.
@@ -376,8 +550,7 @@
       id: 'tpl-referral',
       name: 'Ask for a referral',
       channel: 'message',
-      when: 'job',
-      weight: -12, // a bigger ask: better once you've talked, or with someone you know
+      when: 'referral', // a bigger ask: first once you've talked, further down before that
       body: "Hi {first},\n\n[[Since we both {common}, I hope you don't mind me reaching out. ]]I'm applying for the {job} role at {company}[[ ({jobUrl})]] and think it's a strong fit[[ with my background at {myEmployer}]].\n\nWould you be comfortable referring me, or pointing me to the hiring manager? I can send my resume and a two-line blurb so it takes you a couple of minutes.\n\nThanks either way,\n{me}",
     },
     {
@@ -408,6 +581,13 @@
       channel: 'message',
       when: 'know',
       body: "Hi {first}! It's been a while[[ since {common}]]. I'm looking for my next role[[ in {role}]], and {company} is high on my list[[, especially the {job} opening]]. Would you be up for a quick catch-up so I can hear how it's going there?\n\n{me}",
+    },
+    {
+      id: 'tpl-recruiter',
+      name: 'Recruiter: the role you applied for',
+      channel: 'message',
+      when: 'recruiter',
+      body: "Hi {first},\n\nI've applied for the {job} role at {company}[[ ({jobUrl})]] and wanted to say hello directly.[[ Since we both {common}, I thought I'd reach out.]] I think my background[[ at {myEmployer}]] lines up well, and I'd love to be considered.\n\nIs there anything else I can send to help?\n\nThanks,\n{myName}",
     },
     {
       id: 'tpl-follow',
@@ -511,6 +691,10 @@
     switch (tpl.when) {
       case 'job':
         return !!job && !['talked', 'referred'].includes(status);
+      case 'referral':
+        return !!job && status !== 'referred';
+      case 'recruiter':
+        return !!job && RECRUITER.test(contact.title || '') && !['talked', 'referred'].includes(status);
       case 'common':
         return !!clean(contact.connection) && !['reached', 'talked', 'referred'].includes(status);
       case 'know':
@@ -525,7 +709,7 @@
         return true; // your own templates always show
     }
   }
-  const FIRST = { waiting: 60, talked: 60, job: 40, know: 30, common: 20, any: 0 };
+  const FIRST = { waiting: 60, talked: 60, recruiter: 50, job: 40, know: 30, common: 20, any: 0 };
 
   // Several ready-to-send messages for this person, best first: the ones
   // that suit where things stand, with their details filled in.
@@ -546,7 +730,7 @@
           text,
           subject: t.subject ? fillTemplate(t.subject, vars) : '',
           missing,
-          rank: (FIRST[t.when] ?? 10) + (t.weight || 0) + personal * 5 - missing.length * 8 - (tooLong ? 20 : 0) - (channel === 'email' && !/@/.test(contact.email || '') ? 12 : 0) - i * 0.01,
+          rank: (t.when === 'referral' ? (['replied', 'talked'].includes(contact.status) ? 85 : 28) : FIRST[t.when] ?? 10) + (t.weight || 0) + personal * 5 - missing.length * 8 - (tooLong ? 20 : 0) - (channel === 'email' && !/@/.test(contact.email || '') ? 12 : 0) - i * 0.01,
         };
       })
       .sort((a, b) => b.rank - a.rank)
@@ -676,6 +860,19 @@
     profileUrl,
     companyLinks,
     insiderSearches,
+    parseLinkedInConnections,
+    roleKind,
+    ROLE_KINDS,
+    WARMTH,
+    warmth,
+    warmthLabel,
+    peopleAt,
+    STAGES,
+    STAGE_LABEL,
+    wayIn,
+    companyKey: norm,
+    targetCompanies,
+    networkCompanies,
     linkedinProfileUrl,
     nameFromProfileUrl,
     sameOrg,

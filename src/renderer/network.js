@@ -68,6 +68,27 @@ document.addEventListener('click', (e) => {
     openComposeModal(msg.dataset.msg, msg.dataset.job);
     return;
   }
+  const conn = e.target.closest('[data-add-conn]');
+  if (conn) {
+    e.preventDefault();
+    e.stopPropagation();
+    addConnection(conn.dataset.addConn);
+    return;
+  }
+  const edit = e.target.closest('[data-edit-contact]');
+  if (edit) {
+    e.preventDefault();
+    e.stopPropagation();
+    openContactModal(state.contacts.find((c) => c.id === edit.dataset.editContact));
+    return;
+  }
+  const co = e.target.closest('[data-way-co]');
+  if (co) {
+    e.preventDefault();
+    e.stopPropagation();
+    showWayIn(co.dataset.wayCo);
+    return;
+  }
   const add = e.target.closest('[data-add-person]');
   if (add) {
     e.preventDefault();
@@ -96,7 +117,7 @@ const SHARED_FILTERS = [
 ];
 
 // Three tabs, like Find jobs: your people, finding more, and templates.
-const PEOPLE_TABS = ['people', 'find', 'templates'];
+const PEOPLE_TABS = ['people', 'companies', 'find', 'templates'];
 let peopleTab = (() => {
   try {
     return PEOPLE_TABS.includes(localStorage.getItem('sprout.peopleTab')) ? localStorage.getItem('sprout.peopleTab') : 'people';
@@ -148,10 +169,10 @@ views.people = () => {
   const st = O.outreachStats(cs);
   const [mood, line] = peopleMood(st);
   const tab = (k, label, n) => `<button class="${peopleTab === k ? 'on' : ''}" data-people-tab="${k}">${label}${n ? ` <span class="faint">${n}</span>` : ''}</button>`;
-  const body = peopleTab === 'find' ? findPeopleTab() : peopleTab === 'templates' ? templatesCard() : myPeopleTab(st);
+  const body = peopleTab === 'companies' ? wayInTab() : peopleTab === 'find' ? findPeopleTab() : peopleTab === 'templates' ? templatesCard() : myPeopleTab(st);
   return `<div class="page">
     ${pageHead('People', mood, esc(line), `<button class="soft" id="importPeople">${icon('clipboard')} Import from a spreadsheet</button><button class="primary" data-add-person="">+ Add a person</button>`)}
-    <div class="tabs find-tabs">${tab('people', `${icon('user', 17)} My people`, cs.length)}${tab('find', `${icon('search', 17)} Find people`)}${tab('templates', `${icon('letter', 17)} Templates`, state.templates.length)}</div>
+    <div class="tabs find-tabs">${tab('people', `${icon('user', 17)} My people`, cs.length)}${tab('companies', `${icon('home', 17)} Companies`, targets().length)}${tab('find', `${icon('search', 17)} Find people`)}${tab('templates', `${icon('letter', 17)} Templates`, state.templates.length)}</div>
     ${body}
   </div>`;
 };
@@ -242,6 +263,7 @@ function insiderResults() {
     ['alumni', 'Went to your school'],
     ['coworkers', 'Worked where you did'],
     ['role', company ? `Anyone at ${company}` : 'In this role'],
+    ['recruiters', 'Recruiters'],
   ];
   const row = (s) => `<div class="search-row insider">
       <div class="grow"><div class="title">${esc(s.label)}</div></div>
@@ -342,6 +364,7 @@ binders.people = () => {
   $('#importPeople').addEventListener('click', openImportModal);
   if (peopleTab === 'people') bindMyPeople();
   if (peopleTab === 'find') bindFindPeople();
+  if (peopleTab === 'companies') bindCompanies();
   if (peopleTab === 'templates') bindTemplates();
 };
 
@@ -485,10 +508,12 @@ function background(c) {
   const shared = O.sharedBackground(c, state.profile);
   const schools = c.schools || [];
   const jobs = c.employers || [];
-  if (!schools.length && !jobs.length && !c.headline) return '';
+  const net = [c.degree ? `${['', '1st', '2nd', '3rd'][c.degree]}-degree connection` : '', c.degree !== 1 && c.mutual ? `${c.mutual} mutual connection${c.mutual === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+  if (!schools.length && !jobs.length && !c.headline && !net) return '';
   const mark = (list, mine) => list.map((x) => (mine.some((m) => O.sameOrg(m, x)) ? `<b>${esc(x)}</b>` : esc(x))).join(', ');
   return `<div class="note-box" style="margin-top:12px">
     ${c.headline ? `<div>${esc(c.headline)}</div>` : ''}
+    ${net ? `<div><span class="faint">On LinkedIn:</span> ${esc(net)}</div>` : ''}
     ${schools.length ? `<div><span class="faint">Studied at</span> ${mark(schools, shared.schools)}</div>` : ''}
     ${jobs.length ? `<div><span class="faint">Worked at</span> ${mark(jobs, shared.employers)}</div>` : ''}
     ${shared.schools.length || shared.employers.length ? `<div class="faint" style="margin-top:4px">In bold: what you share.</div>` : ''}
@@ -693,19 +718,257 @@ function openComposeModal(contactId, appId) {
 function peopleAtCard(a) {
   const company = a.job.company;
   if (!company) return '';
-  const here = O.contactsAt(state.contacts, company);
-  const links = O.companyLinks({ name: company }, state.profile);
-  const insiders = O.insiderSearches({ company }, state.profile).filter((s) => s.kind !== 'role');
-  return `<div class="card" style="margin-top:16px"><h3 class="with-icon">${icon('chat', 20)} People at ${esc(company)}</h3>
-    ${here.length ? `<p class="faint" style="margin-top:-4px">A quick note to someone inside, before or right after you apply, is one of the best things you can do.</p>
-      <div class="list">${here.map((c) => `<div class="search-row"><div class="avatar">${esc(initials(c.name))}</div><div class="grow"><div class="title">${esc(c.name)}</div><div class="sub">${esc(c.title || '')} · ${esc(O.CONTACT_LABEL[c.status || 'to-reach'])}</div></div>
-        <button class="small ${c.status === 'to-reach' || !c.status ? 'primary' : 'soft'}" data-msg="${c.id}" data-job="${a.id}">${icon('chat', 14)} Message</button></div>`).join('')}</div>`
-      : `<p class="muted" style="margin-top:-4px">You haven't added anyone here yet. Do you know someone at ${esc(company)}, even a little? Someone from your school or an old job counts.</p>`}
-    <div class="inline" style="margin-top:10px">
-      ${insiders.map((s) => `<button class="small soft" data-open-url="${esc(s.linkedin)}" title="LinkedIn: people at ${esc(company)} who mention ${esc(s.common)}">${icon('search', 14)} ${esc(s.kind === 'alumni' ? `${s.common} alumni` : `Ex-${s.common}`)}</button>`).join('')}
-      <button class="small ${insiders.length ? 'ghost' : 'soft'}" data-open-url="${esc(links.people)}">${icon('search', 14)} People in similar roles</button>
-      <button class="small ghost" data-add-person="${esc(company)}">+ Add someone</button>
-    </div></div>`;
+  const w = way(company);
+  const before = ['scored', 'resume-ready'].includes(a.status);
+  const shown = w.people.slice(0, 6);
+  return `<div class="card" style="margin-top:16px"><h3 class="with-icon">${icon('chat', 20)} Your way in at ${esc(company)} ${stageChip(w.stage)}</h3>
+    ${w.people.length ? `<p class="faint" style="margin-top:-4px">${before ? 'A referral, or even a quick chat with someone inside, before you apply is one of the best things you can do.' : 'A quick note to someone inside after you apply can get your application read.'} Warmest first.</p>
+      <div class="list">${shown.map((p) => wayPersonRow(p, a.id)).join('')}</div>
+      ${w.people.length > shown.length ? `<p class="faint"><a href="#" data-way-co="${esc(company)}">All ${w.people.length} people at ${esc(company)} →</a></p>` : ''}`
+      : `<p class="muted" style="margin-top:-4px">No one yet at ${esc(company)}. Someone from your school or an old job counts${(state.connections || []).length ? '' : ', and so do your LinkedIn connections: import them on People → Companies'}.</p>`}
+    <p class="note-box way-next">${icon('sparkle', 14)} ${esc(w.next.text)}</p>
+    ${insiderButtons(company)}
+  </div>`;
+}
+
+// ---------------- a way in at each company ----------------
+//
+// People → Companies: every company you're aiming at, where you stand there
+// (no one yet → found someone → reached out → talking → referred), who you
+// could ask (your people and your LinkedIn connections, warmest first) and
+// the one thing to do next.
+
+let openCo = ''; // the company whose people are shown
+let coFilter = 'all';
+const CO_FILTERS = [
+  ['all', 'All', () => true],
+  ['none', 'No one yet', (w) => w.stage === 'none'],
+  ['progress', 'In progress', (w) => ['found', 'reached', 'talking'].includes(w.stage)],
+  ['referred', 'Referred', (w) => w.stage === 'referred'],
+];
+
+const way = (company) => O.wayIn(company, { contacts: state.contacts, connections: state.connections || [], profile: state.profile, applications: state.applications });
+const targets = () => O.targetCompanies({ companies: state.companies, contacts: state.contacts, applications: state.applications });
+
+const STAGE_CLS = { none: 'due', found: '', reached: 'lav', talking: 'good', referred: 'good' };
+const stageChip = (stage) => `<span class="chip tiny stage ${STAGE_CLS[stage]}" title="Where you stand at this company">${stage === 'referred' ? '✓ ' : ''}${esc(O.STAGE_LABEL[stage])}</span>`;
+const WARM_CLS = { know: 'good', first: 'good', coworker: 'lav', alumni: 'lav', mutual: 'due', common: 'lav', cold: '' };
+const warmChip = (p) => `<span class="chip tiny ${WARM_CLS[p.warmth]}">${esc(O.warmthLabel(p.warmth, p.contact || {}))}</span>`;
+const roleChip = (p) => (p.role ? `<span class="chip tiny">${esc(O.ROLE_KINDS[p.role])}</span>` : '');
+
+// How many people you could ask at a company (for the job board and company cards).
+let knownIdx = null;
+let knownFor = null;
+function knownAt(company) {
+  if (knownFor !== state) {
+    knownFor = state;
+    knownIdx = new Map();
+    const bump = (name) => {
+      const k = O.companyKey(name);
+      if (k) knownIdx.set(k, (knownIdx.get(k) || 0) + 1);
+    };
+    state.contacts.forEach((c) => bump(c.company));
+    (state.connections || []).filter((x) => !O.findContact(state.contacts, x)).forEach((x) => bump(x.company));
+  }
+  return knownIdx.get(O.companyKey(company)) || 0;
+}
+const knownChip = (company) => {
+  const n = knownAt(company);
+  return n ? `<a href="#" class="chip lav tiny" data-way-co="${esc(company)}" title="People you could ask at ${esc(company)}">${icon('user', 12)} ${n} you could ask</a>` : '';
+};
+
+function showWayIn(company) {
+  openCo = company;
+  coFilter = 'all';
+  peopleTab = 'companies';
+  try {
+    localStorage.setItem('sprout.peopleTab', 'companies');
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  if (location.hash === '#people') route();
+  else location.hash = '#people';
+  setTimeout(() => {
+    const el = document.querySelector(`[data-way="${CSS.escape(O.companyKey(company))}"]`);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, 60);
+}
+
+async function addConnection(id) {
+  try {
+    const c = await S.addConnection(id);
+    await refreshState();
+    route();
+    toast(`${c.name.split(' ')[0]} is in your people. Here's a draft to say hi.`, 'good');
+    openComposeModal(c.id);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function insiderButtons(company) {
+  const found = O.insiderSearches({ company }, state.profile);
+  const label = (s) => ({ alumni: `${s.common} alumni`, coworkers: `Ex-${s.common}`, role: 'Anyone there', recruiters: 'Recruiters' })[s.kind];
+  return `<div class="inline way-search"><span class="faint">${icon('search', 14)} Find on LinkedIn:</span>${found
+    .map((s) => `<button class="small ${s.kind === 'alumni' || s.kind === 'coworkers' ? 'soft' : 'ghost'}" data-open-url="${esc(s.linkedin)}" title="${esc(s.label)}">${esc(label(s))}</button>`)
+    .join('')}<button class="small ghost" data-add-person="${esc(company)}">+ Add someone</button></div>`;
+}
+
+// One person at a company: on your list (with where things stand), or a
+// LinkedIn connection you can add.
+function wayPersonRow(p, appId) {
+  const c = p.contact;
+  const status = c ? `<span class="chip tiny ${['replied', 'talked', 'referred'].includes(c.status) ? 'good' : ''}">${esc(O.CONTACT_LABEL[c.status || 'to-reach'])}</span>` : '<span class="chip tiny">Not on your list</span>';
+  const act = c
+    ? `<button class="small ${c.status === 'to-reach' || !c.status || O.contactFollowUpDue(c) ? 'primary' : 'soft'}" data-msg="${c.id}"${appId ? ` data-job="${appId}"` : ''}>${icon('chat', 14)} ${O.contactFollowUpDue(c) ? 'Nudge' : 'Message'}</button>`
+    : `<button class="small soft" data-add-conn="${p.connection.id}" title="Add to your people and write to them">+ Add & message</button>`;
+  const link = p.linkedinUrl || c ? `<button class="small ghost icon-btn" data-open-url="${esc(c ? O.profileUrl(c) : O.profileUrl({ linkedinUrl: p.linkedinUrl, name: p.name }))}" title="LinkedIn profile">${icon('link', 14)}</button>` : '';
+  return `<div class="search-row way-person"><div class="avatar warm-${p.warmth}">${esc(initials(p.name))}</div>
+    <div class="grow"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.title || 'Title not known')}</div>
+      <div class="way-chips">${warmChip(p)}${roleChip(p)}${status}</div></div>
+    ${act}${link}${c ? `<button class="small ghost icon-btn" data-edit-contact="${c.id}" title="Edit">${icon('pencil', 14)}</button>` : ''}</div>`;
+}
+
+function nextButton(w) {
+  const n = w.next;
+  const p = n.person;
+  if (n.kind === 'add') return `<button class="small primary" data-add-conn="${p.connection.id}">+ Add ${esc(p.name.split(' ')[0])}</button>`;
+  if (p && p.contact) {
+    const label = { nudge: 'Nudge', referral: 'Ask for a referral', thank: 'Say thanks', apply: 'Message' }[n.kind] || 'Message';
+    return `<button class="small primary" data-msg="${p.contact.id}"${w.roles[0] ? ` data-job="${w.roles[0].id}"` : ''}>${icon('chat', 14)} ${label}</button>`;
+  }
+  return `<button class="small soft" data-way-toggle="${esc(w.company)}">${icon('search', 14)} Find people</button>`;
+}
+
+function wayRow(t, w) {
+  const key = O.companyKey(t.name);
+  const open = O.companyKey(openCo) === key;
+  const co = state.companies.find((c) => c.id === t.companyId) || { name: t.name };
+  const faces = w.people.slice(0, 4);
+  const why = [
+    w.roles.length ? `${w.roles.length} role${w.roles.length === 1 ? '' : 's'} you're going for` : '',
+    t.why.includes('watching') ? 'watching' : '',
+    w.people.length ? `${w.people.length} you could ask${w.warm < w.people.length ? `, ${w.warm} warm` : ''}` : '',
+  ].filter(Boolean);
+  return `<div class="way ${open ? 'open' : ''}" data-way="${esc(key)}">
+    <div class="way-head" data-way-toggle="${esc(t.name)}" role="button" tabindex="0" aria-expanded="${open}">
+      ${coLogo(co, 44)}
+      <div class="grow"><div class="title">${esc(t.name)} ${stageChip(w.stage)}</div>
+        <div class="sub">${esc(why.join(' · ') || 'No one yet')}</div>
+        <div class="way-next">${icon('sparkle', 13)} ${esc(w.next.text)}</div></div>
+      <div class="faces">${faces.map((p) => `<span class="avatar warm-${p.warmth}" title="${esc(`${p.name} · ${O.warmthLabel(p.warmth, p.contact || {})}`)}">${esc(initials(p.name))}</span>`).join('')}${w.people.length > faces.length ? `<span class="more">+${w.people.length - faces.length}</span>` : ''}</div>
+      ${nextButton(w)}
+      <span class="chev">${icon('chevron', 16) || '›'}</span>
+    </div>
+    ${open ? `<div class="way-body">
+      ${w.roles.length ? `<div class="way-roles">${w.roles.map((a) => `<a class="chip tiny good" href="#application/${a.id}">${icon('target', 12)} ${esc(a.job.title)} · ${esc(STATUS_LABEL_SHORT[a.status] || a.status)}</a>`).join('')}</div>` : ''}
+      ${w.people.length ? `<div class="list">${w.people.slice(0, coShowAll ? 999 : 8).map((p) => wayPersonRow(p, w.roles[0] && w.roles[0].id)).join('')}</div>
+        ${w.people.length > 8 && !coShowAll ? `<button class="ghost small" id="coShowAll" style="margin-top:6px">Show all ${w.people.length}</button>` : ''}` : `<p class="muted" style="margin:0 0 8px">Nobody here yet. Alumni and old coworkers are the likeliest to say yes${(state.connections || []).length ? '' : '; importing your LinkedIn connections shows who you already know'}.</p>`}
+      ${insiderButtons(t.name)}
+    </div>` : ''}
+  </div>`;
+}
+let coShowAll = false;
+const STATUS_LABEL_SHORT = { scored: 'checked', 'resume-ready': 'resume ready', applied: 'applied', interviewing: 'interviewing' };
+
+// Your LinkedIn network, from its Connections.csv export.
+function networkCard() {
+  const n = (state.connections || []).length;
+  const input = '<input type="file" id="connFile" accept=".csv,text/csv" hidden>';
+  if (n)
+    return `<div class="net-line">${icon('user', 15)} <span><b>${n.toLocaleString()}</b> LinkedIn connections${state.settings.connectionsImportedAt ? `, imported ${fmtDate(state.settings.connectionsImportedAt)}` : ''}. They show up at their companies below.</span>
+      <button class="small ghost" id="connPick">Re-import</button><button class="small ghost danger" id="connClear">Remove</button>${input}</div>`;
+  return `<div class="card net-card">
+    <div class="grow"><h3 class="with-icon" style="margin-bottom:4px">${icon('user', 20)} See who you already know at every company</h3>
+      <p class="muted" style="margin:0">Import your LinkedIn connections and I'll match them to the companies you're aiming at, and point out companies where you already know people. It stays on your computer.</p>
+      <details class="net-how"><summary>How to get the file (2 minutes, plus LinkedIn's wait)</summary><ol>
+        <li>On LinkedIn, open <b>Me → Settings & Privacy → Data privacy → Get a copy of your data</b>.</li>
+        <li>Choose <b>Want something in particular?</b>, tick <b>Connections</b>, and request the archive.</li>
+        <li>LinkedIn emails you a link, usually within 10 minutes. Download it and unzip it.</li>
+        <li>Choose <b>Connections.csv</b> here.</li></ol>
+        <button class="small ghost" data-open-url="https://www.linkedin.com/mypreferences/d/download-my-data">Open LinkedIn's data page</button></details></div>
+    <button class="primary" id="connPick">${icon('clipboard', 15)} Choose Connections.csv</button>${input}
+  </div>`;
+}
+
+function wayInTab() {
+  const ts = targets();
+  const ways = ts.map((t) => ({ t, w: way(t.name) }));
+  const f = (CO_FILTERS.find(([k]) => k === coFilter) || CO_FILTERS[0])[2];
+  const prio = ({ t, w }) => (w.roles.length ? 100 : 0) + (t.why.includes('watching') ? 20 : 0) + (w.next.kind !== 'search' ? 15 : 0) + w.warm * 2 - (w.stage === 'referred' ? 60 : 0);
+  const shown = ways.filter(({ w }) => f(w)).sort((a, b) => prio(b) - prio(a) || a.t.name.localeCompare(b.t.name));
+  const withSomeone = ways.filter(({ w }) => w.people.length).length;
+  const talking = ways.filter(({ w }) => w.stage === 'talking').length;
+  const referred = ways.filter(({ w }) => w.stage === 'referred').length;
+  const network = O.networkCompanies(state.connections || [], ts, 8);
+  if (!ts.length)
+    return `${networkCard()}<div class="card empty">${mascotSvg('curious', 72)}<h3>Which companies are you aiming for?</h3>
+      <p>Add companies you'd love to work at on Find jobs, or check a job there. Each one shows up here with who you could ask and what to do next.</p>
+      <a class="btn primary" href="#find">Add companies</a></div>${networkSuggestions(network)}`;
+  return `${networkCard()}
+    <div class="grid three" style="margin-bottom:16px">
+      <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('user', 26)}</div><div><b>${withSomeone} of ${ts.length}</b><span>companies where you have someone to ask</span></div></div>
+      <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('chat', 26)}</div><div><b>${talking}</b><span>companies where you're talking to someone</span></div></div>
+      <div class="card stat"><div class="stat-icon" style="background:var(--butter-soft);color:#a07a1c">${icon('star', 26)}</div><div><b>${referred}</b><span>referral${referred === 1 ? '' : 's'}</span></div></div>
+    </div>
+    <div class="tabs compact">${CO_FILTERS.map(([k, label, fn]) => `<button class="${coFilter === k ? 'on' : ''}" data-cofilter="${k}">${label} <span class="faint">${ways.filter(({ w }) => fn(w)).length}</span></button>`).join('')}</div>
+    ${shown.length ? `<div class="ways">${shown.map(({ t, w }) => wayRow(t, w)).join('')}</div>` : '<p class="muted">No companies here.</p>'}
+    ${networkSuggestions(network)}`;
+}
+
+// Companies where you already know people, that you aren't aiming at yet.
+function networkSuggestions(list) {
+  if (!list.length) return '';
+  return `<div class="card" style="margin-top:16px"><h3 class="with-icon">${icon('sparkle', 20)} Where your network already is</h3>
+    <p class="faint" style="margin-top:-4px">Companies with the most of your LinkedIn connections that aren't on your list. A company where you know people is easier to get into.</p>
+    ${list.map((c) => `<div class="search-row">${coLogo({ name: c.name }, 32)}<div class="grow"><div class="title">${esc(c.name)}</div><div class="sub">${c.count} connection${c.count === 1 ? '' : 's'}</div></div>
+      <button class="small soft" data-watch-co="${esc(c.name)}">+ Watch</button></div>`).join('')}</div>`;
+}
+
+function bindCompanies() {
+  $$('[data-cofilter]').forEach((b) => b.addEventListener('click', () => ((coFilter = b.dataset.cofilter), route())));
+  $$('[data-way-toggle]').forEach((el) => {
+    const toggle = (e) => {
+      if (e.target.closest('button:not([data-way-toggle]), a, select')) return;
+      const name = el.dataset.wayToggle;
+      openCo = O.sameCompany(openCo, name) ? '' : name;
+      coShowAll = false;
+      route();
+    };
+    el.addEventListener('click', toggle);
+    if (el.tagName !== 'BUTTON') el.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle(e)));
+  });
+  const all = $('#coShowAll');
+  if (all) all.addEventListener('click', () => ((coShowAll = true), route()));
+  $$('[data-watch-co]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      await S.saveItem('companies', { name: b.dataset.watchCo, status: 'watching', why: 'You know people there' }).catch((err) => toast(err.message, 'error'));
+      toast(`Watching ${b.dataset.watchCo}. I'll look at their careers site too.`, 'good');
+      netRefresh();
+    })
+  );
+  const file = $('#connFile');
+  const pick = $('#connPick');
+  if (pick) pick.addEventListener('click', () => file.click());
+  if (file)
+    file.addEventListener('change', async () => {
+      const f = file.files[0];
+      if (!f) return;
+      try {
+        const res = await S.importConnections(await f.text());
+        toast(`Imported ${res.count.toLocaleString()} connections at ${res.companies.toLocaleString()} companies.`, 'good', 5000);
+        netRefresh();
+      } catch (err) {
+        toast(err.message, 'error', 6000);
+      }
+    });
+  const clear = $('#connClear');
+  if (clear)
+    clear.addEventListener('click', async () => {
+      if (!confirm('Remove your imported LinkedIn connections? People you added from them stay.')) return;
+      await S.clearConnections();
+      netRefresh();
+    });
 }
 
 function outreachHomeCard() {
@@ -853,7 +1116,7 @@ function jobRow({ co, job }) {
   const fit = f
     ? `<div class="fit-score pill ${blocked ? 'lo blocked' : pillClass(f.score)}" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${blocked ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read."><b>${f.score}</b><small>${blocked ? 'dealbreaker' : 'fit'}</small></div>`
     : `<div class="fit-score pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}"><b>–</b><small>fit</small></div>`;
-  const chips = [isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : ''].join('');
+  const chips = [isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '', knownChip(co.name)].join('');
   return `<div class="job-row ${hidden ? 'dim' : ''}">
     ${coLogo(co, 56)}
     <div class="grow">
@@ -1019,7 +1282,7 @@ function companiesTab() {
 
 function companyRow(co) {
   const L = O.companyLinks(co, state.profile);
-  const people = O.contactsAt(state.contacts, co.name).length;
+  const people = knownAt(co.name);
   const roles = openRolesAt(co.name).length;
   const n = (co.jobs || []).filter((j) => !isHidden(co, j)).length;
   const passed = co.status === 'pass';
@@ -1031,7 +1294,7 @@ function companyRow(co) {
     <div class="company-top">${coLogo(co, 64)}<div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
       ${careersStatus(co)}
       ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
-      ${people || roles ? `<div class="co-chips">${people ? `<a href="#people" class="chip lav tiny">${people} ${people === 1 ? 'person' : 'people'} you know</a>` : ''}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div>` : ''}</div>
+      ${!passed ? `<div class="co-chips">${people ? `<a href="#" class="chip lav tiny" data-way-co="${esc(co.name)}">${icon('user', 12)} ${people} you could ask</a>` : `<a href="#" class="chip tiny" data-way-co="${esc(co.name)}">Find a way in</a>`}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div>` : ''}</div>
       ${rolesBadge}
       <div class="co-actions"><select class="small-select coStatus" data-id="${co.id}" aria-label="Status">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <button class="small ghost icon-btn danger coDel" data-id="${co.id}" title="Remove ${esc(co.name)}" aria-label="Remove ${esc(co.name)}">✕</button></div></div>

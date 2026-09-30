@@ -37,7 +37,9 @@ function cleanPerson(b) {
   const url = str(b.url, 500);
   const name = str(b.name, 120);
   if (!/^https:\/\/([a-z]{2,3}\.|www\.)?linkedin\.com\/in\/[^/?#\s]+/i.test(url) || !name) return null;
-  return { url, name, headline: str(b.headline, 300), title: str(b.title, 200), company: str(b.company, 200), location: str(b.location, 200), schools: list(b.schools), employers: list(b.employers) };
+  const degree = [1, 2, 3].includes(Number(b.degree)) ? Number(b.degree) : null;
+  const mutual = Math.max(0, Math.min(9999, Math.floor(Number(b.mutual) || 0)));
+  return { url, name, headline: str(b.headline, 300), title: str(b.title, 200), company: str(b.company, 200), location: str(b.location, 200), schools: list(b.schools), employers: list(b.employers), degree, mutual };
 }
 
 function readJson(req) {
