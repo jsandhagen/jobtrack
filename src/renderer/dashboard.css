@@ -768,3 +768,71 @@ p.way-next { display: flex; }
 .board-reading { padding: 26px 20px 18px; }
 .card.spotlight { margin-bottom: 16px; border-color: color-mix(in srgb, var(--butter) 40%, var(--line)); background: linear-gradient(135deg, var(--butter-soft), color-mix(in srgb, var(--butter-soft) 35%, var(--surface))); }
 @media (prefers-color-scheme: dark) { .card.spotlight { background: linear-gradient(135deg, color-mix(in srgb, var(--butter-soft) 70%, var(--surface)), var(--surface)); } }
+
+/* ---------- home ---------- */
+/* The hero is a little scene whose sky follows the clock. */
+.hero { --sky-1: #e3f2e9; --sky-2: #eef0fb; --sun: #f6d78b; --hill-1: #cfe8d8; --hill-2: #b4dcc2; --cloud: rgba(255, 255, 255, 0.85); background: linear-gradient(170deg, var(--sky-1), var(--sky-2)); min-height: 150px; padding-bottom: 34px; }
+.hero[data-time="dawn"] { --sky-1: #fde3d3; --sky-2: #fdf1df; --sun: #f7b98f; --hill-1: #d6ead9; --hill-2: #bfe0c8; }
+.hero[data-time="dusk"] { --sky-1: #f8d4c4; --sky-2: #e3daf6; --sun: #f39f7d; --hill-1: #c8dccb; --hill-2: #a9cdb4; }
+.hero[data-time="night"] { --sky-1: #2e3656; --sky-2: #463f67; --hill-1: #2f4a40; --hill-2: #3b5c4c; --cloud: transparent; color: #f3f1fb; border-color: transparent; }
+.hero[data-time="night"] p { color: #cfcbe6; }
+@media (prefers-color-scheme: dark) {
+  .hero { --sky-1: #24332c; --sky-2: #2a2f3d; --sun: #d8b86a; --hill-1: #2b3f35; --hill-2: #34503f; --cloud: rgba(255, 255, 255, 0.08); }
+  .hero[data-time="dawn"] { --sky-1: #3a2e2c; --sky-2: #2f2f38; --sun: #d9957a; }
+  .hero[data-time="dusk"] { --sky-1: #3c2c33; --sky-2: #2d2a40; --sun: #d98a72; }
+  .hero[data-time="night"] { --sky-1: #1c2233; --sky-2: #2a2742; --hill-1: #22342d; --hill-2: #2b4237; }
+}
+.hero::after { display: none; }
+.hero-scene { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0 !important; pointer-events: none; }
+.hero-scene .sun { fill: var(--sun); filter: drop-shadow(0 0 14px var(--sun)); opacity: 0.9; }
+.hero-scene .moon circle:first-child { fill: #f4ecc8; }
+.hero-scene .moon-cut { fill: var(--sky-2); }
+.hero-scene .stars circle { fill: #fff; animation: twinkle 3s ease-in-out infinite; }
+.hero-scene .cloud { fill: var(--cloud); }
+.hero-scene .c1 { animation: drift 38s linear infinite; }
+.hero-scene .c2 { animation: drift 52s linear infinite reverse; }
+@keyframes drift { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(46px); } }
+.hero-scene .hill.back { fill: var(--hill-1); }
+.hero-scene .hill.front { fill: var(--hill-2); }
+.hero-scene .grass path { stroke: var(--stem); stroke-width: 1.6; fill: none; stroke-linecap: round; opacity: 0.55; }
+.hero > .sprout { align-self: flex-end; margin: 0 0 -22px 4px; filter: drop-shadow(0 6px 4px rgba(40, 70, 50, 0.18)); }
+@media (prefers-reduced-motion: reduce) { .hero-scene .cloud, .hero-scene .stars circle { animation: none; } }
+
+.setup { margin-bottom: 16px; }
+.setup { padding: 16px 22px; }
+.setup-top { display: flex; align-items: center; gap: 14px; }
+.setup-bar { flex: 1; height: 6px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.setup-next { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.setup-bar i { display: block; height: 100%; border-radius: 6px; background: var(--band-hi); }
+
+/* Growth stages: checked → saved → applied → interviewing → offer */
+.growth { margin-bottom: 16px; --stage-soil: #d9c3a5; }
+@media (prefers-color-scheme: dark) { .growth, .week { --stage-soil: #5a4a3a; } }
+.growth-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.growth-head h3 { margin: 0; }
+.stages { display: flex; align-items: flex-end; }
+.stage { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 0; padding: 8px 4px 10px; border: 0; background: transparent; box-shadow: none; border-radius: 14px; white-space: normal; }
+.stage:hover, .stage:active { background: var(--surface-2); box-shadow: none; transform: none; }
+.stage:hover svg { transform: translateY(-3px) rotate(-3deg); }
+.stage svg { transition: transform 0.3s cubic-bezier(0.3, 1.6, 0.5, 1); }
+.stage svg { width: 52px; height: 57px; }
+.stage b { font-size: 26px; font-weight: 900; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.stage span { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+.stage.none svg { filter: grayscale(1); opacity: 0.4; }
+.stage.none b { color: var(--ink-faint); }
+.stage-vine { flex: 0 1 40px; align-self: center; margin-bottom: 26px; height: 8px; min-width: 14px; -webkit-mask: var(--vine) no-repeat center / 100% 100%; mask: var(--vine) no-repeat center / 100% 100%; background: var(--leaf); }
+
+/* This week: one plant per day */
+.home-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: start; }
+@media (max-width: 1000px) { .home-split { grid-template-columns: 1fr; } }
+.week { --stage-soil: #d9c3a5; }
+.week-bed { display: grid; grid-template-columns: repeat(7, 1fr); align-items: end; margin: 10px 0 10px; padding: 12px 4px 0; background: linear-gradient(transparent calc(100% - 26px), color-mix(in srgb, var(--stage-soil) 35%, transparent) calc(100% - 26px)); border-radius: 12px; }
+.week-bed .wcount { font: 800 9px var(--font); fill: #6b5aa8; }
+.wday { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-bottom: 5px; }
+.wday span { font-size: 11px; font-weight: 800; color: var(--ink-faint); }
+.wday.today span { color: var(--sage-deep); }
+.wday.today svg { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--sage) 45%, transparent)); }
+.week-key { display: flex; gap: 14px; font-size: 11.5px; }
+.week-key span { display: inline-flex; align-items: center; gap: 4px; }
+.week-key .bud-dot { width: 8px; height: 10px; border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; background: var(--lavender); display: inline-block; }
+.week-key .ic { color: var(--sage-deep); }
