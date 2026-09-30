@@ -340,9 +340,9 @@ async function scanFromApp() {
 }
 
 // Show a posting in the dashboard (used when Sprout itself is in front).
-function openInDashboard(id) {
+function openInDashboard(id, tab) {
   const w = createDashboard();
-  const go = () => w.webContents.send('navigate', { view: 'application', id });
+  const go = () => w.webContents.send('navigate', { view: 'application', id, tab });
   if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go);
   else go();
 }
@@ -388,7 +388,8 @@ function wantsAutoAnalysis(local) {
   return false;
 }
 
-async function handlePosting(posting, { fromDashboard = false, waitForAnalysis = true, quietDuplicate = false } = {}) {
+// silent: someone else shows the result (the browser extension's card), so no popup.
+async function handlePosting(posting, { fromDashboard = false, waitForAnalysis = true, quietDuplicate = false, silent = false } = {}) {
   const docs = store.allDocuments();
   const job = { title: posting.title || guessTitle(posting.text), company: posting.company || '', location: posting.location || '', text: posting.text, url: posting.url || '' };
   const fp = fingerprint(posting.text);
@@ -401,7 +402,7 @@ async function handlePosting(posting, { fromDashboard = false, waitForAnalysis =
     broadcast('app-updated', updated);
     // Browsing past a job again: only speak up if it matters (you applied, etc.).
     const worthMentioning = !['scored', 'skipped'].includes(updated.status);
-    if (!fromDashboard && (!quietDuplicate || worthMentioning)) showOverlay({ mode: 'seen', app: withAts(updated) });
+    if (!fromDashboard && !silent && (!quietDuplicate || worthMentioning)) showOverlay({ mode: 'seen', app: withAts(updated) });
     return updated;
   }
 
@@ -411,7 +412,7 @@ async function handlePosting(posting, { fromDashboard = false, waitForAnalysis =
 
   const hasKey = !!getApiKey();
   const auto = wantsAutoAnalysis(quick);
-  const showPopup = !fromDashboard && quick.score >= s.popupThreshold;
+  const showPopup = !fromDashboard && !silent && quick.score >= s.popupThreshold;
   if (showPopup) showOverlay({ mode: 'score', app: withAts(rec), analyzing: auto, noDocs: docs.length === 0, noKey: !hasKey });
 
   if (auto) {
@@ -707,6 +708,52 @@ function markBulletsUsed(roles) {
 
 // ---------------- browser extension bridge ----------------
 
+// A posting as the extension read it, in the shape handlePosting takes.
+function jobFromBrowser(p) {
+  const text = p.salary && !p.text.includes(p.salary) ? `${p.text}\n\nPay: ${p.salary}` : p.text;
+  return { text, title: p.title, company: p.company, location: p.location, url: p.url };
+}
+
+const pickQuick = (q) => ({
+  score: q.score,
+  label: q.label,
+  confidence: q.confidence,
+  matchedSkills: (q.matchedSkills || []).slice(0, 8),
+  dealbreakers: q.dealbreakers || [],
+});
+const pickAts = (a) => (a ? { score: a.score, grade: a.grade, skillsMatch: a.skillsMatch || '' } : null);
+const cardEnv = () => ({ hasDocs: evidenceDocs().length > 0, hasKey: !!getApiKey() });
+
+// A saved job, as the extension's card shows it (the same things the app's popup shows).
+function browserCard(rec, { seen = false } = {}) {
+  const { ats } = withAts(rec);
+  const a = rec.analysis;
+  return {
+    saved: true,
+    seen,
+    app: {
+      id: rec.id,
+      status: rec.status,
+      createdAt: rec.createdAt,
+      appliedAt: rec.appliedAt || null,
+      job: { title: rec.job.title, company: rec.job.company, location: rec.job.location, url: rec.job.url },
+      quick: pickQuick(rec.quick),
+      analysis: a ? { score: a.score, label: a.label, strengths: a.strengths || [], headline: a.headline || '', grade: a.grade || '' } : null,
+      analysisStatus: rec.analysisStatus || null,
+      analysisError: rec.analysisError || null,
+      ats: { before: pickAts(ats.before), after: pickAts(ats.after) },
+      resumeStatus: rec.resumeStatus || null,
+      resumeError: rec.resumeError || null,
+      resumeSource: rec.resumeSource || null,
+      hasResume: !!rec.resumeHtml,
+      letterStatus: rec.letterStatus || null,
+      letterError: rec.letterError || null,
+      hasLetter: !!rec.letterHtml,
+    },
+    ...cardEnv(),
+  };
+}
+
 function extensionDir() {
   return app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(__dirname, '..', '..', 'browser-extension');
 }
@@ -727,9 +774,20 @@ function askToPair({ origin, name }) {
   });
 }
 
+// The version of the extension in the app's folder. An older installed copy
+// sees it and reloads itself from that folder (see background.js).
+function bundledExtensionVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(extensionDir(), 'manifest.json'), 'utf8')).version || '';
+  } catch {
+    return '';
+  }
+}
+
 async function startBridge() {
   bridge = createBridge({
     version: app.getVersion(),
+    extensionVersion: bundledExtensionVersion(),
     getPairings: () => store.getSettings().bridgePairings || [],
     savePairing: (p) => {
       const others = (store.getSettings().bridgePairings || []).filter((x) => x.origin !== p.origin);
@@ -746,13 +804,9 @@ async function startBridge() {
       }
     },
     onPosting: async (p) => {
-      const job = { title: p.title, company: p.company, text: p.text };
-      const before = store.findDuplicate({ fingerprint: fingerprint(p.text), company: job.company, title: job.title });
-      const text = p.salary && !p.text.includes(p.salary) ? `${p.text}\n\nPay: ${p.salary}` : p.text;
-      const rec = await handlePosting(
-        { text, title: p.title, company: p.company, location: p.location, url: p.url, via: 'browser' },
-        { waitForAnalysis: false, quietDuplicate: p.auto }
-      );
+      const job = jobFromBrowser(p);
+      const before = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
+      const rec = await handlePosting({ ...job, via: 'browser' }, { waitForAnalysis: false, quietDuplicate: p.auto, silent: p.silent });
       const score = rec.analysis ? rec.analysis.score : rec.quick.score;
       return {
         id: rec.id,
@@ -762,7 +816,49 @@ async function startBridge() {
         status: rec.status,
         appliedAt: rec.appliedAt || null,
         seen: !!before,
+        ...browserCard(rec, { seen: !!before }),
       };
+    },
+    // Score a job for the browser's card without saving it; the card asks first.
+    onPreview: async (p) => {
+      const job = jobFromBrowser(p);
+      const dup = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
+      if (dup) return browserCard(dup, { seen: true });
+      const quick = scoreLocally(job);
+      return {
+        saved: false,
+        preview: {
+          job: { title: job.title || guessTitle(job.text), company: job.company, location: job.location, url: job.url },
+          quick: pickQuick(quick),
+          ats: { before: pickAts(libraryAtsScore(job, evidenceDocs())) },
+        },
+        ...cardEnv(),
+      };
+    },
+    onGet: async (id) => {
+      const rec = store.getApplication(id);
+      if (!rec) throw Object.assign(new Error('That job is no longer in Sprout.'), { status: 404 });
+      return browserCard(rec);
+    },
+    onAction: async ({ id, action }) => {
+      const rec = store.getApplication(id);
+      if (!rec) throw Object.assign(new Error('That job is no longer in Sprout.'), { status: 404 });
+      // The slow ones run in the background; the card polls /app and watches the status.
+      const background = (p) => p.catch((err) => console.warn(`browser ${action} failed:`, err.message));
+      if (action === 'analyze') {
+        if (!getApiKey()) throw new Error('Add a Claude API key in Sprout\'s Settings first.');
+        background(analyzeApp(id));
+      } else if (action === 'resume') {
+        if (!getApiKey()) throw new Error('Add a Claude API key in Sprout\'s Settings first.');
+        background(makeResume(id));
+      } else if (action === 'letter') {
+        if (!getApiKey()) throw new Error('Add a Claude API key in Sprout\'s Settings first.');
+        background(makeCoverLetter(id));
+      } else if (action === 'resume-ats') makeAtsResume(id);
+      else if (action === 'open' || action === 'open-letter') openInDashboard(id, action === 'open-letter' ? 'letter' : undefined);
+      else if (action === 'skip' && rec.status === 'scored') store.setStatus(id, 'skipped');
+      broadcast('state-changed');
+      return browserCard(store.getApplication(id));
     },
     onOpen: openInDashboard,
   });

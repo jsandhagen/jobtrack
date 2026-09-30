@@ -104,3 +104,53 @@ test('falls through to the next port when one is taken', async () => {
   await a.close();
   await b.close();
 });
+
+test('the extension card: preview without saving, then act on a saved job', async () => {
+  const pair = { origin: EXT, token: 't0k3n' };
+  const previews = [];
+  const acted = [];
+  const { b, url, postings } = await start({
+    getPairings: () => [pair],
+    onPreview: async (p) => (previews.push(p), { saved: false, preview: { job: { title: p.title } } }),
+    onGet: async (id) => ({ saved: true, app: { id } }),
+    onAction: async (a) => (acted.push(a), { saved: true, app: { id: a.id } }),
+  });
+  const post = (p, body, token = 't0k3n') => fetch(url(p), { method: 'POST', headers: { Origin: EXT, 'X-Sprout-Token': token }, body: JSON.stringify(body) });
+
+  let r = await post('/preview', { ...posting, silent: true });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { saved: false, preview: { job: { title: 'Engineer' } } });
+  assert.equal(previews.length, 1);
+  assert.equal(postings.length, 0, 'a preview saves nothing');
+  assert.equal((await post('/preview', { text: 'short' })).status, 422);
+
+  r = await post('/posting', { ...posting, silent: true });
+  assert.equal(r.status, 200);
+  assert.equal(postings[0].silent, true);
+
+  assert.deepEqual(await (await post('/app', { id: 'app1' })).json(), { saved: true, app: { id: 'app1' } });
+  r = await post('/action', { id: 'app1', action: 'resume-ats' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(acted, [{ id: 'app1', action: 'resume-ats' }]);
+  assert.equal((await post('/action', { id: 'app1', action: 'delete-everything' })).status, 400, 'only known actions');
+  assert.equal(acted.length, 1);
+
+  for (const p of ['/preview', '/app', '/action']) assert.equal((await post(p, { ...posting, id: 'app1', action: 'skip' }, 'wrong')).status, 401, `${p} needs the token`);
+  await b.close();
+});
+
+test('an app without the card endpoints says so', async () => {
+  const pair = { origin: EXT, token: 't0k3n' };
+  const { b, url } = await start({ getPairings: () => [pair] });
+  const h = { Origin: EXT, 'X-Sprout-Token': 't0k3n' };
+  assert.equal((await fetch(url('/preview'), { method: 'POST', headers: h, body: JSON.stringify(posting) })).status, 404);
+  assert.equal((await fetch(url('/action'), { method: 'POST', headers: h, body: JSON.stringify({ id: 'x', action: 'skip' }) })).status, 404);
+  await b.close();
+});
+
+test('ping tells the extension which version comes with the app', async () => {
+  const { b, url } = await start({ extensionVersion: '0.3.41' });
+  const ping = await (await fetch(url('/ping'), { method: 'POST', headers: { Origin: EXT } })).json();
+  assert.equal(ping.extensionVersion, '0.3.41');
+  await b.close();
+});

@@ -2,11 +2,23 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="vendor/theme.css">
+  <link rel="stylesheet" href="card.css">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <header><img src="icons/48.png" alt="" width="32" height="32"><div><b>Sprout</b><small id="status">Checking…</small></div></header>
+  <header><img src="icons/48.png" alt="" width="28" height="28"><div><b>Sprout</b><small id="status">Checking…</small></div></header>
+  <div class="update" id="update" hidden>Sprout comes with a newer version of this extension. In Sprout, open <b>Settings → Browser extension → Show folder</b>, then load that folder in <b>chrome://extensions</b>.</div>
   <main id="main"></main>
+  <footer id="settings" hidden>
+    <label class="toggle"><input type="checkbox" id="auto"> Pop up on job postings automatically (job sites and company careers pages)</label>
+    <p class="note-line">Anywhere else, press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd> on the page.</p>
+  </footer>
+  <script src="vendor/buddyLines.js"></script>
+  <script src="vendor/icons.js"></script>
+  <script src="vendor/mascot.js"></script>
+  <script src="vendor/scoreInfo.js"></script>
+  <script src="card.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
