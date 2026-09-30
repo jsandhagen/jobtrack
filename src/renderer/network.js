@@ -837,15 +837,20 @@ function companyRow(co) {
   const people = O.contactsAt(state.contacts, co.name).length;
   const roles = openRolesAt(co.name).length;
   const n = (co.jobs || []).filter((j) => !isHidden(co, j)).length;
-  return `<div class="company ${co.status === 'pass' ? 'dim' : ''}" data-co="${co.id}">
-    <div class="company-top">${coLogo(co, 36)}<div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
+  const passed = co.status === 'pass';
+  // Matching roles on the right, where the fit score sits on a job; it opens them on the board.
+  const rolesBadge = n && !passed
+    ? `<button class="co-count pill hi" data-board-co="${co.id}" title="See ${esc(co.name)}'s ${n} matching role${n === 1 ? '' : 's'} on the board"><b>${n}</b><small>role${n === 1 ? '' : 's'}</small></button>`
+    : `<div class="co-count pill none" title="${passed ? 'Not checking: you passed on this one' : 'No open roles matching yours right now'}"><b>${passed ? '–' : 0}</b><small>roles</small></div>`;
+  return `<div class="company ${passed ? 'dim' : ''}" data-co="${co.id}">
+    <div class="company-top">${coLogo(co, 44)}<div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
       ${careersStatus(co)}
       ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
-      <div>${people ? `<a href="#people" class="chip lav tiny">${people} ${people === 1 ? 'person' : 'people'} you know</a>` : ''}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div></div>
-      <select class="small-select coStatus" data-id="${co.id}" aria-label="Status">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <button class="small ghost danger coDel" data-id="${co.id}" title="Remove ${esc(co.name)}">✕</button></div>
+      ${people || roles ? `<div class="co-chips">${people ? `<a href="#people" class="chip lav tiny">${people} ${people === 1 ? 'person' : 'people'} you know</a>` : ''}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div>` : ''}</div>
+      ${rolesBadge}
+      <div class="co-actions"><select class="small-select coStatus" data-id="${co.id}" aria-label="Status">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="small ghost icon-btn danger coDel" data-id="${co.id}" title="Remove ${esc(co.name)}" aria-label="Remove ${esc(co.name)}">✕</button></div></div>
     <div class="inline company-links">
-      ${n && co.status !== 'pass' ? `<button class="small primary" data-board-co="${co.id}">See ${n} matching role${n === 1 ? '' : 's'}</button>` : ''}
       ${L.careers ? `<button class="small soft" data-open-url="${esc(L.careers)}">${icon('link', 14)} Careers page</button>` : `<button class="small soft coCareers" data-id="${co.id}">+ Careers link</button>`}
       <details class="more-menu"><summary class="small ghost">More ▾</summary><div class="more-list">
         <button class="ghost" data-open-url="${esc(L.jobs)}">${icon('link', 14)} Its jobs on LinkedIn this week</button>
