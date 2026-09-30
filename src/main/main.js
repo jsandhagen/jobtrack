@@ -16,6 +16,7 @@ const {
   safeStorage,
   shell,
   net,
+  powerMonitor,
 } = require('electron');
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
@@ -1877,6 +1878,49 @@ async function importPaths(paths) {
 
 // ---------------- updates ----------------
 
+// Claude calls in flight. Sprout doesn't restart itself to update while one is.
+let working = 0;
+function tracked(fn) {
+  return async (...args) => {
+    working++;
+    try {
+      return await fn(...args);
+    } finally {
+      working--;
+    }
+  };
+}
+analyzeApp = tracked(analyzeApp);
+makeResume = tracked(makeResume);
+makeCoverLetter = tracked(makeCoverLetter);
+
+// A good moment to restart for an update: nobody has touched the computer for
+// a while and nothing is being written.
+const AWAY_SECONDS = 10 * 60;
+function quietForUpdate() {
+  return working === 0 && powerMonitor.getSystemIdleTime() >= AWAY_SECONDS;
+}
+
+// Left behind by an automatic update so the restarted Sprout comes back the
+// way it was: in the tray if the dashboard wasn't open.
+const relaunchFile = () => path.join(app.getPath('userData'), 'update-relaunch.json');
+function noteRelaunch({ auto }) {
+  if (!auto) return;
+  const open = !!(dashboard && !dashboard.isDestroyed() && dashboard.isVisible() && !dashboard.isMinimized());
+  try {
+    fs.writeFileSync(relaunchFile(), JSON.stringify({ dashboard: open, at: Date.now(), from: app.getVersion() }));
+  } catch {}
+}
+function takeRelaunchNote() {
+  try {
+    const note = JSON.parse(fs.readFileSync(relaunchFile(), 'utf8'));
+    fs.rmSync(relaunchFile(), { force: true });
+    return Date.now() - note.at < 30 * 60 * 1000 ? note : null;
+  } catch {
+    return null;
+  }
+}
+
 function startUpdates() {
   let told = '';
   updater.events.on('status', (st) => {
@@ -1887,9 +1931,11 @@ function startUpdates() {
     told = key;
     broadcast('toast', {
       kind: 'good',
-      text: st.state === 'ready' ? `Sprout ${st.version} is ready. Restart from Settings → Updates, or it installs next time you quit.` : `Sprout ${st.version} is out! Download it from Settings → Updates.`,
+      text: st.state === 'ready' ? `Sprout ${st.version} is ready. It installs when you quit or step away, or restart now from Settings → Updates.` : `Sprout ${st.version} is out! Download it from Settings → Updates.`,
     });
   });
+  // A laptop that slept through the hourly check looks again on waking.
+  powerMonitor.on('resume', () => updater.check().catch(() => {}));
   updater.start();
 }
 
@@ -1927,18 +1973,20 @@ if (process.argv.includes('--smoke-test')) {
   app.whenReady().then(() => {
     store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
     store.pruneChecked(); // checked jobs you never saved, not seen for a month
-    updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
+    updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts), isQuiet: quietForUpdate, beforeInstall: noteRelaunch }); // Chromium's network stack honours system proxies
+    const relaunched = takeRelaunchNote();
     registerIpc();
     // First run with the bullet bank: fill it from the resumes already in the library.
     if (!store.getBank().bullets.length && store.allDocuments().length) importBullets(store.allDocuments());
     backfillLayouts().catch(() => {});
-    createDashboard();
+    if (!relaunched || relaunched.dashboard) createDashboard();
     createOverlay();
     try {
       createTray();
     } catch (e) {
       console.warn('Tray unavailable:', e.message);
     }
+    if (!tray && !dashboard) createDashboard(); // no tray to come back from
     claude.onUsage((u) => {
       store.recordUsage(u);
       noteBudget();
@@ -1961,6 +2009,7 @@ if (process.argv.includes('--smoke-test')) {
   });
   app.on('activate', () => createDashboard());
   app.on('will-quit', () => {
+    if (updater) updater.onQuit();
     globalShortcut.unregisterAll();
     if (bridge) bridge.close();
     if (watcher) watcher.stopAll();

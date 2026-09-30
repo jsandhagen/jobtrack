@@ -92,10 +92,12 @@ jobs:
         with:
           name: installers-${{ runner.os }}
           # latest*.yml and the blockmaps let the in-app updater find and
-          # download new versions (see src/main/updater.js).
+          # download new versions; the Mac .zip is what it installs there
+          # (see src/main/updater.js).
           path: |
             dist/*.exe
             dist/*.dmg
+            dist/*.zip
             dist/*.AppImage
             dist/*.blockmap
             dist/latest*.yml
@@ -103,6 +105,9 @@ jobs:
 
   release:
     needs: [version, build]
+    # Only main becomes the latest release (a manual run on another branch
+    # would otherwise push every installed copy to that branch's build).
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -110,13 +115,16 @@ jobs:
           path: installers
           merge-multiple: true
 
-      - name: Publish the release
+      # Upload everything to a draft first, then publish it in one step, so
+      # the in-app updater never sees a latest release with files missing.
+      - name: Upload the release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
           name: Sprout ${{ needs.version.outputs.version }}
-          make_latest: true
+          draft: true
+          fail_on_unmatched_files: true
           files: installers/*
           body: |
             Download the installer for your computer:
@@ -129,3 +137,8 @@ jobs:
             First launch: on Windows, if you see "Windows protected your PC", click **More info → Run anyway**. On a Mac, if it says it can't verify the developer, open **System Settings → Privacy & Security** and click **Open Anyway**.
 
             Built from ${{ github.sha }}.
+
+      - name: Publish it as the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "v${{ needs.version.outputs.version }}" --repo "${{ github.repository }}" --draft=false --latest

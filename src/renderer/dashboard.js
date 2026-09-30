@@ -897,21 +897,22 @@ async function renderUpdateCard(st) {
   const when = st.checkedAt ? ` Last checked ${timeAgo(st.checkedAt)}.` : '';
   const line = {
     dev: "You're running Sprout from source, so updates come from git instead.",
-    idle: `You have version ${esc(st.current)}. Sprout checks for new versions on its own.`,
+    idle: `You have version ${esc(st.current)}. Sprout checks for new versions on its own${st.selfInstall ? ' and installs them for you' : ''}.`,
     checking: '<span class="spinner"></span> Checking for a new version…',
     current: `You're up to date (version ${esc(st.current)}).${when}`,
     downloading: `<span class="spinner"></span> Downloading version ${esc(st.version)}… ${st.percent ? `${st.percent}%` : ''}`,
-    ready: `<b>Version ${esc(st.version)} is ready.</b> Restart to switch to it, or it installs next time you quit Sprout.`,
-    available: `<b>Version ${esc(st.version)} is out</b> (you have ${esc(st.current)}). Download it and install over this one; your documents and applications are kept.`,
+    ready: `<b>Version ${esc(st.version)} is ready.</b> It installs by itself when you quit Sprout or step away from the computer, or restart now to switch to it.`,
+    installing: '<span class="spinner"></span> Restarting to install the update…',
+    available: `<b>Version ${esc(st.version)} is out</b> (you have ${esc(st.current)}). Download it and install over this one; your documents and applications are kept.${st.manualReason ? ` ${esc(st.manualReason)}` : ''}`,
     error: `Couldn't check for updates: ${esc(st.error || 'unknown error')}`,
   }[st.state] || '';
-  const busy = ['checking', 'downloading'].includes(st.state);
+  const busy = ['checking', 'downloading', 'installing'].includes(st.state);
   const btn =
     st.state === 'ready'
       ? `<button class="primary" id="updInstall">Restart and update</button>`
       : st.state === 'available'
         ? `<button class="primary" id="updDownload">${icon('download', 16)} Download ${esc(st.version)}</button>`
-        : st.state === 'dev'
+        : st.state === 'dev' || st.state === 'installing'
           ? ''
           : `<button class="soft" id="updCheck" ${busy ? 'disabled' : ''}>Check now</button>`;
   card.innerHTML = `<h2 class="with-icon">${icon('sparkle', 22)} Updates</h2><p class="muted">${line}</p>${btn}`;
