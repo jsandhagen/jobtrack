@@ -35,6 +35,7 @@ const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } 
 const { atsScore, libraryAtsScore } = require('./atsScore');
 const outreach = require('../shared/outreach');
 const careers = require('./careers');
+const logos = require('./logos');
 
 const crypto = require('crypto');
 
@@ -1187,6 +1188,7 @@ function registerIpc() {
     }
     const saved = store.saveItem(kind, rec, kind === 'templates' ? outreach.DEFAULT_TEMPLATES : []);
     if (kind === 'companies' && saved.status !== 'pass' && !saved.lastCheckedAt) checkCareers([saved.id]).catch(() => {});
+    else if (kind === 'companies' && logos.logoDue(saved)) refreshLogos([saved.id]).catch(() => {});
     delete saved.seen;
     return saved;
   });
@@ -1459,7 +1461,7 @@ function applicationsCsv(apps) {
 
 const NET_FIELDS = {
   contacts: ['name', 'title', 'company', 'connection', 'linkedinUrl', 'email', 'notes', 'status', 'followUpAt', 'followUpNotified'],
-  companies: ['name', 'why', 'careersUrl', 'status', 'tags', 'keywords', 'hidden'],
+  companies: ['name', 'why', 'careersUrl', 'website', 'status', 'tags', 'keywords', 'hidden'],
   searches: ['kind', 'source', 'name', 'titles', 'keywords', 'location', 'company', 'common', 'within', 'workType', 'url', 'lastOpenedAt', 'opens'],
   templates: ['name', 'body', 'channel', 'subject', 'when', 'weight'],
 };
@@ -1507,6 +1509,8 @@ async function checkCareers(ids, { manual = false } = {}) {
     careersChecking = false;
     broadcast('state-changed');
   }
+  // Logos after the jobs, so they never hold up the board.
+  refreshLogos(ids).catch(() => {});
   // Only postings that are actually recent are worth a ping.
   const recent = fresh.filter(({ job }) => !job.postedAt || Date.now() - Date.parse(job.postedAt) < 14 * 86400000);
   if (recent.length && Notification.isSupported()) {
@@ -1522,6 +1526,50 @@ async function checkCareers(ids, { manual = false } = {}) {
     n.show();
   }
   return { checked, failed, fresh: fresh.length };
+}
+
+// Company logos (src/main/logos.js), for companies whose logo is missing or
+// due for another look. Bitmaps are scaled down to 64px so they stay small
+// in the saved data; nativeImage reads PNG and JPEG, others are kept as they are.
+function shrinkLogo(buf, type) {
+  if (!/png|jpeg/.test(type)) return null;
+  const img = nativeImage.createFromBuffer(buf);
+  if (img.isEmpty()) return null;
+  const { width, height } = img.getSize();
+  const scale = 64 / Math.max(width, height);
+  if (scale >= 1) return null;
+  return img.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'best' }).toDataURL();
+}
+
+let logosFetching = false;
+let logosAgain = false; // asked for while a pass was running
+async function refreshLogos(ids) {
+  if (logosFetching) {
+    logosAgain = true;
+    return;
+  }
+  logosFetching = true;
+  try {
+    for (const co of store.list('companies')) {
+      if ((ids && !ids.includes(co.id)) || !logos.logoDue(co)) continue;
+      try {
+        const logo = await logos.findLogo(co, { fetchImpl: netFetch, shrink: shrinkLogo });
+        const now = store.list('companies').find((c) => c.id === co.id);
+        // Removed meanwhile, or its links changed: that one's out of date.
+        if (!now || logos.logoKey(now) !== logo.key) continue;
+        store.saveItem('companies', { id: co.id, logo });
+        broadcast('state-changed');
+      } catch {
+        // offline: try again on the next check
+      }
+    }
+  } finally {
+    logosFetching = false;
+  }
+  if (logosAgain) {
+    logosAgain = false;
+    await refreshLogos();
+  }
 }
 
 // Gentle nudges when a follow-up date arrives.

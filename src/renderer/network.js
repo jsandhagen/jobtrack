@@ -634,6 +634,29 @@ function daySection(job) {
   return days < 1 ? 'Today' : days < 7 ? 'This week' : days < 30 ? 'This month' : 'Earlier';
 }
 
+// A company's logo (found by the app from its own website, see
+// src/main/logos.js), or its initial on a colour picked from its name.
+function coLogo(co, size = 32) {
+  const name = String(co.name || '?').trim();
+  const hue = [...name.toLowerCase()].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  const initial = esc((name.match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase());
+  const src = co.logo && co.logo.src;
+  const tip = co.logo && co.logo.domain ? ` title="Logo from ${esc(co.logo.domain)}"` : '';
+  return `<span class="co-logo ${src ? '' : 'mono'}" style="--size:${size}px;--hue:${hue}" data-initial="${initial}"${tip} aria-hidden="true">${src && /^data:image\//.test(src) ? `<img src="${esc(src)}" alt="">` : initial}</span>`;
+}
+
+// A logo that won't draw falls back to the initial.
+document.addEventListener(
+  'error',
+  (e) => {
+    const box = e.target && e.target.tagName === 'IMG' && e.target.parentElement;
+    if (!box || !box.classList.contains('co-logo')) return;
+    box.classList.add('mono');
+    box.textContent = box.dataset.initial || '?';
+  },
+  true
+);
+
 function jobRow({ co, job }) {
   const mine = inMyList(co, job);
   const hidden = isHidden(co, job);
@@ -645,6 +668,7 @@ function jobRow({ co, job }) {
   const payChip = job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '';
   return `<div class="job-row ${hidden ? 'dim' : ''}">
     ${fitPill}
+    ${coLogo(co, 30)}
     <div class="grow">
       <a href="#" class="job-title" data-open-url="${esc(job.url)}" title="Open the posting">${esc(job.title)}</a>${isNew ? ' <span class="chip good tiny">new</span>' : ''}${isRemote(job) ? ' <span class="chip tiny">remote</span>' : ''}${payChip ? ` ${payChip}` : ''}
       <div class="sub"><a href="#" class="job-co" data-board-co="${co.id}" title="Only ${esc(co.name)}'s roles">${esc(co.name)}</a>${job.location ? ` · ${esc(job.location)}` : ''} · ${ageText(job.postedAt)}</div>
@@ -808,7 +832,7 @@ function companyRow(co) {
   const roles = openRolesAt(co.name).length;
   const n = (co.jobs || []).filter((j) => !isHidden(co, j)).length;
   return `<div class="company ${co.status === 'pass' ? 'dim' : ''}" data-co="${co.id}">
-    <div class="company-top"><div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
+    <div class="company-top">${coLogo(co, 36)}<div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
       ${careersStatus(co)}
       ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
       <div>${people ? `<a href="#people" class="chip lav tiny">${people} ${people === 1 ? 'person' : 'people'} you know</a>` : ''}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div></div>
@@ -824,6 +848,7 @@ function companyRow(co) {
         <button class="ghost" data-add-person="${esc(co.name)}">+ Add a person there</button>
         <button class="ghost coKeywords" data-id="${co.id}">Match more titles here</button>
         ${L.careers ? `<button class="ghost coCareers" data-id="${co.id}">${icon('pencil', 13)} Change careers link</button>` : ''}
+        <button class="ghost coWebsite" data-id="${co.id}">${icon('pencil', 13)} ${co.website ? 'Change its website' : co.logo && co.logo.src ? 'Wrong logo? Set its website' : 'Set its website (for the logo)'}</button>
       </div></details>
     </div></div>`;
 }
@@ -1012,6 +1037,28 @@ function bindCompanyModals() {
         netRefresh();
       });
       $('#coKw', card).focus();
+    })
+  );
+  $$('.coWebsite').forEach((b) =>
+    b.addEventListener('click', () => {
+      const co = state.companies.find((c) => c.id === b.dataset.id);
+      const found = co.logo && co.logo.domain && !co.website ? ` I'm using ${esc(co.logo.domain)} now.` : '';
+      const card = openModal(`<h2 style="margin-top:0">${esc(co.name)} website</h2>
+        <p class="muted">Its home page, like acme.com. I take the logo from there.${found} Leave it empty and I'll work it out from its careers site.</p>
+        <input id="coSite" placeholder="acme.com" value="${esc(co.website || '')}"><div class="inline" style="margin-top:12px"><button class="primary" id="coSiteSave">Save</button><button class="ghost" id="coSiteCancel">Cancel</button></div>`);
+      $('#coSiteCancel', card).addEventListener('click', closeModal);
+      const save = async () => {
+        let url = $('#coSite', card).value.trim();
+        if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+        if (url && !/^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$|[?#:])/i.test(url)) return toast("That doesn't look like a website address.");
+        await S.saveItem('companies', { id: co.id, website: url });
+        closeModal();
+        if (url) toast(`Looking for ${co.name}'s logo…`, 'info');
+        netRefresh();
+      };
+      $('#coSiteSave', card).addEventListener('click', save);
+      $('#coSite', card).addEventListener('keydown', (e) => e.key === 'Enter' && save());
+      $('#coSite', card).focus();
     })
   );
   $$('.coCareers').forEach((b) =>

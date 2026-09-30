@@ -85,6 +85,7 @@ Sprout keeps running in the system tray after you close the window, so detection
 | `browser-extension/` | Chrome/Edge/Brave extension: finds the posting on the page, shows the Sprout card there and saves the job to the app when you say so |
 | `src/main/bridge.js` | Local, paired connection between the extension and the app |
 | `src/main/ocr.js`, `src/main/pageText.js` | Free on-device OCR, and finding the posting in the recognised text |
+| `src/main/logos.js` | Company logos: works out a company's own website and takes its icon from there |
 | `src/main/watcher.js` | Clipboard polling, screen-change detection (screenshot diff + wait until settled), dedupe |
 | `src/main/atsScore.js` | ATS-style match score, A–D grade, knockouts, parse checks and tips |
 | `src/shared/resumeDoc.js` | The one resume template: editable rendering for the editor, print HTML for PDF, Markdown, and conversion from Claude's output |
@@ -152,6 +153,8 @@ Nothing here scrapes LinkedIn: every search is a link that opens in your browser
   - **Which roles count:** a title matches a target role when it has every meaningful word of it, close together, in any order: *Operations Manager* matches *Manager, Business Operations* and *Sr. Ops Managers*, but *Chief of Staff* doesn't match *Staff Engineer, Office of the Chief Scientist*. Common abbreviations (Ops, VP, SWE, BizOps, PM…) and plurals count as the same word. Internships and co-ops only show up if a target role asks for one.
   - **When a site misbehaves:** busy sites (rate limits, server errors, dropped connections) are retried a couple of times before a check reports an error. Being offline is reported as an error to try again later, not as "can't read this careers site". If a board Sprout found for itself disappears (the company moved to another system), Sprout looks for the new one without announcing all its jobs as new. If a board's API won't give a posting's description, **Check my fit** reads it from the posting's own page.
   - It uses the job data these boards publish for their own careers pages (`src/main/careers.js`), not LinkedIn, and only for companies you added.
+- **Company logos** show on every job and company. Sprout takes each company's own icon from its website (the square *apple-touch-icon* phones use, or its favicon), and only from a website it has reason to trust: the one you set, the careers link when it's on the company's own site, the site its job postings link to, or the website its Lever or Ashby board names. With none of those it tries the name (`acme.com`, `acme.ai`…) and keeps that only if the site's title names the company. Anything else gets the company's initial instead, so a missing logo is far more likely than a wrong one. If one is wrong, **More → Set its website** fixes it.
+  - Logos are fetched by the app after each careers check, checked to really be images, shrunk to 64px and saved with the company, so the dashboard never loads images from the web and they show offline. Sprout looks again every month (every week for companies with none yet), and straight away when the website or careers link changes (`src/main/logos.js`).
 
 **People** (`#people`):
 - Add people by hand or **paste a spreadsheet** (Name or First/Last, Company, Title, LinkedIn, Email, Notes, and Connection or School). Duplicates are skipped.
