@@ -771,7 +771,11 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
   }
   const fresh = firstCheck ? [] : jobs.filter((j) => !seen.has(j.id));
   const ids = [...new Set([...all.map((j) => j.id), ...seen])].slice(0, SEEN);
-  return { patch: { board: b, lastCheckedAt: at, checkError: null, openCount: all.length, jobs, seen: ids }, fresh };
+  const patch = { board: b, lastCheckedAt: at, checkError: null, openCount: all.length, jobs, seen: ids };
+  // The very first look at a company you just added: its open roles are all
+  // new to you, so standout fits among them are worth a mention too.
+  if (!company.seen) patch.firstCheckedAt = at;
+  return { patch, fresh, firstLook: !company.seen };
 }
 
 module.exports = { ATS_LABEL, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };

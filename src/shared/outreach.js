@@ -840,6 +840,25 @@
     return [...seen.values()];
   }
 
+  // Strong-fit roles that just turned up at companies you watch, best fit
+  // first: new postings, and every open role at a company you only just added
+  // (its first check has nothing "new", but all of it is new to you). Roles
+  // with a dealbreaker, hidden ones and passed-on companies don't count.
+  const STRONG_FIT = 65; // "Strong match" and up, the green fit pill
+  function standoutJobs(companies, { now = Date.now(), days = 3, min = STRONG_FIT } = {}) {
+    const recent = (iso) => !!iso && now - Date.parse(iso) < days * 86400000;
+    return (companies || [])
+      .filter((c) => c.status !== 'pass')
+      .flatMap((c) => {
+        const justAdded = recent(c.firstCheckedAt);
+        return (c.jobs || [])
+          .filter((j) => j.fit && j.fit.score >= min && !(j.fit.dealbreakers || []).length && !(c.hidden || []).includes(j.id))
+          .filter((j) => recent(j.firstSeenAt) || justAdded)
+          .map((job) => ({ co: c, job, justAdded: justAdded && !recent(job.firstSeenAt) }));
+      })
+      .sort((a, b) => b.job.fit.score - a.job.fit.score || String(b.job.postedAt || '').localeCompare(String(a.job.postedAt || '')));
+  }
+
   return {
     WINDOWS,
     WORK_TYPES,
@@ -902,5 +921,7 @@
     importContacts,
     findContact,
     companySuggestions,
+    STRONG_FIT,
+    standoutJobs,
   };
 });

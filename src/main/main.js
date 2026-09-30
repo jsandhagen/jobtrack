@@ -1657,6 +1657,7 @@ async function checkCareers(ids, { manual = false } = {}) {
       }
     : null;
   const fresh = [];
+  const firstLooks = new Set(); // companies checked for the first time
   let checked = 0;
   let failed = 0;
   try {
@@ -1666,6 +1667,7 @@ async function checkCareers(ids, { manual = false } = {}) {
         const r = await careers.checkCompany(co, { fetchImpl: netFetch, roles, scoreJob });
         store.saveItem('companies', { id: co.id, ...r.patch });
         for (const j of r.fresh) fresh.push({ company: co, job: j });
+        if (r.firstLook) firstLooks.add(co.id);
         checked++;
       } catch (err) {
         store.saveItem('companies', { id: co.id, lastCheckedAt: new Date().toISOString(), checkError: err.name === 'TimeoutError' ? 'The careers site took too long to answer.' : err.message });
@@ -1679,21 +1681,53 @@ async function checkCareers(ids, { manual = false } = {}) {
   }
   // Logos after the jobs, so they never hold up the board.
   refreshLogos(ids).catch(() => {});
-  // Only postings that are actually recent are worth a ping.
-  const recent = fresh.filter(({ job }) => !job.postedAt || Date.now() - Date.parse(job.postedAt) < 14 * 86400000);
-  if (recent.length && Notification.isSupported()) {
-    const first = recent[0];
-    const n = new Notification({
-      title: recent.length === 1 ? `New at ${first.company.name}: ${first.job.title}` : `${recent.length} new roles at companies you watch`,
-      body: recent.length === 1 ? 'Freshly posted, and it matches what you are looking for. Want me to check your fit?' : recent.slice(0, 3).map(({ company, job }) => `${job.title} · ${company.name}`).join('\n'),
-    });
-    n.on('click', () => {
-      const w = createDashboard();
-      w.webContents.send('navigate', { view: 'find' });
-    });
-    n.show();
-  }
+  notifyNewRoles(fresh, firstLooks);
   return { checked, failed, fresh: fresh.length };
+}
+
+// One desktop notification per check. Strong fits (new postings, or open
+// roles at a company you just added) get called out by name and score;
+// otherwise it's the plain "new roles" ping. Only recent postings count as new.
+function notifyNewRoles(fresh, firstLooks) {
+  if (!Notification.isSupported()) return;
+  const recent = fresh.filter(({ job }) => !job.postedAt || Date.now() - Date.parse(job.postedAt) < 14 * 86400000);
+  const strong = outreach
+    .standoutJobs(store.list('companies').filter((c) => firstLooks.has(c.id)))
+    .map(({ co, job }) => ({ company: co, job, justAdded: true }))
+    .concat(recent.filter(({ job }) => job.fit && job.fit.score >= outreach.STRONG_FIT && !(job.fit.dealbreakers || []).length))
+    .filter(({ company, job }) => !appliedTo(company.name, job))
+    .sort((a, b) => b.job.fit.score - a.job.fit.score);
+  let title;
+  let body;
+  if (strong.length) {
+    const [top] = strong;
+    const others = recent.filter((r) => !strong.some((s) => s.company.id === r.company.id && s.job.id === r.job.id)).length;
+    const more = others ? `\nPlus ${others} other new role${others === 1 ? '' : 's'} on your job board.` : '';
+    if (strong.length === 1) {
+      title = top.justAdded ? `Strong fit at ${top.company.name}, which you just added` : `Strong fit, new at ${top.company.name}`;
+      body = `${top.job.title}: ${top.job.fit.score}/100 on my free fit preview. This one looks made for you. Want me to check your fit properly?${more}`;
+    } else {
+      const cos = new Set(strong.map(({ company }) => company.name));
+      title = cos.size === 1 ? `${strong.length} strong fits at ${top.company.name}` : `${strong.length} strong fits at companies you watch`;
+      body = strong.slice(0, 3).map(({ company, job }) => `${job.fit.score} · ${job.title}${cos.size === 1 ? '' : ` · ${company.name}`}`).join('\n') + more;
+    }
+  } else if (recent.length) {
+    const [first] = recent;
+    title = recent.length === 1 ? `New at ${first.company.name}: ${first.job.title}` : `${recent.length} new roles at companies you watch`;
+    body = recent.length === 1 ? 'Freshly posted, and it matches what you are looking for. Want me to check your fit?' : recent.slice(0, 3).map(({ company, job }) => `${job.title} · ${company.name}`).join('\n');
+  } else return;
+  const n = new Notification({ title, body });
+  n.on('click', () => {
+    const w = createDashboard();
+    w.webContents.send('navigate', { view: 'find', standouts: strong.length > 0 });
+  });
+  n.show();
+}
+
+// A role already in your applications (or checked) needs no announcement.
+function appliedTo(companyName, job) {
+  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return store.listApplications().some((a) => a.job && ((job.url && a.job.url === job.url) || (outreach.sameCompany(a.job.company, companyName) && norm(a.job.title) === norm(job.title))));
 }
 
 // Company logos (src/main/logos.js), for companies whose logo is missing or
