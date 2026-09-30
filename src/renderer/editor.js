@@ -2,6 +2,8 @@
 // Type on the page, press Enter for a new bullet, drag bullets in from the
 // tray, and watch the requirement checklist and ATS score update. Shares
 // helpers with dashboard.js (S, esc, $, $$, toast, run, state, appTab…).
+// It edits an application's resume, or (with no application) one of your
+// own resumes from the Resumes page.
 
 const PAGE_W = 816; // 8.5in at 96 css px/in
 const PX_IN = 96;
@@ -16,6 +18,7 @@ const ed = {
   polish: new Map(), // "r:b" -> {text, why}
   held: [], // polish edits the fact checks held back: {id, text, why}
   timer: null,
+  dirty: false, // edits not sent yet
   saving: null,
 };
 
@@ -45,12 +48,14 @@ function setPath(obj, path, value) {
 }
 
 function scheduleSave(delay = 700) {
+  ed.dirty = true;
   clearTimeout(ed.timer);
   ed.timer = setTimeout(saveNow, delay);
 }
 
 async function saveNow() {
   clearTimeout(ed.timer);
+  ed.dirty = false;
   const appId = ed.appId;
   const p = S.saveEditor(appId, ed.doc).then((info) => {
     if (ed.appId !== appId) return;
@@ -82,9 +87,18 @@ const RESUME_STATES = {
   claude: { title: 'Written by Root with Claude', line: 'Tailored to this posting and fact-checked against your records. Click anywhere on the page to edit.' },
 };
 
+// A resume of your own may have no posting: then there's nothing to match
+// keywords against, and Claude writes for the role (or in general).
+const STANDALONE_STATES = {
+  baseline: { title: 'From your bullet bank', line: 'Your best bullets, filed under each role. Edit anything on the page, or pick your strongest bullets / have Claude write a version.' },
+  ats: { title: 'Your strongest bullets, picked by Spike', line: 'The bullets from your bank that say the most, in your own words.' },
+  claude: { title: 'Written by Root with Claude', line: 'Written from your records and fact-checked against them. Click anywhere on the page to edit.' },
+};
+
 function modeBar(info) {
   const cur = info.resumeSource;
-  const st = RESUME_STATES[cur] || RESUME_STATES.baseline;
+  const aimed = !info.standalone || info.hasTarget;
+  const st = (aimed ? RESUME_STATES : STANDALONE_STATES)[cur] || RESUME_STATES.baseline;
   const who = cur === 'baseline' ? `<span class="mode-doc">${icon('doc', 24)}</span>` : window.SproutMascot.helperSvg(cur, 'happy', 44, { cls: 'pettable' });
   const was = { baseline: 'the baseline', ats: 'the ATS version', claude: 'the Claude version' }[info.undoTo] || 'the previous version';
   const undo = info.canUndo ? `<button class="small ghost" data-mode-go="undo">${icon('refresh', 14)} Undo — back to ${cur === info.undoTo ? 'the previous version' : was}</button>` : '';
@@ -93,8 +107,8 @@ function modeBar(info) {
   return `<div class="mode-strip mode-is-${cur}">
     <div class="mode-status">${who}<div><b>${st.title}</b><p>${st.line}</p>${undo || back ? `<div class="inline mode-links">${undo}${back}</div>` : ''}</div></div>
     <div class="mode-actions">
-      <button class="peek mode-ats" data-mode-go="ats">${window.SproutMascot.peekPal('ats', 54)}<b>${cur === 'ats' ? 'Optimize again' : 'Optimize for ATS'}</b><small>Free · instant</small></button>
-      <button class="peek mode-claude" data-mode-go="${locked ? 'settings' : 'claude'}" title="${locked ? 'Add a Claude API key in Settings' : 'Claude writes an updated version for this posting'}">${window.SproutMascot.peekPal('claude', 54)}<b>${cur === 'claude' ? 'Rewrite with Claude' : 'Write with Claude'}</b><small>${locked ? 'Add an API key first' : 'Uses Claude · ~1 min'}</small></button>
+      <button class="peek mode-ats" data-mode-go="ats">${window.SproutMascot.peekPal('ats', 54)}<b>${aimed ? (cur === 'ats' ? 'Optimize again' : 'Optimize for ATS') : 'Pick my best bullets'}</b><small>Free · instant</small></button>
+      <button class="peek mode-claude" data-mode-go="${locked ? 'settings' : 'claude'}" title="${locked ? 'Add a Claude API key in Settings' : aimed ? 'Claude writes an updated version for this posting' : 'Claude writes a version from your records'}">${window.SproutMascot.peekPal('claude', 54)}<b>${cur === 'claude' ? 'Rewrite with Claude' : 'Write with Claude'}</b><small>${locked ? 'Add an API key first' : 'Uses Claude · ~1 min'}</small></button>
     </div>
   </div>`;
 }
@@ -119,9 +133,12 @@ async function switchMode(mode) {
   const appId = ed.appId;
   if (mode === 'claude') {
     const p = S.generateResume(appId);
-    renderApplication(appId); // shows Root at work
+    const slot = document.getElementById('editorSlot');
+    if (ed.app) renderApplication(appId); // shows Root at work
+    else if (slot) slot.innerHTML = `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
     const ok = await run(null, () => p.then(() => true));
-    await renderApplication(appId);
+    if (ed.app) await renderApplication(appId);
+    else if (ed.appId === appId) await renderEditor(appId, null);
     if (ok) (previewFresh(), toast(say('claudeDone'), 'good', 5000, 'proud'));
     return;
   }
@@ -143,7 +160,7 @@ document.addEventListener('click', (e) => {
 });
 
 async function renderEditor(appId, app) {
-  const slot = document.getElementById('editorSlot');
+  let slot = document.getElementById('editorSlot');
   if (!slot) return;
   injectResumeCss();
   if (ed.appId !== appId) {
@@ -155,7 +172,9 @@ async function renderEditor(appId, app) {
   ed.appId = appId;
   ed.app = app;
   const info = await S.getEditor(appId).catch((err) => (toast(err.message, 'error'), null));
-  if (!info || !document.getElementById('editorSlot')) return;
+  // The page may have been redrawn while this loaded: use the slot that's there now.
+  slot = document.getElementById('editorSlot');
+  if (!info || !slot || ed.appId !== appId) return;
   ed.info = info;
   ed.doc = JSON.parse(JSON.stringify(info.doc));
 
@@ -166,6 +185,7 @@ async function renderEditor(appId, app) {
         <div class="ed-bar">
           <span class="ed-pages" id="edPages"></span>
           <span class="faint ed-hint">Click anywhere on the page to edit · Enter = new bullet</span>
+          <button class="ghost small" id="edCopy" title="${info.standalone ? 'Make a new resume starting from this one' : 'Keep this resume on your Resumes page to reuse or edit later'}">${icon('doc', 14)} ${info.standalone ? 'Duplicate' : 'Save to Resumes'}</button>
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
         </div>
@@ -179,7 +199,19 @@ async function renderEditor(appId, app) {
 
   $('#edPdf', slot).addEventListener('click', (e) => exportResume(e.currentTarget, 'pdf'));
   $('#edMd', slot).addEventListener('click', (e) => exportResume(e.currentTarget, 'md'));
+  $('#edCopy', slot).addEventListener('click', (e) => copyToResumes(e.currentTarget));
   wirePaper();
+}
+
+// A new saved resume from the one on screen (an application's, or a duplicate of a saved one).
+async function copyToResumes(btn) {
+  await run(btn, async () => {
+    if (ed.dirty) await saveNow(); // copying isn't an edit: don't save a checked job for it
+    const from = ed.info.standalone ? { resume: ed.appId } : { app: ed.appId };
+    const rec = await S.createResume({ from });
+    toast(ed.info.standalone ? 'Copy made. You\'re editing it now.' : 'Saved to your Resumes.', 'good');
+    if (ed.info.standalone) location.hash = `#resume/${rec.id}`;
+  }, 'Saving…');
 }
 
 async function exportResume(btn, fmt) {
@@ -188,7 +220,7 @@ async function exportResume(btn, fmt) {
     const out = await S.exportDoc(ed.appId, 'resume', fmt, null);
     if (out) {
       toast(say('exported'), 'good', 3800, 'cheer');
-      if (!ed.app.appliedAt && fmt === 'pdf') offerMarkApplied(ed.app);
+      if (ed.app && !ed.app.appliedAt && fmt === 'pdf') offerMarkApplied(ed.app);
     }
   }, 'Saving…');
 }
@@ -289,12 +321,13 @@ function renderTray() {
     .join('');
   const filterLabel = ed.filter && (info.units.find((u) => u.key === ed.filter) || {}).label;
 
+  const aimed = !info.standalone || info.hasTarget;
   tray.innerHTML = `
-    <div class="tray-card">
+    ${aimed ? `<div class="tray-card">
       <div class="tray-score"><div><b>${covered}/${req.length}</b><span>requirements shown</span></div><div><b>${info.ats.score}% ${window.SproutInfo.infoBtn('ats')}</b><span>ATS match ${info.ats.grade ? `· <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}</span></div></div>
       <div class="req-list">${req.map(chip).join('')}${pref.map(chip).join('')}</div>
       <p class="faint" style="margin:6px 0 0">Tap a requirement to see bullets that prove it.</p>
-    </div>
+    </div>` : `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS match.</p></div>`}
     ${checksPanel()}
     ${focusPanel()}
     <div class="tray-card">
@@ -315,11 +348,11 @@ function renderTray() {
     <div class="tray-card">
       <h4>More</h4>
       <div class="tray-actions">
-        ${state.hasApiKey ? `<button class="soft" id="edPolish" title="One Claude call; you approve each change">${icon('sparkle')} Polish wording for this job</button>` : ''}
+        ${state.hasApiKey ? `<button class="soft" id="edPolish" title="One Claude call; you approve each change">${icon('sparkle')} Polish wording${aimed ? ' for this job' : ''}</button>` : ''}
       </div>
       <div class="faint" style="margin-top:10px">Make this resume's… <a href="#" data-default="header">header</a> · <a href="#" data-default="summary">summary</a> · <a href="#" data-default="skills">skills</a> · <a href="#" data-default="education">education</a> …your default for new resumes.</div>
     </div>
-    ${info.ats.tips.length ? `<details class="tray-card"><summary><b>ATS tips (${info.ats.tips.length})</b></summary><ul class="tidy" style="margin-top:6px">${info.ats.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>` : ''}`;
+    ${aimed && info.ats.tips.length ? `<details class="tray-card"><summary><b>ATS tips (${info.ats.tips.length})</b></summary><ul class="tidy" style="margin-top:6px">${info.ats.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>` : ''}`;
   wireTray();
 }
 

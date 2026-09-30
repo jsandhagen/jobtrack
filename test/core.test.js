@@ -113,6 +113,23 @@ test('checked jobs stay off your applications until saved, and are forgotten aft
   assert.ok(s.getApplication(skipped.id).savedAt);
 });
 
+test('saved resumes: added, updated, listed newest first, removed, and kept on disk', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-'));
+  const s = new Store(dir);
+  const a = s.addResume({ name: 'General' });
+  assert.deepEqual(a.job, { title: '', company: '', text: '' }, 'no posting needed');
+  const b = s.addResume({ name: 'Ops', job: { title: 'Operations Manager', company: '', text: '' } });
+  s.getResume(b.id).updatedAt = '2020-01-01T00:00:00.000Z'; // edited long ago
+  s.save();
+  s.updateResume(a.id, { name: 'General v2' });
+  const again = new Store(dir);
+  assert.deepEqual(again.listResumes().map((r) => r.name), ['General v2', 'Ops']);
+  assert.equal(again.getResume(b.id).job.title, 'Operations Manager');
+  again.removeResume(a.id);
+  assert.deepEqual(new Store(dir).listResumes().map((r) => r.id), [b.id]);
+  assert.equal(new Store(dir).getApplication(b.id), null, 'resumes are not applications');
+});
+
 test('extractText reads text files and guessKind labels them', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-'));
   const f = path.join(dir, 'My Resume.md');

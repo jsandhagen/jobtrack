@@ -154,6 +154,16 @@ Nothing here scrapes LinkedIn: every search is a link that opens in your browser
 
 The rules and link builders are in `src/shared/outreach.js`; the pages are in `src/renderer/network.js`.
 
+### Resumes
+
+**Resumes** (`#resumes`) keeps resumes of your own, not tied to any job: a general one, one per kind of role, a startup version, as many as you like.
+- **New resume** starts from your bullet bank (your best bullets under each role), or as a copy of another saved resume or of an application's resume. A name is all it needs. A target role and company are optional.
+- Each one opens in the same [resume editor](#resume-editor), with the same template and bullet bank. Edits save as you type.
+- **Aim it at a posting (optional):** paste a posting or keywords and the requirement checklist and ATS match appear next to the page. Without one, the editor offers **Pick my best bullets** (free) and **Write with Claude**, which writes for the target role, or in general if there isn't one.
+- **Versions:** **Duplicate** makes a copy to try a different take without losing the original. Rename a resume by clicking its name.
+- **Save to Resumes** in any application's editor keeps a copy of that tailored resume here. It doesn't add a checked job to your applications.
+- Export to PDF or Markdown works the same as for applications.
+
 ### Resume editor
 
 Every resume uses **one template** (`src/shared/resumeDoc.js`), a classic Word/Google Docs layout:

@@ -71,6 +71,7 @@ class Store {
       profile: { ...DEFAULT_PROFILE, ...(raw.profile || {}) },
       documents: raw.documents || [],
       applications: raw.applications || [],
+      resumes: raw.resumes || [],
       encryptedApiKey: raw.encryptedApiKey || null,
       usage: raw.usage || {},
       spire: raw.spire || null,
@@ -207,6 +208,35 @@ class Store {
 
   removeApplication(id) {
     this.data.applications = this.data.applications.filter((a) => a.id !== id);
+    this.save();
+  }
+
+  // ---- saved resumes (the Resumes page) ----
+  // Resumes of your own, not tied to an application: a name, what it's aimed
+  // at (a role title, and optionally a posting or keywords as job.text), and
+  // the page itself, kept the same way as an application's resume.
+  listResumes() {
+    return [...this.data.resumes].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+  }
+  getResume(id) {
+    return this.data.resumes.find((r) => r.id === id) || null;
+  }
+  addResume(resume) {
+    const now = new Date().toISOString();
+    const rec = { id: crypto.randomUUID(), createdAt: now, updatedAt: now, name: 'My resume', job: { title: '', company: '', text: '' }, ...resume };
+    this.data.resumes.push(rec);
+    this.save();
+    return rec;
+  }
+  updateResume(id, patch) {
+    const rec = this.getResume(id);
+    if (!rec) return null;
+    Object.assign(rec, patch, { updatedAt: new Date().toISOString() });
+    this.save();
+    return rec;
+  }
+  removeResume(id) {
+    this.data.resumes = this.data.resumes.filter((r) => r.id !== id);
     this.save();
   }
 

@@ -5,6 +5,7 @@ const { infoBtn } = window.SproutInfo;
 const view = document.getElementById('view');
 let state = null;
 let currentAppId = null;
+let currentResumeId = null; // the saved resume open on #resume/<id>
 let appTab = 'resume';
 let openTab = null; // tab to show next time an application opens
 
@@ -212,6 +213,97 @@ document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') closeModal();
 });
 
+// ---------------- your own resumes ----------------
+
+// A new resume: from your bank, or a copy of a saved resume or an application's.
+function openNewResumeModal() {
+  const apps = state.applications.filter((a) => a.hasPage);
+  const card = openModal(`<h2 style="margin-top:0">New resume</h2>
+    <div class="form-grid">
+      <div class="full"><label>Name</label><input id="rName" placeholder="e.g. General, Ops roles, Startup version"></div>
+      <div><label>Aimed at a role <span class="faint">(optional)</span></label><input id="rTitle" placeholder="e.g. Chief of Staff"></div>
+      <div><label>Company <span class="faint">(optional)</span></label><input id="rCompany"></div>
+      <div class="full"><label>Start from</label><select id="rFrom">
+        <option value="">My bullet bank (best bullets for each role)</option>
+        ${(state.resumes || []).map((r) => `<option value="resume:${r.id}">Copy of “${esc(r.name)}”</option>`).join('')}
+        ${apps.map((a) => `<option value="app:${a.id}">Copy of my resume for ${esc([a.job.title, a.job.company].filter(Boolean).join(' at '))}</option>`).join('')}
+      </select></div>
+    </div>
+    <p class="faint">You can paste a posting or keywords to aim it at later, or leave it general.</p>
+    <div class="inline" style="margin-top:12px"><button class="primary" id="rCreate">Create</button><button class="ghost" id="rCancel">Cancel</button></div>`);
+  $('#rCancel', card).addEventListener('click', closeModal);
+  $('#rCreate', card).addEventListener('click', (e) =>
+    run(e.currentTarget, async () => {
+      const [kind, id] = $('#rFrom', card).value.split(':');
+      const rec = await S.createResume({
+        name: $('#rName', card).value.trim(),
+        job: { title: $('#rTitle', card).value.trim(), company: $('#rCompany', card).value.trim() },
+        from: kind === 'resume' ? { resume: id } : kind === 'app' ? { app: id } : null,
+      });
+      closeModal();
+      location.hash = `#resume/${rec.id}`;
+    }, 'Creating…'),
+  );
+  setTimeout(() => $('#rName', card).focus(), 50);
+}
+
+// One saved resume: its name and what it's aimed at, then the editor.
+async function renderResumePage(id) {
+  const r = await S.getResume(id).catch(() => null);
+  const page = document.getElementById('resumePage');
+  if (!page || currentResumeId !== id) return;
+  if (!r) {
+    page.innerHTML = `<div class="card empty">${mascotSvg('curious', 72)}<p>That resume was deleted.</p><a href="#resumes">Back to Resumes</a></div>`;
+    return;
+  }
+  const hasText = !!(r.job.text || '').trim();
+  page.innerHTML = `
+    <div class="card app-card"><div class="app-head" style="align-items:flex-start">
+      <div class="grow">
+        <div class="faint"><a href="#resumes">Resumes</a> · created ${fmtDate(r.createdAt)} · edited ${timeAgo(r.updatedAt)}</div>
+        <input id="rsName" value="${esc(r.name)}" aria-label="Resume name" title="Click to rename" style="font-size:22px;font-weight:800;margin:4px 0;border:0;background:transparent;padding:2px 0;width:100%">
+        <div class="form-grid" style="margin-top:4px">
+          <div><label>Aimed at a role <span class="faint">(optional)</span></label><input id="rsTitle" value="${esc(r.job.title || '')}" placeholder="e.g. Chief of Staff"></div>
+          <div><label>Company <span class="faint">(optional)</span></label><input id="rsCompany" value="${esc(r.job.company || '')}"></div>
+        </div>
+        <details style="margin-top:8px" ${hasText ? 'open' : ''}><summary class="faint">${hasText ? 'The posting or keywords it’s aimed at' : 'Aim it at a posting or keywords (optional)'}</summary>
+          <textarea id="rsText" style="min-height:120px;margin-top:6px" placeholder="Paste a job posting, or the skills and keywords you want this version to show. Leave empty for a general resume.">${esc(r.job.text || '')}</textarea>
+          <div class="inline" style="margin-top:6px"><button class="small soft" id="rsAim">Update the checklist</button><span class="faint">The requirements checklist and ATS match next to the page use this.</span></div>
+        </details>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;min-width:150px">
+        <button class="ghost small" id="rsDup">${icon('doc', 14)} Duplicate</button>
+        <button class="ghost danger small" id="rsDel">Delete</button>
+      </div>
+    </div></div>
+    <div id="editorSlot" style="margin-top:14px"><div class="empty"><span class="spinner"></span></div></div>`;
+  const save = (patch, msg) => S.updateResume(id, patch).then(() => msg && toast(msg, 'good'), (err) => toast(err.message, 'error'));
+  $('#rsName', page).addEventListener('change', (e) => save({ name: e.target.value }, 'Renamed'));
+  const aim = () => save({ job: { title: $('#rsTitle', page).value.trim(), company: $('#rsCompany', page).value.trim(), text: $('#rsText', page).value.trim() } });
+  $('#rsTitle', page).addEventListener('change', aim);
+  $('#rsCompany', page).addEventListener('change', aim);
+  $('#rsAim', page).addEventListener('click', (e) =>
+    run(e.currentTarget, async () => {
+      await aim();
+      await renderEditor(id, null);
+      toast('Checklist updated for what you pasted.', 'good');
+    }),
+  );
+  $('#rsDup', page).addEventListener('click', (e) =>
+    run(e.currentTarget, async () => {
+      await saveNow();
+      const rec = await S.createResume({ from: { resume: id } });
+      location.hash = `#resume/${rec.id}`;
+    }),
+  );
+  $('#rsDel', page).addEventListener('click', async () => {
+    if (!confirm(`Delete “${r.name}”? This can't be undone.`)) return;
+    await S.removeResume(id);
+    location.hash = '#resumes';
+  });
+  await renderEditor(id, null);
+}
+
 // ---------------- views ----------------
 
 // Jobs you checked but didn't save: kept a month so you can come back to one.
@@ -298,6 +390,30 @@ const views = {
         </div>
       </div>
       ${checkedCard()}</div>`;
+  },
+
+  resumes() {
+    const list = state.resumes || [];
+    const src = { baseline: 'from your bank', ats: 'best bullets picked', claude: 'written with Claude' };
+    const row = (r) => `<div class="row-item" data-resume="${r.id}"><div class="pill" style="background:var(--lavender-soft);color:#6b5aa8">${icon('doc', 18)}</div>
+      <div class="grow"><div class="title">${esc(r.name)}</div><div class="sub">${esc(
+        [r.job.title && `for ${[r.job.title, r.job.company].filter(Boolean).join(' at ')}`, `${r.roles} role${r.roles === 1 ? '' : 's'} · ${r.bullets} bullet${r.bullets === 1 ? '' : 's'}`, src[r.source], `edited ${timeAgo(r.updatedAt)}`].filter(Boolean).join(' · ')
+      )}</div></div>
+      ${r.hasTarget ? '<span class="chip lav tiny" title="Aimed at a posting">aimed</span>' : ''}
+      <button class="small ghost dupResume" data-id="${r.id}" title="Make a copy to edit">Duplicate</button></div>`;
+    return `<div class="page">
+      ${pageHead('Resumes', 'proud', 'Resumes of your own, no posting needed: a general one, one per kind of role, whatever you like. Same page and bullet bank as your tailored ones.', `<button class="primary" id="newResume">+ New resume</button>`)}
+      ${
+        list.length
+          ? `<div class="card"><div class="list">${list.map(row).join('')}</div></div>`
+          : `<div class="card empty">${mascotSvg('curious', 72)}<h3>No saved resumes yet</h3><p>Start one from your bullet bank, or open an application's resume and press <b>Save to Resumes</b> to keep a tailored version.</p><button class="primary" id="newResume2">+ New resume</button></div>`
+      }
+      <p class="faint" style="margin-top:10px">Each resume keeps its own page. Duplicate one to try a different version without losing the original.</p>
+    </div>`;
+  },
+
+  resume() {
+    return '<div class="page" id="resumePage"><div class="empty"><span class="spinner"></span></div></div>';
   },
 
   applications() {
@@ -935,6 +1051,20 @@ const binders = {
     );
     $('#scanBtn').addEventListener('click', scanFromApp);
   },
+  resumes() {
+    for (const b of $$('#newResume, #newResume2')) b.addEventListener('click', () => openNewResumeModal());
+    $$('[data-resume]').forEach((row) => row.addEventListener('click', () => (location.hash = `#resume/${row.dataset.resume}`)));
+    $$('.dupResume').forEach((b) =>
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        run(b, async () => {
+          const rec = await S.createResume({ from: { resume: b.dataset.id } });
+          location.hash = `#resume/${rec.id}`;
+        });
+      }),
+    );
+  },
+  resume() {},
   applications() {
     $$('[data-filter]').forEach((b) => b.addEventListener('click', () => ((appFilter = b.dataset.filter), route())));
     const search = $('#appSearch');
@@ -1122,7 +1252,10 @@ setInterval(() => {
 function route() {
   const [name, id] = (location.hash.slice(1) || 'home').split('/');
   const v = views[name] ? name : 'home';
-  $$('.side a', document).forEach((a) => a.classList.toggle('active', a.dataset.view === v || (v === 'application' && a.dataset.view === 'applications')));
+  $$('.side a', document).forEach((a) => a.classList.toggle('active', a.dataset.view === v || (v === 'application' && a.dataset.view === 'applications') || (v === 'resume' && a.dataset.view === 'resumes')));
+  // Leaving a saved resume: keep the last few keystrokes.
+  if (currentResumeId && (v !== 'resume' || id !== currentResumeId) && ed.appId === currentResumeId) saveNow();
+  currentResumeId = v === 'resume' ? id : null;
   if (v !== 'application' || id !== currentAppId) {
     if (v === 'application') appTab = openTab || 'auto';
     openTab = null;
@@ -1142,6 +1275,7 @@ function route() {
     }),
   );
   if (v === 'application') renderApplication(id);
+  if (v === 'resume') renderResumePage(id);
 }
 
 function isEditing() {
@@ -1153,12 +1287,12 @@ window.addEventListener('hashchange', route);
 S.onStateChanged(async () => {
   await refreshState();
   // Don't wipe a form the user is typing in.
-  if (!isEditing() && !currentAppId) route();
+  if (!isEditing() && !currentAppId && !currentResumeId) route();
 });
 S.onAppUpdated(async (app) => {
   await refreshState();
   if (currentAppId && app && app.id === currentAppId) renderApplication(currentAppId);
-  else if (!isEditing() && !currentAppId) route();
+  else if (!isEditing() && !currentAppId && !currentResumeId) route();
 });
 S.onToast(({ text, kind }) => toast(text, kind));
 S.onNavigate(({ view: v, id, tab }) => {
