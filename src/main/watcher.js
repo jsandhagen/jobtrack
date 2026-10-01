@@ -12,6 +12,24 @@ function fingerprint(text) {
   return crypto.createHash('sha1').update(norm).digest('hex');
 }
 
+// Runs of three words in a text, for telling whether two screen reads are
+// the same posting scrolled a little (OCR text never repeats exactly).
+function shingles(text) {
+  const words = text.toLowerCase().match(/[a-z0-9]+/g) || [];
+  const out = new Set();
+  for (let i = 0; i + 2 < words.length; i++) out.add(`${words[i]} ${words[i + 1]} ${words[i + 2]}`);
+  return out;
+}
+
+function samePosting(a, b) {
+  if (!a.size || !b.size) return false;
+  let shared = 0;
+  for (const s of a) if (b.has(s)) shared++;
+  return shared / Math.min(a.size, b.size) >= 0.5;
+}
+
+const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
 // Mean absolute difference between two same-sized RGBA bitmaps, 0..1.
 function bitmapDiff(a, b) {
   if (!a || !b || a.length !== b.length) return 1;
@@ -37,6 +55,7 @@ class PostingWatcher extends EventEmitter {
     super();
     this.deps = deps;
     this.seen = new Map(); // fingerprint -> timestamp
+    this.seenScreen = []; // { at, key, words } for postings read off the screen
     this.lastClipboard = '';
     this.clipTimer = null;
     this.clipGen = 0;
@@ -52,6 +71,27 @@ class PostingWatcher extends EventEmitter {
     for (const [k, t] of this.seen) if (now - t > 6 * 3600 * 1000) this.seen.delete(k);
     if (this.seen.has(fp)) return false;
     this.seen.set(fp, now);
+    return true;
+  }
+
+  // The screen shows the same posting many times while you read and scroll
+  // it, each read a little different. It's the same one if its title (and
+  // company) match one seen in the last few hours, or most of its text does.
+  _isNewOnScreen({ posting_text: text, title, company }) {
+    const now = Date.now();
+    this.seenScreen = this.seenScreen.filter((x) => now - x.at < 6 * 3600 * 1000);
+    const key = normKey(title) ? `${normKey(title)}|${normKey(company)}` : '';
+    const words = shingles(text);
+    const known = this.seenScreen.find((x) => (key && x.key === key) || samePosting(x.words, words));
+    if (known) {
+      // Remember what this read added, so the next scroll still matches.
+      known.at = now;
+      known.key = known.key || key;
+      for (const s of words) known.words.add(s);
+      return false;
+    }
+    if (!this._isNew(text)) return false;
+    this.seenScreen.push({ at: now, key, words });
     return true;
   }
 
@@ -101,7 +141,7 @@ class PostingWatcher extends EventEmitter {
       if (onScanning) onScanning();
       const job = await this.deps.readScreen(shot.png, { force });
       if (!job.is_job_posting || !job.posting_text || job.posting_text.length < 200) return null;
-      if (!force && !this._isNew(job.posting_text)) return null;
+      if (!force && !this._isNewOnScreen(job)) return null;
       return { text: job.posting_text, title: job.title, company: job.company, location: job.location, url: job.page_url || '', via: 'screen' };
     } finally {
       this.busy = false;
@@ -112,7 +152,7 @@ class PostingWatcher extends EventEmitter {
     if (this.busy) return null;
     try {
       const posting = await this.readScreenPosting({ force, onScanning: () => this.emit('scanning', { force }) });
-      if (posting) this.emit('posting', posting);
+      if (posting) this.emit('posting', { ...posting, forced: force });
       else if (force) this.emit('no-posting');
       return posting;
     } catch (err) {

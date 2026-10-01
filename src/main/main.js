@@ -269,7 +269,8 @@ function setupWatcher() {
   watcher.on('posting', (posting) => {
     // Copied while Sprout is in front (e.g. to paste into Check a job): show it in the app, not the popup.
     const inApp = posting.via === 'clipboard' && dashboard && !dashboard.isDestroyed() && dashboard.isFocused();
-    handlePosting(posting, { fromDashboard: inApp })
+    // Screen watching passing a job you've already seen: no popup unless it matters (you applied, etc.).
+    handlePosting(posting, { fromDashboard: inApp, quietDuplicate: posting.via === 'screen' && !posting.forced })
       .then((rec) => inApp && rec && openInDashboard(rec.id))
       .catch((e) => console.error(e));
   });
