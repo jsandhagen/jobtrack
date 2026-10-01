@@ -9,6 +9,10 @@
 //
 // On someone's LinkedIn profile, the card offers to add them to your people
 // instead, with what you have in common (same school, same old employer).
+//
+// Inside a frame (a careers page that shows its postings in an iframe, as
+// iCIMS and embedded boards do), it only reads the posting and passes it to
+// the page around it, which shows the card.
 (() => {
   if (globalThis.__sproutContent) return;
   globalThis.__sproutContent = true;
@@ -40,6 +44,56 @@
     }
   };
   const contentKey = (p) => `${p.title}|${p.company}|${p.text.slice(0, 600)}`;
+
+  if (window !== window.top) return watchFrame();
+
+  // In a frame: read the posting when the frame settles, and report it when it changes.
+  function watchFrame() {
+    let last = '';
+    let timer = null;
+    let firstChange = 0;
+    const look = () => {
+      timer = null;
+      firstChange = 0;
+      if (!alive()) return frameObserver.disconnect();
+      if (!mayBeJobPage()) return;
+      let p = null;
+      try {
+        p = globalThis.sproutExtract();
+      } catch {
+        return;
+      }
+      const posting = p && p.isPosting ? p : null;
+      const key = posting ? contentKey(posting) : '';
+      if (key === last) return;
+      last = key;
+      ask({ type: 'framePosting', posting });
+    };
+    const frameObserver = new MutationObserver(() => {
+      const now = Date.now();
+      if (!firstChange) firstChange = now;
+      clearTimeout(timer);
+      timer = setTimeout(look, Math.max(0, Math.min(900, firstChange + 4000 - now)));
+    });
+    frameObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    setTimeout(look, 600);
+  }
+
+  // The posting on the page, or failing that, one a frame inside it found.
+  // The address stays the page's: it's the one you can come back to.
+  async function extractHere() {
+    let p = null;
+    try {
+      p = globalThis.sproutExtract();
+    } catch {
+      p = null;
+    }
+    if (p && p.isPosting) return p;
+    const r = await ask({ type: 'framePostings' });
+    const best = (r.ok ? r.value || [] : []).filter((x) => x && x.isPosting).sort((a, b) => b.text.length - a.text.length)[0];
+    return best ? { ...best, url: location.href, frameUrl: best.url } : p || { isPosting: false, url: location.href };
+  }
+  let framesHavePosting = false;
 
   // ---------- the card ----------
   let host = null; // <sprout-card>, holding a closed shadow root
@@ -124,12 +178,13 @@
     if (!alive()) return stop();
     if (busy) return schedule(400);
     if (isProfilePage()) return runPerson({ force });
-    if (!force && !mayBeJobPage()) return leave();
+    if (!force && !mayBeJobPage() && !framesHavePosting) return leave();
     let p;
+    busy = true; // asking about frames takes a moment
     try {
-      p = globalThis.sproutExtract();
-    } catch {
-      return;
+      p = await extractHere();
+    } finally {
+      busy = false;
     }
     if (!p || !p.isPosting) {
       misses++;
@@ -267,12 +322,13 @@
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg.type === 'ping') return reply(true);
     if (msg.type === 'extract') {
-      try {
-        reply(globalThis.sproutExtract());
-      } catch {
-        reply(null);
-      }
-      return;
+      extractHere().then(reply, () => reply(null));
+      return true; // async reply
+    }
+    if (msg.type === 'framePosting') {
+      framesHavePosting = true;
+      schedule(300);
+      return reply(true);
     }
     if (msg.type === 'extractPerson') {
       try {
