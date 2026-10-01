@@ -795,6 +795,7 @@ function jobFromBrowser(p) {
 const pickQuick = (q) => ({
   score: q.score,
   label: q.label,
+  headline: q.headline || '',
   confidence: q.confidence,
   matchedSkills: (q.matchedSkills || []).slice(0, 8),
   dealbreakers: q.dealbreakers || [],

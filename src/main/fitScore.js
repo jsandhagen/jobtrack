@@ -126,7 +126,8 @@ const SKILLS = {
   'Adobe Creative Suite': [/\badobe\b/, /\bphotoshop\b/, /\billustrator\b/, /\bindesign\b/],
   Marketing: [/\bmarketing\b/, /\bcampaigns?\b/],
   SEO: [/\bseo\b/, /\bsearch engine optimi[sz]ation\b/],
-  'Content Writing': [/\bcopywriting\b/, /\bcontent (?:writing|creation|strategy)\b/, /\btechnical writing\b/],
+  'Content Writing': [/\bcopywriting\b/, /\bcontent (?:writing|creation|strategy)\b/],
+  'Technical Writing': [/\btechnical writing\b/, /\btechnical documentation\b/, /\bmodel documentation\b/, /\b(?:validation|technical|research) reports\b/, /\bwr(?:ote|ite|iting) (?:clear |detailed )?(?:\w+ )?(?:reports|documentation|specifications)\b/, /\bdocument(?:ed|ing)? (?:models|requirements|processes|methodolog\w*)\b/, /\bpublished (?:\d+ )?papers\b/],
   'Social Media': [/\bsocial media\b/],
   Sales: [/\bsales\b(?!\s+tax)/, /\bquota\b/, /\bpipeline generation\b/],
   CRM: [/\bcrm\b/, /\bsalesforce\b/, /\bhubspot\b/],
@@ -243,7 +244,7 @@ const RELATED_PAIRS = [
   ['Low Latency', 'Multithreading', 0.5], ['Memory Management', 'Low Latency', 0.5], ['Memory Management', 'Performance Optimization', 0.5], ['Memory Management', 'C++', 0.3], ['Low Latency', 'Performance Optimization', 0.6], ['Multithreading', 'Performance Optimization', 0.4], ['Data Structures & Algorithms', 'Performance Optimization', 0.3],
   ['Bayesian Methods', 'Statistics', 0.5], ['Financial Modeling', 'Finance', 0.6], ['Financial Modeling', 'FP&A', 0.5], ['FP&A', 'Forecasting', 0.5], ['FP&A', 'Finance', 0.6], ['M&A', 'Financial Modeling', 0.5], ['Cost Modeling', 'Financial Modeling', 0.6], ['Cost Modeling', 'Business Cases', 0.6], ['Cost Modeling', 'IT Financial Management', 0.5],
   ['Actuarial', 'Regression', 0.3], ['Actuarial Exams', 'Actuarial', 0.5], ['CFA', 'FRM', 0.5], ['Counterparty Risk / xVA', 'Derivatives Pricing', 0.5], ['Counterparty Risk / xVA', 'Credit Risk', 0.4],
-  ['Operational Risk', 'Audit & Controls', 0.6], ['Audit & Controls', 'Legal / Compliance', 0.4], ['Survey Research', 'Statistics', 0.3], ['Survey Research', 'UX Design', 0.4],
+  ['Operational Risk', 'Audit & Controls', 0.6], ['Audit & Controls', 'Legal / Compliance', 0.4], ['Survey Research', 'Statistics', 0.3], ['Survey Research', 'UX Design', 0.4], ['Technical Writing', 'Content Writing', 0.5],
 ];
 const RELATED = new Map();
 for (const [a, b, c] of RELATED_PAIRS) {

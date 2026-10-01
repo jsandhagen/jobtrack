@@ -56,7 +56,7 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
       <div class="src">${analyzing ? '<span class="spinner"></span> Claude is reading closely…' : a ? 'Scored by Claude' : `Free score · ${esc(app.quick.confidence || 'medium')} confidence`} ${window.SproutInfo.infoBtn('fit')}</div></div>
     </div>
     ${atsLine(app)}
-    ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : ''}
+    ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
     <div class="chips">${chips}</div>
     ${footer}`;
 }

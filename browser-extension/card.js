@@ -74,6 +74,7 @@
       ${role(job)}
       ${scoreline(quick.score, quick.label, `Free score · ${esc(quick.confidence || 'medium')} confidence`)}
       ${atsLine(ats && ats.before)}
+      ${quick.headline ? `<div class="headline">${esc(quick.headline)}</div>` : ''}
       ${chips(quick.matchedSkills.slice(0, 6))}
       ${dealbreakers(quick)}
       ${r.hasDocs ? '' : note('Add your resume to your library in Sprout so I can score you properly.')}
@@ -167,7 +168,7 @@
       <div class="saved-tag">${icon('check', 14)} ${r.justSaved ? 'Added to your saved jobs' : 'In your saved jobs'}</div>
       ${scoreline(score, label, src)}
       ${atsLine(app.ats && app.ats.before, a && a.grade)}
-      ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : ''}
+      ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
       ${chips(a ? a.strengths.slice(0, 3) : app.quick.matchedSkills.slice(0, 6))}
       ${a ? '' : dealbreakers(app.quick)}
       ${errors.map((e) => note(esc(e), 'err')).join('')}

@@ -12,8 +12,9 @@
           <li>Required qualifications 50% · Preferred qualifications 8%</li>
           <li>role match 14% · Years of experience 12% · domain 10% · seniority 6%</li>
         </ul>
-        <p class="faint">Evidence in your recent work counts most; older roles, a skills list or coursework count somewhat less, and a related skill (Power BI for Tableau) earns partial credit. Missing must-haves weigh extra, as they do for recruiters, and the other parts count in full only when the must-haves are there. Role match compares the posting's title with titles you've held; domain is how much of the posting's distinctive wording your documents share. Parts that don't apply are left out.</p>
-        <p>A dealbreaker from your Profile caps it at 30. It's free and worked out on your computer. If you asked Claude for a deeper read, the score is Claude's instead.</p>
+        <p class="faint">Evidence in your recent work counts most; older roles, a skills list or coursework count somewhat less, and a related skill (Power BI for Tableau) earns partial credit. Missing must-haves weigh extra, as they do for recruiters, and the other parts count in full only when the must-haves are there. A degree counts for its level and, when the posting names one, its field ("a quantitative field"). Role match compares the posting's title with titles you've held; domain is how much of the posting's distinctive wording your documents share. Parts that don't apply are left out.</p>
+        <p class="faint">Then it screens the way recruiters do: well short of the years asked, or two levels up, reads as a stretch; a role well below your level as overqualified; a sales or recruiting job you haven't done, or a product the title names that you don't show, caps it. "Excellent" means you meet the must-haves and have done the day-to-day work.</p>
+        <p>A dealbreaker from your Profile caps it at 30. The line under the score says the one thing that decides it. It's free and worked out on your computer. If you asked Claude for a deeper read, the score is Claude's instead.</p>
         <p>Editing a resume doesn't change it. Use it to decide <b>whether to apply</b>.</p>`,
     },
     ats: {

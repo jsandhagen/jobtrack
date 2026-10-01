@@ -75,7 +75,8 @@ const NOT_TERMS = new Set(
     // the bare activity, without what it's of
     'testing development management engineering operations implementation support delivery planning ' +
     // verbs left over from "a track record of exceeding quota"
-    'exceeding meeting achieving hitting delivering'
+    'exceeding meeting achieving hitting delivering ' +
+    'theory theories fundamentals basics evaluation evaluations assessment assessments review reviews'
   ).split(' ')
 );
 
@@ -99,7 +100,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     while (words0.length && EDGE_WORDS.has(lower(words0[words0.length - 1]).replace(/[.,;:]$/, ''))) words0.pop();
     const clean = words0.join(' ').replace(/\s*\([^)]*$/, '').replace(/[,.;:)]+$/, '');
     const words = lower(clean).split(/\s+/).filter(Boolean);
-    if (!clean || clean.length < 2 || words.length > 4) return;
+    if (!clean || clean.length < 2 || words.length > 4 || !/[a-z]/i.test(clean)) return;
     if (/\d\s*\+?\s*(?:years?|yrs)\b/i.test(clean)) return; // "4+ years leading teams" is a years requirement
     // "regulatory expectations", "industry standards": what about them is the requirement, not the phrase.
     if (GENERIC_HEAD.test(lower(clean))) return;
@@ -796,6 +797,43 @@ function functionGap(job, lib) {
   return null;
 }
 
+// ---------- headline ----------
+
+const listOf = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+// Labels as a sentence says them: "experience in a, b or c", "a master's in a quantitative field".
+const plain = (label) =>
+  label
+    .replace(/^one of (.*), ([^,]+)$/, '$1 or $2')
+    .replace(/^experience in (.*)$/, (m, x) => `experience in ${x.split(' or ').length > 2 ? `${x.split(' or ').slice(0, -1).join(', ')} or ${x.split(' or ').pop()}` : x}`)
+    .replace(/^(associate|bachelor's|master's) degree in ([^,]+?)(?:,.*)? or (?:another|a) (.*) field$/, '$1 degree in $2 or another $3 field')
+    .replace(/^(associate|bachelor's|master's) degree (in .{40,})$/, '$1 degree in the field asked for');
+function fitHeadline(f) {
+  if (f.breakers.length) return `Dealbreaker: ${f.breakers[0].replace(/^./, (c) => c.toLowerCase())}.`;
+  if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, and that's not work your documents show.`;
+  if (f.missingCore.length) return `The title names ${listOf(f.missingCore)}, which your documents don't show — that's the job's core.`;
+  const years = f.needYears !== null && f.haveYears !== null ? ` It asks for ${f.needYears}+ years; you have about ${Math.round(f.haveYears)}.` : '';
+  if (f.stretch) return `A stretch: this is a ${LEVEL_NAMES[f.postingLevel]}-level role and your experience reads as ${LEVEL_NAMES[f.userLevel]}.${years}`;
+  if (f.shortYears) return `A stretch on experience:${years}`;
+  if (f.overqualified) return `You'd likely be overqualified: this is an earlier-career version of what you already do.`;
+  // The kind of experience and the degree come first, then by how sure we are it's a requirement.
+  const rank = (u) => (u.gate || /degree|^PhD/.test(u.label) ? 2 : u.weight);
+  const byRank = (list) => [...list].sort((a, b) => rank(b) - rank(a)).map((u) => plain(u.label));
+  const met = f.req.filter((u) => u.met >= 0.75).length;
+  // A skill already named in a missing "experience in …" says the same thing twice.
+  const kindGaps = f.req.filter((u) => u.gate && u.met < 0.5).map((u) => lower(u.label));
+  const gaps = byRank(f.req.filter((u) => u.met < 0.5 && !(!u.gate && kindGaps.some((k) => k.includes(lower(u.label))))));
+  const partial = byRank(f.req.filter((u) => u.met >= 0.5 && u.met < 0.75));
+  const done = f.role !== null && f.role >= 0.7 ? ' and have done this kind of role' : '';
+  const step = f.stepUp ? 'A step up from where you are: ' : '';
+  const cap = (x) => (step ? x.replace(/^./, (c) => c.toLowerCase()) : x);
+  if (!f.req.length) return f.score >= 65 ? 'Your background lines up with this role.' : f.score >= 45 ? 'Some of your background carries over to this role.' : 'Little of this role shows in your documents.';
+  if (!gaps.length && !partial.length) return `${step}${cap(`You meet all ${f.req.length} must-haves${done}.`)}${f.dutyGap ? ' The day-to-day work would be new, though.' : ''}`;
+  if (!gaps.length) return `${step}${cap(`You meet the must-haves${done}; ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown.`)}`;
+  if (met / f.req.length < 0.3) return `This role needs ${listOf(gaps.slice(0, 3))}, which your documents don't show.`;
+  const also = gaps.length === 1 && partial.length ? `, and ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown` : '';
+  return `${step}${cap(`You show ${met} of ${f.req.length} must-haves; the ${gaps.length === 1 ? 'gap is' : 'main gaps are'} ${listOf(gaps.slice(0, 2))}${also}.`)}`;
+}
+
 // ---------- the score ----------
 
 function localFitScore(job, documents, profile = {}) {
@@ -924,10 +962,16 @@ function localFitScore(job, documents, profile = {}) {
   if (dutyGap) concerns.push(`${req.every((u) => u.met >= 0.5) ? 'You meet what it asks for, but much' : 'Much'} of the day-to-day work (${neutral.filter((u) => u.met < 0.5).slice(0, 3).map((u) => u.label).join(', ')}) isn't in your documents yet`);
   if (missingCore.length) concerns.push(`The title names ${missingCore.join(', ')}, which your documents don't show`);
   const missingReq = req.filter((u) => u.met < 0.5).map((u) => u.label);
+
+  // One sentence to decide by, most decisive fact first.
+  const headline = documents.length
+    ? fitHeadline({ breakers, otherFunction, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
+    : '';
   if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
 
   return {
     score,
+    headline,
     version: SCORER_VERSION,
     label: breakers.length ? 'Dealbreaker' : fitLabel(score),
     confidence,
