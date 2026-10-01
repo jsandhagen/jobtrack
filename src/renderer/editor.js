@@ -703,14 +703,16 @@ function wirePaper() {
     const roleTool = e.target.closest('[data-role-tool]');
     if (roleTool) {
       const r = +roleTool.dataset.r;
-      if (roleTool.dataset.roleTool === 'remove' && confirm('Take this role off this resume? (It stays in your bullet bank.)')) {
-        ed.doc.roles.splice(r, 1);
-        ed.polish = new Map();
-        ed.held = [];
-        ed.focus = null;
-        renderPaper();
-        saveNow();
-      }
+      if (roleTool.dataset.roleTool === 'remove')
+        askConfirm('Take this role off this resume? (It stays in your bullet bank.)', 'Take it off').then((yes) => {
+          if (!yes || ed.doc.roles[r] === undefined) return;
+          ed.doc.roles.splice(r, 1);
+          ed.polish = new Map();
+          ed.held = [];
+          ed.focus = null;
+          renderPaper();
+          saveNow();
+        });
       if (roleTool.dataset.roleTool === 'up' && r > 0) {
         [ed.doc.roles[r - 1], ed.doc.roles[r]] = [ed.doc.roles[r], ed.doc.roles[r - 1]];
         ed.polish = new Map();

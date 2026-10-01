@@ -427,7 +427,7 @@ function bindTemplates() {
   $$('.editTpl').forEach((b) => b.addEventListener('click', () => openTemplateModal(state.templates.find((t) => t.id === b.dataset.id))));
   $('#newTpl').addEventListener('click', () => openTemplateModal({ name: '', body: 'Hi {first}, \n\n{me}' }));
   $('#resetTpl').addEventListener('click', async () => {
-    if (!confirm("Put Sprout's templates back? Your edited and new templates will be replaced.")) return;
+    if (!(await askConfirm("Put Sprout's templates back? Your edited and new templates will be replaced.", 'Put them back'))) return;
     await S.resetTemplates();
     netRefresh();
   });
@@ -508,7 +508,7 @@ function openContactModal(c = {}) {
   const del = $('#delContact', card);
   if (del)
     del.addEventListener('click', async () => {
-      if (!confirm(`Remove ${c.name} from your people?`)) return;
+      if (!(await askConfirm(`Remove ${c.name} from your people?`, 'Remove'))) return;
       await S.removeItem('contacts', c.id);
       closeModal();
       netRefresh();
@@ -991,7 +991,7 @@ function bindCompanies() {
   const clear = $('#connClear');
   if (clear)
     clear.addEventListener('click', async () => {
-      if (!confirm('Remove your imported LinkedIn connections? People you added from them stay.')) return;
+      if (!(await askConfirm('Remove your imported LinkedIn connections? People you added from them stay.', 'Remove'))) return;
       await S.clearConnections();
       netRefresh();
     });
@@ -1599,7 +1599,7 @@ function bindDiscoverTab() {
   const clear = $('#fzClear');
   if (clear)
     clear.addEventListener('click', async () => {
-      if (!confirm('Clear the companies found so far? Ones you watch stay on your Companies list.')) return;
+      if (!(await askConfirm('Clear the companies found so far? Ones you watch stay on your Companies list.', 'Clear'))) return;
       await S.clearFinder();
       netRefresh();
     });
@@ -1784,7 +1784,7 @@ function bindCompaniesTab() {
   $$('.coDel').forEach((b) =>
     b.addEventListener('click', async () => {
       const co = state.companies.find((c) => c.id === b.dataset.id);
-      if (co && !confirm(`Stop watching ${co.name}?`)) return;
+      if (co && !(await askConfirm(`Stop watching ${co.name}?`, 'Stop watching'))) return;
       await S.removeItem('companies', b.dataset.id);
       netRefresh();
     })

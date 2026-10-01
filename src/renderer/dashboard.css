@@ -837,3 +837,5 @@ p.way-next { display: flex; }
 .week-key span { display: inline-flex; align-items: center; gap: 4px; }
 .week-key .bud-dot { width: 8px; height: 10px; border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; background: var(--lavender); display: inline-block; }
 .week-key .ic { color: var(--sage-deep); }
+.confirm-modal { z-index: 60; }
+.confirm-modal .modal-card { width: min(440px, 100%); }

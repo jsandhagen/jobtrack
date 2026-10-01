@@ -287,6 +287,38 @@ document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') closeModal();
 });
 
+// Yes/no questions in the page, never window.confirm(): in Electron a native
+// dialog can leave text boxes unable to take typing until the window is
+// refocused. Its own layer, so it can sit over an open modal. Resolves true/false.
+function askConfirm(message, okLabel = 'OK') {
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'modal confirm-modal';
+    back.innerHTML = `<div class="modal-card card" role="alertdialog" aria-modal="true"><p style="margin:0 0 16px;font-weight:600">${esc(message)}</p>
+      <div class="inline" style="justify-content:flex-end"><button class="ghost" data-ans="no">Cancel</button><button class="primary" data-ans="yes">${esc(okLabel)}</button></div></div>`;
+    const was = document.activeElement;
+    const done = (yes) => {
+      document.removeEventListener('keydown', onKey, true);
+      back.remove();
+      if (was && was.isConnected) was.focus();
+      resolve(yes);
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Escape' && e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      done(e.key === 'Enter');
+    };
+    back.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-ans]');
+      if (b || e.target === back) done(!!b && b.dataset.ans === 'yes');
+    });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(back);
+    back.querySelector('[data-ans="yes"]').focus();
+  });
+}
+
 // ---------------- your own resumes ----------------
 
 // A new resume: from your bank, or a copy of a saved resume or an application's.
@@ -371,7 +403,7 @@ async function renderResumePage(id) {
     }),
   );
   $('#rsDel', page).addEventListener('click', async () => {
-    if (!confirm(`Delete “${r.name}”? This can't be undone.`)) return;
+    if (!(await askConfirm(`Delete “${r.name}”? This can't be undone.`, 'Delete'))) return;
     await S.removeResume(id);
     location.hash = '#resumes';
   });
@@ -927,7 +959,7 @@ async function renderApplication(id) {
   const link = $('#jobLink', page);
   if (link) link.addEventListener('click', (e) => (e.preventDefault(), S.openExternal(a.job.url)));
   $('#delApp', page).addEventListener('click', async () => {
-    if (!confirm(unsaved ? 'Forget this job?' : 'Delete this application?')) return;
+    if (!(await askConfirm(unsaved ? 'Forget this job?' : 'Delete this application?', unsaved ? 'Forget' : 'Delete'))) return;
     await S.removeApplication(id);
     location.hash = unsaved ? '#check' : '#applications';
   });
@@ -940,7 +972,7 @@ async function renderApplication(id) {
   const gl = $('#genLetter', page);
   if (gl) gl.addEventListener('click', genLetter);
   const rl = $('#regenLetter', page);
-  if (rl) rl.addEventListener('click', () => confirm('Rewrite the cover letter? Your edits will be replaced.') && genLetter());
+  if (rl) rl.addEventListener('click', async () => (await askConfirm('Rewrite the cover letter? Your edits will be replaced.', 'Rewrite')) && genLetter());
   $$('.exp', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
@@ -1222,9 +1254,9 @@ const binders = {
       sel.addEventListener('change', () => S.updateDocument(sel.dataset.id, { kind: sel.value }));
     });
     $$('.delDoc').forEach((b) =>
-      b.addEventListener('click', (e) => {
+      b.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Remove this document from your library?')) S.removeDocument(b.dataset.id);
+        if (await askConfirm('Remove this document from your library?', 'Remove')) S.removeDocument(b.dataset.id);
       })
     );
     $$('[data-doc]').forEach((row) =>

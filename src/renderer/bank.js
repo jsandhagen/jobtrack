@@ -152,7 +152,7 @@ async function renderBankPage() {
       renderBankPage();
     })
   );
-  $$('[data-del]', page).forEach((btn) => btn.addEventListener('click', async () => confirm('Delete this bullet from your bank?') && (await S.deleteBullet(btn.dataset.del), renderBankPage())));
+  $$('[data-del]', page).forEach((btn) => btn.addEventListener('click', async () => (await askConfirm('Delete this bullet from your bank?', 'Delete')) && (await S.deleteBullet(btn.dataset.del), renderBankPage())));
   $$('[data-addto]', page).forEach((btn) =>
     btn.addEventListener('click', () => {
       const t = $(`[data-newfor="${btn.dataset.addto}"]`, page);
