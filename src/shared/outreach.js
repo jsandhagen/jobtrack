@@ -434,7 +434,8 @@
     if (!t) return '';
     if (RECRUITER.test(t)) return 'recruiter';
     if (splitList(profile.targetRoles).some((r) => sameOrg(r, t) || norm(t).includes(norm(r)))) return 'peer';
-    return LEADER.test(t) ? 'leader' : '';
+    // Product, program and account managers usually manage the work, not people.
+    return LEADER.test(t.replace(/\b(?:product|project|program|account|customer success|community|social media|office|case|property|key account) manager\b/gi, ' ')) ? 'leader' : '';
   }
 
   // How warm a connection is, warmest first.
@@ -641,6 +642,13 @@
       body: "Hi {first},\n\nI've applied for the {job} role at {company}[[ ({jobUrl})]] and wanted to say hello directly.[[ Since we both {common}, I thought I'd reach out.]] I think my background[[ at {myEmployer}]] lines up well, and I'd love to be considered.\n\nIs there anything else I can send to help?\n\nThanks,\n{myName}",
     },
     {
+      id: 'tpl-recruiter-intro',
+      name: 'Recruiter: roles like yours',
+      channel: 'note',
+      when: 'recruiter-intro',
+      body: "Hi {first}, I'm looking for {role} roles[[ after my time at {myEmployer}]][[ and saw we both {common}]]. If {company} is hiring for anything like that, I'd love to be on your radar. Happy to send my resume.\n\n{me}",
+    },
+    {
       id: 'tpl-follow',
       name: 'Friendly follow-up',
       channel: 'message',
@@ -746,8 +754,11 @@
         return !!job && status !== 'referred';
       case 'recruiter':
         return !!job && RECRUITER.test(contact.title || '') && !['talked', 'referred'].includes(status);
+      case 'recruiter-intro':
+        return !job && RECRUITER.test(contact.title || '') && !['talked', 'referred'].includes(status);
+      // Asking a recruiter what their job is like misses why you'd write to one.
       case 'common':
-        return !!clean(contact.connection) && !['reached', 'talked', 'referred'].includes(status);
+        return !!clean(contact.connection) && !RECRUITER.test(contact.title || '') && !['reached', 'talked', 'referred'].includes(status);
       case 'know':
         return KNOW.test(contact.connection || '') && !['reached', 'talked', 'referred'].includes(status);
       case 'waiting':
@@ -755,12 +766,12 @@
       case 'talked':
         return ['replied', 'talked', 'referred'].includes(status);
       case 'any':
-        return !['talked', 'referred'].includes(status);
+        return !RECRUITER.test(contact.title || '') && !['talked', 'referred'].includes(status);
       default:
         return true; // your own templates always show
     }
   }
-  const FIRST = { waiting: 60, talked: 60, recruiter: 50, job: 40, know: 30, common: 20, any: 0 };
+  const FIRST = { waiting: 60, talked: 60, recruiter: 50, 'recruiter-intro': 50, job: 40, know: 30, common: 20, any: 0 };
 
   // Several ready-to-send messages for this person, best first: the ones
   // that suit where things stand, with their details filled in.
