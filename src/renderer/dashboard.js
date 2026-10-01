@@ -1214,11 +1214,22 @@ async function renderExtensionCard() {
     ${st.port ? '' : '<div class="note-box" style="background:var(--peach-soft)">The connection for the extension couldn\'t start (another program may be using the port). Restart Sprout to try again.</div>'}
     <ol class="tidy muted" style="padding-left:20px">
       <li>In Chrome, Edge or Brave open <b>chrome://extensions</b> and turn on <b>Developer mode</b>.</li>
-      <li>Click <b>Load unpacked</b> and choose the extension folder: <button class="small soft" id="extFolder">${icon('folder', 15)} Show folder</button></li>
+      <li>Click <b>Load unpacked</b>. In the window that opens, go to this folder and click <b>Select Folder</b> without picking any file inside it (you'll see <i>icons</i>, <i>vendor</i>, <i>background.js</i> and so on when you're in the right place). Pasting the address into the window's address bar is quickest:
+        <div class="kv" style="grid-template-columns:1fr auto auto;gap:6px;margin-top:6px"><code id="extPath" style="word-break:break-all;user-select:all">${esc(st.folder || '')}</code>
+        <button class="small soft" id="extCopy">${icon('clipboard', 15)} Copy</button>
+        <button class="small soft" id="extFolder">${icon('folder', 15)} Show folder</button></div></li>
       <li>Click the Sprout icon in the toolbar → <b>Connect</b>, then choose <b>Allow</b> here.</li>
     </ol>
     ${browsers}`;
   $('#extFolder', card).addEventListener('click', () => S.showExtensionFolder());
+  $('#extCopy', card).addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(st.folder || '');
+      toast('Folder address copied');
+    } catch {
+      toast("Couldn't copy. Select the address and copy it instead.");
+    }
+  });
   $$('[data-revoke]', card).forEach((b) =>
     b.addEventListener('click', async () => {
       await S.bridgeRevoke(b.dataset.revoke);

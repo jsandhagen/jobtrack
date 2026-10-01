@@ -1300,7 +1300,8 @@ function registerIpc() {
     store.updateSettings({ bridgePairings: (store.getSettings().bridgePairings || []).filter((p) => p.origin !== origin) });
     broadcast('state-changed');
   });
-  handle('bridge:showFolder', () => shell.openPath(extensionDir()));
+  // Highlights the folder in its parent rather than opening it, since Load unpacked wants the folder itself.
+  handle('bridge:showFolder', () => shell.showItemInFolder(extensionDir()));
   handle('update:status', () => updater.status());
   handle('update:check', () => updater.check());
   handle('update:install', () => updater.install());

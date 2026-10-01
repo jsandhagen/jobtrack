@@ -341,7 +341,7 @@ The extension in `browser-extension/` reads the job straight from the web page, 
 
 **Install (developer mode):**
 1. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
-2. Click **Load unpacked** and choose the `browser-extension` folder. Settings → *Browser extension* has a button that opens it.
+2. Click **Load unpacked** and choose the `browser-extension` folder itself: go into it (you will see `icons`, `vendor`, `background.js` and so on) and click **Select Folder** without picking a file. Settings → *Browser extension* shows the folder's address with a **Copy** button (paste it into the picker's address bar) and a **Show folder** button that highlights it.
 3. Click the Sprout icon → **Connect**, then press **Allow** in the Sprout popup.
 
 **Updates:** the extension is loaded from the folder that comes with the app, so updating Sprout updates its files too. Release builds give the extension the app's version number. When the app reports a newer extension than the one running, the extension reloads itself from that folder (once per version). If it was loaded from a different folder, the toolbar popup says where to find the new one.
