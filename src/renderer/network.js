@@ -1295,7 +1295,7 @@ function jobsTab() {
   for (const it of shown.slice(0, board.limit)) {
     const sec = board.sort === 'new' ? daySection(it.job) : '';
     if (sec && sec !== section) list += `<div class="section-title board-sec">${(section = sec)}</div>`;
-    list += jobRow(it);
+    list += jobRow({ ...it, match: it.job && it.job.similarTitle ? 'similar' : '' });
   }
   const more = shown.length > board.limit ? `<button class="ghost" id="boardMore" style="width:100%;margin-top:8px">Show ${Math.min(PAGE_SIZE, shown.length - board.limit)} more of ${shown.length - board.limit}</button>` : '';
   const olderHint = board.window !== 'all' && filtered.length > shown.length ? ` <a href="#" data-feed="all">See all ${filtered.length} open</a>.` : '';

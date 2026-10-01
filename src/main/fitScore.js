@@ -160,7 +160,7 @@ const SKILLS = {
   ITSM: [/\bitil\b/, /\bitsm\b/, /\bit service management\b/, /\binfrastructure library\b/],
   ServiceNow: [/\bservicenow\b/],
   ERP: [/\berp\b/, /\bsap\b/, /\bs\/4\s?hana\b/, /\boracle (?:cloud|ebs|e-business|fusion|erp)\b/, /\bnetsuite\b/, /\bworkday (?:hcm|financials)\b/],
-  PMO: [/\bpmo\b/, /\bprogram management(?: office)?\b/, /\braid logs?\b/],
+  'Program Management': [/\bpmo\b/, /\bprogram management(?: office)?\b/, /\braid logs?\b/],
   'Change Management': [/\bchange management\b/, /\borgani[sz]ational change\b/, /\bchange (?:adoption|readiness)\b/],
   'Business Analysis': [/\bbusiness analy(?:sis|sts?)\b/, /\bsystems analy(?:sis|sts?)\b/],
   'Requirements Gathering': [/\brequirements (?:gathering|elicitation|analysis)\b/, /\bgathered requirements\b/, /\bbusiness requirements\b/, /\buser stories\b/],
@@ -177,7 +177,13 @@ const SKILLS = {
   // General business strategy (growth, corporate, strategic planning); technology strategy is its own skill.
   Strategy: [/\b(?:business|corporate|growth|go-to-market|competitive) strateg(?:y|ies)\b/, /\bstrategic (?:planning|insights|recommendations|initiatives|projects|direction|plans?)\b/, /\bstrategy and operations\b/, /\bstrategy & operations\b/, /\bmarket entry\b/],
   'AI Strategy': [/\bai strateg(?:y|ies)\b/, /\bai (?:initiatives|adoption|use cases)\b/],
+  'Competitive Analysis': [/\bcompetitive (?:analysis|analyses|landscape|intelligence|positioning)\b/, /\bcompetitor (?:analysis|research|benchmarking)\b/, /\bbattle ?cards?\b/, /\bwin\/loss\b/],
+  'Low-Code / BPM': [/\blow[- ]code\b/, /\bno[- ]code\b/, /\bbusiness process management\b/, /\bbpm\b/, /\bworkflow (?:automation|platforms?)\b/, /\bprocess automation\b/, /\brpa\b/, /\brobotic process automation\b/],
   // industries
+  // Working at a software vendor is enterprise software experience, though few
+  // resumes say so: a vendor's name counts where it reads as an employer (a role
+  // line with dates), not where it is a tool someone used.
+  'Enterprise Software': [/\benterprise software\b/, /\bsaas\b/, /\bsoftware[- ]as[- ]a[- ]service\b/, /\bb2b software\b/, /\b(?:enterprise )?software (?:company|companies|vendors?|firms?|industry)\b/, /\b(?:appian|pegasystems|servicenow|salesforce|workday|oracle|sap|microsoft|adobe|atlassian|snowflake|databricks|uipath|outsystems|mendix|hubspot|zendesk|datadog|mongodb|okta|docusign|autodesk|palantir|veeva|guidewire|celonis|informatica|confluent|gitlab|twilio|intuit|vmware|splunk|elastic|unqork|blue prism|automation anywhere)(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\.?\s*[,|·–—-]?\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? )?(?:19|20)\d{2}\b/],
   'Financial Services': [/\bfinancial services\b/, /\bbank(?:s|ing)?\b/, /\binsur(?:ance|er|ers)\b/, /\bfintech\b/, /\bcapital markets\b/, /\bmortgage\b/, /\blending\b/, /\bcredit (?:unions?|cards?)\b/, /\bpayments\b/],
   'Public Sector': [/\bpublic sector\b/, /\bfederal\b/, /\bgovernment\b/, /\bstate and local\b/],
   'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
@@ -232,7 +238,7 @@ const RELATED_PAIRS = [
   ['Technology Strategy', 'Consulting', 0.4], ['Digital Transformation', 'Change Management', 0.5], ['Digital Transformation', 'Cloud Strategy', 0.5],
   ['Cloud Strategy', 'AWS', 0.4], ['Cloud Strategy', 'Azure', 0.4], ['Cloud Strategy', 'GCP', 0.4], ['Cloud Strategy', 'Enterprise Architecture', 0.4],
   ['Enterprise Architecture', 'Application Portfolio', 0.5], ['Application Portfolio', 'IT Portfolio Management', 0.5],
-  ['PMO', 'Project Management', 0.7], ['PMP', 'Project Management', 0.5], ['PMO', 'IT Portfolio Management', 0.5], ['Requirements Gathering', 'Process Mapping', 0.5], ['Business Analysis', 'Requirements Gathering', 0.6], ['Business Analysis', 'Process Mapping', 0.5], ['Business Analysis', 'IT Portfolio Management', 0.3], ['CI/CD', 'Testing', 0.3],
+  ['Program Management', 'Project Management', 0.7], ['PMP', 'Project Management', 0.5], ['Program Management', 'IT Portfolio Management', 0.5], ['Requirements Gathering', 'Process Mapping', 0.5], ['Business Analysis', 'Requirements Gathering', 0.6], ['Business Analysis', 'Process Mapping', 0.5], ['Business Analysis', 'IT Portfolio Management', 0.3], ['CI/CD', 'Testing', 0.3],
   ['Business Cases', 'IT Financial Management', 0.6], ['Business Cases', 'Finance', 0.4], ['ITSM', 'ServiceNow', 0.7], ['IT Governance', 'ITSM', 0.4],
   ['Stakeholder Management', 'Workshop Facilitation', 0.4], ['Consulting', 'Business Development', 0.3], ['Data Strategy', 'AI Strategy', 0.5],
   ['Data Strategy', 'Technology Strategy', 0.4], ['Operating Model', 'Change Management', 0.4], ['Vendor Selection', 'ERP', 0.2],
@@ -240,7 +246,7 @@ const RELATED_PAIRS = [
   ['IT Financial Management', 'Finance', 0.5],
   ['Business Impact', 'Business Cases', 0.5], ['Digital Products', 'Digital Transformation', 0.5], ['Digital Products', 'Product Management', 0.4],
   ['Data Quality', 'Data Strategy', 0.5], ['Data Quality', 'IT Governance', 0.3], ['Strategy', 'Technology Strategy', 0.5], ['Strategy', 'Consulting', 0.4],
-  ['Strategy', 'Business Cases', 0.3], ['Project Management', 'Digital Transformation', 0.3], ['PMO', 'Digital Transformation', 0.3],
+  ['Strategy', 'Business Cases', 0.3], ['Strategy', 'Competitive Analysis', 0.5], ['Strategy', 'AI Strategy', 0.5], ['Project Management', 'Digital Transformation', 0.3], ['Program Management', 'Digital Transformation', 0.3],
   ['FedRAMP', 'Cloud Strategy', 0.4], ['Federal IT Policy', 'IT Governance', 0.5], ['Federal IT Policy', 'Public Sector', 0.4],
   ['Machine Learning', 'AI Strategy', 0.5], ['Data Analysis', 'Data Strategy', 0.3], ['Vendor Selection', 'Consulting', 0.2],
   ['Microservices', 'Kafka', 0.4], ['Cloud Certification', 'AWS', 0.4], ['Cloud Certification', 'Azure', 0.4], ['Agile', 'Change Management', 0.2],

@@ -102,6 +102,12 @@ function splitOrgLocation(text) {
   return { organization: t, location: '' };
 }
 
+// A team or practice inside an employer: "Office of the CTO", "Technology
+// Strategy & Transformation", "Corporate Development". Only function words, so a
+// company name ("Deloitte Consulting") never reads as one.
+const TEAM_WORDS = 'tech|strategy|strategic|transformation|advisory|consulting|operations|engineering|innovation|product|products|digital|data|ai|analytics|cloud|enterprise|it|corporate|development|research|finance|financial|risk|services|solutions|management|business|planning|architecture|emerging|platform|platforms|global|team|practice|group|division|department|lab|labs|center|of|excellence|the|and|&|cto|cio|ceo|cfo|coo|ciso|chief|technology|officer|office|marketing|sales|partnerships|alliances|security|software|federal|public|sector|health|human|capital|people|customer|success|growth|intelligence|investments?';
+const TEAM = new RegExp(`^(?:office of (?:the )?.+|(?:(?:${TEAM_WORDS})\\s*)+)$`, 'i');
+
 // "Senior Engineer, Bloom Labs, Portland" / "Bloom Labs — Senior Engineer" / "Engineer at Bloom"
 function splitHeader(text) {
   const t = text.replace(DATE_RANGE, '').replace(/[|·•,–—-]\s*$/, '').replace(/\(\s*\)/g, '').trim();
@@ -116,6 +122,16 @@ function splitHeader(text) {
   const orgLike = /\b(inc|llc|ltd|labs?|corp|corporation|company|co\.?|group|hospital|university|college|school|studio|agency|bank|health|systems|technologies|partners|gmbh)\b/i;
   if (parts.length >= 2 && orgLike.test(parts[0]) && TITLE_WORD.test(parts[1]) && !TITLE_WORD.test(parts[0])) parts = [parts[1], parts[0], ...parts.slice(2)];
   const locationLike = /^(remote|hybrid|[A-Z][a-z]+(?:\s[A-Z][a-z]+)*,?\s?[A-Z]{2}|[A-Z][a-z]+(?:\s[A-Z][a-z]+)*)$/;
+  // "Consultant, Office of the CTO, Appian" / "Analyst, Technology Strategy &
+  // Transformation, Deloitte Consulting": the team comes before the employer.
+  // The team stays with the title; the employer is the organization.
+  if (parts.length >= 3 && TEAM.test(parts[1]) && !/^(?:remote|hybrid)$/i.test(parts[2]) && !/,\s?[A-Z]{2}$/.test(parts[2])) {
+    return {
+      title: `${parts[0]}, ${parts[1]}`,
+      organization: parts[2],
+      location: parts.slice(3).filter((p) => locationLike.test(p) || /remote|hybrid/i.test(p)).join(', '),
+    };
+  }
   return {
     title: parts[0] || '',
     organization: parts[1] || '',
@@ -853,4 +869,5 @@ module.exports = {
   skillTags,
   orderedExperiences,
   splitHeader,
+  isTeamName: (s) => TEAM.test(String(s || '').trim()),
 };
