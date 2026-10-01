@@ -586,7 +586,6 @@ const views = {
           'Your target roles shape the fit score. Postings that hit a dealbreaker are capped at 30 and labelled "Dealbreaker", so they don\'t pop up as good matches.',
           `<div class="full"><label>Roles you are aiming for</label><textarea data-k="targetRoles" rows="2" style="min-height:0" placeholder="Frontend engineer, design engineer">${esc(p.targetRoles)}</textarea><small class="faint">Separate with commas. List every title you'd take: the same job goes by many names (Technology Strategy Manager, Strategy &amp; Operations Manager, Chief of Staff), and Find jobs looks for each one.</small></div>
           ${f('workModes', 'Work arrangements', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
-          <div class="full"><label>Skills you have that your resume doesn't show</label><textarea data-k="haveSkills" rows="2" style="min-height:0" placeholder="Low-code, Kubernetes, Spanish">${esc(p.haveSkills || '')}</textarea><small class="faint">Separate with commas. They count toward the fit score as if a resume said so. They aren't added to your resumes. On a job's <i>Fit &amp; ATS</i> tab, <b>I have this</b> on a missing skill adds it here.</small></div>
           ${f('avoidKeywords', 'Skip postings that mention', 'commission only, night shift', true)}
           <div class="full"><label>Employers to skip</label><textarea data-k="skipEmployers" rows="2" style="min-height:0" placeholder="Accenture, Deloitte, KPMG, PwC, EY, McKinsey, BCG, Booz Allen">${esc(p.skipEmployers)}</textarea><small class="faint">Separate with commas. Their postings read as a dealbreaker, Find jobs leaves them out, and the company finder won't suggest them. "Deloitte" also covers Deloitte Consulting. Use this rather than "consulting" above: in-house roles often ask for consulting experience.</small></div>`
         )}
@@ -1001,7 +1000,7 @@ async function renderApplication(id) {
   const skills = `<div class="section-title">Skills from the posting</div><div>
     ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
     ${(q.partialSkills || []).map((s) => `<span class="chip" title="Partly shown: a related skill, an older role or only a skills-list mention">~ ${esc(s)}</span>`).join('')}
-    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Count it toward the fit score (adds it to your Profile)">I have this</button></span>`).join('')}
+    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
     ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Preferred">✓ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
@@ -1105,10 +1104,11 @@ async function renderApplication(id) {
   $$('[data-have]', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
-        const have = String(state.profile.haveSkills || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
-        if (!have.some((x) => x.toLowerCase() === b.dataset.have.toLowerCase())) await S.updateProfile({ haveSkills: [...have, b.dataset.have].join(', ') });
+        const bank = await S.getBank();
+        const skills = bank.skills || [];
+        if (!skills.some((x) => x.toLowerCase() === b.dataset.have.toLowerCase())) await S.updateBank({ skills: [...skills, b.dataset.have] });
         await S.rescoreLocal(id);
-        toast(`Counting ${b.dataset.have} as a skill you have. Change it any time in Profile.`, 'good');
+        toast(`Added ${b.dataset.have} to the skills in your bullet bank.`, 'good');
       }, '…')
     )
   );
