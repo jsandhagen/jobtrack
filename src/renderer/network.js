@@ -1020,7 +1020,7 @@ function outreachHomeCard() {
 //   Searches   one-click searches (saved, suggested, build your own).
 //   Companies  the companies you watch and their careers sites.
 
-const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday', recruitee: 'Recruitee', bamboohr: 'BambooHR', breezy: 'Breezy', pinpoint: 'Pinpoint', rippling: 'Rippling', gem: 'Gem', teamtailor: 'Teamtailor', personio: 'Personio', oracle: 'Oracle' };
+const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday', recruitee: 'Recruitee', bamboohr: 'BambooHR', oracle: 'Oracle', phenom: 'Phenom', breezy: 'Breezy', pinpoint: 'Pinpoint', rippling: 'Rippling', gem: 'Gem', teamtailor: 'Teamtailor', personio: 'Personio' };
 const FEED_WINDOWS = [
   ['week', 'Past week', 7],
   ['month', 'Past month', 30],
@@ -1846,7 +1846,7 @@ function bindCompanyModals() {
       e.preventDefault();
       const co = state.companies.find((c) => c.id === b.dataset.id);
       const card = openModal(`<h2 style="margin-top:0">${esc(co.name)} careers page</h2>
-        <p class="muted">Their careers page, or better, the job board it uses (a link with greenhouse.io, lever.co, ashbyhq.com, workable.com, smartrecruiters.com or myworkdayjobs.com in it). Tip: click any job on their careers page and copy the address it opens.</p>
+        <p class="muted">Their careers page, or better, the job board it uses (a link with greenhouse.io, lever.co, ashbyhq.com, workable.com, smartrecruiters.com, myworkdayjobs.com, recruitee.com, bamboohr.com, breezy.hr, pinpointhq.com, rippling.com, gem.com, teamtailor.com, personio or oraclecloud.com in it; Phenom careers sites like careers.freddiemac.com work as they are). A company's own jobs page works too. Tip: click any job on their careers page and copy the address it opens.</p>
         <input id="coLink" placeholder="https://…" value="${esc(co.careersUrl || '')}"><div class="inline" style="margin-top:12px"><button class="primary" id="coLinkSave">Save</button><button class="ghost" id="coLinkCancel">Cancel</button></div>`);
       $('#coLinkCancel', card).addEventListener('click', closeModal);
       $('#coLinkSave', card).addEventListener('click', async () => {

@@ -440,17 +440,111 @@ test('fit preview: scored from listed descriptions, read one by one where the li
   assert.ok(again.patch.jobs.every((j) => j.fit && j.pay));
 });
 
+test('recognises Recruitee, BambooHR and Oracle Cloud boards from their links', () => {
+  const cases = [
+    ['https://acme.recruitee.com/o/ops-manager', 'recruitee', 'acme'],
+    ['https://acme.bamboohr.com/careers/12', 'bamboohr', 'acme'],
+    ['https://acme.bamboohr.com/jobs/embed2.php', 'bamboohr', 'acme'],
+    ['https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/requisitions', 'oracle', 'eeho'],
+  ];
+  for (const [url, ats, token] of cases) {
+    const b = C.detectBoard(url);
+    assert.ok(b, url);
+    assert.deepEqual([b.ats, b.token], [ats, token], url);
+  }
+  const o = C.detectBoard('https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/123');
+  assert.deepEqual([o.host, o.site], ['eeho.fa.us2.oraclecloud.com', 'CX_1']);
+  assert.equal(C.detectBoard('https://www.bamboohr.com/pricing'), null);
+  assert.equal(C.detectBoard('https://www.recruitee.com/'), null);
+});
+
+// A Phenom careers page, as careers.freddiemac.com/us/en/search-results serves it.
+const phenomHtml = (jobs, total = jobs.length) => `<html><head><script src="https://cdn.phenompeople.com/CareerConnectResources/x.js"></script>
+<script>var phApp = phApp || {"widgetApiEndpoint":"https://careers.acme.com/widgets","country":"us","locale":"en_US","refNum":"ACMEUS","baseUrl":"https://careers.acme.com/us/en/","pageName":"search-results"};
+phApp.ddo = {"siteConfig":{"note":"a } in a string"},"eagerLoadRefineSearch":{"status":200,"hits":${jobs.length},"totalHits":${total},"data":{"jobs":${JSON.stringify(jobs)}}}}; phApp.experimentData = {};</script></head></html>`;
+
+test('a Phenom careers page (on the company\'s own domain) is found from its HTML and read', async () => {
+  const b = C.phenomFromPage(phenomHtml([]), 'https://careers.acme.com/us/en/search-results');
+  assert.deepEqual([b.ats, b.host, b.site, b.refNum, b.url], ['phenom', 'careers.acme.com', 'us/en', 'ACMEUS', 'https://careers.acme.com/us/en/search-results']);
+  assert.equal(C.phenomFromPage('<html>just a page</html>', 'https://acme.com/careers'), null);
+
+  const job = { jobId: 'JR1', jobSeqNo: 'ACMEUSJR1EXTERNAL', title: 'Operations Manager', city: 'McLean', state: 'Virginia', country: 'United States', location: 'McLean, Virginia, United States', postedDate: '2026-09-28T00:00:00.000+0000', category: 'Operations', multi_location: ['McLean', 'Plano'] };
+  // The widget API is down: the search page's own results are used instead.
+  const f = fakeFetch([
+    ['https://careers.acme.com/us/en/search-results', phenomHtml([])],
+    ['https://careers.acme.com/widgets', 404],
+    [/^https:\/\/careers\.acme\.com\/us\/en\/search-results\?keywords=Operations%20Manager&from=0/, phenomHtml([job])],
+  ]);
+  const found = await C.findBoard({ name: 'Acme', careersUrl: 'https://careers.acme.com/us/en/search-results' }, f);
+  assert.equal(found.ats, 'phenom');
+  const jobs = await C.listJobs(found, f, { searchTerms: ['Operations Manager'] });
+  assert.deepEqual(jobs, [{ id: 'ACMEUSJR1EXTERNAL', title: 'Operations Manager', location: 'McLean, Virginia, United States +1 more', url: 'https://careers.acme.com/us/en/job/JR1/Operations-Manager', postedAt: '2026-09-28T00:00:00.000Z', department: 'Operations', jobId: 'JR1' }]);
+
+  // With the widget API working, it pages 50 at a time.
+  const many = Array.from({ length: 50 }, (_, i) => ({ ...job, jobId: `JR${i}`, jobSeqNo: `S${i}` }));
+  const w = fakeFetch([['https://careers.acme.com/widgets', (url, opts) => ({ refineSearch: { totalHits: 60, data: { jobs: JSON.parse(opts.body).from === 0 ? many : [{ ...job, jobSeqNo: 'last' }] } } })]]);
+  const all = await C.listJobs(found, w, { searchTerms: ['Operations Manager'] });
+  assert.equal(all.length, 51);
+  assert.equal(JSON.parse(w.calls[0].opts.body).keywords, 'Operations Manager');
+  assert.equal(JSON.parse(w.calls[0].opts.body).refNum, 'ACMEUS');
+
+  // A posting's description comes from its page.
+  const d = fakeFetch([['https://careers.acme.com/us/en/job/JR1/Operations-Manager', `<script>phApp.ddo = {"jobDetail":{"data":{"job":{"description":"<p>Run the <b>operating cadence</b> for our teams and partners.</p>"}}}};</script>`]]);
+  assert.equal(await C.jobDetail(found, jobs[0], d), 'Run the operating cadence for our teams and partners.');
+});
+
+test('reads Recruitee, BambooHR and Oracle Cloud boards', async () => {
+  const f = fakeFetch([
+    ['https://rc.recruitee.com/api/offers/', { offers: [{ id: 7, title: 'Chief of Staff', location: 'Berlin, Germany', remote: true, careers_url: 'https://rc.recruitee.com/o/cos', published_at: '2026-09-20 10:00:00 UTC', department: 'Office', description: '<p>Pay: €80,000 - €95,000</p>', status: 'published' }] }],
+    ['https://bb.bamboohr.com/careers/list', { result: [{ id: '42', jobOpeningName: 'Ops Manager', departmentLabel: 'Ops', location: { city: 'Austin', state: 'Texas' }, isRemote: false }] }],
+    ['https://bb.bamboohr.com/careers/42/detail', { result: { jobOpening: { description: '<p>Own planning and vendors for the whole company.</p>' } } }],
+    [/^https:\/\/or\.fa\.us2\.oraclecloud\.com\/hcmRestApi\/resources\/latest\/recruitingCEJobRequisitions\?/, { items: [{ TotalJobsCount: 1, requisitionList: [{ Id: '900', Title: 'Operations Manager', PrimaryLocation: 'Reston, VA', PostedDate: '2026-09-25', WorkplaceType: 'Remote', secondaryLocations: [] }] }] }],
+    [/recruitingCEJobRequisitionDetails\?/, { items: [{ ExternalDescriptionStr: '<p>Lead operations.</p>', ExternalQualificationsStr: '<ul><li>5 years</li></ul>' }] }],
+  ]);
+  const rc = await C.listJobs(C.detectBoard('https://rc.recruitee.com'), f);
+  assert.deepEqual([rc[0].title, rc[0].location, rc[0].url, C.formatPay(rc[0].pay)], ['Chief of Staff', 'Berlin, Germany · Remote', 'https://rc.recruitee.com/o/cos', '€80K–€95K']);
+  const bb = C.detectBoard('https://bb.bamboohr.com/careers');
+  const bj = await C.listJobs(bb, f);
+  assert.deepEqual(bj, [{ id: '42', title: 'Ops Manager', location: 'Austin, Texas', url: 'https://bb.bamboohr.com/careers/42', department: 'Ops' }]);
+  assert.equal(await C.jobDetail(bb, bj[0], f), 'Own planning and vendors for the whole company.');
+  const ob = C.detectBoard('https://or.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/requisitions');
+  const oj = await C.listJobs(ob, f, { searchTerms: ['Operations Manager'] });
+  assert.deepEqual([oj[0].id, oj[0].location, oj[0].url], ['900', 'Reston, VA · Remote', 'https://or.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/900']);
+  assert.match(decodeURIComponent(f.calls.find((c) => /Requisitions\?/.test(c.url)).url), /siteNumber=CX_1.*keyword="Operations Manager"/);
+  assert.equal(await C.jobDetail(ob, oj[0], f), 'Lead operations.\n\n- 5 years');
+});
+
+test('without a careers link, Recruitee and BambooHR are tried by name too', async () => {
+  const f = fakeFetch([['https://brio.bamboohr.com/careers/list', { result: [{ id: '1', jobOpeningName: 'Chief of Staff', location: { city: 'Austin', state: 'Texas' } }] }]]);
+  const r = await C.checkCompany({ name: 'Brio' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
+  assert.deepEqual([r.patch.board.ats, r.patch.board.token, r.patch.board.guessed], ['bamboohr', 'brio', true]);
+  assert.ok(f.calls.some((c) => c.url === 'https://brio.recruitee.com/api/offers/'));
+});
+
+test('without a careers link, a Phenom site is found on careers.<name>.com, only when it names the company', async () => {
+  const page = phenomHtml([]).replace(/careers\.acme\.com/g, 'careers.freddiemac.com').replace('<head>', '<head><title>Careers at Freddie Mac</title>');
+  const f = fakeFetch([['https://careers.freddiemac.com/', page]]);
+  const b = await C.findBoard({ name: 'Freddie Mac' }, f);
+  assert.deepEqual([b.ats, b.host, b.site, b.guessed], ['phenom', 'careers.freddiemac.com', 'us/en', true]);
+
+  // Someone else's site at the guessed address isn't taken.
+  const other = fakeFetch([['https://careers.freddiemac.com/', phenomHtml([])]]);
+  assert.equal(await C.findBoard({ name: 'Freddie Mac' }, other), null);
+
+  // A website you set is trusted, and its own /careers page is read too.
+  const site = fakeFetch([['https://acme.io/careers', '<a href="https://acme.wd5.myworkdayjobs.com/en-US/Ext">Jobs</a>']]);
+  const w = await C.findBoard({ name: 'Acme', website: 'https://www.acme.io' }, site);
+  assert.deepEqual([w.ats, w.via, w.guessed], ['workday', 'page', undefined]);
+});
+
 test('recognises the newer boards from their links, and not the ATS makers\' own sites', () => {
   const cases = [
-    ['https://acme.recruitee.com/o/chief-of-staff', 'recruitee', 'acme'],
-    ['acme.bamboohr.com/careers/12', 'bamboohr', 'acme'],
     ['https://acme.breezy.hr/p/abc-chief-of-staff', 'breezy', 'acme'],
     ['https://acme.pinpointhq.com/en/postings/1', 'pinpoint', 'acme'],
     ['https://ats.rippling.com/acme/jobs/1b2c', 'rippling', 'acme'],
     ['https://jobs.gem.com/acme/abc', 'gem', 'acme'],
     ['https://acme.teamtailor.com/jobs/123-chief-of-staff', 'teamtailor', 'acme'],
     ['https://acme.jobs.personio.de/job/77', 'personio', 'acme'],
-    ['https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/123', 'oracle', 'eeho.fa.us2.oraclecloud.com'],
   ];
   for (const [url, ats, token] of cases) {
     const b = C.detectBoard(url);
@@ -459,7 +553,6 @@ test('recognises the newer boards from their links, and not the ATS makers\' own
     assert.match(b.url, /^https:\/\//);
   }
   assert.equal(C.detectBoard('https://acme.jobs.personio.com/').url, 'https://acme.jobs.personio.com/');
-  assert.equal(C.detectBoard('https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1').site, 'CX_1');
   for (const u of ['https://www.bamboohr.com/pricing', 'https://app.recruitee.com/', 'https://help.breezy.hr/x', 'https://www.teamtailor.com/en/']) assert.equal(C.detectBoard(u), null, u);
   // "Powered by" links don't outvote the company's own board.
   assert.equal(C.boardFromHtml('<script src="https://acme.bamboohr.com/js/embed.js"></script><a href="https://www.bamboohr.com">Powered by BambooHR</a>').ats, 'bamboohr');
@@ -474,22 +567,14 @@ test('reads jobs from the newer boards', async () => {
   const xml = `<?xml version="1.0"?><workzag-jobs><position><id>77</id><office>Munich</office><additionalOffices><office>Berlin</office></additionalOffices><department>Ops</department><name>Head of Operations &amp; Strategy</name>
     <jobDescriptions><jobDescription><name>Your role</name><value><![CDATA[<p>Lead ops.</p>]]></value></jobDescription></jobDescriptions><createdAt>2026-09-25T08:00:00+00:00</createdAt></position></workzag-jobs>`;
   const f = fakeFetch([
-    ['https://acme.recruitee.com/api/offers/', { offers: [{ id: 5, title: 'Chief of Staff', location: 'Amsterdam', remote: true, careers_url: 'https://acme.recruitee.com/o/cos', published_at: '2026-09-28 10:00:00 UTC', status: 'published', description: '<p>Pay: €70k – €90k</p>' }, { id: 6, title: 'Draft', status: 'draft' }] }],
-    ['https://acme.bamboohr.com/careers/list', { result: [{ id: '12', jobOpeningName: 'Operations Manager', location: { city: 'Austin', state: 'Texas' }, isRemote: false, departmentLabel: 'Ops' }] }],
     ['https://acme.breezy.hr/json', [{ id: 'b1', name: 'BizOps Lead', url: 'https://acme.breezy.hr/p/b1', location: { name: 'Denver, CO', is_remote: true }, published_date: daysAgo(3), salary: '$120,000 - $150,000' }]],
     ['https://acme.pinpointhq.com/postings.json', { data: [{ id: 9, title: 'Chief of Staff', url: 'https://acme.pinpointhq.com/postings/9', location: { name: 'London' }, workplace_type: 'remote', description: '<p>Hello</p>' }] }],
     ['https://api.rippling.com/platform/api/ats/v1/board/acme/jobs', [{ uuid: 'r1', name: 'Ops Manager', url: 'https://ats.rippling.com/acme/jobs/r1', workLocation: { label: 'New York, NY' }, department: { label: 'Ops' } }]],
     ['https://api.gem.com/job_board/v0/acme/job_posts/', [{ id: 3, title: 'Chief of Staff', absolute_url: 'https://jobs.gem.com/acme/3', location: { name: 'SF' }, first_published_at: daysAgo(1), content: '<p>Own it</p>' }]],
     ['https://acme.teamtailor.com/jobs.rss', rss],
     ['https://acme.jobs.personio.de/xml?language=en', xml],
-    [/oraclecloud\.com\/hcmRestApi\/resources\/latest\/recruitingCEJobRequisitions\?/, (url) => ({ items: [{ TotalJobsCount: 1, requisitionList: /offset=0,/.test(url) ? [{ Id: '300', Title: 'Chief of Staff', PrimaryLocation: 'Austin, TX', PostedDate: '2026-09-29', WorkplaceType: 'Remote' }] : [] }] })],
   ]);
   const read = (u) => C.listJobs(C.detectBoard(u), f, { now: NOW });
-  const rc = await read('https://acme.recruitee.com');
-  assert.deepEqual(rc.map((j) => [j.title, j.location, j.url]), [['Chief of Staff', 'Amsterdam · Remote', 'https://acme.recruitee.com/o/cos']]);
-  assert.equal(rc[0].pay.currency, 'EUR');
-  assert.deepEqual((await read('https://acme.bamboohr.com/careers')).map((j) => [j.title, j.location, j.url]), [['Operations Manager', 'Austin, Texas', 'https://acme.bamboohr.com/careers/12']]);
-  assert.equal(f.calls.find((c) => /bamboohr/.test(c.url)).opts.headers['X-Requested-With'], 'XMLHttpRequest');
   const bz = await read('https://acme.breezy.hr');
   assert.deepEqual([bz[0].location, bz[0].pay.min, bz[0].postedAt], ['Denver, CO · Remote', 120000, daysAgo(3)]);
   assert.equal((await read('https://acme.pinpointhq.com'))[0].location, 'London · Remote');
@@ -500,18 +585,6 @@ test('reads jobs from the newer boards', async () => {
   assert.equal(tt[0].postedAt, '2026-09-27T10:00:00.000Z');
   const ps = await read('https://acme.jobs.personio.de');
   assert.deepEqual([ps[0].title, ps[0].location, ps[0].url, ps[0].text], ['Head of Operations & Strategy', 'Munich · Berlin', 'https://acme.jobs.personio.de/job/77', 'Your role\nLead ops.']);
-  const oc = await read('https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1');
-  assert.deepEqual([oc[0].title, oc[0].location, oc[0].url], ['Chief of Staff', 'Austin, TX · Remote', 'https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/300']);
-  assert.match(f.calls.find((c) => /oraclecloud/.test(c.url)).url, /finder=findReqs;siteNumber=CX_1,limit=200,offset=0,sortBy=POSTING_DATES_DESC/);
-});
-
-test('BambooHR and Oracle descriptions come from their detail APIs', async () => {
-  const f = fakeFetch([
-    ['https://acme.bamboohr.com/careers/12/detail', { result: { jobOpening: { description: '<p>Run <b>ops</b> for the whole company, every day.</p>' } } }],
-    [/recruitingCEJobRequisitionDetails\?.*finder=ById;Id=%22300%22,siteNumber=CX_1/, { items: [{ ExternalDescriptionStr: '<p>Lead the CEO office.</p>', ExternalQualificationsStr: '<ul><li>5 years</li></ul>' }] }],
-  ]);
-  assert.equal(await C.jobDetail(C.detectBoard('https://acme.bamboohr.com'), { id: '12' }, f), 'Run ops for the whole company, every day.');
-  assert.equal(await C.jobDetail(C.detectBoard('https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1'), { id: '300' }, f), 'Lead the CEO office.\n\n- 5 years');
 });
 
 test('a Teamtailor careers site on the company\'s own domain is read through its feed', async () => {
@@ -593,5 +666,6 @@ test('a careers page whose jobs are an ATS a click away is read through that ATS
   ]);
   const r = await C.checkCompany({ name: 'Acme', careersUrl: 'https://acme.com/careers' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
   assert.deepEqual([r.patch.board.ats, r.patch.board.token], ['bamboohr', 'acme']);
+  assert.equal(f.calls.find((c) => /careers\/list/.test(c.url)).opts.headers['X-Requested-With'], 'XMLHttpRequest');
   assert.equal(r.patch.jobs.length, 1);
 });

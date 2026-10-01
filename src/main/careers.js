@@ -3,11 +3,13 @@
 // Most companies' careers pages are hosted by an applicant tracking system
 // that also publishes the jobs as data, meant for exactly this: Greenhouse,
 // Lever, Ashby, Workable, SmartRecruiters, Workday, Recruitee, BambooHR,
-// Breezy, Pinpoint, Rippling, Gem, Teamtailor, Personio and Oracle. So Sprout
-// works out which one a company uses (from its careers link, from the careers
-// page's HTML or a jobs page it links to, or by trying the company's name on
-// the common ones), lists the open jobs, keeps the ones whose titles match
-// the roles you want, and notices new ones on each check.
+// Breezy, Pinpoint, Rippling, Gem, Teamtailor, Personio, Oracle Cloud and
+// Phenom (the careers.company.com/us/en/search-results sites many large
+// companies run). So Sprout works out
+// which one a company uses (from its careers link, from the careers page's
+// HTML, or by trying the company's name on the common ones), lists the open
+// jobs, keeps the ones whose titles match the roles you want, and notices
+// new ones on each check.
 //
 // A company that runs its own careers site gets read straight from that
 // site: the jobs it describes for search engines (schema.org JobPosting),
@@ -25,20 +27,21 @@ const ATS_LABEL = {
   workday: 'Workday',
   recruitee: 'Recruitee',
   bamboohr: 'BambooHR',
+  oracle: 'Oracle',
+  phenom: 'Phenom',
   breezy: 'Breezy',
   pinpoint: 'Pinpoint',
   rippling: 'Rippling',
   gem: 'Gem',
   teamtailor: 'Teamtailor',
   personio: 'Personio',
-  oracle: 'Oracle',
   site: 'careers page',
 };
 
 const DAY = 86400000;
 const TIMEOUT_MS = 20000;
 const WORKDAY_MAX = 100; // postings read per search on a Workday board
-const ORACLE_MAX = 1000; // newest postings read from an Oracle board
+const SEARCH_MAX = 100; // the same for Oracle and Phenom boards
 
 // ---------------- which careers site is this? ----------------
 
@@ -75,6 +78,10 @@ function detectBoard(url) {
   if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/wday\/cxs\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)/i))) return board('workday', m[3], { host: `${m[1]}.${m[2]}.myworkdayjobs.com`, site: m[4] });
   if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?([A-Za-z0-9_-]+)/i)) && !/^(wday|job|details)$/i.test(m[3])) return board('workday', m[1], { host: `${m[1]}.${m[2]}.myworkdayjobs.com`, site: m[3] });
   if ((m = u.match(/\/\/(wd\d+)\.myworkdaysite\.com\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?recruiting\/([A-Za-z0-9-]+)\/([A-Za-z0-9_-]+)/i))) return board('workday', m[2], { host: `${m[1]}.myworkdaysite.com`, site: m[3] });
+  if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.recruitee\.com/i)) && !/^(www|api|app|blog|support|docs)$/i.test(m[1])) return board('recruitee', m[1].toLowerCase());
+  if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.bamboohr\.com/i)) && !/^(www|api|app|help|partners|marketplace)$/i.test(m[1])) return board('bamboohr', m[1].toLowerCase());
+  // Oracle Cloud: host.fa.region.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/...
+  if ((m = u.match(/\/\/(([A-Za-z0-9-]+)\.fa(?:\.[A-Za-z0-9-]+)*\.oraclecloud\.com)\/hcmUI\/CandidateExperience\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?sites\/([A-Za-z0-9_-]+)/i))) return board('oracle', m[2].toLowerCase(), { host: m[1].toLowerCase(), site: m[3] });
   // Boards on the company's own subdomain of the ATS: acme.recruitee.com and the like.
   // The ATS's own sites (www, app, help…) aren't anyone's board.
   const sub = (domain, not = /^(www|app|api|help|support|docs|status|blog|marketplace|developers?|careers?)$/i) => {
@@ -82,8 +89,6 @@ function detectBoard(url) {
     return x && !not.test(x[1]) ? x[1] : null;
   };
   let t;
-  if ((t = sub('recruitee.com'))) return board('recruitee', t);
-  if ((t = sub('bamboohr.com'))) return board('bamboohr', t);
   if ((t = sub('breezy.hr'))) return board('breezy', t);
   if ((t = sub('pinpointhq.com'))) return board('pinpoint', t);
   if ((t = sub('teamtailor.com'))) return board('teamtailor', t);
@@ -92,8 +97,6 @@ function detectBoard(url) {
   if ((m = u.match(/ats\.rippling\.com\/(?:[a-z]{2}-[A-Za-z]{2}\/)?([A-Za-z0-9_-]+)(?:\/jobs|\/?$)/i)) && !/^(api|jobs)$/i.test(m[1])) return board('rippling', m[1]);
   if ((m = u.match(/api\.gem\.com\/job_board\/v0\/([A-Za-z0-9_-]+)/i))) return board('gem', m[1]);
   if ((m = u.match(/jobs\.gem\.com\/([A-Za-z0-9_-]+)/i)) && !/^(api|embed)$/i.test(m[1])) return board('gem', m[1]);
-  // Oracle Recruiting Cloud: host.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/…
-  if ((m = u.match(/\/\/([A-Za-z0-9.-]+\.oraclecloud\.com)\/hcmUI\/CandidateExperience\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?sites\/([A-Za-z0-9_]+)/i))) return board('oracle', m[1].toLowerCase(), { site: m[2] });
   return null;
 }
 
@@ -132,6 +135,10 @@ function boardUrl(b) {
       return `https://${b.token}.recruitee.com/`;
     case 'bamboohr':
       return `https://${b.token}.bamboohr.com/careers`;
+    case 'oracle':
+      return `https://${b.host}/hcmUI/CandidateExperience/en/sites/${b.site}/requisitions`;
+    case 'phenom':
+      return `https://${b.host}/${b.site}/search-results`;
     case 'breezy':
       return `https://${b.token}.breezy.hr/`;
     case 'pinpoint':
@@ -144,8 +151,6 @@ function boardUrl(b) {
       return `https://${teamtailorHost(b)}/jobs`;
     case 'personio':
       return `https://${b.token}.jobs.personio.${b.tld || 'de'}/`;
-    case 'oracle':
-      return `https://${b.token}/hcmUI/CandidateExperience/en/sites/${b.site}`;
     case 'site':
       return b.token;
     default:
@@ -155,6 +160,129 @@ function boardUrl(b) {
 
 // Teamtailor sites live on acme.teamtailor.com or on the company's own domain.
 const teamtailorHost = (b) => (String(b.token).includes('.') ? b.token : `${b.token}.teamtailor.com`);
+
+// ---------------- Phenom ----------------
+//
+// Phenom sites live on the company's own domain (careers.freddiemac.com/us/en/
+// search-results), so there's nothing in the link to go on. The page gives
+// itself away: it loads from phenompeople.com and carries its data in a
+// `phApp` script object, including the jobs for the search in its address.
+
+// The value of the object literal assigned after `marker` ("phApp.ddo = {...}").
+function scriptObject(html, marker) {
+  const text = String(html || '');
+  let at = text.indexOf(marker);
+  while (at >= 0) {
+    const start = text.indexOf('{', at + marker.length);
+    if (start < 0) return null;
+    if (/^\s*=?\s*$/.test(text.slice(at + marker.length, start))) {
+      let depth = 0;
+      let quote = null;
+      for (let i = start; i < text.length; i++) {
+        const c = text[i];
+        if (quote) {
+          if (c === '\\') i++;
+          else if (c === quote) quote = null;
+        } else if (c === '"' || c === "'") quote = c;
+        else if (c === '{') depth++;
+        else if (c === '}' && --depth === 0) {
+          try {
+            return JSON.parse(text.slice(start, i + 1));
+          } catch {
+            return null;
+          }
+        }
+      }
+      return null;
+    }
+    at = text.indexOf(marker, at + marker.length);
+  }
+  return null;
+}
+
+// A Phenom board from a careers page: { ats: 'phenom', host, site: 'us/en' }.
+function phenomFromPage(html, pageUrl) {
+  const text = String(html || '');
+  if (!/phenompeople\.com|phApp\.(ddo|pageName|baseUrl)|"widgetApiEndpoint"/i.test(text)) return null;
+  const fromBase = text.match(/["']baseUrl["']\s*:\s*["'](https?:\/\/[^"'\s]+?)\/?["']/i);
+  let u;
+  try {
+    u = new URL(fromBase ? fromBase[1].replace(/\\\//g, '/') : normalizeLink(pageUrl));
+  } catch {
+    return null;
+  }
+  // The locale is the first two parts of the path (/us/en/...), when there.
+  const parts = u.pathname.split('/').filter(Boolean);
+  const site = parts.length >= 2 && /^[a-z]{2,3}$/i.test(parts[0]) && /^[a-z]{2}(?:[-_][a-z]{2})?$/i.test(parts[1]) ? `${parts[0]}/${parts[1]}`.toLowerCase() : parts.length === 1 && /^[a-z]{2}(?:[-_][a-z]{2})?$/i.test(parts[0]) ? parts[0].toLowerCase() : 'us/en';
+  const ref = text.match(/["']refNum["']\s*:\s*["']([A-Za-z0-9_-]+)["']/);
+  return board('phenom', u.hostname.toLowerCase(), { host: u.hostname.toLowerCase(), site, ...(ref ? { refNum: ref[1] } : {}) });
+}
+
+const slugTitle = (s) =>
+  String(s || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'job';
+
+function phenomJob(b, j) {
+  const id = j.jobSeqNo || j.jobId || j.reqId;
+  const loc = j.location || j.cityStateCountry || joinLoc(j.city, j.state, j.country);
+  const more = Array.isArray(j.multi_location) && j.multi_location.length > 1 ? ` +${j.multi_location.length - 1} more` : '';
+  return {
+    id: id == null ? '' : String(id),
+    title: j.title,
+    location: loc ? loc + more : '',
+    url: j.jobId ? `https://${b.host}/${b.site}/job/${encodeURIComponent(j.jobId)}/${slugTitle(j.title)}` : j.applyUrl,
+    postedAt: iso(j.postedDate || j.dateCreated),
+    department: j.category || (Array.isArray(j.multi_category) && j.multi_category[0]) || '',
+    jobId: j.jobId ? String(j.jobId) : undefined,
+  };
+}
+
+// One page of a Phenom search: { jobs, total }. The site's own widget API
+// first (50 at a time), then the search page's built-in results (10 at a time).
+async function phenomPage(b, term, from, fetchImpl) {
+  const lang = b.site.split('/').reverse().join('_');
+  const country = b.site.split('/')[0];
+  try {
+    const d = await getJson(fetchImpl, `https://${b.host}/widgets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang, deviceType: 'desktop', country, pageName: 'search-results', ddoKey: 'refineSearch', sortBy: 'Most recent', subsearch: '', from, jobs: true, counts: true, all_fields: [], size: 50, clearAll: false, jdsource: 'facets', isSliderEnable: false, pageId: 'page1', siteType: 'external', keywords: term, global: true, selected_fields: {}, ...(b.refNum ? { refNum: b.refNum } : {}) }),
+    });
+    const r = d && d.refineSearch;
+    if (r && r.data && Array.isArray(r.data.jobs)) return { jobs: r.data.jobs, total: Number(r.totalHits) || 0, size: 50 };
+  } catch (err) {
+    if (err.status === undefined && !err.notFound && !/sent back a page/.test(err.message)) throw err; // offline
+  }
+  const q = `keywords=${encodeURIComponent(term)}&from=${from}&s=1`;
+  const page = await getText(fetchImpl, `https://${b.host}/${b.site}/search-results?${q}`);
+  const ddo = scriptObject(page.text, 'phApp.ddo') || {};
+  const r = ddo.eagerLoadRefineSearch || ddo.refineSearch;
+  if (!r || !r.data || !Array.isArray(r.data.jobs)) throw failure("that careers site didn't list its jobs the way I expected.");
+  return { jobs: r.data.jobs, total: Number(r.totalHits) || 0, size: 10 };
+}
+
+// Searching a big board once per role (Workday, Oracle, Phenom): one search
+// failing shouldn't lose the others.
+async function searchEach(searchTerms, run) {
+  const terms = [...new Set((searchTerms.length ? searchTerms : ['']).map((t) => String(t).trim()))];
+  let failed = null;
+  let worked = 0;
+  for (const term of terms) {
+    try {
+      await run(term);
+      worked++;
+    } catch (err) {
+      if (err.notFound) throw err;
+      failed = failed || err;
+    }
+  }
+  if (!worked && failed) throw failed;
+}
+
+const oracleApi = (b) => `https://${b.host}/hcmRestApi/resources/latest`;
 
 // A careers page on the company's own site usually embeds or links to its
 // board. It may also link to other boards (a partner's, a portfolio
@@ -359,29 +487,19 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
       // shouldn't lose the others.
       const api = `https://${b.host}/wday/cxs/${b.token}/${b.site}/jobs`;
       const seen = new Map();
-      const terms = [...new Set((searchTerms.length ? searchTerms : ['']).map((t) => String(t).trim()))];
-      let failed = null;
-      let worked = 0;
-      for (const term of terms) {
-        try {
-          let total = Infinity;
-          for (let offset = 0; offset < WORKDAY_MAX; offset += 20) {
-            const d = await getJson(fetchImpl, api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appliedFacets: {}, limit: 20, offset, searchText: term }) });
-            if (offset === 0 && Number.isFinite(d.total)) total = d.total;
-            const page = d.jobPostings || [];
-            for (const j of page) {
-              if (!j.externalPath || seen.has(j.externalPath)) continue;
-              seen.set(j.externalPath, { id: j.externalPath, title: j.title, location: j.locationsText || '', url: `https://${b.host}/${b.site}${j.externalPath}`, postedAt: workdayPosted(j.postedOn, now), path: j.externalPath });
-            }
-            if (page.length < 20 || offset + 20 >= total) break;
+      await searchEach(searchTerms, async (term) => {
+        let total = Infinity;
+        for (let offset = 0; offset < WORKDAY_MAX; offset += 20) {
+          const d = await getJson(fetchImpl, api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appliedFacets: {}, limit: 20, offset, searchText: term }) });
+          if (offset === 0 && Number.isFinite(d.total)) total = d.total;
+          const page = d.jobPostings || [];
+          for (const j of page) {
+            if (!j.externalPath || seen.has(j.externalPath)) continue;
+            seen.set(j.externalPath, { id: j.externalPath, title: j.title, location: j.locationsText || '', url: `https://${b.host}/${b.site}${j.externalPath}`, postedAt: workdayPosted(j.postedOn, now), path: j.externalPath });
           }
-          worked++;
-        } catch (err) {
-          if (err.notFound) throw err;
-          failed = failed || err;
+          if (page.length < 20 || offset + 20 >= total) break;
         }
-      }
-      if (!worked && failed) throw failed;
+      });
       return [...seen.values()];
     }
     case 'recruitee': {
@@ -391,8 +509,8 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
         .map((j) => ({
           id: String(j.id),
           title: j.title,
-          location: [j.location || (j.locations || []).map((l) => l && l.name).filter(Boolean).join(' · '), j.remote ? 'Remote' : ''].filter(Boolean).join(' · '),
-          url: j.careers_url,
+          location: [j.location || joinLoc(j.city, j.country), j.remote ? 'Remote' : ''].filter(Boolean).join(' · '),
+          url: j.careers_url || `https://${b.token}.recruitee.com/o/${j.slug}`,
           postedAt: iso(j.published_at || j.created_at),
           department: j.department || '',
           text: j.description ? htmlToPlain([j.description, j.requirements].filter(Boolean).join('\n')) : undefined,
@@ -401,16 +519,45 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
     case 'bamboohr': {
       const d = await getJson(fetchImpl, `https://${b.token}.bamboohr.com/careers/list`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
       return (d.result || []).map((j) => {
-        const l = j.location || {};
-        const a = j.atsLocation || {};
-        return {
-          id: String(j.id),
-          title: j.jobOpeningName,
-          location: (joinLoc(l.city, l.state) || joinLoc(a.city, a.state || a.province, a.country)) + (j.isRemote || String(j.locationType) === '1' ? ' · Remote' : ''),
-          url: `https://${b.token}.bamboohr.com/careers/${j.id}`,
-          department: j.departmentLabel || '',
-        };
+        const l = j.location || j.atsLocation || {};
+        return { id: String(j.id), title: j.jobOpeningName, location: [joinLoc(l.city, l.state), j.isRemote || /remote/i.test(j.locationType || '') ? 'Remote' : ''].filter(Boolean).join(' · '), url: `https://${b.token}.bamboohr.com/careers/${j.id}`, department: j.departmentLabel || '' };
       });
+    }
+    case 'oracle': {
+      // Oracle boards can be as big as Workday ones, so they're searched by role too.
+      const seen = new Map();
+      await searchEach(searchTerms, async (term) => {
+        let total = Infinity;
+        for (let offset = 0; offset < SEARCH_MAX; offset += 25) {
+          const finder = `findReqs;siteNumber=${b.site},limit=25,offset=${offset},sortBy=POSTING_DATES_DESC${term ? `,keyword="${term.replace(/[",;]/g, ' ')}"` : ''}`;
+          const d = await getJson(fetchImpl, `${oracleApi(b)}/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList.secondaryLocations&finder=${encodeURIComponent(finder)}`);
+          const item = (d.items || [])[0] || {};
+          if (offset === 0 && Number.isFinite(item.TotalJobsCount)) total = item.TotalJobsCount;
+          const page = item.requisitionList || [];
+          for (const j of page) {
+            if (j.Id == null || seen.has(String(j.Id))) continue;
+            const more = (j.secondaryLocations || []).length ? ` +${j.secondaryLocations.length} more` : '';
+            seen.set(String(j.Id), { id: String(j.Id), title: j.Title, location: (j.PrimaryLocation || '') + (j.PrimaryLocation ? more : '') + (/remote/i.test(j.WorkplaceType || '') ? ' · Remote' : ''), url: `https://${b.host}/hcmUI/CandidateExperience/en/sites/${b.site}/job/${j.Id}`, postedAt: iso(j.PostedDate), department: j.Organization || j.JobFamily || '' });
+          }
+          if (page.length < 25 || offset + 25 >= total) break;
+        }
+      });
+      return [...seen.values()];
+    }
+    case 'phenom': {
+      const seen = new Map();
+      await searchEach(searchTerms, async (term) => {
+        for (let from = 0; from < SEARCH_MAX; ) {
+          const { jobs, total, size } = await phenomPage(b, term, from, fetchImpl);
+          for (const j of jobs) {
+            const job = phenomJob(b, j);
+            if (job.id && !seen.has(job.id)) seen.set(job.id, job);
+          }
+          from += size;
+          if (jobs.length < size || from >= total) break;
+        }
+      });
+      return [...seen.values()];
     }
     case 'breezy': {
       const d = await getJson(fetchImpl, `https://${b.token}.breezy.hr/json`);
@@ -490,29 +637,6 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
           text: sections.length ? sections.join('\n\n') : undefined,
         };
       });
-    }
-    case 'oracle': {
-      // Newest first, 200 at a time; big employers list thousands.
-      const out = [];
-      for (let offset = 0; offset < ORACLE_MAX; ) {
-        const finder = `findReqs;siteNumber=${b.site},limit=200,offset=${offset},sortBy=POSTING_DATES_DESC`;
-        const d = await getJson(fetchImpl, `https://${b.token}/hcmRestApi/resources/latest/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList.secondaryLocations&finder=${finder}`);
-        const item = (d.items || [])[0] || {};
-        const reqs = item.requisitionList || [];
-        for (const r of reqs) {
-          out.push({
-            id: String(r.Id),
-            title: r.Title,
-            location: [...new Set([r.PrimaryLocation, ...(r.secondaryLocations || []).map((x) => x.Name)].filter(Boolean))].join(' · ') + (/remote/i.test(r.WorkplaceType || '') ? ' · Remote' : ''),
-            url: `https://${b.token}/hcmUI/CandidateExperience/en/sites/${b.site}/job/${r.Id}`,
-            postedAt: iso(r.PostedDate),
-            department: r.Department || r.JobFamily || '',
-          });
-        }
-        offset += reqs.length;
-        if (!reqs.length || offset >= (item.TotalJobsCount || 0)) break;
-      }
-      return out;
     }
     case 'site': {
       const page = await getText(fetchImpl, b.token);
@@ -889,16 +1013,29 @@ async function apiDetail(b, job, fetchImpl) {
       const d = await getJson(fetchImpl, `https://${b.host}/wday/cxs/${b.token}/${b.site}${job.path || job.id}`);
       return htmlToPlain(d.jobPostingInfo && d.jobPostingInfo.jobDescription);
     }
+    case 'recruitee': {
+      const d = await getJson(fetchImpl, `https://${b.token}.recruitee.com/api/offers/`);
+      const j = (d.offers || []).find((x) => String(x.id) === job.id);
+      return j ? htmlToPlain([j.description, j.requirements].filter(Boolean).join('\n')) : '';
+    }
     case 'bamboohr': {
       const d = await getJson(fetchImpl, `https://${b.token}.bamboohr.com/careers/${encodeURIComponent(job.id)}/detail`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-      const o = (d.result && d.result.jobOpening) || {};
-      return htmlToPlain(o.description);
+      const j = (d.result && d.result.jobOpening) || {};
+      return htmlToPlain(j.description);
     }
     case 'oracle': {
-      const finder = `ById;Id="${job.id}",siteNumber=${b.site}`;
-      const d = await getJson(fetchImpl, `https://${b.token}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?expand=all&onlyData=true&finder=${finder.replace(/"/g, '%22')}`);
-      const r = (d.items || [])[0] || {};
-      return htmlToPlain([r.ExternalDescriptionStr, r.ExternalResponsibilitiesStr, r.ExternalQualificationsStr].filter(Boolean).join('\n'));
+      const finder = `ById;Id="${String(job.id).replace(/"/g, '')}",siteNumber=${b.site}`;
+      const d = await getJson(fetchImpl, `${oracleApi(b)}/recruitingCEJobRequisitionDetails?onlyData=true&expand=all&finder=${encodeURIComponent(finder)}`);
+      const j = (d.items || [])[0] || {};
+      return htmlToPlain([j.ExternalDescriptionStr, j.ExternalResponsibilitiesStr, j.ExternalQualificationsStr].filter(Boolean).join('\n'));
+    }
+    case 'phenom': {
+      // The posting's page carries its description in the same phApp data.
+      if (!/^https?:\/\//i.test(job.url || '')) return '';
+      const page = await getText(fetchImpl, job.url);
+      const ddo = scriptObject(page.text, 'phApp.ddo') || {};
+      const j = (ddo.jobDetail && ddo.jobDetail.data && ddo.jobDetail.data.job) || {};
+      return htmlToPlain(j.description || '') || descriptionFromPage(page.text);
     }
     default:
       return '';
@@ -1016,7 +1153,9 @@ function titleMatches(title, roles = [], keywords = []) {
 
 // Find a company's board: its careers link, then the careers page (where it
 // redirects to, or what its HTML links to), then its name tried on the boards
-// that live at predictable addresses. When nothing turns up only because the
+// that live at predictable addresses, then the company's own site (its
+// careers page, or a Phenom site on careers. or jobs.), then the same on
+// sites named after it (acme.com). When nothing turns up only because the
 // sites couldn't be reached, that's an error to retry, not "no board".
 async function findBoard(company, fetchImpl) {
   const link = normalizeLink(company.careersUrl);
@@ -1026,15 +1165,14 @@ async function findBoard(company, fetchImpl) {
   if (/^https?:\/\//i.test(link)) {
     try {
       const page = await getText(fetchImpl, link);
-      const atsOf = (p) => detectBoard(p.url) || boardFromHtml(p.text) || teamtailorOnOwnDomain(p);
-      const b = atsOf(page);
+      const b = atsOnPage(page);
       if (b) return { ...b, via: 'page' };
       // Its jobs may be a click away ("See open roles"), on an ATS or on the site itself.
       const pages = [page];
       for (const next of listingLinks(page.text, page.url).slice(0, 2)) {
         try {
           const p = await getText(fetchImpl, next);
-          const nb = atsOf(p);
+          const nb = atsOnPage(p);
           if (nb) return { ...nb, via: 'page' };
           pages.push(p);
         } catch {
@@ -1048,8 +1186,9 @@ async function findBoard(company, fetchImpl) {
     }
   }
   let answered = false;
-  for (const slug of slugsFor(company.name)) {
-    for (const ats of ['greenhouse', 'lever', 'ashby']) {
+  const slugs = slugsFor(company.name);
+  for (const slug of slugs) {
+    for (const ats of ['greenhouse', 'lever', 'ashby', 'recruitee', 'bamboohr']) {
       const b = board(ats, slug);
       try {
         const jobs = await listJobs(b, fetchImpl);
@@ -1062,10 +1201,60 @@ async function findBoard(company, fetchImpl) {
       }
     }
   }
+  // The company's own site. One you set is trusted; one guessed from the
+  // name must name the company on its careers page, and is marked guessed.
+  const own = siteDomain(company.website);
+  const guesses = [...new Set(slugs.filter((x) => !x.includes('-')).map((x) => `${x}.com`))].filter((d) => d !== own);
+  for (const [domain, guessed] of [...(own ? [[own, false]] : []), ...guesses.map((d) => [d, true])]) {
+    const pages = [`https://careers.${domain}/`, `https://jobs.${domain}/`, ...(guessed ? [] : [`https://${domain}/careers`])];
+    for (const url of pages) {
+      try {
+        const page = await getText(fetchImpl, url);
+        if (guessed && !namesCompany(page.text, company.name)) continue;
+        const b = atsOnPage(page);
+        if (b) return guessed ? { ...b, guessed: true } : { ...b, via: 'page' };
+      } catch {
+        // no such site, or nothing there: try the next
+      }
+    }
+  }
   return null;
 }
 
+// The board a careers page is on, embeds or links to.
+function atsOnPage(page) {
+  return detectBoard(page.url) || boardFromHtml(page.text) || phenomFromPage(page.text, page.url) || teamtailorOnOwnDomain(page);
+}
+
+// acme.com from "https://www.acme.com/about", or null.
+function siteDomain(url) {
+  try {
+    const host = new URL(normalizeLink(url)).hostname.toLowerCase().replace(/^www\./, '');
+    return host.includes('.') && !/^[\d.]+$/.test(host) && !detectBoard(url) ? host : null;
+  } catch {
+    return null;
+  }
+}
+
+// Does a page name the company? "Freddie Mac" on careers.freddiemac.com,
+// in its title, its text or its page data.
+function namesCompany(html, name) {
+  const plain = (x) =>
+    ` ${String(x || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/&amp;|&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()} `;
+  // Anywhere on it: Phenom pages carry most of their text in script data.
+  const text = plain(html);
+  const want = plain(String(name || '').replace(/\([^)]*\)/g, ' ').replace(/\b(inc|llc|ltd|corp|corporation|co|company|plc|gmbh)\b\.?/gi, ' '));
+  return want.trim().length >= 2 && text.includes(want);
+}
+
 const KEEP = 60; // matching jobs kept per company
+const SEARCHED = new Set(['workday', 'oracle', 'phenom']); // boards too big to list in full
 const SEEN = 3000; // job ids remembered per company
 
 const splitKeywords = (s) => [
@@ -1082,7 +1271,8 @@ const splitKeywords = (s) => [
 //
 // With `scoreJob` (the free local fit score), each matching job also gets a
 // fit preview. Most boards list descriptions with the jobs; for the ones that
-// don't (SmartRecruiters, Workday), up to DETAIL_BUDGET new jobs per check are
+// don't (SmartRecruiters, Workday, BambooHR, Breezy, Rippling, Oracle, Phenom,
+// companies' own sites), up to DETAIL_BUDGET new jobs per check are
 // read one by one, and earlier previews are kept. Descriptions aren't saved.
 const DETAIL_BUDGET = 8;
 
@@ -1095,7 +1285,7 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
 
   roles = [...new Set(roles.map((r) => String(r).trim()).filter(Boolean))];
   const keywords = splitKeywords(company.keywords);
-  const list = (brd) => listJobs(brd, fetchImpl, { searchTerms: brd.ats === 'workday' ? [...roles, ...keywords] : [], now });
+  const list = (brd) => listJobs(brd, fetchImpl, { searchTerms: SEARCHED.has(brd.ats) ? [...roles, ...keywords] : [], now });
   let all;
   try {
     all = await list(b);
@@ -1156,4 +1346,4 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
   return { patch, fresh, firstLook: !company.seen };
 }
 
-module.exports = { ATS_LABEL, siteJobs, listingLinks, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };
+module.exports = { ATS_LABEL, siteJobs, listingLinks, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, phenomFromPage, scriptObject, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };
