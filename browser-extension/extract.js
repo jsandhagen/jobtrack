@@ -1,13 +1,15 @@
 // Reads a job posting from the current page — the whole thing, including the
 // parts you haven't scrolled to. Tries, in order:
 //   1. schema.org JobPosting data (most job sites embed it for Google Jobs),
-//   2. known layouts of big job sites,
-//   3. a generic search for the block of the page that reads like a posting.
+//   2. the job data a careers site's own app carries in the page (Phenom,
+//      which runs careers sites like careers.freddiemac.com),
+//   3. known layouts of big job sites and careers systems,
+//   4. a generic search for the block of the page that reads like a posting.
 // Defined on globalThis so both the auto content script and the toolbar
 // button (chrome.scripting.executeScript) can call it.
 (() => {
   const ANCHOR =
-    /^(about (the|this) (job|role|position|opportunity)|job (description|summary|details|overview)|the role|role overview|position summary|responsibilities|key responsibilities|what you.?ll (do|be doing)|your role|requirements|qualifications|minimum qualifications|basic qualifications|who you are|what we.?re looking for|about you)\b/i;
+    /^(about (the|this) (job|role|position|opportunity|team)|job (description|summary|details|overview|requirements|duties)|the (role|opportunity|position)|role (overview|summary|description)|position (summary|overview|description|purpose)|(primary |key |main |essential )?(responsibilities|duties)|essential (job )?functions|what you.?ll (do|be doing|bring)|what you bring|your (role|work team|impact)|(minimum |basic |preferred |required |key |desired )?(requirements|qualifications|skills)|education (and|&) experience|who you are|what we.?re looking for|about you|overview|summary)\b/i;
   const SIGNALS = [
     /\bresponsibilities\b/i,
     /\bqualifications\b/i,
@@ -110,7 +112,66 @@
     };
   }
 
-  // ---------- 2. known job sites ----------
+  // ---------- 2. a careers site's own job data ----------
+  // Phenom sites draw the posting from a `phApp.ddo = {...}` object in an
+  // inline script. The page's scripts can't be reached from here, but their
+  // text can.
+
+  // The object literal assigned after `marker` in some inline script.
+  function scriptObject(marker) {
+    for (const s of document.querySelectorAll('script:not([src])')) {
+      const text = s.textContent || '';
+      let at = text.indexOf(marker);
+      while (at >= 0) {
+        const start = text.indexOf('{', at + marker.length);
+        if (start < 0) break;
+        if (/^\s*=?\s*$/.test(text.slice(at + marker.length, start))) {
+          let depth = 0;
+          let quote = null;
+          for (let i = start; i < text.length; i++) {
+            const c = text[i];
+            if (quote) {
+              if (c === '\\') i++;
+              else if (c === quote) quote = null;
+            } else if (c === '"' || c === "'") quote = c;
+            else if (c === '{') depth++;
+            else if (c === '}' && --depth === 0) {
+              try {
+                return JSON.parse(text.slice(start, i + 1));
+              } catch {
+                break;
+              }
+            }
+          }
+        }
+        at = text.indexOf(marker, at + marker.length);
+      }
+    }
+    return null;
+  }
+
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+  function fromPageData() {
+    const ddo = scriptObject('phApp.ddo');
+    const job = ddo && ddo.jobDetail && ddo.jobDetail.data && ddo.jobDetail.data.job;
+    if (!job || !job.description || !job.title) return null;
+    // Moving between jobs without a reload can leave the old job's data
+    // behind: it has to be the job the page shows.
+    const shown = norm([document.title, ...[...document.querySelectorAll('h1')].map((h) => h.innerText)].join(' '));
+    if (shown && !shown.includes(norm(job.title))) return null;
+    const parts = [job.description, job.responsibilities, job.qualifications].filter((x) => typeof x === 'string' && x.trim());
+    const ogSite = document.querySelector('meta[property="og:site_name"]');
+    return {
+      title: clean(job.title),
+      company: clean(job.companyName || job.company || (ogSite && ogSite.content) || ''),
+      location: clean(job.location || job.cityStateCountry || [job.city, job.state, job.country].filter(Boolean).join(', ')),
+      text: htmlToText(parts.join('\n')),
+      source: 'phenom',
+    };
+  }
+
+  // ---------- 3. known job sites ----------
   const SITES = [
     {
       name: 'linkedin',
@@ -163,6 +224,64 @@
       location: ['[data-test="location"]'],
       body: ['[class*="JobDetails_jobDescription"]', '#JobDescriptionContainer', '.jobDescriptionContent'],
     },
+    {
+      name: 'oracle',
+      spa: true,
+      test: /oraclecloud\.com\/hcmUI\/CandidateExperience/,
+      title: ['.job-details__title', 'h1'],
+      company: [],
+      location: ['.job-details__subtitle', '[data-bind*="primaryLocation"]'],
+      body: ['.job-details__description-content', '.job-details__content', '.job-details'],
+    },
+    {
+      name: 'icims',
+      test: /icims\.com\//,
+      title: ['.iCIMS_Header', 'h1'],
+      company: [],
+      location: ['.iCIMS_JobHeaderTag .iCIMS_JobHeaderData', '.header.left span'],
+      body: ['.iCIMS_JobContent', '.iCIMS_InfoMsg_Job', '#iCIMS_Content'],
+    },
+    {
+      name: 'successfactors',
+      test: /successfactors\.(com|eu)|\/job\/[^/]+\/\d+\/?$/,
+      title: ['[data-careersite-propertyid="title"]', '#job-title', 'h1'],
+      company: [],
+      location: ['[data-careersite-propertyid="city"]', '[data-careersite-propertyid="location"]', '.jobGeoLocation'],
+      body: ['[data-careersite-propertyid="description"]', '.jobdescription', '.job-description'],
+    },
+    {
+      name: 'taleo',
+      test: /taleo\.net\//,
+      title: ['.titlepage', '[id*="reqTitleValue"]', 'h1'],
+      company: [],
+      location: ['[id*="reqBasicLocation"]'],
+      body: ['.editablesection', '[id*="requisitionDescriptionInterface"]', '#requisitionDescriptionInterface'],
+    },
+    {
+      name: 'jobvite',
+      test: /jobvite\.com\//,
+      title: ['.jv-header', 'h2.jv-header', 'h1'],
+      company: [],
+      location: ['.jv-job-detail-meta'],
+      body: ['.jv-job-detail-description', '.jv-wrapper'],
+    },
+    {
+      name: 'eightfold',
+      spa: true,
+      test: /eightfold\.ai\/|\/careers\?.*pid=|\/careers\/job\//,
+      title: ['.position-title', 'h1'],
+      company: [],
+      location: ['.position-location'],
+      body: ['.position-job-description', '[class*="job-description"]'],
+    },
+    {
+      name: 'phenom',
+      test: /\/[a-z]{2}\/[a-z]{2}\/job\//,
+      title: ['.job-title', 'h1'],
+      company: [],
+      location: ['.job-location', '[data-ph-at-id="job-location"]'],
+      body: ['[data-ph-at-id="jobdescription-text"]', '.jd-info', '.job-description'],
+    },
   ];
 
   function fromKnownSite() {
@@ -179,7 +298,7 @@
     };
   }
 
-  // ---------- 3. generic ----------
+  // ---------- 4. generic ----------
   // Start from a heading like "Responsibilities" and widen to the smallest
   // block that reads like a whole posting — before it swallows sidebars or
   // lists of other jobs.
@@ -239,7 +358,7 @@
     // On single-page apps (LinkedIn, Indeed…) embedded data can describe a
     // previously viewed job, so trust the visible layout first there.
     const site = SITES.find((x) => x.test.test(location.href));
-    const order = site && site.spa ? [fromKnownSite, fromJsonLd, fromPage] : [fromJsonLd, fromKnownSite, fromPage];
+    const order = site && site.spa ? [fromKnownSite, fromJsonLd, fromPageData, fromPage] : [fromJsonLd, fromPageData, fromKnownSite, fromPage];
     for (const fn of order) {
       try {
         const r = fn();

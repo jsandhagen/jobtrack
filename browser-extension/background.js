@@ -114,8 +114,25 @@ function badge(tabId, result) {
 }
 
 // Tell the card on the page (if any) about something that happened in the popup.
+// Only the page itself (frame 0) talks back; frames inside it just report postings.
+const TOP = { frameId: 0 };
+
 function tellTab(tabId, msg) {
-  if (tabId !== undefined && tabId !== null) chrome.tabs.sendMessage(tabId, msg).catch(() => {});
+  if (tabId !== undefined && tabId !== null) chrome.tabs.sendMessage(tabId, msg, TOP).catch(() => {});
+}
+
+// Postings read inside frames on a page (iCIMS and other boards embedded in
+// a company's careers page), by tab and frame. Kept in session storage, since
+// this worker sleeps between events.
+async function getFrames(tabId) {
+  return (await chrome.storage.session.get('frames:' + tabId).catch(() => ({})))['frames:' + tabId] || {};
+}
+async function setFramePosting(tabId, frameId, posting) {
+  const frames = await getFrames(tabId);
+  if (posting) frames[frameId] = posting;
+  else delete frames[frameId];
+  if (Object.keys(frames).length) await chrome.storage.session.set({ ['frames:' + tabId]: frames }).catch(() => {});
+  else await chrome.storage.session.remove('frames:' + tabId).catch(() => {});
 }
 
 // A job is on the page: score it (without saving) unless it's the one we already have.
@@ -189,7 +206,7 @@ async function addPerson(tabId) {
 // manifest); tabs opened before the extension was installed need them added.
 async function ensureContent(tabId) {
   try {
-    if (await chrome.tabs.sendMessage(tabId, { type: 'ping' })) return true;
+    if (await chrome.tabs.sendMessage(tabId, { type: 'ping' }, TOP)) return true;
   } catch {
     /* not there yet */
   }
@@ -199,7 +216,7 @@ async function ensureContent(tabId) {
 
 async function extractFromTab(tabId) {
   try {
-    const p = await chrome.tabs.sendMessage(tabId, { type: 'extract' });
+    const p = await chrome.tabs.sendMessage(tabId, { type: 'extract' }, TOP);
     if (p) return p;
   } catch {
     /* no content script on this page */
@@ -211,7 +228,7 @@ async function extractFromTab(tabId) {
 
 async function personFromTab(tabId) {
   try {
-    const p = await chrome.tabs.sendMessage(tabId, { type: 'extractPerson' });
+    const p = await chrome.tabs.sendMessage(tabId, { type: 'extractPerson' }, TOP);
     if (p) return p;
   } catch {
     /* no content script on this page */
@@ -286,6 +303,15 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         return call('/person/open', { id: msg.id });
       case 'cleared':
         return setEntry(tabId, null);
+      case 'framePosting': {
+        // A frame inside the page found (or lost) a posting: tell the page.
+        if (!fromPage || !sender.frameId) return null;
+        await setFramePosting(tabId, sender.frameId, msg.posting || null);
+        if (msg.posting) tellTab(tabId, { type: 'framePosting' });
+        return null;
+      }
+      case 'framePostings':
+        return Object.values(await getFrames(tabId));
       case 'css':
         return css();
       case 'save': {
@@ -336,7 +362,7 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   if (!t) return;
   try {
     await ensureContent(t.id);
-    await chrome.tabs.sendMessage(t.id, { type: 'showCard' });
+    await chrome.tabs.sendMessage(t.id, { type: 'showCard' }, TOP);
   } catch {
     /* a page extensions can't touch (chrome://, the web store) */
   }
@@ -346,7 +372,11 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 // shows one. content.js re-reports the job if it's still the same one.
 chrome.tabs.onUpdated.addListener(async (tabId, change) => {
   if (!change.url) return;
+  await chrome.storage.session.remove('frames:' + tabId).catch(() => {});
   const e = await getEntry(tabId);
   if (e && e.posting.url !== change.url) await setEntry(tabId, null);
 });
-chrome.tabs.onRemoved.addListener((tabId) => setEntry(tabId, null));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  setEntry(tabId, null);
+  chrome.storage.session.remove('frames:' + tabId).catch(() => {});
+});
