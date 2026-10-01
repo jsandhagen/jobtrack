@@ -529,9 +529,17 @@ async function makeResume(appId) {
       picked: ids.picked,
       model: store.getSettings().model,
     });
-    const { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
+    let { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
     const prev = rec.builder && rec.builder.doc;
     if (prev && prev.header && prev.header.name) doc.header = prev.header;
+    // Keep Claude's draft within the length you chose (it's asked for one page, but can run over).
+    const limit = String(store.getSettings().resumePages) === '1' ? 1 : 2;
+    if (ResumeDoc.measure(doc).pages > limit) {
+      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit);
+      doc = fit.doc;
+      const n = fit.removed.length;
+      if (n) notes = [...notes, `Took off ${n} of the weakest bullet${n === 1 ? '' : 's'} so it fits on ${limit === 1 ? 'one page' : 'two pages'}.`];
+    }
     saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
     hostUpdated(updated);
@@ -566,8 +574,10 @@ function undoResume(appId) {
 }
 
 // ATS mode: free, no AI. Picks the bank bullets that cover the most posting
-// requirements, puts the posting's skills you can back up first, and keeps the
-// scanner-friendly template. Keeps the header you already set for this job.
+// requirements until the page is full (one page, or two when that shows more
+// of what the posting asks for), puts the posting's skills you can back up
+// first, and keeps the scanner-friendly template. Keeps the header you already
+// set for this job.
 function makeAtsResume(appId) {
   const rec = getHost(appId);
   if (!rec) throw new Error('That resume no longer exists.');
@@ -575,9 +585,12 @@ function makeAtsResume(appId) {
   const bank = store.getBank();
   if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add your resume to My library first.");
   store.saveApplication(appId);
-  const { doc } = bulletBank.buildDoc({ profile: store.getProfile(), bank, job: rec.job, roles: bulletBank.selectBullets(rec.job, bank).roles });
-  if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
-  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, builderPrev: undoPoint(rec) });
+  const profile = store.getProfile();
+  const header = rec.builder && rec.builder.doc ? rec.builder.doc.header : undefined;
+  // Sized to the page: the template is measured as bullets go in.
+  const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages });
+  const { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
+  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, atsFit: { pages: sel.pages, why: sel.why }, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
   hostUpdated(updated);
   return updated;
@@ -720,7 +733,7 @@ function builderState(rec) {
         const orig = b.bulletId && byId.get(b.bulletId);
         const words = orig ? [orig.text, ...(orig.variants || [])] : [];
         const rr = b.bulletId && rankById.get(b.bulletId);
-        return { wordings: words, edited: !!orig && !words.includes(b.text), inBank: !!orig, covers: rr ? rr.covers.map((c) => c.key) : [] };
+        return { wordings: words, edited: !!orig && !words.includes(b.text), inBank: !!orig, covers: rr ? rr.covers.map((c) => c.key) : [], score: rr ? Math.round(rr.score * 10) / 10 : null };
       }),
     })),
     otherRoles: bulletBank
@@ -736,6 +749,9 @@ function builderState(rec) {
     // it has a posting or keywords to check against.
     standalone: !!store.getResume(rec.id),
     hasTarget: String((rec.job && rec.job.text) || '').trim().length >= 40,
+    // How long the page is (the same estimate the optimizer fills to), the
+    // length you asked for, and why the optimizer picked its length.
+    length: { ...ResumeDoc.measure(doc), want: store.getSettings().resumePages || 'auto', why: resumeMode(rec) === 'ats' && rec.atsFit ? rec.atsFit.why : '' },
     canUndo: !!rec.builderPrev,
     undoTo: rec.builderPrev ? rec.builderPrev.source : null,
     // What the code-side checks found in Claude's draft, and Claude's own notes.
@@ -1201,6 +1217,15 @@ function registerIpc() {
   handle('builder:auto', (appId) => {
     makeAtsResume(appId);
     return builderState(getHost(appId));
+  });
+  // Trim the page to one or two pages, weakest bullets first (undoable).
+  handle('builder:fit', (appId, pages) => {
+    const rec = getHost(appId);
+    if (!rec) throw new Error('That resume no longer exists.');
+    const out = bulletBank.fitDocToPages(currentDoc(rec), rec.job, store.getBank(), pages === 2 ? 2 : 1);
+    if (out.removed.length || out.skills.length || out.roles.length) saveDoc(appId, out.doc, { builderPrev: undoPoint(rec) });
+    hostUpdated(getHost(appId));
+    return { ...builderState(getHost(appId)), trimmed: { bullets: out.removed, skills: out.skills, roles: out.roles, pages: out.pages } };
   });
   // A role from the bank, with its best bullets for this job, ready to drop in.
   handle('builder:roleFromBank', (appId, experienceId) => {

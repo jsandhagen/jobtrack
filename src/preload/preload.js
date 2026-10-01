@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('sprout', {
   deleteRole: (id) => call('bank:deleteRole', id),
   suggestBullets: () => call('bank:suggest'),
   getEditor: (appId) => call('builder:get', appId),
+  fitEditor: (appId, pages) => call('builder:fit', appId, pages),
   saveEditor: (appId, doc) => call('builder:save', appId, doc),
   autoEditor: (appId) => call('builder:auto', appId),
   roleFromBank: (appId, experienceId) => call('builder:roleFromBank', appId, experienceId),

@@ -19,6 +19,9 @@ const DEFAULT_SETTINGS = {
   // this month's estimated spend reaches this many dollars. 0 = no limit.
   autoBudgetUsd: 5,
   followUpDays: 7,
+  // Resume length for the free ATS optimizer: 'auto' (one page, two only when
+  // it shows more of what the posting asks for), 1, or 2 (up to two pages).
+  resumePages: 'auto',
   // How to read job postings off the screen: 'ocr' (free, on this computer),
   // 'ocr-then-claude' (free first, Claude only if that finds nothing), or 'claude'.
   screenReader: 'ocr',

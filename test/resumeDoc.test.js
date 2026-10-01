@@ -86,7 +86,7 @@ test('a doc built from the bullet bank carries bullet ids, relevant skills first
   assert.equal(doc.header.name, 'Alex Morgan');
   assert.equal(doc.roles[0].organization, 'Northwind Insurance');
   assert.ok(doc.roles[0].bullets.every((b) => b.bulletId));
-  const wanted = ['Data Analysis', 'SQL', 'Data Visualization', 'Statistics', 'Python', 'Communication'];
+  const wanted = ['Data Analysis', 'SQL', 'Tableau', 'Statistics', 'Python', 'Communication'];
   assert.ok(doc.skills.slice(0, 3).every((s) => wanted.includes(s)), doc.skills.join(', '));
   assert.deepEqual(doc.education[0].lines, [{ label: 'Relevant Courses', text: 'Econometrics, Statistics, Data Visualization, Database Systems.' }]);
   // A Claude-written version of the same bullet links back to the bank.

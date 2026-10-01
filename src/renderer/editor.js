@@ -83,7 +83,7 @@ async function saveNow() {
 // shows straight away, and one step can be undone.
 const RESUME_STATES = {
   baseline: { title: 'Baseline resume', line: 'Your resume as it is, with nothing tailored yet. Optimize it for this posting, or have Claude write an updated version.' },
-  ats: { title: 'Optimized for ATS by Spike', line: 'Your bullets that match the most posting keywords, in your own words, with the skills you can back up listed first.' },
+  ats: { title: 'Optimized for ATS by Spike', line: 'Your bullets that prove the most of what the posting asks for, sized to fill the page, in your own words, with the skills you can back up listed first.' },
   claude: { title: 'Written by Root with Claude', line: 'Tailored to this posting and fact-checked against your records. Click anywhere on the page to edit.' },
 };
 
@@ -105,7 +105,7 @@ function modeBar(info) {
   const back = cur !== 'baseline' && info.undoTo !== 'baseline' ? '<button class="small ghost" data-mode-go="baseline">Back to baseline</button>' : '';
   const locked = !state.hasApiKey;
   return `<div class="mode-strip mode-is-${cur}">
-    <div class="mode-status">${who}<div><b>${st.title}</b><p>${st.line}</p>${undo || back ? `<div class="inline mode-links">${undo}${back}</div>` : ''}</div></div>
+    <div class="mode-status">${who}<div><b>${st.title}</b><p>${st.line}</p>${cur === 'ats' && info.length && info.length.why ? `<p class="mode-why">${icon('doc', 13)} ${esc(info.length.why)}</p>` : ''}${undo || back ? `<div class="inline mode-links">${undo}${back}</div>` : ''}</div></div>
     <div class="mode-actions">
       <button class="peek mode-ats" data-mode-go="ats">${window.SproutMascot.peekPal('ats', 54)}<b>${aimed ? (cur === 'ats' ? 'Optimize again' : 'Optimize for ATS') : 'Pick my best bullets'}</b><small>Free · instant</small></button>
       <button class="peek mode-claude" data-mode-go="${locked ? 'settings' : 'claude'}" title="${locked ? 'Add a Claude API key in Settings' : aimed ? 'Claude writes an updated version for this posting' : 'Claude writes a version from your records'}">${window.SproutMascot.peekPal('claude', 54)}<b>${cur === 'claude' ? 'Rewrite with Claude' : 'Write with Claude'}</b><small>${locked ? 'Add an API key first' : 'Uses Claude · ~1 min'}</small></button>
@@ -184,6 +184,13 @@ async function renderEditor(appId, app) {
       <div class="ed-main">
         <div class="ed-bar">
           <span class="ed-pages" id="edPages"></span>
+          <button class="small soft" id="edFit" hidden></button>
+          <label class="ed-len" title="How long Optimize for ATS makes the resume, and when to offer trimming">Length
+            <select id="edLen">
+              <option value="auto" title="One page; two only when that shows more of what the posting asks for">Auto</option>
+              <option value="1">1 page</option>
+              <option value="2">Up to 2 pages</option>
+            </select></label>
           <span class="ed-spacer"></span>
           <button class="ghost small" id="edCopy" title="${info.standalone ? 'Make a new resume starting from this one' : 'Keep this resume on your Resumes page to reuse or edit later'}">${icon('doc', 14)} ${info.standalone ? 'Duplicate' : 'Save to Resumes'}</button>
           <button class="soft small" id="edMd">Markdown</button>
@@ -200,6 +207,10 @@ async function renderEditor(appId, app) {
   $('#edPdf', slot).addEventListener('click', (e) => exportResume(e.currentTarget, 'pdf'));
   $('#edMd', slot).addEventListener('click', (e) => exportResume(e.currentTarget, 'md'));
   $('#edCopy', slot).addEventListener('click', (e) => copyToResumes(e.currentTarget));
+  const len = $('#edLen', slot);
+  len.value = String((info.length && info.length.want) || 'auto');
+  len.addEventListener('change', () => setLength(len.value));
+  $('#edFit', slot).addEventListener('click', (e) => fitToPages(e.currentTarget, +e.currentTarget.dataset.pages));
   wirePaper();
 }
 
@@ -264,7 +275,8 @@ function fitZoom() {
 }
 window.addEventListener('resize', () => fitZoom());
 
-// Dashed page-break guides, like a word processor.
+// Dashed page-break guides, like a word processor. Measured as the page will
+// print: without the editor's "+ add" rows and empty placeholders.
 function drawGuides() {
   const page = document.getElementById('edPage');
   const guides = document.getElementById('edGuides');
@@ -272,12 +284,82 @@ function drawGuides() {
   if (!body || !guides) return;
   const M = ResumeDoc.MARGINS;
   const usable = (11 - M.top - M.bottom) * PX_IN;
+  const top0 = M.top * PX_IN;
+  // Page coordinates, whatever the zoom.
+  const scale = page.getBoundingClientRect().height / page.offsetHeight || 1;
+  const yOf = (el) => (el.getBoundingClientRect().top - page.getBoundingClientRect().top) / scale;
+  const LINES = '.rs-name, .rs-line, .rs-h, .rs-summary, .rs-row, .rs-bullets > li, .rs-skills > li, .rs-detail, .rs-certs > li';
+
+  page.classList.add('measuring');
   const h = body.offsetHeight;
   const pages = Math.max(1, Math.ceil((h - 4) / usable));
+  // The first line that doesn't fit on each page starts the next one.
+  const visible = [...body.querySelectorAll(LINES)].filter((el) => el.offsetParent);
+  const starts = [];
+  for (let k = 1; k < pages; k++) {
+    const cut = top0 + usable * k;
+    starts.push(visible.find((el) => yOf(el) + el.getBoundingClientRect().height / scale > cut + 1) || null);
+  }
+  page.classList.remove('measuring');
+
   page.style.minHeight = `${pages * 11}in`;
-  guides.innerHTML = Array.from({ length: pages - 1 }, (_, k) => `<div class="ed-break" style="top:${M.top * PX_IN + usable * (k + 1)}px"><span>page ${k + 2}</span></div>`).join('');
+  guides.innerHTML = starts
+    .map((el, k) => `<div class="ed-break" style="top:${el ? Math.max(0, yOf(el) - 3) : top0 + usable * (k + 1)}px"><span>page ${k + 2}</span></div>`)
+    .join('');
+  const fill = (h - usable * (pages - 1)) / usable;
+  showLength(pages, fill);
+}
+
+// The page count, and a one-click trim when the resume runs long.
+function showLength(pages, fill) {
   const pc = document.getElementById('edPages');
-  if (pc) pc.innerHTML = pages === 1 ? '<span class="chip good">✓ Fits on 1 page</span>' : `<span class="chip grow">${pages} pages</span>`;
+  const btn = document.getElementById('edFit');
+  if (!pc || !btn) return;
+  const want = String((ed.info && ed.info.length && ed.info.length.want) || 'auto');
+  const limit = want === '1' ? 1 : 2;
+  let trimTo = 0;
+  if (pages > limit) {
+    trimTo = limit;
+    pc.innerHTML = `<span class="chip warn" title="Recruiters and some ATS stop reading after ${limit === 1 ? 'one page' : 'two pages'}">${icon('warn', 13)} ${pages} pages: over ${limit === 1 ? '1 page' : '2'}</span>`;
+  } else if (pages === 1) {
+    pc.innerHTML = `<span class="chip good" title="${Math.round(fill * 100)}% of the page used">✓ Fits on 1 page</span>`;
+  } else {
+    // A second page with only a few lines on it reads as a spill-over.
+    const thin = want === 'auto' && fill < 0.3;
+    if (thin) trimTo = 1;
+    pc.innerHTML = `<span class="chip ${thin ? 'grow' : 'good'}" title="Page 2 is ${Math.round(fill * 100)}% full">${thin ? `2 pages · page 2 only ${Math.round(fill * 100)}% full` : '✓ 2 pages'}</span>`;
+  }
+  btn.hidden = !trimTo;
+  btn.dataset.pages = trimTo;
+  btn.textContent = `Trim to ${trimTo} page${trimTo === 1 ? '' : 's'}`;
+  btn.title = 'Takes off the bullets that show the least for this posting (and skills it doesn’t mention) until it fits. Every role keeps a bullet, and any bullet that’s the only proof of a requirement stays. You can undo it.';
+}
+
+async function setLength(value) {
+  const want = value === '1' || value === '2' ? Number(value) : 'auto';
+  await run(null, async () => {
+    await S.updateSettings({ resumePages: want });
+    if (state.settings) state.settings.resumePages = want;
+    if (ed.info && ed.info.length) ed.info.length.want = want;
+    drawGuides();
+    const aimed = ed.info && (!ed.info.standalone || ed.info.hasTarget);
+    toast(`${want === 1 ? 'One page' : want === 2 ? 'Up to two pages' : 'Auto length'} from now on. Press ${aimed ? 'Optimize again' : 'Pick my best bullets'} to rebuild this one.`, 'good', 4200);
+  });
+}
+
+async function fitToPages(btn, pages) {
+  await run(btn, async () => {
+    await saveNow();
+    const appId = ed.appId;
+    const info = await S.fitEditor(appId, pages);
+    if (ed.appId !== appId) return;
+    const t = info.trimmed;
+    await renderEditor(appId, ed.app);
+    if (!t.bullets.length && !t.skills.length && !t.roles.length) return toast('Nothing left that can come off.', 'info');
+    const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
+    const parts = [n(t.bullets.length, 'bullet'), n(t.skills.length, 'skill'), n(t.roles.length, 'older role')].filter(Boolean);
+    toast(`Took off ${parts.join(' and ')} to fit on ${t.pages} page${t.pages === 1 ? '' : 's'}. They're still in your bank; Undo is above the page.`, 'good', 5200);
+  }, 'Trimming…');
 }
 
 // ---------- tray ----------
