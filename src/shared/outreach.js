@@ -869,12 +869,24 @@
     return [...seen.values()];
   }
 
+  // One posting at one company, the same across checks even when a careers
+  // site hands out a new job id (by title, not id).
+  const jobKey = (co, job) => `${(co && co.id) || norm(co && co.name)}|${norm(job && job.title)}`;
+  // Keep a { key: when } record to the last month, plus `keys` as of now.
+  function remember(record, keys, now = Date.now()) {
+    const out = {};
+    for (const [k, at] of Object.entries(record || {})) if (now - Date.parse(at) < 30 * 86400000) out[k] = at;
+    for (const k of keys || []) out[k] = new Date(now).toISOString();
+    return out;
+  }
+
   // Strong-fit roles that just turned up at companies you watch, best fit
   // first: new postings, and every open role at a company you only just added
   // (its first check has nothing "new", but all of it is new to you). Roles
   // with a dealbreaker, hidden ones and passed-on companies don't count.
+  // `seen` ({ key: when }) leaves out ones you've already looked at or dismissed.
   const STRONG_FIT = 65; // "Strong match" and up, the green fit pill
-  function standoutJobs(companies, { now = Date.now(), days = 3, min = STRONG_FIT } = {}) {
+  function standoutJobs(companies, { now = Date.now(), days = 3, min = STRONG_FIT, seen = null } = {}) {
     const recent = (iso) => !!iso && now - Date.parse(iso) < days * 86400000;
     return (companies || [])
       .filter((c) => c.status !== 'pass')
@@ -883,6 +895,7 @@
         return (c.jobs || [])
           .filter((j) => j.fit && j.fit.score >= min && !(j.fit.dealbreakers || []).length && !(c.hidden || []).includes(j.id))
           .filter((j) => recent(j.firstSeenAt) || justAdded)
+          .filter((j) => !seen || !seen[jobKey(c, j)])
           .map((job) => ({ co: c, job, justAdded: justAdded && !recent(job.firstSeenAt) }));
       })
       .sort((a, b) => b.job.fit.score - a.job.fit.score || String(b.job.postedAt || '').localeCompare(String(a.job.postedAt || '')));
@@ -954,5 +967,7 @@
     companySuggestions,
     STRONG_FIT,
     standoutJobs,
+    jobKey,
+    remember,
   };
 });

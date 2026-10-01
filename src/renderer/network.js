@@ -1114,7 +1114,13 @@ function inWindow(job, days) {
 // Strong fits that just turned up at companies you watch and aren't in your
 // list yet (see standoutJobs in src/shared/outreach.js). Home and sidebar Sprout call them out.
 function standoutJobs() {
-  return O.standoutJobs(state.companies).filter(({ co, job }) => !inMyList(co, job));
+  return O.standoutJobs(state.companies, { seen: state.settings.seenStandouts }).filter(({ co, job }) => !inMyList(co, job));
+}
+
+// Once you've looked at the strong fits (or said "not now"), Sprout stops calling them out.
+function markStandoutsSeen() {
+  const keys = standoutJobs().map(({ co, job }) => O.jobKey(co, job));
+  if (keys.length) S.markStandoutsSeen(keys).catch(() => {});
 }
 
 // What Sprout says about them, or '' when there are none.
@@ -1131,6 +1137,7 @@ function standoutLine(list = standoutJobs()) {
 
 // The job board with the best fits on top.
 function showStandouts() {
+  markStandoutsSeen();
   Object.assign(board, { company: '', q: '', window: 'all', sort: 'fit', showHidden: false, limit: PAGE_SIZE });
   findTab = 'jobs';
   try {

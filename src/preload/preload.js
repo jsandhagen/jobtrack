@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('sprout', {
   markReached: (id, info) => call('net:reached', id, info),
   setContactStatus: (id, status) => call('net:status', id, status),
   checkCareers: (ids) => call('careers:check', ids),
+  markStandoutsSeen: (keys) => call('standouts:seen', keys),
   careersNotThem: (id) => call('careers:notThem', id),
   scoreCareerJob: (companyId, jobId) => call('careers:score', companyId, jobId),
   searchRole: (opts) => call('careers:searchRole', opts),

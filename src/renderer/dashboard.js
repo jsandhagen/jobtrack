@@ -444,7 +444,7 @@ const views = {
       <div class="hero" data-time="${time}">${heroScene(time)}${mascotSvg(mood, 104, { cls: 'pettable', label: 'Sprout — click to say hi' })}
         <div><h1>${greeting()}</h1><p class="sprout-line">${esc(line)}</p></div>
         <div class="actions">
-          ${standout ? `<button class="primary" id="standoutBtn">${icon('sparkle')} See the strong fits</button>` : ''}
+          ${standout ? `<button class="primary" id="standoutBtn">${icon('sparkle')} See the strong fits</button><button class="soft" id="standoutDismiss">Not now</button>` : ''}
           <button class="${standout ? 'soft' : 'primary'}" data-go="check">${icon('search')} Check a job</button>
           <button class="soft" id="scanBtn">${icon('camera')} Scan my screen</button>
         </div>
@@ -1181,6 +1181,8 @@ const binders = {
     if (scan) scan.addEventListener('click', scanFromApp);
     const standouts = $('#standoutBtn');
     if (standouts) standouts.addEventListener('click', showStandouts);
+    const notNow = $('#standoutDismiss');
+    if (notNow) notNow.addEventListener('click', markStandoutsSeen);
   },
   check() {
     $('#analyzeBtn').addEventListener('click', (e) =>

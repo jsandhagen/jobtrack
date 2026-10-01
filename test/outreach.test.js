@@ -480,3 +480,18 @@ test('standout jobs: strong fits that are new, or at a company you just added', 
   assert.equal(O.standoutJobs(companies, { now: now + 4 * 86400000 }).length, 0, 'only for a few days');
   assert.deepEqual(O.standoutJobs([]), []);
 });
+
+test('strong fits you have seen or dismissed are not called out again', () => {
+  const now = Date.parse('2026-06-10T12:00:00Z');
+  const recent = new Date(now - 86400000).toISOString();
+  const strong = { score: 80, dealbreakers: [] };
+  const co = { id: 'c1', name: 'Acme', jobs: [{ id: 'j1', title: 'Data Analyst', fit: strong, firstSeenAt: recent }, { id: 'j2', title: 'BI Analyst', fit: strong, firstSeenAt: recent }] };
+  const seen = O.remember({}, [O.jobKey(co, co.jobs[0])], now);
+  assert.deepEqual(O.standoutJobs([co], { now, seen }).map((x) => x.job.id), ['j2']);
+  // The same role under a new job id is still the one you've seen.
+  const reposted = { ...co, jobs: [{ ...co.jobs[0], id: 'j1-new' }] };
+  assert.equal(O.standoutJobs([reposted], { now, seen }).length, 0);
+  // The record keeps a month.
+  assert.deepEqual(Object.keys(O.remember(seen, [], now + 31 * 86400000)), []);
+  assert.equal(Object.keys(O.remember(seen, ['x'], now + 86400000)).length, 2);
+});

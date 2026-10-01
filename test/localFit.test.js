@@ -48,6 +48,31 @@ test('seniority is judged only when the title states a level', () => {
   assert.ok(score('frontend', 'staffFrontend').concerns.some((c) => /years/.test(c)));
 });
 
+test('roles well below your level in your own field are not called strong fits', () => {
+  const req = `Requirements
+- JavaScript, TypeScript and React
+- HTML and CSS
+- Git and Jest unit tests
+Nice to have
+- Storybook`;
+  const docs = CANDIDATES.frontend.documents;
+  const profile = CANDIDATES.frontend.profile;
+  // Same work, junior title: every requirement met, but not a strong fit for a senior engineer.
+  const junior = localFitScore({ title: 'Junior Frontend Engineer', text: `Junior Frontend Engineer\n${req}` }, docs, profile);
+  assert.ok(junior.score < 65, `junior role scored ${junior.score}`);
+  assert.ok(junior.concerns.some((c) => /overqualified/.test(c)));
+  // No level in the title, but plainly entry level in the text.
+  const entry = localFitScore({ title: 'Frontend Engineer', text: `Frontend Engineer\nNew grads welcome!\n${req}` }, docs, profile);
+  assert.ok(entry.score < 65, `entry-level role scored ${entry.score}`);
+  // The same posting at a level that suits them still scores well.
+  const senior = localFitScore({ title: 'Senior Frontend Engineer', text: `Senior Frontend Engineer\n${req}` }, docs, profile);
+  assert.ok(senior.score >= 65 && senior.score > junior.score, `senior role scored ${senior.score}`);
+  assert.ok(!senior.concerns.some((c) => /overqualified/.test(c)));
+  // A career change into a junior role isn't overqualification.
+  const switcher = localFitScore({ title: 'Junior Frontend Engineer', text: `Junior Frontend Engineer\n${req}` }, CANDIDATES.nurse.documents, CANDIDATES.nurse.profile);
+  assert.ok(!switcher.concerns.some((c) => /overqualified/.test(c)));
+});
+
 test('no documents means no score, and confidence reflects what was recognised', () => {
   assert.equal(localFitScore(POSTINGS.seniorFrontend, [], {}).score, 0);
   assert.equal(score('frontend', 'seniorFrontend').confidence, 'high');

@@ -15,13 +15,15 @@
 //   preferred qualifications   8%
 //   seniority alignment        6%   intern … director, vs your years and titles
 // Everything but required counts in full only when the must-haves are there.
+// Roles two or more levels below yours, in your own line of work, are capped
+// below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
 const { SKILLS, RELATED, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 9;
+const SCORER_VERSION = 10;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -154,6 +156,7 @@ function titleLevel(title) {
   for (const [lvl, re] of LEVELS) if (re.test(t)) return lvl;
   return null; // no marker = mid level
 }
+const ENTRY_TEXT = /\b(?:entry[- ]level (?:role|position|opportunity|candidates?)|new (?:college )?grad(?:uate)?s?\b|recent (?:college )?graduates?|early[- ]career|0\s*(?:-|–|to)\s*[12]\s*years?)/i;
 function levelFromYears(y) {
   if (y === null) return null;
   if (y < 2) return 1;
@@ -666,17 +669,24 @@ function localFitScore(job, documents, profile = {}) {
   const needYears = requiredYears(job.text);
   const haveYears = yearsOfExperience(libText);
   const experience = needYears !== null && haveYears !== null ? Math.min(1, Math.pow(haveYears / Math.max(1, needYears), 1.2)) : needYears !== null ? 0.4 : null;
-  // Most titles carry no level; only judge seniority when the posting states one.
-  const postingLevel = titleLevel(job.title);
+  // Most titles carry no level; only judge seniority when the posting states
+  // one (in the title, or plainly as an entry-level / new-grad role).
+  const postingLevel = titleLevel(job.title) ?? (ENTRY_TEXT.test(job.text || '') ? 1 : null);
   const docLevels = documents.filter((d) => d.kind === 'resume' || !d.kind).map((d) => d.text.split('\n').map(titleLevel).filter((l) => l !== null && l < 6)).flat();
   const yearLevel = levelFromYears(haveYears);
   const userLevel = yearLevel !== null ? Math.max(yearLevel, docLevels.length ? Math.min(Math.max(...docLevels), yearLevel + 1) : yearLevel) : null;
   let seniority = null;
   if (userLevel !== null && postingLevel !== null) {
     const gap = postingLevel - userLevel;
-    // Mildly discount clearly junior roles for experienced people; penalise big stretches.
-    seniority = gap > 1 ? 0.25 : gap === 1 ? 0.65 : postingLevel <= 1 && userLevel >= 3 ? 0.7 : 1;
+    // Penalise big stretches; a step down is common, but a role two or more
+    // levels below where you are isn't a good fit either.
+    seniority = gap > 1 ? 0.25 : gap === 1 ? 0.65 : gap === -2 ? 0.45 : gap < -2 ? 0.2 : 1;
   }
+  // Overqualified, in your own line of work: an entry-level version of what you
+  // already do can match every requirement, but it isn't a strong fit for you.
+  // (A career change into a junior role is a different story: role match is low there.)
+  const levelsBelow = seniority !== null ? userLevel - postingLevel : 0;
+  const overqualified = levelsBelow >= 2 && (role === null || role >= 0.5);
 
   const components = { required, preferred: mean(pref), role, domain, experience, seniority };
   // Like Textkernel's suggested weights, lean on what the posting gives the
@@ -699,6 +709,7 @@ function localFitScore(job, documents, profile = {}) {
   // Workday), the rest can't make it more than a stretch.
   const missingCore = all.filter((u) => u.core && u.met < 0.4).map((u) => u.label);
   if (missingCore.length) score = Math.min(score, 40);
+  if (overqualified) score = Math.min(score, levelsBelow >= 3 ? 50 : 60);
 
   // How much should you trust this number?
   const recognized = all.length;
@@ -711,6 +722,7 @@ function localFitScore(job, documents, profile = {}) {
   if (role !== null && role >= 0.8) reasons.push('The role lines up with your background and target roles');
   if (experience !== null && experience >= 1) reasons.push(`Your ~${haveYears} years cover the ${needYears}+ asked for`);
   if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`This is a ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}`);
+  if (overqualified) concerns.push(`This looks like an earlier-career (${LEVEL_NAMES[postingLevel]}-level) role, and your experience reads as ${LEVEL_NAMES[userLevel]}. You'd likely be overqualified, so it may undersell you`);
   if (experience !== null && experience < 0.8) concerns.push(`Asks for ${needYears}+ years; your documents show about ${haveYears ?? 'unclear'}`);
   concerns.push(...screening.unanswered);
   // Problems with what was captured (cut-off description, a list of jobs).

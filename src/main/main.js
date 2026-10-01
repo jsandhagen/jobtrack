@@ -1331,6 +1331,11 @@ function registerIpc() {
   });
   // Careers sites of the companies you watch.
   handle('careers:check', (ids) => checkCareers(ids, { manual: true }));
+  // Strong fits you've looked at or dismissed stop being called out in the app.
+  handle('standouts:seen', (keys) => {
+    store.updateSettings({ seenStandouts: outreach.remember(store.getSettings().seenStandouts, Array.isArray(keys) ? keys.map(String) : []) });
+    broadcast('state-changed');
+  });
   handle('careers:searchRole', (opts) => searchRole(opts || {}));
   handle('careers:notThem', (id) => {
     store.saveItem('companies', { id, board: { ats: 'none' }, seen: null, jobs: [], openCount: 0, checkError: 'no-board' });
@@ -1806,12 +1811,15 @@ async function checkCareers(ids, { manual = false } = {}) {
 
 // One desktop notification per check. Strong fits (new postings, or open
 // roles at a company you just added) get called out by name and score;
-// otherwise it's the plain "new roles" ping. Only recent postings count as new.
+// otherwise it's the plain "new roles" ping. Only recent postings count as new,
+// and a role is announced once: careers sites that hand out new job ids, or
+// a company re-checked from scratch, don't bring the same ping back.
 function notifyNewRoles(fresh, firstLooks) {
   if (!Notification.isSupported()) return;
-  const recent = fresh.filter(({ job }) => !job.postedAt || Date.now() - Date.parse(job.postedAt) < 14 * 86400000);
+  const announced = store.getSettings().announcedJobs || {};
+  const recent = fresh.filter(({ company, job }) => (!job.postedAt || Date.now() - Date.parse(job.postedAt) < 14 * 86400000) && !announced[outreach.jobKey(company, job)]);
   const strong = outreach
-    .standoutJobs(store.list('companies').filter((c) => firstLooks.has(c.id)))
+    .standoutJobs(store.list('companies').filter((c) => firstLooks.has(c.id)), { seen: announced })
     .map(({ co, job }) => ({ company: co, job, justAdded: true }))
     .concat(recent.filter(({ job }) => job.fit && job.fit.score >= outreach.STRONG_FIT && !(job.fit.dealbreakers || []).length))
     .filter(({ company, job }) => !appliedTo(company.name, job))
@@ -1835,6 +1843,7 @@ function notifyNewRoles(fresh, firstLooks) {
     title = recent.length === 1 ? `New at ${first.company.name}: ${first.job.title}` : `${recent.length} new roles at companies you watch`;
     body = recent.length === 1 ? 'Freshly posted, and it matches what you are looking for. Want me to check your fit?' : recent.slice(0, 3).map(({ company, job }) => `${job.title} · ${company.name}`).join('\n');
   } else return;
+  store.updateSettings({ announcedJobs: outreach.remember(announced, [...strong, ...recent].map(({ company, job }) => outreach.jobKey(company, job))) });
   const n = new Notification({ title, body });
   n.on('click', () => {
     const w = createDashboard();
