@@ -1112,6 +1112,7 @@ function words(s) {
 // sit almost side by side ("Manager, Business Operations" for "Operations
 // Manager"), so "Staff Engineer, Office of the Chief Scientist" isn't a
 // "Chief of Staff" job.
+const DEPARTMENT_WORDS = new Set(['marketing', 'sales', 'recruiting', 'support', 'operation', 'design', 'success', 'finance', 'accounting', 'legal', 'security', 'quality', 'engineering', 'program', 'project', 'product', 'data'].map(stem));
 function phraseIn(t, phrase) {
   const want = [...new Set(phrase)];
   if (!want.length || !want.every((w) => t.includes(w))) return false;
@@ -1131,6 +1132,11 @@ function phraseIn(t, phrase) {
   }
   if (!best) return false;
   const run = t.slice(best.start, best.end + 1);
+  // "Product Marketing Manager" isn't a "Product Manager": a department word
+  // between the role's words makes it another job.
+  // (Only right before the role noun: "Manager, Sales Operations" is still operations.)
+  const nounAt = t.indexOf(want[want.length - 1], best.start);
+  if (nounAt > best.start && DEPARTMENT_WORDS.has(t[nounAt - 1]) && !want.includes(t[nounAt - 1])) return false;
   const order = want.map((w) => run.indexOf(w));
   const inOrder = order.every((x, k) => k === 0 || x > order[k - 1]);
   return run.length <= want.length + (inOrder ? 3 : 1);
