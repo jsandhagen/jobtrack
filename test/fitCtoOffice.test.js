@@ -134,3 +134,27 @@ test('held out: the same person as a LinkedIn PDF export or a two-line layout pa
     assert.ok(Math.abs(hfit(p, H.RESUMES.ctoOfficeLinkedInPdf).score - main) <= (p === 'bizOpsEngineering' ? 15 : tol), `LinkedIn ${p}`);
   }
 });
+
+// ---------- the application itself ----------
+
+test('ATS: "N+ years in A, B, C, or similar roles" lists alternatives, not one knockout per item', () => {
+  const { atsScore } = require('../src/main/atsScore');
+  const r = atsScore(H.POSTINGS.soOctoSecurity, F.RESUMES.ctoOfficeStrategist, {});
+  assert.deepEqual(r.knockouts, []);
+  assert.ok(!r.tips.some((t) => /account management|strategy & operations/.test(t)), r.tips.join(' / '));
+  assert.ok(r.score >= 60, `${r.score} ${r.grade}`);
+});
+
+test('the free resume: every bullet when the page has room, and a skills grid of your words', () => {
+  const B = require('../src/main/bullets');
+  const bank = B.mergeIntoBank(B.emptyBank(), parseResume(F.RESUMES.ctoOfficeStrategist), { id: 'r', name: 'Resume' }).bank;
+  for (const p of [F.POSTINGS.chiefOfStaffCTO, F.POSTINGS.emergingTechStrategist, H.POSTINGS.appliedAIStrategyOps]) {
+    const sel = B.selectBullets(p, bank, { profile: { name: 'Jordan Avery' } });
+    const n = sel.roles.reduce((s, r) => s + r.bullets.length, 0);
+    assert.equal(n, bank.bullets.length, `${p.title}: a one-page resume with room keeps all ${bank.bullets.length} bullets (got ${n})`);
+    const skills = B.pickSkills(p, bank).all;
+    assert.ok(!skills.some((s) => /^(Communication|Collaboration|Problem Solving|Leadership|Financial Services|Public Sector|IT Portfolio Management)$/.test(s)), `${p.title}: ${skills.join(', ')}`);
+    const roadmaps = skills.filter((s) => /roadmap/i.test(s));
+    assert.ok(roadmaps.length <= 1, `${p.title}: ${roadmaps.join(', ')}`);
+  }
+});

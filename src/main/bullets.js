@@ -2,7 +2,7 @@
 // under the role it belongs to, so resumes can be assembled from the ones
 // that fit a posting best. Everything here is offline and free.
 const crypto = require('crypto');
-const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills } = require('./fitScore');
+const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 
@@ -622,6 +622,14 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
       if (r.score < 0.8 || picked.get(r.experienceId).length >= roleLimits2.get(r.experienceId)) continue;
       if (fits(r)) take(r);
     }
+    // Still thin (a short library): an accomplishment that proves nothing in
+    // this posting reads better than empty page, so the rest of your bullets
+    // from the roles shown go in, strongest first.
+    for (const r of [...pool].sort((a, b) => b.score - a.score)) {
+      if (count >= total || height(picked, shown) >= target) break;
+      if (!shown.has(r.experienceId) || picked.get(r.experienceId).length >= roleLimits2.get(r.experienceId)) continue;
+      if (fits(r)) take(r);
+    }
     const roles = asRoles(picked, shown);
     const m = ResumeDoc.measure({ ...shell, roles: docRoles(roles, expById) });
     return { roles, pages: m.pages, fill: m.lastPageFill, short: dropped.length > 0, dropped: dropped.length, left, leftLines: left.reduce((s, r) => s + lines.get(r.id), 0) };
@@ -698,6 +706,11 @@ const hasWord = (hay, term) => new RegExp(`(^|[^a-z0-9])${escapeRe(lower(term))}
  * Never a skill your documents don't show.
  * @returns {{relevant: string[], other: string[], all: string[]}}
  */
+// Not skills a resume lists: soft skills (shown by the bullets, not claimed in
+// a grid) and the industries you've worked in.
+const NOT_IN_GRID = new Set([...INTERPERSONAL, 'Leadership', 'Financial Services', 'Public Sector', 'Healthcare', 'Enterprise Software', 'Customer Success', 'Operations', 'Strategy']);
+const gridWords = (s) => lower(s).split(/[^a-z0-9+#]+/).filter((w) => w.length > 2).map((w) => w.replace(/(?:ing|s)$/, ''));
+
 function pickSkills(job, bank, { max = 15 } = {}) {
   const jobText = String((job && job.text) || '');
   const jobLower = lower(jobText);
@@ -706,7 +719,12 @@ function pickSkills(job, bank, { max = 15 } = {}) {
   const keys = new Set();
   const found = []; // {name, rank, mentions, pos}
   const add = (name, kind, mentions, term) => {
-    if (!name || found.some((x) => norm(x.name) === norm(name))) return;
+    // "Roadmap" next to "Roadmaps" or "Product roadmap" says it twice.
+    const same = (a, b) => {
+      const [x, y] = [gridWords(a), gridWords(b)];
+      return norm(a) === norm(b) || (x.length && y.length && (x.every((w) => y.includes(w)) || y.every((w) => x.includes(w))));
+    };
+    if (!name || found.some((x) => same(x.name, name))) return;
     const pos = jobLower.indexOf(lower(term || name));
     found.push({ name, rank: KIND_RANK[kind] || 2, mentions: mentions || 1, pos: pos < 0 ? Infinity : pos });
   };
@@ -714,9 +732,13 @@ function pickSkills(job, bank, { max = 15 } = {}) {
   for (const [skill, { kind, term, mentions }] of classifyJobSkills(jobText)) {
     if (!SKILLS[skill].some((p) => p.test(bankText))) continue;
     keys.add(skill);
+    if (NOT_IN_GRID.has(skill)) continue;
     const mine = listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s))) && hasWord(lower(s), term));
-    const name = mine || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s)))) || skill);
-    add(name, kind, mentions, term);
+    // Your words or the posting's, never a label you didn't write ("IT Portfolio Management" for "planning cycle").
+    const own = listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s))));
+    const label = gridWords(skill).every((w) => bankText.includes(w)) ? skill : null;
+    const name = mine || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : own || label);
+    if (name) add(name, kind, mentions, term);
   }
   // Your own listed skills the posting names outside the skills dictionary ("Storybook", "HIPAA").
   const units = bulletUnits(job || { text: '' });
