@@ -17,7 +17,7 @@ const W = require('./fixtures/realWorld');
 
 const fx = (f) => require(`./fixtures/${f}`);
 const C = {};
-for (const f of ['techPostings', 'techStrategyDeep', 'quantPostings', 'quantHoldout', 'realWorld']) for (const [k, text] of Object.entries(fx(f).RESUMES || {})) C[k] = [{ kind: 'resume', text }];
+for (const f of ['techPostings', 'techStrategyDeep', 'quantPostings', 'quantHoldout', 'realWorld', 'randomJobs', 'randomJobs2']) for (const [k, text] of Object.entries(fx(f).RESUMES || {})) C[k] = [{ kind: 'resume', text }];
 for (const [k, c] of Object.entries(fx('fitCases').CANDIDATES)) C[k] = c.documents;
 const fit = (r, p, profile = {}) => localFitScore(W.POSTINGS[p], C[r], profile);
 
@@ -78,3 +78,31 @@ test('real-world reading: framework lists, breadth lists, duties and the role na
   // A strategy consultant isn't an accountant, however much Excel they use.
   assert.match(fit('techStrategyConsultant', 'seniorAccountant').headline, /^A different line of work: it asks for experience in accounting/);
 });
+
+// Randomly drawn occupations (fixtures/randomJobs.js, randomJobs2.js): the
+// person doing each job and other profiles. First passes: 35/52 and, for the
+// second batch written after the first batch's fixes, 23/30.
+for (const set of ['randomJobs', 'randomJobs2']) {
+  test(`random jobs (${set}): the person doing the job reads strong, fits always above non-fits, none far off`, () => {
+    const R = require(`./fixtures/${set}`);
+    const docs = (r) => (R.RESUMES[r] ? [{ kind: 'resume', text: R.RESUMES[r] }] : C[r]);
+    const s = (r, p) => localFitScore(R.POSTINGS[p], docs(r)).score;
+    const strong = [];
+    const weak = [];
+    const wrong = [];
+    for (const [r, p, lo, hi, why] of R.BANDS) {
+      const v = s(r, p);
+      if (v < lo - 15 || v > hi + 15) assert.fail(`${r} → ${p}: ${v} far outside [${lo}, ${hi}] (${why})`);
+      if (v < lo || v > hi) wrong.push(`${r} → ${p}: ${v}`);
+      if (lo >= 70) {
+        strong.push(v);
+        assert.ok(v >= 60, `${r} → ${p}: ${v} for someone doing the job`);
+      }
+      if (hi <= 45) weak.push(v);
+    }
+    assert.ok(Math.min(...strong) > Math.max(...weak), `lowest strong ${Math.min(...strong)}, highest weak ${Math.max(...weak)}`);
+    assert.ok(wrong.length <= Math.ceil(R.BANDS.length * 0.2), `${wrong.length} of ${R.BANDS.length} outside their band: ${wrong.join('; ')}`);
+    const misordered = R.ORDER.filter(([p, a, b]) => !(s(a, p) > s(b, p)));
+    assert.ok(misordered.length <= 2, misordered.map((x) => x.join(' ')).join('; '));
+  });
+}

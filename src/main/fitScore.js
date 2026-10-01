@@ -98,7 +98,7 @@ const SKILLS = {
   Multithreading: [/\bmulti-?thread(?:ed|ing)?\b/, /\bconcurrency\b/, /\block-free\b/],
   'Memory Management': [/\bmemory (?:management|allocation|allocators?|layout|pools?)\b/, /\bcache[- ](?:efficient|friendly|aware|locality)\b/, /\bsmart pointers\b/, /\braii\b/],
   'Data Structures & Algorithms': [/\bdata structures\b/, /\balgorithms\b/],
-  'Performance Optimization': [/\bperformance (?:profiling|tuning|optimi[sz]ation|engineering)\b/, /\bprofil(?:e|ed|ing) and optimi[sz]/, /\boptimi[sz](?:e|ed|ing) (?:\w+ ){0,2}code\b/],
+  'Performance Optimization': [/\bperformance (?:profiling|tuning|optimi[sz]ation|engineering)\b/, /\btun(?:e|ed|ing) (?:\w+ ){0,3}(?:queries|indexes|performance|databases?)\b/, /\bquery (?:tuning|optimi[sz]ation)\b/, /\bprofil(?:e|ed|ing) and optimi[sz]/, /\boptimi[sz](?:e|ed|ing) (?:\w+ ){0,2}code\b/],
   'Bayesian Methods': [/\bbayesian\b/],
   Optimization: [/\b(?:convex|linear|stochastic|mathematical|numerical|integer) (?:optimi[sz]ation|programming)\b/, /\boperations research\b/],
   CFA: [/\bcfa\b/],
@@ -116,6 +116,8 @@ const SKILLS = {
   'Securities Licenses': [/\bseries (?:7|63|65|66|24)\b/, /\bfinra\b/],
   Experimentation: [/\bexperimentation\b/, /\ba\/b test/, /\b(?:controlled|online|randomi[sz]ed) experiments?\b/, /\bmultivariate tests?\b/, /\b(?:design(?:ed)?|ran|run|analy[sz]e[ds]?) (?:\w+ ){0,2}experiments\b/],
   'Causal Inference': [/\bcausal (?:inference|impact|effects?)\b/, /\bdifference[- ]in[- ]differences?\b/, /\binstrumental variables?\b/, /\buplift model/, /\bpropensity scor/, /\bsynthetic controls?\b/, /\bincrementality\b/],
+  CMS: [/\bcms\b/, /\bwordpress\b/, /\bdrupal\b/, /\bcontentful\b/, /\bwebflow\b/, /\bcontent management systems?\b/],
+  HRIS: [/\bhris\b/, /\badp(?: workforce now)?\b/, /\bbamboohr\b/, /\bukg\b/, /\bultipro\b/, /\bpaycom\b/, /\bpaylocity\b/, /\bsuccessfactors\b/, /\bworkday (?:hcm|hris)\b/],
   'Survey Research': [/\bsurvey (?:design|research|methodolog\w*)\b/, /\blarge-scale surveys\b/],
   // product, design, business
   // A product roadmap, not a technology roadmap (that's Roadmapping).
@@ -127,10 +129,10 @@ const SKILLS = {
   'UX Design': [/\bux\b/, /\buser experience\b/, /\buser research\b/, /\busability\b/],
   'UI Design': [/\bui design\b/, /\bvisual design\b/, /\bdesign systems?\b/],
   Figma: [/\bfigma\b/],
-  'Adobe Creative Suite': [/\badobe\b/, /\bphotoshop\b/, /\billustrator\b/, /\bindesign\b/],
+  'Adobe Creative Suite': [/\badobe\b/, /\bcreative (?:suite|cloud)\b/, /\bphotoshop\b/, /\billustrator\b/, /\bindesign\b/],
   Marketing: [/\bmarketing\b/, /\bcampaigns?\b/],
   SEO: [/\bseo\b/, /\bsearch engine optimi[sz]ation\b/],
-  'Content Writing': [/\bcopywriting\b/, /\bcontent (?:writing|creation|strategy)\b/],
+  'Content Writing': [/\bcopywriting\b/, /\bcontent (?:writing|creation|strategy)\b/, /\b(?:write|wrote|writing|written) (?:\w+ ){0,3}(?:blog posts|articles|case studies|whitepapers|white papers|ebooks|web copy)\b/],
   'Technical Writing': [/\btechnical writing\b/, /\btechnical documentation\b/, /\bmodel documentation\b/, /\b(?:validation|technical|research) reports\b/, /\bwr(?:ote|ite|iting) (?:clear |detailed )?(?:\w+ )?(?:reports|documentation|specifications)\b/, /\bdocument(?:ed|ing)? (?:models|requirements|processes|methodolog\w*)\b/, /\bpublished (?:\d+ )?papers\b/],
   'Social Media': [/\bsocial media\b/],
   Sales: [/\bsales\b(?!\s+tax)/, /\bquota\b/, /\bpipeline generation\b/],
@@ -153,7 +155,7 @@ const SKILLS = {
   'Enterprise Architecture': [/\benterprise architecture\b/, /\btogaf\b/, /\bsolution architecture\b/, /\barchitecture diagrams?\b/],
   'Application Portfolio': [/\bapplication (?:portfolios?|rationali[sz]ation)\b/, /\bportfolio rationali[sz]ation\b/, /\bapplication landscape\b/],
   'IT Portfolio Management': [/\b(?:it |project |technology )portfolio (?:management|planning|status|reviews?|metrics)\b/, /\bit project portfolio\b/, /\b(?:technology|annual|quarterly) planning\b/, /\bokrs?\b/, /\binvestment (?:planning|requests|priorities)\b/, /\binitiative portfolios?\b/],
-  'Vendor Selection': [/\bvendor (?:selection|evaluation|management|assessment|consolidation|onboarding|due diligence)\b/, /\bvendor evaluations?\b/, /\brfps?\b/, /\bsourcing strateg(?:y|ies)\b/, /\bcontract reviews?\b/, /\b(?:onboard(?:ing)?|evaluat\w*|assess\w*|select\w*) (?:new |third-party )?(?:data )?(?:vendors|providers|suppliers)\b/],
+  'Vendor Selection': [/\bvendor (?:selection|evaluation|management|assessment|consolidation|onboarding|due diligence|negotiations?|contracts?)\b/, /\bsourc(?:e|ed|ing) (?:\w+ ){0,3}vendors\b/, /\bnegotiat\w* (?:\w+ ){0,2}(?:vendor|supplier) contracts?\b/, /\bvendor evaluations?\b/, /\brfps?\b/, /\bsourcing strateg(?:y|ies)\b/, /\bcontract reviews?\b/, /\b(?:onboard(?:ing)?|evaluat\w*|assess\w*|select\w*) (?:new |third-party )?(?:data )?(?:vendors|providers|suppliers)\b/],
   'IT Governance': [/\b(?:it|technology|data|transformation|cloud) governance\b/, /\bgovernance guardrails\b/, /\bgovernance (?:structures?|frameworks?|model)\b/, /\bcobit\b/],
   ITSM: [/\bitil\b/, /\bitsm\b/, /\bit service management\b/, /\binfrastructure library\b/],
   ServiceNow: [/\bservicenow\b/],
@@ -185,9 +187,14 @@ const SKILLS = {
   'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, /\bprocurement\b/, /\binventory\b(?!\s+of\b)/],
   // Bare "onboarding" is usually customers, vendors or data, not new hires.
   'Human Resources': [/\bhuman resources\b/, /\brecruiting\b/, /\btalent acquisition\b/, /\b(?:employee|new[- ]hire) onboarding\b/],
-  Healthcare: [/\bpatient care\b/, /\bclinical\b/, /\behr\b/, /\bhipaa\b/],
+  Healthcare: [/\bpatient care\b/, /\bclinical\b/, /\behr\b/, /\bemr\b/, /\bhipaa\b/, /\bpatients?\b/, /\b(?:in|epic) epic\b|\bepic (?:ehr|emr|systems?)\b/],
+  NEC: [/\bnec\b/, /\bnational electrical code\b/],
+  OSHA: [/\bosha\b/],
+  Forklift: [/\bforklifts?\b/, /\bpowered industrial trucks?\b/],
+  WMS: [/\bwms\b/, /\bwarehouse management systems?\b/, /\bmanhattan (?:scale|wms|active)\b/, /\bblue yonder\b/],
+  'High Availability': [/\bhigh availability\b/, /\balways on\b/, /\bavailability groups?\b/, /\bfailover\b/],
   Education: [/\bcurriculum\b/, /\blesson plans?\b/, /\bteaching\b/, /\binstruction(?:al)? design\b/],
-  'Legal / Compliance': [/\blegal research\b/, /\bcompliance\b/, /\bcontracts? (?:law|review|negotiation|drafting|management)\b/, /\bregulatory (?:compliance|affairs|filings?|submissions?|reporting|requirements|exams?|examinations)\b/],
+  'Legal / Compliance': [/\blegal research\b/, /\bcompliance\b/, /\bcontracts? (?:law|review|drafting)\b/, /\bregulatory (?:compliance|affairs|filings?|submissions?|reporting|requirements|exams?|examinations)\b/],
   // A clearance is a credential (and a knockout), not a security skill.
   'Security Clearance': [/\bsecurity clearance\b/, /\bts\s*\/\s*sci\b/, /\b(?:top secret|secret|public trust) clearance\b/, /\bactive clearance\b/],
   Security: [/(?<!social )\bsecurity\b(?!\s+(?:clearance|investigation|eligibility|requirements? for access))/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
@@ -248,7 +255,7 @@ const RELATED_PAIRS = [
   ['Low Latency', 'Multithreading', 0.5], ['Memory Management', 'Low Latency', 0.5], ['Memory Management', 'Performance Optimization', 0.5], ['Memory Management', 'C++', 0.3], ['Low Latency', 'Performance Optimization', 0.6], ['Multithreading', 'Performance Optimization', 0.4], ['Data Structures & Algorithms', 'Performance Optimization', 0.3],
   ['Bayesian Methods', 'Statistics', 0.5], ['Financial Modeling', 'Finance', 0.6], ['Financial Modeling', 'FP&A', 0.5], ['FP&A', 'Forecasting', 0.5], ['FP&A', 'Finance', 0.6], ['M&A', 'Financial Modeling', 0.5], ['Cost Modeling', 'Financial Modeling', 0.6], ['Cost Modeling', 'Business Cases', 0.6], ['Cost Modeling', 'IT Financial Management', 0.5],
   ['Actuarial', 'Regression', 0.3], ['Actuarial Exams', 'Actuarial', 0.5], ['CFA', 'FRM', 0.5], ['Counterparty Risk / xVA', 'Derivatives Pricing', 0.5], ['Counterparty Risk / xVA', 'Credit Risk', 0.4],
-  ['Operational Risk', 'Audit & Controls', 0.6], ['Audit & Controls', 'Legal / Compliance', 0.4], ['Survey Research', 'Statistics', 0.3], ['Experimentation', 'Statistics', 0.5], ['Causal Inference', 'Experimentation', 0.5], ['Causal Inference', 'Econometrics', 0.6], ['Causal Inference', 'Statistics', 0.4], ['Survey Research', 'UX Design', 0.4], ['Technical Writing', 'Content Writing', 0.5],
+  ['Operational Risk', 'Audit & Controls', 0.6], ['Audit & Controls', 'Legal / Compliance', 0.4], ['Survey Research', 'Statistics', 0.3], ['Snowflake', 'Cloud', 0.6], ['WMS', 'Supply Chain', 0.4], ['High Availability', 'SQL', 0.2], ['Experimentation', 'Statistics', 0.5], ['Causal Inference', 'Experimentation', 0.5], ['Causal Inference', 'Econometrics', 0.6], ['Causal Inference', 'Statistics', 0.4], ['Survey Research', 'UX Design', 0.4], ['Technical Writing', 'Content Writing', 0.5],
 ];
 const RELATED = new Map();
 for (const [a, b, c] of RELATED_PAIRS) {
@@ -321,7 +328,7 @@ const REQUIRED_HEADING = new RegExp(
   `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you(?:${APOS}ll| will) (?:need|bring)|what you bring|you(?:${APOS}ll| will)? bring|what we(?:${APOS}re| are) looking for|what we look for|who we(?:${APOS}re| are) looking for|who you are|about you|you have|you(?:${APOS}ll| will) need|must[- ]haves?|your profile|(?:the )?ideal candidate|you (?:might|may) be a (?:good )?fit if|you${APOS}ll thrive if|is this you)\\b[^.]{0,30}$`
 );
 const NEUTRAL_HEADING = new RegExp(
-  `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main )?(?:responsibilities|duties)|what you(?:${APOS}ll| will) (?:do|be doing|work on)|(?:as an? [^.]{2,40} )?you(?:${APOS}ll| will)(?: be)?:|in this role,? you(?:${APOS}ll| will)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company))\\b[^.]{0,30}$`
+  `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main |essential |principal |job )?(?:responsibilities|duties|functions)(?: and (?:responsibilities|duties))?|duties and responsibilities|position summary|job purpose|what you(?:${APOS}ll| will) (?:do|be doing|work on)|(?:as an? [^.]{2,40} )?you(?:${APOS}ll| will)(?: be)?:|in this role,? you(?:${APOS}ll| will)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company))\\b[^.]{0,30}$`
 );
 
 // Markdown from Notion, careers sites or AI tools: "## Requirements",
@@ -346,7 +353,9 @@ function classifyLines(jobText) {
     const isBullet = /^([-•*▪●◦✓✔➢►‣–—]|\d+[.)])\s*/.test(line);
     const isHeading = !isBullet && line.length < 60 && !/[.;]$/.test(line);
     let lineKind = section;
-    if (PREFERRED_CUE.test(line)) lineKind = 'preferred';
+    // "Essential Functions", "Essential Duties and Responsibilities": duties, whatever "essential" says.
+    if (isHeading && /^(?:essential|principal|key|primary) (?:functions|duties|responsibilities)\b/.test(line)) lineKind = 'neutral';
+    else if (PREFERRED_CUE.test(line)) lineKind = 'preferred';
     else if (REQUIRED_CUE.test(line) || (isHeading && REQUIRED_HEADING.test(line))) lineKind = 'required';
     // "Responsibilities", "Benefits", "About us" end a requirements section.
     else if (isHeading && NEUTRAL_HEADING.test(line)) lineKind = 'neutral';
@@ -387,7 +396,7 @@ function stripFieldsOfStudy(line) {
 // the runs that form such a list. Plain "X and Y" stays separate requirements.
 // Between two listed items: commas, slashes, "and", "or", "and/or" — and
 // unrecognised one-letter entries like the "R" in "Python, R, or SAS".
-const LIST_GAP = /^(?:[\s,/]|\band\b|\bor\b|\b[a-z]\b[#+]*)*$|^\s*,\s*[a-z][\w-]{1,15}\s*,?\s*(?:or|and\s*\/\s*or)\s+$/;
+const LIST_GAP = /^(?:[\s,/]|\band\b|\bor\b|\b(?:another|other|similar|equivalent|a|an)\b|\b[a-z]\b[#+]*)*$|^\s*,\s*[a-z][\w-]{1,15}\s*,?\s*(?:or|and\s*\/\s*or)\s+$/;
 // (The second form: one unrecognised item before the "or": "cloud, data or AI".)
 const OR_GAP = /\/|\bor\b/;
 function alternativeRuns(line, items) {
@@ -515,6 +524,8 @@ function requiredYears(jobText) {
       // Nobody asks for 40 years: that's something else (a company's age, a typo).
       if (toNum(m[1]) <= 25) found.push({ years: toNum(m[1]), kind });
     }
+    // "6+ months of cash handling experience"
+    for (const m of line.matchAll(/\b(\d{1,2})\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?months?\s+(?:of\s+)?[a-z ,/-]{0,60}?experience\b/g)) found.push({ years: Math.round((toNum(m[1]) / 12) * 10) / 10, kind });
   }
   const req = found.find((f) => f.kind !== 'preferred');
   return (req || found[0] || { years: null }).years;
@@ -587,7 +598,7 @@ function isGenericTitle(title) {
   return !title || GENERIC_TITLE.test(String(title).trim());
 }
 
-const ROLE_NOUN = /\b(?:executive|analyst|engineer|developer|programmer|manager|scientist|specialist|associate|director|lead|consultant|designer|nurse|accountant|auditor|coordinator|administrator|officer|architect|intern|representative|technician|assistant|advisor|adviser|strategist|researcher|economist|statistician|actuary|underwriter|modeler|quant|recruiter|editor|writer|teacher|therapist|pharmacist|attorney|paralegal|controller|planner|producer|agent|supervisor|head|vp|president|partner|fellow|senior|principal|staff)\b/i;
+const ROLE_NOUN = /\b(?:generalist|executive|teller|cashier|clerk|electrician|plumber|carpenter|mechanic|welder|machinist|operator|driver|hygienist|technologist|therapist|worker|counselor|aide|caregiver|cook|chef|server|bartender|housekeeper|custodian|janitor|guard|officer|inspector|surveyor|estimator|foreman|superintendent|dispatcher|receptionist|bookkeeper|appraiser|adjuster|banker|broker|trader|instructor|tutor|librarian|nanny|veterinarian|physician|dentist|paramedic|emt|phlebotomist|sonographer|dietitian|analyst|engineer|developer|programmer|manager|scientist|specialist|associate|director|lead|consultant|designer|nurse|accountant|auditor|coordinator|administrator|officer|architect|intern|representative|technician|assistant|advisor|adviser|strategist|researcher|economist|statistician|actuary|underwriter|modeler|quant|recruiter|editor|writer|teacher|therapist|pharmacist|attorney|paralegal|controller|planner|producer|agent|supervisor|head|vp|president|partner|fellow|senior|principal|staff)\b/i;
 
 // The posting's job title from its text: an explicit "Job title:" field, else
 // the first short line that names a role, else the role the text says it's

@@ -3,18 +3,20 @@
 // profiles against labels set before scoring. Each posting is scored as
 // clean text and as a captured page (LinkedIn, Workday or Indeed furniture
 // around it, cleaned by posting.js the way the app cleans captures).
-//   node scripts/fit-realworld.js [--units] [--pairs]
+//   node scripts/fit-realworld.js [--set realWorld|randomJobs] [--units] [--pairs]
 //     --units  every requirement read from each posting (for reviewing extraction)
 //     --pairs  every labelled pair with its score and headline
 const fs = require('fs');
 const path = require('path');
 const { localFitScore, requirementUnits } = require('../src/main/localFit');
 const { cleanPosting } = require('../src/main/posting');
-const W = require('../test/fixtures/realWorld');
+const setArg = process.argv.indexOf('--set');
+const W = require(`../test/fixtures/${setArg > 0 ? process.argv[setArg + 1] : 'realWorld'}`);
+W.PROFILE_CASES = W.PROFILE_CASES || [];
 
 const fx = (f) => require(path.join(__dirname, '../test/fixtures', f));
 const CANDIDATES = {};
-for (const f of ['techPostings', 'techStrategyDeep', 'quantPostings', 'quantHoldout', 'realWorld']) for (const [k, text] of Object.entries(fx(f).RESUMES || {})) CANDIDATES[k] = { documents: [{ kind: 'resume', text }], profile: {} };
+for (const f of ['techPostings', 'techStrategyDeep', 'quantPostings', 'quantHoldout', 'realWorld', 'randomJobs', 'randomJobs2']) for (const [k, text] of Object.entries(fx(f).RESUMES || {})) CANDIDATES[k] = { documents: [{ kind: 'resume', text }], profile: {} };
 for (const [k, c] of Object.entries(fx('fitCases').CANDIDATES)) CANDIDATES[k] = { documents: c.documents, profile: {} };
 
 // Page furniture from real captures (test/fixtures/pastes), with the body swapped in.
@@ -65,7 +67,7 @@ function evaluate(postings) {
   // AUC: how often a should-be-strong pair outscores a should-be-weak pair.
   let wins = 0;
   for (const a of pos) for (const b of neg) wins += a > b ? 1 : a === b ? 0.5 : 0;
-  const auc = pos.length && neg.length ? wins / (pos.length * neg.length) : null;
+  const auc = pos.length && neg.length ? wins / (pos.length * neg.length) : NaN;
   const profileResults = W.PROFILE_CASES.map(([r, p, profile, expect, why]) => {
     const o = fit(r, p, profile);
     const got = o.dealbreakers.length ? 'dealbreaker' : 'clear';

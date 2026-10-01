@@ -113,6 +113,9 @@ function cleanPosting(posting) {
   const start = indeedBody >= 0 ? indeedBody : lines.slice(0, 80).findIndex((l) => BODY_START.test(l));
   if (start > 0) {
     head = lines.slice(0, start);
+    // LinkedIn's "Meet the hiring team" names a person and their title, not the job.
+    const hiringTeam = head.findIndex((l) => /^meet the hiring team$/i.test(l));
+    if (hiringTeam >= 0) head = head.slice(0, hiringTeam);
     // Indeed's "Profile insights" are about the viewer, not the job.
     const insights = head.findIndex((l) => INDEED_INSIGHTS.test(l));
     if (insights >= 0) head = head.slice(0, insights);

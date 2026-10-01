@@ -36,8 +36,9 @@ const WEIGHTS = {
 const DEGREE_LEVELS = [
   [4, /(?<![a-z])(ph\.?\s?d|doctorate|doctoral|doctor of philosophy)(?![a-z])/],
   // "master of" / "bachelor of" count, but not a bare "Scrum Master".
-  [3, /(?<![a-z])(master['’]?s|master of|m\.s\.|m\.sc|msc|mba|m\.a\.|msn|graduate degree|advanced degree)(?![a-z])/],
-  [2, /(?<![a-z])(bachelor['’]?s|bachelor of|b\.s\.|b\.sc|bsc|b\.a\.|bsn|undergraduate degree|4-year degree|four-year degree)(?![a-z])/],
+  [3, /(?<![a-z])(master['’]?s|master of|m\.s\.|m\.sc|msc|mba|m\.a\.|msn|msw|m\.s\.w\.|m\.f\.a\.|mfa|m\.eng\.?|meng|mpa|mph|m\.acc|macc|mpp|graduate degree|advanced degree)(?![a-z])/],
+  [2, /(?<![a-z])(bachelor['’]?s|bachelor of|b\.s\.|b\.sc|bsc|b\.a\.|bsn|b\.f\.a\.|bfa|b\.b\.a\.|bba|b\.eng\.?|beng|b\.arch|bsw|b\.s\.w\.|undergraduate degree|4-year degree|four-year degree)(?![a-z])/],
+  [1, /(?<![a-z])(a\.s\.|a\.a\.|a\.a\.s\.|aas)(?=\s+(?:in\s+)?[a-z])/],
   [1, /(?<![a-z])(associate['’]?s degree|associate degree)(?![a-z])/],
 ];
 // Bare "BS", "MS", "BA", "MA" count only in capitals and in a degree-like

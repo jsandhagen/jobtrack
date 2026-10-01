@@ -24,7 +24,7 @@ const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 13;
+const SCORER_VERSION = 14;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -79,20 +79,23 @@ const NOT_TERMS = new Set(
     'testing development management engineering operations implementation support delivery planning ' +
     // verbs left over from "a track record of exceeding quota"
     'exceeding meeting achieving hitting delivering ' +
-    'meaningful recent relevant significant substantial theory theories fundamentals basics evaluation evaluations assessment assessments review reviews strategic ' +
+    'another other similar meaningful recent relevant significant substantial theory theories fundamentals basics evaluation evaluations assessment assessments review reviews strategic ' +
     // imperatives that open a duty ("Write product requirements")
     'write build own run lead drive deliver design develop create conduct analyze analyse prepare support maintain manage define shape assess partner work ensure identify perform help use apply'
   ).split(' ')
 );
 
+// Words that are no requirement on their own but still say something about a field.
+const TERM_ONLY_STOP = new Set('computer computers regulations regulation procedures rules laws math'.split(' '));
+
 const EDGE_WORDS = new Set(
-  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity advanced basic intermediate expert proficient proficiency excellent good polished crisp clear concise comfort comfortable techniques technique methods methodologies concepts principles tools skills practices foundation foundations grounding rigorous rigor sound thorough robust including includes include is are be at for to from by into via per such exposure track record'.split(' ')
+  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity advanced basic intermediate expert proficient proficiency excellent good polished crisp clear concise comfort comfortable techniques technique methods methodologies concepts principles tools skills practices high-volume fast-paced large busy complex dynamic foundation foundations grounding rigorous rigor sound thorough robust including includes include is are be at for to from by into via per such exposure track record'.split(' ')
 );
 
 const US_STATES = new Set('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(' '));
 const GENERIC_HEAD = /\b(?:expectations|requirements|standards|guidelines|principles|best practices|concepts|topics|issues|areas|needs|goals|objectives|environments?)$/;
 // Work habits a resume can't show by wording: not requirements to score.
-const WORK_STYLE = /\battention to detail\b|\bdetail[- ]oriented\b|\bself[- ]starter\b|\bwork ethic\b|\bintellectual(?:ly)? curio|\bfast learner\b|\bsense of ownership\b|\blong hours\b/i;
+const WORK_STYLE = /\b(?:basic |strong )?(?:math|mathematics|computer|typing|keyboarding|reading|writing) (?:skills|proficiency)\b|\bmath and computer\b|\bcomputer literacy\b|\battention to detail\b|\bdetail[- ]oriented\b|\bself[- ]starter\b|\bwork ethic\b|\bintellectual(?:ly)? curio|\bfast learner\b|\bsense of ownership\b|\blong hours\b/i;
 
 // Terms a posting asks for that aren't in the skills dictionary: acronyms
 // (BLS, CPA, EHR), capitalised product names (Epic, Salesforce, AutoCAD) and
@@ -111,7 +114,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     if (/\d\s*\+?\s*(?:years?|yrs)\b/i.test(clean)) return; // "4+ years leading teams" is a years requirement
     // "regulatory expectations", "industry standards": what about them is the requirement, not the phrase.
     if (GENERIC_HEAD.test(lower(clean))) return;
-    if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w))) return;
+    if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w) || TERM_ONLY_STOP.has(w))) return;
     // Skip the job title / company repeated back ("Senior Analyst", "Acme"),
     // but keep real skills that share words with them ("credit risk analysis").
     if (words.length === 1 && ignoreWords.has(words[0])) return;
@@ -135,7 +138,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
   // Acronyms / mixed-case tokens: ACLS, HubSpot, AutoCAD, SAP, CPA, iOS
   // A code with its number is one term: "SR 11-7", "Series 7", "ISO 27001".
   for (const m of body.matchAll(/\b([A-Z]{2,6}|[A-Z][a-z]+)\s(\d{1,5}(?:-\d{1,3})?)\b/g)) if (/^[A-Z]{2,6}$|^Series$/.test(m[1])) add(`${m[1]} ${m[2]}`);
-  for (const m of body.matchAll(/\b([A-Z]{2,6}s?|[A-Za-z]*[a-z][A-Z][A-Za-z]*)\b(?!\s\d)/g)) add(m[1].replace(/s$/, (x) => (m[1].length > 3 ? '' : x)));
+  for (const m of body.matchAll(/\b([A-Z]{2,6}s?|[A-Za-z]*[a-z][A-Z][A-Za-z]*)\b(?!\s\d)/g)) add(/^[A-Z]{2,6}s$/.test(m[1]) ? m[1].slice(0, -1) : m[1]); // "APIs" → API, but "WordPress" stays
   // Capitalised words/phrases not at the start of the sentence: "Epic", "Google Analytics"
   const words = body.split(/\s+/);
   for (let i = 1; i < words.length; i++) {
@@ -171,7 +174,8 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     for (const part of m[1].split(/,|\band\b|\bor\b|\//i)) {
       const ws = part.trim().split(/\s+/);
       while (ws.length && (EDGE_WORDS.has(lower(ws[0])) || STOPWORDS.has(lower(ws[0])))) ws.shift();
-      const t = ws.slice(0, 3).join(' ').split(/\s+to\s+/)[0];
+      if (ws.filter((w) => !STOPWORDS.has(lower(w))).length > 4) continue; // a clause, not a term; don't cut it to a fragment
+      const t = ws.join(' ').split(/\s+to\s+/)[0];
       if (t && !/^(a|an|the)$/i.test(t)) addPart(t.replace(/^(a|an|the)\s+/i, ''));
     }
   }
@@ -297,7 +301,7 @@ function requirementLines(text) {
 // "3+ years in technology consulting or IT strategy roles": the kind of
 // experience asked for, not just how long. Each alternative is met when one
 // role in the documents shows its words (later ones count more).
-const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?years?['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:working\s+)?(?:in|as|within|across|on)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
+const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?(?:years?|months?)['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:working\s+)?(?:in|as|within|across|on)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
 const KIND_CUT = /\s+(?:for|with|at|in an?|in the|where|that|who|which|on|using|ideally|preferably|including|within|across)\b.*$|,\s*(?:ideally|preferably|including|especially|with|in)\b.*$/;
 const KIND_FILLER = new Set('projects initiatives programs efforts firm firms company companies organization organizations focused based enterprise a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
 // "7+ years of hands-on Oracle ERP configuration": no "experience", but the same ask.
@@ -321,7 +325,8 @@ function experienceKind(line) {
 // One form for a word family: analysis / analyst / analytics, consulting /
 // consultant, recruiting / recruiter, engineering / engineer.
 function kindStem(w) {
-  return w.replace(/(?:ysis|ysts?|ytics?|ytical|yz(?:e[sd]?|ing))$/, 'y').replace(/(?:ants?|ings?|ers?|ors?|ions?|ments?|ed|es|s)$/, '') || w;
+  // "planning" and "plan" meet: drop the doubled consonant the suffix left.
+  return (w.replace(/(?:ysis|ysts?|ytics?|ytical|yz(?:e[sd]?|ing))$/, 'y').replace(/(?:ants?|ings?|ers?|ors?|ions?|ments?|ed|es|s)$/, '') || w).replace(/([b-df-hj-np-tv-z])\1$/, '$1');
 }
 // The same kind of work under another name: "3+ years in consulting" is met
 // by technology advisory, "ICU experience" by critical care.
@@ -401,6 +406,10 @@ function requirementUnits(job) {
     if (INTEREST.test(original)) continue;
     const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
     const found = []; // { key, label, match, index, end }
+    // "Current RDH license", "Active Journeyman Electrician license", "CMA, RMA
+    // or CCMA certification": a credential the application screens on, unless
+    // it can come after hire ("or ability to obtain within 2 weeks").
+    const credentialLine = effKind === 'required' && /\b(?:licen[sc]e[ds]?|licensure|certificat(?:e|ion)s?|certified|registration)\b/.test(line) && !/\b(?:ability to obtain|able to obtain|obtain(?:ed)? within|within \d+ (?:days|weeks|months)|or equivalent|preferred|a plus|eligible|in progress|working toward|willing(?:ness)? to)\b/.test(line);
     // "Master's in statistics, mathematics or financial engineering": the fields
     // describe the degree (scored as the degree requirement), they aren't skills.
     let skillLine = stripFieldsOfStudy(line);
@@ -413,7 +422,8 @@ function requirementUnits(job) {
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
     if ((lineKind !== 'neutral' || !hasRequiredSection) && !isDegreeLine(original)) {
-      const terms = extractTerms(original, termIgnoreWords, termIgnoreText);
+      // A credential line names the license even when the title does too ("Social Worker (LMSW)").
+      const terms = credentialLine ? extractTerms(original, new Set(), lower(job.company)) : extractTerms(original, termIgnoreWords, termIgnoreText);
       // "Econometrics" and "Econometrics modeling" from one phrase are one requirement.
       const contains = (long, short) => long !== short && ` ${lower(long)} `.includes(` ${lower(short)} `);
       for (const term of terms.filter((x) => !terms.some((y) => contains(x, y)))) {
@@ -433,6 +443,8 @@ function requirementUnits(job) {
           weight: /^[A-Z][A-Z0-9+&/-]{1,7}(?:\s\d[\d-]*)?$/.test(term) || /^[A-Z][a-z]+[A-Z]/.test(term) ? 0.9 : /^[A-Z]/.test(term) ? 0.75 : 0.6,
           match: (t) => {
             if (hasTerm(t, term)) return 1;
+            // "CPR/BLS": either one.
+            if (/\//.test(term) && term.split('/').some((x) => x.trim().length > 1 && hasTerm(t, x.trim()))) return 1;
             // Other forms of the same words: "unit testing" / "unit tests".
             const ts = ` ${(t.match(/[a-z0-9+#]+/g) || []).map(stem).join(' ')} `;
             if (ts.includes(` ${stems.join(' ')} `)) return 0.9;
@@ -476,8 +488,10 @@ function requirementUnits(job) {
         related: relatedOf(run.filter((f) => f.skill).map((f) => f.skill)),
         skills: run.filter((f) => f.skill).map((f) => f.skill),
         weight: Math.max(...run.map((f) => f.weight ?? 1)),
+        credential: run.some((f) => f.credential),
       });
     }
+    if (credentialLine) for (const f of found) if (!INTERPERSONAL.has(f.label) && (f.skill || /^[A-Z][A-Z0-9+&/-]{1,7}$/.test(f.label))) f.credential = true;
     // "Knowledge of business cases, IT strategy, roadmaps, operating models,
     // change management and vendor strategy": a list that long asks for range,
     // not each item. One requirement, met by about half of it.
@@ -489,7 +503,7 @@ function requirementUnits(job) {
     }
     for (const f of found) {
       // Soft skills can't be judged from wording, so they only nudge the score.
-      if (!grouped.has(f)) addUnit(f.key, f.label, INTERPERSONAL.has(f.label) && effKind === 'required' ? 'neutral' : effKind, f.match, f.skill ? { related: relatedOf([f.skill]), weight: f.weight, skills: [f.skill] } : { weight: f.weight });
+      if (!grouped.has(f)) addUnit(f.key, f.label, INTERPERSONAL.has(f.label) && effKind === 'required' ? 'neutral' : effKind, f.match, f.skill ? { related: relatedOf([f.skill]), weight: f.weight, skills: [f.skill], credential: !!f.credential } : { weight: f.weight, credential: !!f.credential });
     }
   }
   // Degree matchers take the original text too: "BA"/"MS" only count in capitals.
@@ -866,6 +880,7 @@ function fitHeadline(f) {
   if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, and that's not work your documents show.`;
   if (f.missingCore.length) return `The title names ${listOf(f.missingCore)}, which your documents don't show — that's the job's core.`;
   if (f.missingFunction) return `A different line of work: it asks for ${plain(f.missingFunction.label)}, which your documents don't show.`;
+  if (f.missingCredential) return `It requires ${plain(f.missingCredential.label)}, which your documents don't show — applications are screened on it.`;
   const years = f.needYears !== null && f.haveYears !== null ? `it asks for ${f.needYears}+ years; you have about ${Math.round(f.haveYears)}.` : '';
   if (f.stretch) return `A stretch: this is ${/^[aeio]/.test(LEVEL_NAMES[f.postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[f.postingLevel]}-level role and your experience reads as ${LEVEL_NAMES[f.userLevel]}.${years ? ` It${years.slice(2)}` : ''}`;
   if (f.shortYears) return `A stretch on experience: ${years}`;
@@ -900,7 +915,7 @@ function localFitScore(job, documents, profile = {}) {
   // "Coursework or work experience": the posting accepts what school shows.
   if (/\bcoursework\b/i.test(job.text)) for (const s of segs) if (s.weight < 0.9) s.weight = 0.9;
   const implied = impliedSkills(titles);
-  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, gate: !!u.gate, functionKind: !!u.functionKind, weight: u.weight ?? 1, met: evidenceFor(u, segs, lib, libText, implied) }));
+  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, gate: !!u.gate, functionKind: !!u.functionKind, credential: !!u.credential, weight: u.weight ?? 1, met: evidenceFor(u, segs, lib, libText, implied) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
   // Communication, collaboration, problem solving: can't be judged from
@@ -923,6 +938,9 @@ function localFitScore(job, documents, profile = {}) {
     const held = titles.map((t) => titleMatch(job.title, t) * t.weight);
     const targets = String(profile.targetRoles || '').split(/[,;\n]/).filter((s) => s.trim()).map((s) => titleMatch(job.title, s) * 0.9);
     role = Math.max(0, ...held, ...targets);
+    // Holding the license the title names ("Social Worker (LMSW)", "RN - ICU") is being in that profession.
+    const titleLicense = (job.title || '').match(/\b(?:LMSW|LCSW|LPC|LMFT|RN|LPN|CNA|RDH|CPA|CMA|CCMA|EMT|PA-C|NP|PharmD|DPT|OTR)\b/);
+    if (titleLicense && hasTerm(lib, titleLicense[0])) role = Math.max(role, 0.8);
     // No titles parsed (notes, not a resume): fall back to the words anywhere.
     if (!titles.length && !targets.length) {
       const words = titleWords(job.title);
@@ -957,7 +975,13 @@ function localFitScore(job, documents, profile = {}) {
   // already do can match every requirement, but it isn't a strong fit for you.
   // (A career change into a junior role is a different story: role match is low there.)
   const levelsBelow = seniority !== null ? userLevel - postingLevel : 0;
-  const overqualified = levelsBelow >= 2 && (role === null || role >= 0.5 || (required !== null && required >= 0.7));
+  // Or by years, when the posting gives a ceiling: "2-4 years" and you have 7+.
+  const rangeTop = (() => {
+    const m = String(job.text || '').match(/\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\s*\+?\s*(?:years?|yrs)\b/i);
+    return m && +m[2] > +m[1] ? +m[2] : null;
+  })();
+  const overByYears = rangeTop !== null && rangeTop <= 6 && haveYears !== null && haveYears >= rangeTop * 1.75 && required !== null && required >= 0.7;
+  const overqualified = (levelsBelow >= 2 && (role === null || role >= 0.5 || (required !== null && required >= 0.7))) || overByYears;
   // Under-qualified: recruiters screen out well short of the years asked
   // (half or less) or two levels up, whatever else matches.
   const yearsRatio = needYears >= 3 && haveYears !== null ? haveYears / needYears : null;
@@ -988,11 +1012,19 @@ function localFitScore(job, documents, profile = {}) {
   // Workday), the rest can't make it more than a stretch.
   const missingCore = all.filter((u) => u.core && u.met < 0.4).map((u) => u.label);
   if (missingCore.length) score = Math.min(score, 40);
+  // A required license or certification you don't show: the application screens it out.
+  const missingCredential = all.find((u) => u.credential && u.kind === 'required' && u.met < 0.4) || null;
+  if (missingCredential) score = Math.min(score, 40);
   if (overqualified) score = Math.min(score, levelsBelow >= 3 ? 50 : 60);
   if (shortYears) score = Math.min(score, shortYears);
   // Neither the title nor the kind of work the role is named for: a different job.
   // (Adjacent fields that share most of the must-haves are a stretch, not a different job.)
-  const missingFunction = role !== null && role < 0.5 && required !== null && required < 0.6 && (domain === null || domain < 0.5) ? all.find((u) => u.functionKind && u.kind === 'required' && u.met < 0.25) : null;
+  // Not when a title you've held is in the same family as the work asked for
+  // (a Java engineer for "C++ development" is the same line of work).
+  const family = (w) => (/^develop/.test(w) ? 'engineer' : (titleWords(w)[0] || w));
+  const heldFamilies = new Set(titles.flatMap((t) => titleWords(t.title)));
+  const sameFamily = (u) => lower(u.label).replace(/^experience in /, '').split(/[^a-z0-9+#]+/).filter((w) => w.length > 2).map(family).some((f) => heldFamilies.has(f) && f !== 'manag');
+  const missingFunction = role !== null && role < 0.5 && required !== null && required < 0.6 && (domain === null || domain < 0.5) ? all.find((u) => u.functionKind && u.kind === 'required' && u.met < 0.25 && !sameFamily(u)) || null : null;
   if (missingFunction) score = Math.min(score, 35);
   // One or two recognisable must-haves aren't enough to call it excellent.
   const thinEvidence = req.filter((u) => !/degree|^PhD/.test(u.label)).length <= 1;
@@ -1019,7 +1051,7 @@ function localFitScore(job, documents, profile = {}) {
   if (role !== null && role >= 0.8) reasons.push('The role lines up with your background and target roles');
   if (experience !== null && experience >= 1) reasons.push(`Your ~${haveYears} years cover the ${needYears}+ asked for`);
   if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`This is a ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}`);
-  if (overqualified) concerns.push(`This looks like an earlier-career (${LEVEL_NAMES[postingLevel]}-level) role, and your experience reads as ${LEVEL_NAMES[userLevel]}. You'd likely be overqualified, so it may undersell you`);
+  if (overqualified) concerns.push(levelsBelow >= 2 ? `This looks like an earlier-career (${LEVEL_NAMES[postingLevel]}-level) role, and your experience reads as ${LEVEL_NAMES[userLevel]}. You'd likely be overqualified, so it may undersell you` : `It asks for up to ${rangeTop} years and you have about ${Math.round(haveYears)}. You'd likely be overqualified, so it may undersell you`);
   if (experience !== null && experience < 0.8) concerns.push(`Asks for ${needYears}+ years; your documents show about ${haveYears ?? 'unclear'}`);
   concerns.push(...screening.unanswered);
   // Problems with what was captured (cut-off description, a list of jobs).
@@ -1032,7 +1064,7 @@ function localFitScore(job, documents, profile = {}) {
 
   // One sentence to decide by, most decisive fact first.
   const headline = documents.length
-    ? fitHeadline({ breakers, otherFunction, missingFunction, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
+    ? fitHeadline({ breakers, otherFunction, missingFunction, missingCredential, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
     : '';
   if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
 
@@ -1061,6 +1093,7 @@ function localFitScore(job, documents, profile = {}) {
       stretch && { max: -levelsBelow >= 3 ? 25 : 44, reason: `This is ${/^[aeio]/.test(LEVEL_NAMES[postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}` },
       shortYears && { max: shortYears, reason: `It asks for ${needYears}+ years; your documents show about ${Math.round(haveYears)}` },
       otherFunction && { max: 40, reason: `This is a ${otherFunction} role, and your documents don't show ${otherFunction} work` },
+      missingCredential && { max: 40, reason: `It requires ${missingCredential.label.replace(/^one of /, 'one of ')}, which your documents don't show` },
       missingFunction && { max: 35, reason: `It asks for ${missingFunction.label}, which your documents don't show` },
     ].filter(Boolean),
     reasons,

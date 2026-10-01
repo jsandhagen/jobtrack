@@ -38,6 +38,11 @@ risk skills. Still open:
       search results because job sites weren't reachable from the test
       environment. Run it on real captured pages (Greenhouse, Lever, Ashby and
       Workday APIs) when they are, and keep the labels written before scoring.
+- [ ] **Occupations outside office work.** The random-job sets showed the
+      vocabulary is thinnest for trades, healthcare and hospitality (it took
+      NEC, OSHA, WMS, HRIS, CMS, licenses and months of experience to get the
+      people doing those jobs to read strong). Expect gaps in fields not yet
+      drawn; add a randomJobs batch for them before adding words.
 - [ ] **Adjacent career moves.** On the real-world set the score is stricter
       than the labels for career changers (business analyst → strategy
       consulting, PM → advisory): 15 of 38 "possible" pairs land under 45.
