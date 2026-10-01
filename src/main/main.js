@@ -37,6 +37,7 @@ const { atsScore, libraryAtsScore } = require('./atsScore');
 const outreach = require('../shared/outreach');
 const finder = require('../shared/finder');
 const careers = require('./careers');
+const jobBoards = require('./jobBoards');
 const logos = require('./logos');
 
 const crypto = require('crypto');
@@ -1050,6 +1051,8 @@ function registerIpc() {
     connections: store.list('connections'),
     companies: store.list('companies').map(({ seen, ...c }) => c),
     careersChecking,
+    jobBoards: jobBoards.BOARD_INFO,
+    defaultJobBoards: jobBoards.DEFAULT_BOARDS,
     searches: store.list('searches'),
     templates: store.list('templates', outreach.DEFAULT_TEMPLATES),
     finder: store.getFinder(),
@@ -1342,10 +1345,14 @@ function registerIpc() {
     const found = !job && lastRoleSearch.get(`${companyId}|${jobId}`);
     if (found) ({ job, board, text: known } = found);
     if (!job || !board) throw new Error('That job is no longer in the list. Check the company again?');
-    const text = known || (await careers.jobDetail(board, job, netFetch).catch(() => ''));
+    // Some job boards give only the first lines: read the posting's page for the rest.
+    let text = found && found.full === false ? '' : known;
+    if (!text) text = await careers.jobDetail(board, job, netFetch).catch(() => '');
+    if (known && known.length > (text || '').length) text = known;
     if (!text || text.length < 80) throw new Error("I couldn't read that posting's description. Open it and copy the text instead.");
-    const header = [job.title, co.name, job.location].filter(Boolean).join('\n');
-    const rec = await handlePosting({ title: job.title, company: co.name, location: job.location, url: job.url, text: `${header}\n\n${text}`, via: 'careers' }, { fromDashboard: true });
+    const coName = co ? co.name : found.company.name;
+    const header = [job.title, coName, job.location].filter(Boolean).join('\n');
+    const rec = await handlePosting({ title: job.title, company: coName, location: job.location, url: job.url, text: `${header}\n\n${text}`, via: 'careers' }, { fromDashboard: true });
     return { id: rec.id };
   });
   handle('net:remove', (kind, id) => {
@@ -1689,10 +1696,13 @@ let careersChecking = false;
 // fit. Results stay in memory (for Check my fit) until the next search.
 let lastRoleSearch = new Map();
 let roleSearching = false;
-async function searchRole({ role, place = '', remoteOnly = false, minFit = 70 }) {
+const ROLE_RANK = { exact: 0, title: 1, similar: 2 };
+const normCo = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/\b(inc|llc|ltd|gmbh|corp|corporation|co|company|the)\b\.?/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, sources = null }) {
   if (roleSearching) throw new Error('Already searching. Give me a moment.');
   roleSearching = true;
   try {
+    minFit = Number(minFit) || 70;
     const docs = scoringDocuments();
     const profile = store.getProfile();
     const scoreJob = docs.length
@@ -1701,24 +1711,46 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70 })
           return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2) };
         }
       : null;
-    const r = await careers.searchRole(store.list('companies'), {
-      role,
-      place,
-      remoteOnly,
-      minFit: Number(minFit) || 70,
-      fetchImpl: netFetch,
-      scoreJob,
-      onProgress: (p) => broadcast('role-search-progress', p),
-    });
+    const settings = store.getSettings();
+    sources = Array.isArray(sources) ? sources : (settings.roleSearch && settings.roleSearch.sources) || ['companies', ...jobBoards.DEFAULT_BOARDS];
+    const keys = settings.jobBoardKeys || {};
+    const companies = sources.includes('companies') ? store.list('companies') : [];
+    const boardIds = jobBoards.usableBoards(sources, keys);
+    if (!companies.length && !boardIds.length) throw new Error('Pick at least one place to search: your companies or a job board.');
+    // Progress across both: boards of watched companies and public job boards.
+    const progress = { companies: { done: 0, total: 0 }, boards: { done: 0, total: boardIds.length } };
+    const tell = () => broadcast('role-search-progress', { done: progress.companies.done + progress.boards.done, total: progress.companies.total + progress.boards.total });
+    const opts = { role, place, remoteOnly, minFit, fetchImpl: netFetch, scoreJob };
+    const [mine, pub] = await Promise.all([
+      companies.length
+        ? careers.searchRole(companies, { ...opts, onProgress: (p) => ((progress.companies = p), tell()) })
+        : { results: [], boards: {}, searched: 0, failed: [], noBoard: 0 },
+      boardIds.length ? jobBoards.searchBoards({ ...opts, boards: boardIds, keys, onProgress: (p) => ((progress.boards = p), tell()) }) : { results: [], searched: [], failed: [] },
+    ]);
     // Boards found along the way are worth keeping.
-    for (const [id, board] of Object.entries(r.boards)) store.saveItem('companies', { id, board });
-    lastRoleSearch = new Map(r.results.map((x) => [`${x.company.id}|${x.job.id}`, x]));
-    store.updateSettings({ roleSearch: { role, place, remoteOnly, minFit: Number(minFit) || 70 } });
+    for (const [id, board] of Object.entries(mine.boards)) store.saveItem('companies', { id, board });
+    // A job board posting from a company you watch belongs to that company
+    // (its logo, your people there), and is left out if its careers board already listed it.
+    const watched = new Map(store.list('companies').map((c) => [normCo(c.name), c]));
+    const listed = new Set(mine.results.map((x) => `${x.company.id}|${x.job.title.toLowerCase()}`));
+    const fromBoards = [];
+    for (const x of pub.results) {
+      const co = watched.get(normCo(x.company.name));
+      if (co) x.company = { id: co.id, name: co.name };
+      if (!listed.has(`${x.company.id}|${x.job.title.toLowerCase()}`)) fromBoards.push(x);
+    }
+    const all = [...mine.results, ...fromBoards].sort(
+      (a, b) => ROLE_RANK[a.match] - ROLE_RANK[b.match] || ((b.fit && b.fit.score) || 0) - ((a.fit && a.fit.score) || 0) || String(b.job.postedAt || '').localeCompare(String(a.job.postedAt || '')),
+    );
+    lastRoleSearch = new Map(all.map((x) => [`${x.company.id}|${x.job.id}`, x]));
+    store.updateSettings({ roleSearch: { role, place, remoteOnly, minFit, sources } });
     return {
-      results: r.results.map(({ board, text, ...x }) => x),
-      searched: r.searched,
-      failed: r.failed.length,
-      noBoard: r.noBoard,
+      results: all.map(({ board, text, ...x }) => x),
+      searched: mine.searched,
+      failed: mine.failed.length,
+      noBoard: mine.noBoard,
+      boards: pub.searched,
+      boardsFailed: pub.failed,
       scored: !!scoreJob,
     };
   } finally {

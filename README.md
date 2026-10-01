@@ -133,7 +133,7 @@ Every Claude button uses a prompt written for consistent, checkable results. The
 
 Nothing here scrapes LinkedIn or Indeed: every search is a link that opens in your browser.
 
-**Find jobs** (`#find`) has four tabs, and remembers the one you used last:
+**Find jobs** (`#find`) has five tabs, and remembers the one you used last:
 - **Jobs**, the job board: open roles at the companies you watch, newest first, grouped into *Today*, *This week*, *This month* and *Earlier*.
   - **Filter** by title, company or place (press `/` to jump to the box, `Esc` to clear it), pick one company, or tick **Remote only**. The *Past week / Past month / All open* tabs show how many roles each has.
   - **Fit preview and pay on every role.** Each job shows the company's logo on the left and, on the right, Sprout's free fit score (the same one-on-your-computer score as everywhere else) worked out from the posting itself, with dealbreakers in orange and marked as such. New, remote and pay show as tags under the title. Pay shows wherever the posting lists it: from Lever's and Ashby's own pay fields, or a range written in the description ("$150K–$190K", "£60k to £75k", "$45–$60/hr"). Funding amounts like "$20M" are never mistaken for pay.
@@ -142,6 +142,12 @@ Nothing here scrapes LinkedIn or Indeed: every search is a link that opens in yo
   - Click a title to open the posting, or a company name to see only its roles. **Check my fit** scores the full posting. Jobs already in your list say so instead.
   - **✕ hides** a job that's not for you. Tick **Hidden** to see or restore them.
   - Your saved searches sit in one row above the board, one click each.
+- **By role**: search one role (say *Technology Strategy Consultant*) across job boards, whatever the company, with the results right in Sprout.
+  - **Where to look**: the careers boards of the companies on your list, and public job boards that publish their listings for anyone to use: **Remotive**, **Himalayas**, **Jobicy** and **Remote OK** (remote jobs), **Arbeitnow** (Europe), and, with a free key of your own, **Adzuna** (which collects jobs from thousands of job sites and company pages, in 19 countries) and **USAJOBS** (US federal jobs). Tick the ones you want; Sprout remembers them. Keys go under *Job boards that need a free key* on the same tab, stay on your computer and are only sent to that board. LinkedIn and Indeed don't offer this, so they stay on the *Searches* tab as links.
+  - **Which jobs show**: exact titles (the same words in any order or level), then titles containing the role, then similar titles only when the free fit score is at or above the minimum you pick (70 by default) with no dealbreaker. Add a location (remote jobs always fit) or tick *Remote only*.
+  - **One row per job**: a posting on two boards shows once, tagged *via Remotive +1*. A job board posting from a company you watch shows under that company (with its logo and your people there), and not at all if its careers board already listed it. Pay comes from the board's own pay fields or the description; Adzuna's estimated pay is left out.
+  - **Check my fit** works on every result. Adzuna and USAJOBS give only the start of a posting, so for those Sprout reads the posting's own page first.
+  - The boards are in `src/main/jobBoards.js`; each search reads each ticked board once.
 - **Searches**: one-click searches for fresh postings, all opening in your browser (nothing here scrapes LinkedIn or Indeed).
   - **Suggested searches** come from your Profile's target roles and location: each role near you and remote (on LinkedIn and on Indeed), and at startups. Save the ones you like. Each shows when you last opened it.
   - LinkedIn searches are limited to **the past week, newest first**, with titles in quotes (so "chief of staff" doesn't match every "staff" job) and a 25-mile distance.

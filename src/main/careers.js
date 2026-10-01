@@ -1457,4 +1457,4 @@ async function searchRole(companies, { role, place = '', remoteOnly = false, min
   return { results, boards, searched: done, failed, noBoard: todo.length - done + companies.filter((c) => c.checkError === 'no-board').length };
 }
 
-module.exports = { ATS_LABEL, searchRole, classifyTitle, locationFits, siteJobs, listingLinks, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, phenomFromPage, scriptObject, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };
+module.exports = { ATS_LABEL, searchRole, request, makePay: pay, iso, tidyTitle, classifyTitle, locationFits, siteJobs, listingLinks, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, phenomFromPage, scriptObject, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };

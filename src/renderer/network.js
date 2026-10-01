@@ -1203,18 +1203,19 @@ document.addEventListener(
 function jobRow({ co, job, match = '' }, { noHide = false } = {}) {
   const mine = inMyList(co, job);
   const hidden = isHidden(co, job);
+  const watched = state.companies.some((c) => c.id === co.id);
   const isNew = job.firstSeenAt && Date.now() - Date.parse(job.firstSeenAt) < 3 * 86400000;
   const f = job.fit;
   const blocked = f && f.dealbreakers && f.dealbreakers.length;
   const fit = f
     ? `<div class="fit-score pill meter ${blocked ? 'lo blocked' : pillClass(f.score)}" style="--s:${f.score}" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${blocked ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read."><b>${f.score}</b><small>${blocked ? 'dealbreaker' : 'fit'}</small></div>`
     : `<div class="fit-score pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}"><b>–</b><small>fit</small></div>`;
-  const chips = [match ? `<span class="chip ${match === 'similar' ? 'lav' : 'good'} tiny" title="${esc(MATCH_LABEL[match][1])}">${MATCH_LABEL[match][0]}</span>` : '', isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '', knownChip(co.name)].join('');
+  const chips = [match ? `<span class="chip ${match === 'similar' ? 'lav' : 'good'} tiny" title="${esc(MATCH_LABEL[match][1])}">${MATCH_LABEL[match][0]}</span>` : '', isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '', sourceChip(job), knownChip(co.name)].join('');
   return `<div class="job-row ${hidden ? 'dim' : ''}">
     ${coLogo(co, 56)}
     <div class="grow">
       <a href="#" class="job-title" data-open-url="${esc(job.url)}" title="Open the posting">${esc(job.title)}</a>
-      <div class="sub"><a href="#" class="job-co" data-board-co="${co.id}" title="Only ${esc(co.name)}'s roles">${esc(co.name)}</a>${job.location ? ` · ${esc(job.location)}` : ''} · ${ageText(job.postedAt)}</div>
+      <div class="sub">${watched ? `<a href="#" class="job-co" data-board-co="${co.id}" title="Only ${esc(co.name)}'s roles">${esc(co.name)}</a>` : esc(co.name)}${job.location ? ` · ${esc(job.location)}` : ''} · ${ageText(job.postedAt)}</div>
       ${chips ? `<div class="job-chips">${chips}</div>` : ''}
     </div>
     ${fit}
@@ -1223,6 +1224,14 @@ function jobRow({ co, job, match = '' }, { noHide = false } = {}) {
       ${noHide ? '' : `<button class="small ghost icon-btn hideJob" data-co="${co.id}" data-job="${esc(job.id)}" title="${hidden ? 'Show it again' : 'Not for me: hide it'}" aria-label="${hidden ? 'Unhide' : 'Hide'}">${hidden ? icon('eye', 15) : '✕'}</button>`}
     </div>
   </div>`;
+}
+
+// Where a job board result came from (and the other boards that list it too).
+function sourceChip(job) {
+  if (!job.source) return '';
+  const name = (id) => ((state.jobBoards || []).find((b) => b.id === id) || { label: id }).label;
+  const also = (job.also || []).map(name);
+  return `<span class="chip tiny" title="Found on ${esc([name(job.source), ...also].join(', '))}">via ${esc(name(job.source))}${also.length ? ` +${also.length}` : ''}</span>`;
 }
 
 function jobsTab() {
@@ -1305,7 +1314,7 @@ const MATCH_LABEL = {
   similar: ['similar title', 'A neighbouring title, shown because your fit is high'],
 };
 const MIN_FITS = [60, 70, 80];
-const roleSearch = { running: false, progress: null, result: null, error: '' };
+const roleSearch = { running: false, progress: null, result: null, error: '', keysOpen: false };
 
 function roleSearchPrefs() {
   const saved = state.settings.roleSearch || {};
@@ -1314,8 +1323,60 @@ function roleSearchPrefs() {
     place: saved.place ?? (String(state.profile.location || '').split(/[·(]/)[0].trim()),
     remoteOnly: !!saved.remoteOnly,
     minFit: saved.minFit || 70,
+    sources: Array.isArray(saved.sources) ? saved.sources : ['companies', ...(state.defaultJobBoards || [])],
   };
 }
+
+// A job board that needs a key counts only once its keys are in.
+function boardReady(b) {
+  const keys = state.settings.jobBoardKeys || {};
+  return (b.keys || []).every((k) => String(keys[k] || '').trim());
+}
+
+// Where to look: the companies you watch, and each public job board.
+function roleSources(p, cosN) {
+  const box = (id, label, tip, { disabled = false, extra = '' } = {}) =>
+    `<label class="check-label" title="${esc(tip)}"><input type="checkbox" class="roleSrc" value="${id}" ${p.sources.includes(id) && !disabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}> ${label}${extra}</label>`;
+  const boards = (state.jobBoards || []).map((b) => {
+    const ready = boardReady(b);
+    return box(b.id, esc(b.label), `${b.label}: ${b.blurb}`, { disabled: !ready, extra: b.remote ? ' <span class="faint">(remote)</span>' : !ready ? ' <a href="#" class="faint" data-keys-open>(add key)</a>' : '' });
+  });
+  return `<div class="full"><label>Where to look</label>
+      <div class="role-sources" style="display:flex;flex-wrap:wrap;gap:6px 16px">
+        ${box('companies', `Companies on my list <span class="faint">(${cosN})</span>`, 'The careers boards of the companies you watch')}
+        ${boards.join('')}
+      </div>
+      ${roleKeysBox()}
+    </div>`;
+}
+
+// Adzuna and USAJOBS give anyone a free key; it stays on this computer.
+function roleKeysBox() {
+  const k = state.settings.jobBoardKeys || {};
+  const need = (state.jobBoards || []).filter((b) => b.keys.length);
+  if (!need.length) return '';
+  const link = (id) => {
+    const b = need.find((x) => x.id === id);
+    return b ? `<a href="#" data-open-url="${esc(b.keyHelp)}">get a free key</a>` : '';
+  };
+  return `<details class="role-keys" style="margin-top:8px" ${roleSearch.keysOpen ? 'open' : ''}><summary class="faint">Job boards that need a free key: ${need.map((b) => `${esc(b.label)}${boardReady(b) ? ' ✓' : ''}`).join(', ')}</summary>
+      <div class="form-grid" style="margin-top:8px">
+        <div><label>Adzuna app ID <span class="faint">(${link('adzuna')})</span></label><input id="kAdzunaId" value="${esc(k.adzunaId || '')}" autocomplete="off"></div>
+        <div><label>Adzuna app key</label><input id="kAdzunaKey" value="${esc(k.adzunaKey || '')}" autocomplete="off"></div>
+        <div><label>Adzuna country</label><select id="kAdzunaCountry">${ADZUNA_COUNTRIES.map(([c, n]) => `<option value="${c}" ${(k.adzunaCountry || 'us') === c ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+        <div></div>
+        <div><label>USAJOBS API key <span class="faint">(${link('usajobs')})</span></label><input id="kUsajobsKey" value="${esc(k.usajobsKey || '')}" autocomplete="off"></div>
+        <div><label>Email you signed up with</label><input id="kUsajobsEmail" value="${esc(k.usajobsEmail || '')}" autocomplete="off" placeholder="USAJOBS asks for it with each search"></div>
+      </div>
+      <div style="margin-top:8px"><button class="small" id="saveBoardKeys">Save keys</button> <span class="faint">Kept on this computer and only sent to that job board.</span></div>
+    </details>`;
+}
+
+const ADZUNA_COUNTRIES = [
+  ['us', 'United States'], ['gb', 'United Kingdom'], ['ca', 'Canada'], ['au', 'Australia'], ['nz', 'New Zealand'], ['in', 'India'], ['sg', 'Singapore'],
+  ['de', 'Germany'], ['fr', 'France'], ['nl', 'Netherlands'], ['at', 'Austria'], ['ch', 'Switzerland'], ['be', 'Belgium'], ['es', 'Spain'], ['it', 'Italy'], ['pl', 'Poland'],
+  ['br', 'Brazil'], ['mx', 'Mexico'], ['za', 'South Africa'],
+];
 
 function roleTab() {
   const p = roleSearchPrefs();
@@ -1323,21 +1384,19 @@ function roleTab() {
   const readable = cos.filter((c) => c.board && c.board.ats && c.board.ats !== 'none').length;
   const r = roleSearch.result;
   const form = `<div class="card" style="margin-bottom:16px">
-      <h3 class="with-icon">${icon('search', 20)} Search one role across every job board</h3>
-      <p class="faint" style="margin-top:-4px">Reads the careers boards of all ${cos.length} compan${cos.length === 1 ? 'y' : 'ies'} on your list${readable < cos.length ? ` (${readable} with a known board; I look for up to 15 more each search)` : ''}, whatever the company. You get the exact title, titles containing it, and similar titles only when your fit is high.</p>
+      <h3 class="with-icon">${icon('search', 20)} Search one role across job boards</h3>
+      <p class="faint" style="margin-top:-4px">Searches public job boards and the careers boards of the ${cos.length} compan${cos.length === 1 ? 'y' : 'ies'} on your list${cos.length && readable < cos.length ? ` (${readable} with a known board; I look for up to 15 more each search)` : ''}. You get the exact title, titles containing it, and similar titles only when your fit is high.</p>
       <div class="form-grid">
         <div class="full"><label>Role</label><input id="roleQ" value="${esc(p.role)}" placeholder="Technology Strategy Consultant" autocomplete="off"></div>
         <div><label>Location <span class="faint">(optional; remote jobs always fit)</span></label><input id="rolePlace" value="${esc(p.place)}" placeholder="Washington, DC"></div>
         <div><label>Similar titles need a fit of</label><select id="roleMinFit">${MIN_FITS.map((v) => `<option value="${v}" ${p.minFit === v ? 'selected' : ''}>${v}+</option>`).join('')}</select></div>
         <div class="full"><label class="check-label"><input type="checkbox" id="roleRemote" ${p.remoteOnly ? 'checked' : ''}> Remote only</label></div>
+        ${roleSources(p, cos.length)}
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;align-items:center"><button class="primary" id="roleGo" ${roleSearch.running ? 'disabled' : ''}>${icon('search', 15)} Search</button>
         <span class="faint" id="roleProgress">${roleSearch.running ? roleProgressText() : ''}</span></div>
       ${!state.documents.length ? `<p class="note-box">Add your resume to <a href="#library">My library</a>: similar titles are only shown with a fit score, and that needs your resume.</p>` : ''}
     </div>`;
-  if (!cos.length)
-    return `${form}<div class="card empty">${mascotSvg('curious', 72)}<h3>Add companies to search</h3><p>Role search reads the careers boards of the companies on your list. Add some, or find more in Discover.</p>
-      <button class="primary" data-find-tab="companies">+ Add companies</button> <button class="ghost" data-find-tab="discover">Discover companies</button></div>`;
   if (roleSearch.error) return `${form}<div class="card"><p class="note-box" style="margin:0">${esc(roleSearch.error)}</p></div>`;
   if (!r) return form;
   const groups = ['exact', 'title', 'similar'].map((m) => [m, r.results.filter((x) => x.match === m)]);
@@ -1349,14 +1408,20 @@ function roleTab() {
         return jobRow({ co, job: { ...x.job, fit: x.fit }, match: x.match }, { noHide: true });
       })
       .join('');
+  const boardName = (id) => ((state.jobBoards || []).find((b) => b.id === id) || { label: id }).label;
+  const where = [
+    r.sources.includes('companies') ? `${r.searched} careers board${r.searched === 1 ? '' : 's'}` : '',
+    (r.boards || []).length ? (r.boards || []).map(boardName).join(', ') : '',
+  ].filter(Boolean).join(' and ');
   const body = r.results.length
     ? groups
         .filter(([, list]) => list.length)
         .map(([m, list]) => `<div class="section-title board-sec">${heading[m]} <span class="faint">${list.length}</span></div><div class="job-list">${rows(list)}</div>`)
         .join('')
-    : `<p class="muted">No open <b>${esc(r.role)}</b> roles${r.place && !r.remoteOnly ? ` near ${esc(r.place)}` : r.remoteOnly ? ' that are remote' : ''} at the ${r.searched} compan${r.searched === 1 ? 'y' : 'ies'} I could read, and no similar titles with a fit of ${r.minFit}+. Try a broader title, a lower fit, or <a href="#" data-find-tab="discover">add more companies</a>.</p>`;
+    : `<p class="muted">No open <b>${esc(r.role)}</b> roles${r.place && !r.remoteOnly ? ` near ${esc(r.place)}` : r.remoteOnly ? ' that are remote' : ''} on ${where || 'the boards I could read'}, and no similar titles with a fit of ${r.minFit}+. Try a broader title, a lower fit, more job boards, or <a href="#" data-find-tab="discover">add more companies</a>.</p>`;
+  const boardsFailed = (r.boardsFailed || []).map((f) => `${f.label} (${f.error})`);
   return `${form}<div class="card">${body}
-    <p class="faint board-foot">Searched ${r.searched} careers board${r.searched === 1 ? '' : 's'}${r.failed ? `; ${r.failed} couldn't be read this time` : ''}${r.noBoard ? `; ${r.noBoard} compan${r.noBoard === 1 ? 'y has' : 'ies have'} no board I can read yet` : ''}. ${r.scored ? 'Fit scores are the free preview from each posting.' : ''}</p></div>`;
+    <p class="faint board-foot">Searched ${where || 'nothing'}${r.failed ? `; ${r.failed} careers board${r.failed === 1 ? '' : 's'} couldn't be read this time` : ''}${boardsFailed.length ? `; couldn't read ${esc(boardsFailed.join(', '))}` : ''}${r.noBoard ? `; ${r.noBoard} compan${r.noBoard === 1 ? 'y has' : 'ies have'} no board I can read yet` : ''}. ${r.scored ? 'Fit scores are the free preview from each posting (some job boards give only its first lines).' : ''}</p></div>`;
 }
 
 function roleProgressText() {
@@ -1369,8 +1434,15 @@ function bindRoleTab() {
   if (!go) return;
   const search = () =>
     run(go, async () => {
-      const opts = { role: $('#roleQ').value.trim(), place: $('#rolePlace').value.trim(), remoteOnly: $('#roleRemote').checked, minFit: Number($('#roleMinFit').value) || 70 };
+      const opts = {
+        role: $('#roleQ').value.trim(),
+        place: $('#rolePlace').value.trim(),
+        remoteOnly: $('#roleRemote').checked,
+        minFit: Number($('#roleMinFit').value) || 70,
+        sources: $$('.roleSrc').filter((x) => x.checked).map((x) => x.value),
+      };
       if (!opts.role) return toast('Type the role to search for.', 'info');
+      if (!opts.sources.length) return toast('Tick at least one place to look.', 'info');
       Object.assign(roleSearch, { running: true, progress: null, error: '' });
       route();
       try {
@@ -1386,6 +1458,35 @@ function bindRoleTab() {
     }, 'Searching…');
   go.addEventListener('click', search);
   $('#roleQ').addEventListener('keydown', (e) => e.key === 'Enter' && search());
+  const keysBox = $('.role-keys');
+  if (keysBox) keysBox.addEventListener('toggle', () => (roleSearch.keysOpen = keysBox.open));
+  $$('[data-keys-open]').forEach((a) =>
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      roleSearch.keysOpen = true;
+      if (keysBox) keysBox.open = true;
+    })
+  );
+  const saveKeys = $('#saveBoardKeys');
+  if (saveKeys)
+    saveKeys.addEventListener('click', () =>
+      run(saveKeys, async () => {
+        const jobBoardKeys = {
+          adzunaId: $('#kAdzunaId').value.trim(),
+          adzunaKey: $('#kAdzunaKey').value.trim(),
+          adzunaCountry: $('#kAdzunaCountry').value,
+          usajobsKey: $('#kUsajobsKey').value.trim(),
+          usajobsEmail: $('#kUsajobsEmail').value.trim(),
+        };
+        // A board whose key just went in is searched from now on.
+        const p = roleSearchPrefs();
+        const added = (state.jobBoards || []).filter((b) => b.keys.length && b.keys.every((k) => jobBoardKeys[k]) && !boardReady(b)).map((b) => b.id);
+        await S.updateSettings({ jobBoardKeys, roleSearch: { ...(state.settings.roleSearch || {}), sources: [...new Set([...p.sources, ...added])] } });
+        await refreshState();
+        toast('Saved.', 'good');
+        route();
+      }, 'Saving…')
+    );
   $$('.scoreJob').forEach((b) =>
     b.addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
