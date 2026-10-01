@@ -3,7 +3,10 @@
 // it checks shortly after launch, every hour, when the computer wakes up and
 // soon after a failed check; downloads new versions in the background; and
 // installs them when you quit, or on its own once you've stepped away from
-// the computer for a while (it reopens where it was).
+// the computer for a while (it reopens where it was). It always goes straight
+// to the newest release: however far behind a copy is, it downloads only the
+// latest one, and if a newer release comes out while one is downloading or
+// waiting to install, it switches to that one instead.
 //
 // Windows and the Linux AppImage use electron-updater. The Mac builds aren't
 // signed with an Apple certificate, which electron-updater's Mac path
@@ -31,6 +34,9 @@ const RETRY = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000];
 // this long, counts as failed so the next check can start over.
 const CHECK_TIMEOUT = 2 * 60 * 1000;
 const STALL = 10 * 60 * 1000;
+// How long to wait for GitHub to confirm a ready update is still the newest
+// before installing it anyway.
+const CONFIRM_TIMEOUT = 20 * 1000;
 // How often to look for a quiet moment to install a downloaded update.
 const QUIET_POLL = 60 * 1000;
 
@@ -147,6 +153,13 @@ function createUpdater({
   now = () => Date.now(),
 }) {
   const events = new EventEmitter();
+  // An install that was waiting on a newer download goes ahead once it's ready.
+  events.on('status', (st) => {
+    if (st.state !== 'ready' || !installWhenReady) return;
+    const opts = installWhenReady;
+    installWhenReady = null;
+    timers.setTimeout(() => install(opts).catch((err) => log.warn('Update install failed:', err && err.message)), 0);
+  });
   const selfInstall = canSelfInstall(platform, env, { execPath, isWritable });
   const mac = platform === 'darwin';
   let status = { state: app.isPackaged ? 'idle' : 'dev', current: app.getVersion(), selfInstall, manualReason: selfInstall ? '' : whyManual(platform, execPath) };
@@ -160,6 +173,7 @@ function createUpdater({
   let cancelDownload = null;
   let macReady = null; // { version, app } a downloaded, unpacked Mac update
   let installing = false;
+  let installWhenReady = null; // { auto } an install waiting on a newer download
 
   const set = (patch) => {
     status = { ...status, ...patch };
@@ -332,13 +346,17 @@ function createUpdater({
   }
 
   async function runCheck() {
-    // A download that has stopped moving is abandoned so this check can start over.
-    if (status.state === 'downloading') {
-      if (now() - lastProgress < STALL) return;
-      if (cancelDownload) cancelDownload();
-      cancelDownload = null;
-    }
     try {
+      // A download that has stopped moving, or that a newer release has
+      // overtaken, is abandoned so this check can start over.
+      if (status.state === 'downloading') {
+        if (now() - lastProgress < STALL) {
+          const latest = await latestRelease().catch(() => null);
+          if (!latest || !newer(latest.version, status.version)) return;
+        }
+        if (cancelDownload) cancelDownload();
+        cancelDownload = null;
+      }
       if (selfInstall && !mac) await withTimeout(checkElectronUpdater(), CHECK_TIMEOUT, 'The update check');
       else await checkGitHub();
       failures = 0;
@@ -364,10 +382,29 @@ function createUpdater({
 
   // ---- installing ----
 
-  function install({ auto = false } = {}) {
+  // Before installing, make sure what's ready is still the newest release. If
+  // one has come out since it was downloaded, get that one instead and install
+  // it as soon as it's ready, skipping the version in between.
+  async function install({ auto = false } = {}) {
     if (status.state !== 'ready') throw new Error('No update is ready to install yet.');
     if (installing) return;
     installing = true;
+    let latest = null;
+    try {
+      latest = await withTimeout(latestRelease(), CONFIRM_TIMEOUT, 'Checking for a newer version');
+    } catch (err) {
+      log.warn('Could not confirm the newest version; installing the one ready:', err && err.message);
+    }
+    if (latest && newer(latest.version, status.version)) {
+      installing = false;
+      installWhenReady = { auto };
+      await check();
+      return;
+    }
+    if (status.state !== 'ready') {
+      installing = false;
+      return;
+    }
     try {
       beforeInstall({ auto });
     } catch (err) {
@@ -397,13 +434,7 @@ function createUpdater({
       try {
         quiet = isQuiet();
       } catch {}
-      if (quiet) {
-        try {
-          install({ auto: true });
-        } catch (err) {
-          log.warn('Automatic update failed:', err && err.message);
-        }
-      }
+      if (quiet) install({ auto: true }).catch((err) => log.warn('Automatic update failed:', err && err.message));
     }, QUIET_POLL);
   }
 

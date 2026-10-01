@@ -133,75 +133,128 @@ test('running from source never checks', async () => {
   assert.strictEqual((await up.check()).state, 'dev');
 });
 
-test('a Mac copy downloads the zip, checks it, and swaps itself in when the user is away', async (t) => {
+// A fake GitHub with one latest Mac release whose tag can move on, and a Mac
+// updater pointed at it. Records which versions it downloads and swaps in.
+function macWorld(t, { current = '0.1.30', tag = 'v0.1.40' } = {}) {
   const fs = require('fs');
   const os = require('os');
   const path = require('path');
   const crypto = require('crypto');
   const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sprout-upd-test-'));
   t.after(() => fs.rmSync(stagingDir, { recursive: true, force: true }));
-  const zip = Buffer.from('pretend zip bytes '.repeat(1000));
-  const sha = crypto.createHash('sha512').update(zip).digest('base64');
+  const world = { tag, downloads: [], swaps: [], quit: 0, quiet: false, timers: fakeTimers() };
+  const zipFor = (v) => Buffer.from(`pretend zip for ${v} `.repeat(1000));
   const fetchImpl = async (url) => {
+    const v = world.tag.replace(/^v/, '');
     if (url.includes('api.github.com')) {
       return {
         ok: true,
         json: async () => ({
-          tag_name: 'v0.1.40',
+          tag_name: world.tag,
           assets: [
-            { name: 'Sprout-mac-arm64.zip', browser_download_url: 'https://x/Sprout-mac-arm64.zip' },
-            { name: 'latest-mac.yml', browser_download_url: 'https://x/latest-mac.yml' },
+            { name: 'Sprout-mac-arm64.zip', browser_download_url: `https://x/${v}/Sprout-mac-arm64.zip` },
+            { name: 'latest-mac.yml', browser_download_url: `https://x/${v}/latest-mac.yml` },
           ],
         }),
       };
     }
-    if (url.endsWith('.yml')) return { ok: true, text: async () => `files:\n  - url: Sprout-mac-arm64.zip\n    sha512: ${sha}\n` };
-    return {
-      ok: true,
-      headers: { get: (h) => (h === 'content-length' ? String(zip.length) : null) },
-      body: new Blob([zip]).stream(),
-    };
+    const fileV = url.split('/')[3];
+    if (url.endsWith('.yml')) return { ok: true, text: async () => `files:\n  - url: Sprout-mac-arm64.zip\n    sha512: ${crypto.createHash('sha512').update(zipFor(fileV)).digest('base64')}\n` };
+    world.downloads.push(fileV);
+    const zip = zipFor(fileV);
+    return { ok: true, headers: { get: (h) => (h === 'content-length' ? String(zip.length) : null) }, body: new Blob([zip]).stream() };
   };
   const unpack = async (zipPath, dest) => {
-    assert.deepStrictEqual(fs.readFileSync(zipPath), zip);
-    fs.mkdirSync(path.join(dest, 'Sprout.app', 'Contents', 'MacOS'), { recursive: true });
+    const v = /pretend zip for (\S+)/.exec(fs.readFileSync(zipPath, 'utf8'))[1];
+    fs.mkdirSync(path.join(dest, `Sprout.app`, 'Contents', 'MacOS'), { recursive: true });
+    fs.writeFileSync(path.join(dest, 'Sprout.app', 'version'), v);
   };
-  const swaps = [];
-  let quit = 0;
-  let quiet = false;
-  const timers = fakeTimers();
-  const up = createUpdater({
-    app: { isPackaged: true, getVersion: () => '0.1.30', quit: () => quit++ },
+  world.up = createUpdater({
+    app: { isPackaged: true, getVersion: () => current, quit: () => world.quit++ },
     platform: 'darwin',
     arch: 'arm64',
     execPath: '/Applications/Sprout.app/Contents/MacOS/Sprout',
     isWritable: () => true,
     fetchImpl,
     unpack,
-    swap: (args) => swaps.push(args),
+    swap: (args) => world.swaps.push({ args, version: fs.readFileSync(path.join(args[2], 'version'), 'utf8') }),
     stagingDir,
-    timers,
-    isQuiet: () => quiet,
+    timers: world.timers,
+    isQuiet: () => world.quiet,
     log: { warn() {} },
   });
-  up.start();
-  const st = await up.check();
+  world.up.start();
+  // Let async work run (and the zero-delay timers it sets) until the updater
+  // has swapped or quit, or settled somewhere else, for up to five seconds.
+  world.settle = async () => {
+    const until = Date.now() + 5000;
+    while (Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 5));
+      for (const [id, x] of world.timers.pending) if (!x.every && x.ms === 0) (world.timers.pending.delete(id), x.fn());
+      const st = world.up.status().state;
+      if (world.swaps.length || (st !== 'downloading' && st !== 'checking')) {
+        await new Promise((r) => setTimeout(r, 20));
+        if (world.swaps.length || world.up.status().state === st) return;
+      }
+    }
+  };
+  // The every-minute look for a quiet moment, run by hand.
+  world.poll = async () => {
+    [...world.timers.pending.values()].find((x) => x.every).fn();
+    await world.settle();
+  };
+  return world;
+}
+
+test('a Mac copy downloads the zip, checks it, and swaps itself in when the user is away', async (t) => {
+  const w = macWorld(t);
+  const st = await w.up.check();
   assert.strictEqual(st.state, 'ready', st.error);
   assert.strictEqual(st.version, '0.1.40');
 
-  const poll = [...timers.pending.values()].find((x) => x.every);
-  poll.fn(); // user still here: waits
-  assert.strictEqual(swaps.length, 0);
-  quiet = true;
-  poll.fn();
-  assert.strictEqual(swaps.length, 1);
-  assert.strictEqual(swaps[0][1], '/Applications/Sprout.app');
-  assert.match(swaps[0][2], /Sprout\.app$/);
-  assert.strictEqual(swaps[0][3], '1'); // reopens afterwards
-  assert.strictEqual(quit, 1);
-  up.onQuit(); // the quit that follows doesn't swap twice
-  assert.strictEqual(swaps.length, 1);
-  up.stop();
+  await w.poll(); // user still here: waits
+  assert.strictEqual(w.swaps.length, 0);
+  w.quiet = true;
+  await w.poll();
+  assert.strictEqual(w.swaps.length, 1);
+  assert.strictEqual(w.swaps[0].args[1], '/Applications/Sprout.app');
+  assert.strictEqual(w.swaps[0].args[3], '1'); // reopens afterwards
+  assert.strictEqual(w.quit, 1);
+  w.up.onQuit(); // the quit that follows doesn't swap twice
+  assert.strictEqual(w.swaps.length, 1);
+  w.up.stop();
+});
+
+test('a copy many versions behind goes straight to the newest one', async (t) => {
+  const w = macWorld(t, { current: '0.1.2', tag: 'v0.1.40' });
+  await w.up.check();
+  assert.deepStrictEqual(w.downloads, ['0.1.40']);
+  w.quiet = true;
+  await w.poll();
+  assert.deepStrictEqual(w.swaps.map((x) => x.version), ['0.1.40']);
+  w.up.stop();
+});
+
+test('if a newer release comes out while an update waits, it installs that one instead', async (t) => {
+  const w = macWorld(t);
+  assert.strictEqual((await w.up.check()).version, '0.1.40');
+  w.tag = 'v0.1.41';
+  w.quiet = true;
+  await w.poll();
+  assert.deepStrictEqual(w.downloads, ['0.1.40', '0.1.41']);
+  assert.deepStrictEqual(w.swaps.map((x) => x.version), ['0.1.41']); // 0.1.40 is skipped
+  assert.strictEqual(w.quit, 1);
+  w.up.stop();
+});
+
+test('the Restart button also skips to a release that came out since', async (t) => {
+  const w = macWorld(t);
+  await w.up.check();
+  w.tag = 'v0.1.42';
+  await w.up.install();
+  await w.settle();
+  assert.deepStrictEqual(w.swaps.map((x) => x.version), ['0.1.42']);
+  w.up.stop();
 });
 
 test('a Mac download that does not match the release is not installed', async (t) => {
