@@ -1116,6 +1116,8 @@ function localFitScore(job, documents, profile = {}) {
     postingLevel: postingLevel === null ? null : LEVEL_NAMES[postingLevel],
     yourLevel: userLevel === null ? null : LEVEL_NAMES[userLevel],
     dealbreakers: breakers,
+    // Where you'd have to move to (an in-person job away from where you live), if anywhere.
+    away: screening.away || null,
     // Screens on level, years and the kind of job, which a qualifications
     // checklist doesn't see: Claude's score is held to them too.
     screens: [

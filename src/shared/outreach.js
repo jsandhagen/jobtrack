@@ -78,9 +78,28 @@
 
   // Titles in quotes, so "chief of staff" doesn't match every "staff" job, and
   // OR between several.
+  // The same job is posted under other word orders: "Technology Strategy
+  // Manager" is also "Manager, Technology Strategy" and "Technology Strategy
+  // Senior Manager". A quoted phrase only finds its own order, so the search
+  // asks for each (LinkedIn and Indeed take OR between quoted phrases). Only
+  // for titles with a field of two words or more, and a handful in all, since
+  // LinkedIn caps how many operators a search can use.
+  const ROLE_NOUNS = /^(manager|consultant|director|lead|analyst|strategist|specialist|architect|associate|advisor|principal)$/i;
+  const SENIOR_FORM = /^(manager|consultant|analyst|associate|director)$/i;
+  function titleForms(title) {
+    const words = clean(title).split(/\s+/);
+    const noun = words[words.length - 1];
+    const field = words.slice(0, -1);
+    if (!ROLE_NOUNS.test(noun) || field.length < 2 || field.some((w) => /^(senior|sr\.?|junior|jr\.?|lead|principal|staff|head|chief)$/i.test(w))) return [clean(title)];
+    return [clean(title), `${noun}, ${field.join(' ')}`, ...(SENIOR_FORM.test(noun) ? [`${field.join(' ')} Senior ${noun}`] : [])];
+  }
+  const MAX_PHRASES = 8;
   function jobKeywords(titles, keywords) {
     const t = splitList(titles);
-    return [t.length > 1 ? t.map(quote).join(' OR ') : quote(t[0]), clean(keywords)].filter(Boolean).join(' ');
+    const forms = t.map(titleForms);
+    let phrases = forms.flat();
+    if (phrases.length > MAX_PHRASES) phrases = t;
+    return [phrases.length > 1 ? phrases.map(quote).join(' OR ') : quote(phrases[0]), clean(keywords)].filter(Boolean).join(' ');
   }
 
   // Newest first; distance keeps "near me" near.
@@ -114,7 +133,8 @@
   function startupBoardsUrl({ titles, keywords, location, within = 'week', workType = 'any' } = {}) {
     const sites = `(${STARTUP_BOARDS.map((s) => `site:${s}`).join(' OR ')})`;
     const loc = workType === 'remote' ? 'remote' : clean(location);
-    const q = [sites, anyOf(splitList(titles)), clean(keywords), loc && !isRemote(loc) ? quote(loc) : workType === 'remote' ? '"remote"' : ''].filter(Boolean).join(' ');
+    const forms = splitList(titles).flatMap(titleForms);
+    const q = [sites, anyOf(forms.length <= MAX_PHRASES ? forms : splitList(titles)), clean(keywords), loc && !isRemote(loc) ? quote(loc) : workType === 'remote' ? '"remote"' : ''].filter(Boolean).join(' ');
     return googleUrl(q, { within });
   }
 

@@ -495,3 +495,16 @@ test('strong fits you have seen or dismissed are not called out again', () => {
   assert.deepEqual(Object.keys(O.remember(seen, [], now + 31 * 86400000)), []);
   assert.equal(Object.keys(O.remember(seen, ['x'], now + 86400000)).length, 2);
 });
+
+test('job searches ask for the other word orders a title is posted under', () => {
+  const kw = (titles) => params(O.linkedinJobsUrl({ titles })).keywords;
+  assert.equal(kw('Technology Strategy Manager'), '"Technology Strategy Manager" OR "Manager, Technology Strategy" OR "Technology Strategy Senior Manager"');
+  assert.equal(params(O.indeedJobsUrl({ titles: 'Corporate Strategy Manager' })).q, '"Corporate Strategy Manager" OR "Manager, Corporate Strategy" OR "Corporate Strategy Senior Manager"');
+  // Short titles and titles that already carry a level stay as written.
+  assert.equal(kw('Chief of Staff'), '"Chief of Staff"');
+  assert.equal(kw('Operations Manager'), '"Operations Manager"');
+  assert.equal(kw('Senior Technology Strategy Manager'), '"Senior Technology Strategy Manager"');
+  // Too many phrases for one LinkedIn search: just the titles.
+  assert.equal(kw('Technology Strategy Manager, Corporate Strategy Manager, Product Strategy Manager'), '"Technology Strategy Manager" OR "Corporate Strategy Manager" OR "Product Strategy Manager"');
+  assert.match(params(O.startupBoardsUrl({ titles: 'Technology Strategy Manager' })).q, /"Manager, Technology Strategy"/);
+});
