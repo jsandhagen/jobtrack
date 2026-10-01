@@ -27,9 +27,12 @@ async function copyText(text) {
   }
 }
 
-async function netRefresh() {
+// Redraws unless you're typing somewhere. `from`: the box you just submitted
+// with Enter. It still has focus but is done, so it doesn't hold the redraw back.
+async function netRefresh({ from } = {}) {
   await refreshState();
-  if (!isEditing()) route();
+  if (from && document.activeElement === from) from.blur();
+  routeWhenFree();
 }
 
 const initials = (name) =>
@@ -223,7 +226,7 @@ function myPeopleTab(st) {
     </div>` : ''}
     <div class="tabs compact">${PEOPLE_FILTERS.map(([k, label, fn]) => `<button class="${peopleFilter === k ? 'on' : ''}" data-pfilter="${k}">${label} <span class="faint">${cs.filter(fn).length}</span></button>`).join('')}</div>
     <div class="people-bar">
-      <input id="peopleSearch" type="search" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" autocomplete="off">
+      <input data-live id="peopleSearch" type="search" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" autocomplete="off">
       ${shared.map(([k, label, , fn]) => `<label class="check-label" title="People you share ${k === 'alumni' ? 'a school' : 'an employer'} with"><input type="checkbox" data-pshared="${k}" ${peopleShared === k ? 'checked' : ''}> ${label} <span class="faint">${cs.filter(fn).length}</span></label>`).join('')}
     </div>
     ${shown.length ? `<div class="list">${shown.map(contactRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 72)}<h3>Nobody here</h3><p>No one matches ${filtered ? 'these filters' : 'this filter'}. <a href="#" id="peopleClear">Show everyone</a></p></div>`}`;
@@ -427,7 +430,7 @@ function bindTemplates() {
   $$('.editTpl').forEach((b) => b.addEventListener('click', () => openTemplateModal(state.templates.find((t) => t.id === b.dataset.id))));
   $('#newTpl').addEventListener('click', () => openTemplateModal({ name: '', body: 'Hi {first}, \n\n{me}' }));
   $('#resetTpl').addEventListener('click', async () => {
-    if (!confirm("Put Sprout's templates back? Your edited and new templates will be replaced.")) return;
+    if (!(await askConfirm("Put Sprout's templates back? Your edited and new templates will be replaced.", 'Put them back'))) return;
     await S.resetTemplates();
     netRefresh();
   });
@@ -508,7 +511,7 @@ function openContactModal(c = {}) {
   const del = $('#delContact', card);
   if (del)
     del.addEventListener('click', async () => {
-      if (!confirm(`Remove ${c.name} from your people?`)) return;
+      if (!(await askConfirm(`Remove ${c.name} from your people?`, 'Remove'))) return;
       await S.removeItem('contacts', c.id);
       closeModal();
       netRefresh();
@@ -991,7 +994,7 @@ function bindCompanies() {
   const clear = $('#connClear');
   if (clear)
     clear.addEventListener('click', async () => {
-      if (!confirm('Remove your imported LinkedIn connections? People you added from them stay.')) return;
+      if (!(await askConfirm('Remove your imported LinkedIn connections? People you added from them stay.', 'Remove'))) return;
       await S.clearConnections();
       netRefresh();
     });
@@ -1115,6 +1118,14 @@ function showStandouts() {
   else location.hash = '#find';
 }
 
+// Find jobs → Jobs, newest first with no filters: where roles that just turned up are.
+function showNewJobs() {
+  if (standoutJobs().length) return showStandouts();
+  Object.assign(board, { company: '', q: '', remote: false, minPay: 0, window: 'week', sort: 'new', showHidden: false, limit: PAGE_SIZE });
+  setFindTab('jobs');
+  if (location.hash !== '#find') location.hash = '#find';
+}
+
 function inMyList(co, job) {
   const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   return [...state.applications, ...(state.checked || [])].find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
@@ -1220,7 +1231,7 @@ function jobsTab() {
 
   // Filters, then the list.
   const toolbar = `<div class="board-bar">
-      <input id="boardQ" type="search" placeholder="Filter by title, company or place" title="Shortcut: press /" value="${esc(board.q)}" autocomplete="off">
+      <input data-live id="boardQ" type="search" placeholder="Filter by title, company or place" title="Shortcut: press /" value="${esc(board.q)}" autocomplete="off">
       <select id="boardCo" class="small-select" aria-label="Company"><option value="">All companies</option>${withJobs
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((c) => `<option value="${c.id}" ${board.company === c.id ? 'selected' : ''}>${esc(c.name)} (${(c.jobs || []).length})</option>`)
@@ -1553,7 +1564,10 @@ function bindDiscoverTab() {
   $$('.fzInd').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ industries: toggle(p().industries, b.dataset.v) })));
   $$('.fzSize').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ sizes: toggle(p().sizes, b.dataset.v) })));
   $$('.fzPrio').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ priorities: toggle(p().priorities, b.dataset.v, F.MAX_PRIORITIES) })));
+  // Enter saves too: it leaves the box, so the list re-sorts right away.
+  const enterLeaves = (el) => el.addEventListener('keydown', (e) => e.key === 'Enter' && el.blur());
   const other = $('#fzIndOther');
+  if (other) enterLeaves(other);
   if (other)
     other.addEventListener('change', () => {
       const chips = p().industries.filter((i) => F.INDUSTRIES.some((x) => x.toLowerCase() === i.toLowerCase()));
@@ -1562,6 +1576,7 @@ function bindDiscoverTab() {
   const text = (id, key) => {
     const el = $(id);
     if (el) el.addEventListener('change', () => saveFinderPrefs({ [key]: el.value }));
+    if (el) enterLeaves(el);
   };
   text('#fzLoc', 'location');
   text('#fzNotes', 'notes');
@@ -1574,7 +1589,8 @@ function bindDiscoverTab() {
     run(btn, async () => {
       const r = await S.runFinder(opts);
       toast(r.found ? `${r.mode === 'find' ? 'Found' : 'Looked up'} ${r.found} compan${r.found === 1 ? 'y' : 'ies'}.` : "I didn't find any this time. Try loosening what you're looking for.", r.found ? 'good' : 'info');
-      netRefresh();
+      const box = $('#fzLookup'); // still holding just what you looked up: done with it
+      netRefresh({ from: box && opts.lookup && box.value.trim() === opts.lookup ? box : null });
     }, busy);
   const find = $('#fzFind');
   if (find) find.addEventListener('click', (e) => go(e.currentTarget, {}, 'Searching…'));
@@ -1599,7 +1615,7 @@ function bindDiscoverTab() {
   const clear = $('#fzClear');
   if (clear)
     clear.addEventListener('click', async () => {
-      if (!confirm('Clear the companies found so far? Ones you watch stay on your Companies list.')) return;
+      if (!(await askConfirm('Clear the companies found so far? Ones you watch stay on your Companies list.', 'Clear'))) return;
       await S.clearFinder();
       netRefresh();
     });
@@ -1697,7 +1713,8 @@ function bindJobsTab() {
     check.addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const r = await S.checkCareers();
-        if (r) toast(r.fresh ? `${r.fresh} new matching role${r.fresh === 1 ? '' : 's'}!` : `Checked ${r.checked} compan${r.checked === 1 ? 'y' : 'ies'}. Nothing new since last time.`, r.fresh ? 'good' : 'info');
+        if (r && r.fresh) toast(`${r.fresh} new matching role${r.fresh === 1 ? '' : 's'}! Click to see ${r.fresh === 1 ? 'it' : 'them'}.`, 'good', 8000, null, showNewJobs);
+        else if (r) toast(`Checked ${r.checked} compan${r.checked === 1 ? 'y' : 'ies'}. Nothing new since last time.`, 'info');
         netRefresh();
       }, 'Checking…')
     );
@@ -1768,9 +1785,10 @@ function bindCompaniesTab() {
   const addCo = async (name, extra = {}) => {
     if (!name) return toast('Add the company name first.');
     if (state.companies.some((c) => O.sameCompany(c.name, name))) return toast(`${name} is already on your list.`);
+    const from = document.activeElement; // the box you pressed Enter in, if you did
     await S.saveItem('companies', { name, status: 'interested', ...extra });
     toast(`Added ${name}. I'll look for its careers site now.`, 'good');
-    netRefresh();
+    netRefresh({ from });
   };
   const add = () => {
     const url = $('#coUrl').value.trim();
@@ -1784,7 +1802,7 @@ function bindCompaniesTab() {
   $$('.coDel').forEach((b) =>
     b.addEventListener('click', async () => {
       const co = state.companies.find((c) => c.id === b.dataset.id);
-      if (co && !confirm(`Stop watching ${co.name}?`)) return;
+      if (co && !(await askConfirm(`Stop watching ${co.name}?`, 'Stop watching'))) return;
       await S.removeItem('companies', b.dataset.id);
       netRefresh();
     })
@@ -1863,7 +1881,7 @@ function bindCompanyModals() {
 
 // "/" jumps to the job filter, like most job sites.
 document.addEventListener('keydown', (e) => {
-  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isEditing()) return;
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isTyping()) return;
   const q = document.getElementById('boardQ');
   if (!q) return;
   e.preventDefault();

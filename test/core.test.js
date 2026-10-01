@@ -221,6 +221,32 @@ test('watcher screen scan settles before calling Claude', async () => {
   assert.equal(postings[0].title, 'Engineer');
 });
 
+test('watcher treats a scrolled screen read of the same posting as seen', async () => {
+  let frame = Buffer.alloc(400, 0);
+  let read = { is_job_posting: true, title: '', company: '', location: '', posting_text: POSTING };
+  const w = new PostingWatcher({ readClipboard: () => '', captureScreen: async () => ({ bitmap: frame, png: Buffer.from('png') }), readScreen: async () => read });
+  const postings = [];
+  w.on('posting', (p) => postings.push(p));
+  const scan = async (next) => {
+    frame = Buffer.alloc(400, frame[0] + 1 + 40);
+    read = next;
+    await w._screenTick(); // changed
+    await w._screenTick(); // settled -> scan
+  };
+  await scan(read);
+  // Scrolled: the top lines are gone and new ones showed up, title not found this time.
+  const lines = POSTING.split('\n');
+  await scan({ ...read, posting_text: [...lines.slice(2), 'Apply now on our careers site today'].join('\n') });
+  // Same title and company, little shared text (OCR caught a different part).
+  await scan({ ...read, title: 'Engineer', company: 'Acme' });
+  await scan({ ...read, title: 'Engineer', company: 'Acme', posting_text: `${'Benefits include health dental vision and a generous home office stipend. '.repeat(4)}` });
+  // A different job is still new.
+  await scan({ is_job_posting: true, title: 'Nurse', company: 'Mercy Hospital', location: '', posting_text: `Registered Nurse at Mercy Hospital. ${'Provide bedside patient care on a busy surgical floor and chart in Epic. '.repeat(4)}` });
+  w.stopAll();
+  assert.deepEqual(postings.map((p) => p.title), ['', 'Nurse']);
+  assert.equal(postings[0].forced, false);
+});
+
 // A fake client that records requests and returns canned structured output.
 function fakeClient(output, extra = {}) {
   const requests = [];

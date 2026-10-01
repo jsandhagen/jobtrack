@@ -18,13 +18,15 @@ const $ = (sel, root = view) => root.querySelector(sel);
 const $$ = (sel, root = view) => Array.from(root.querySelectorAll(sel));
 
 // Sprout pops up with every toast; its mood follows the kind unless given.
-function toast(text, kind = 'info', ms = 3800, mood) {
-  const el = document.createElement('div');
-  el.className = `toast ${kind}`;
+// onClick: the toast is a shortcut too (e.g. "3 new roles!" opens them).
+function toast(text, kind = 'info', ms = 3800, mood, onClick) {
+  const el = document.createElement(onClick ? 'button' : 'div');
+  el.className = `toast ${kind}${onClick ? ' clickable' : ''}`;
   el.innerHTML = mascotSvg(mood || { good: 'happy', error: 'worried' }[kind] || 'curious', 34, { variant: 'random' });
   const span = document.createElement('span');
   span.textContent = text;
   el.appendChild(span);
+  if (onClick) el.addEventListener('click', () => (el.remove(), onClick()));
   document.getElementById('toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
 }
@@ -287,6 +289,38 @@ document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') closeModal();
 });
 
+// Yes/no questions in the page, never window.confirm(): in Electron a native
+// dialog can leave text boxes unable to take typing until the window is
+// refocused. Its own layer, so it can sit over an open modal. Resolves true/false.
+function askConfirm(message, okLabel = 'OK') {
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'modal confirm-modal';
+    back.innerHTML = `<div class="modal-card card" role="alertdialog" aria-modal="true"><p style="margin:0 0 16px;font-weight:600">${esc(message)}</p>
+      <div class="inline" style="justify-content:flex-end"><button class="ghost" data-ans="no">Cancel</button><button class="primary" data-ans="yes">${esc(okLabel)}</button></div></div>`;
+    const was = document.activeElement;
+    const done = (yes) => {
+      document.removeEventListener('keydown', onKey, true);
+      back.remove();
+      if (was && was.isConnected) was.focus();
+      resolve(yes);
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Escape' && e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      done(e.key === 'Enter');
+    };
+    back.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-ans]');
+      if (b || e.target === back) done(!!b && b.dataset.ans === 'yes');
+    });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(back);
+    back.querySelector('[data-ans="yes"]').focus();
+  });
+}
+
 // ---------------- your own resumes ----------------
 
 // A new resume: from your bank, or a copy of a saved resume or an application's.
@@ -371,7 +405,7 @@ async function renderResumePage(id) {
     }),
   );
   $('#rsDel', page).addEventListener('click', async () => {
-    if (!confirm(`Delete “${r.name}”? This can't be undone.`)) return;
+    if (!(await askConfirm(`Delete “${r.name}”? This can't be undone.`, 'Delete'))) return;
     await S.removeResume(id);
     location.hash = '#resumes';
   });
@@ -493,7 +527,7 @@ const views = {
     return `<div class="page">
       ${pageHead('Applications', applicationsMood(all), applicationsLine(all), `<button class="soft" id="csvBtn">${icon('download')} Export CSV</button><button class="primary" data-go="check">+ Check a job</button>`)}
       <div class="tabs">${FILTERS.map(([k, label, fn]) => `<button class="${appFilter === k ? 'on' : ''}" data-filter="${k}">${label} <span class="faint">${all.filter(fn).length}</span></button>`).join('')}</div>
-      <div class="inline" style="margin-bottom:12px"><input id="appSearch" placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
+      <div class="inline" style="margin-bottom:12px"><input id="appSearch" data-live placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
         <select id="appSort" style="width:190px"><option value="recent">Newest first</option><option value="fit" ${appSort === 'fit' ? 'selected' : ''}>Best fit first</option><option value="applied" ${appSort === 'applied' ? 'selected' : ''}>Recently applied</option></select></div>
       ${apps.length ? `<div class="list">${apps.map(appRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>${all.length ? 'No roles match this filter.' : 'Your checked roles will show up here.'}</p></div>`}
     </div>`;
@@ -927,7 +961,7 @@ async function renderApplication(id) {
   const link = $('#jobLink', page);
   if (link) link.addEventListener('click', (e) => (e.preventDefault(), S.openExternal(a.job.url)));
   $('#delApp', page).addEventListener('click', async () => {
-    if (!confirm(unsaved ? 'Forget this job?' : 'Delete this application?')) return;
+    if (!(await askConfirm(unsaved ? 'Forget this job?' : 'Delete this application?', unsaved ? 'Forget' : 'Delete'))) return;
     await S.removeApplication(id);
     location.hash = unsaved ? '#check' : '#applications';
   });
@@ -940,7 +974,7 @@ async function renderApplication(id) {
   const gl = $('#genLetter', page);
   if (gl) gl.addEventListener('click', genLetter);
   const rl = $('#regenLetter', page);
-  if (rl) rl.addEventListener('click', () => confirm('Rewrite the cover letter? Your edits will be replaced.') && genLetter());
+  if (rl) rl.addEventListener('click', async () => (await askConfirm('Rewrite the cover letter? Your edits will be replaced.', 'Rewrite')) && genLetter());
   $$('.exp', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
@@ -1222,9 +1256,9 @@ const binders = {
       sel.addEventListener('change', () => S.updateDocument(sel.dataset.id, { kind: sel.value }));
     });
     $$('.delDoc').forEach((b) =>
-      b.addEventListener('click', (e) => {
+      b.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Remove this document from your library?')) S.removeDocument(b.dataset.id);
+        if (await askConfirm('Remove this document from your library?', 'Remove')) S.removeDocument(b.dataset.id);
       })
     );
     $$('[data-doc]').forEach((row) =>
@@ -1344,8 +1378,12 @@ function renderBuddy() {
   if (key === buddyKey) return;
   buddyKey = key;
   buddyChatty = mood === 'happy' && !due;
-  document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(line)}</div>`;
+  // Strong fits: the bubble takes you to them.
+  const go = strong && mood === 'thrilled' ? ' role="button" tabindex="0" data-standouts title="See them in Find jobs"' : '';
+  document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble"${go}>${esc(line)}</div>`;
 }
+document.getElementById('buddy').addEventListener('click', (e) => e.target.closest('[data-standouts]') && showStandouts()); // network.js
+document.getElementById('buddy').addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-standouts]') && (e.preventDefault(), showStandouts()));
 
 // While all is calm, sidebar Sprout says something new every couple of
 // minutes (a tip, a kind word), with a fresh face. Never mid-pet.
@@ -1362,6 +1400,11 @@ setInterval(() => {
 let lastRouted = null;
 
 function route() {
+  refreshHeld = false;
+  // A search box redraws from its own value, so it keeps focus and caret through
+  // a redraw; so does a checkbox or menu you just used.
+  const act = document.activeElement;
+  const live = act && act.id && view.contains(act) && (act.dataset.live !== undefined || !isTextField(act)) ? { id: act.id, at: act.dataset.live !== undefined ? act.selectionStart : null, end: act.selectionEnd } : null;
   view.classList.toggle('settled', location.hash === lastRouted);
   lastRouted = location.hash;
   const [name, id] = (location.hash.slice(1) || 'home').split('/');
@@ -1391,23 +1434,66 @@ function route() {
   );
   if (v === 'application') renderApplication(id);
   if (v === 'resume') renderResumePage(id);
+  const again = live && document.getElementById(live.id);
+  if (again && again !== document.activeElement) {
+    again.focus();
+    if (live.at != null) again.setSelectionRange(live.at, live.end);
+  }
 }
 
+// A box you type into (not a checkbox, button or the like).
+const NOT_TEXT = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'file', 'color', 'image']);
+function isTextField(el) {
+  return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'IFRAME' || el.isContentEditable || (el.tagName === 'INPUT' && !NOT_TEXT.has(el.type)));
+}
+
+// Typing in the page, where a redraw would wipe what you typed. Search boxes
+// marked data-live redraw from their own value, so they don't count.
 function isEditing() {
   const el = document.activeElement;
-  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'IFRAME') && view.contains(el);
+  return isTextField(el) && el.dataset.live === undefined && view.contains(el);
+}
+
+// Typing anywhere (a search box or a modal too): keyboard shortcuts stay out of the way.
+function isTyping() {
+  return isTextField(document.activeElement);
+}
+
+// Redraw now, or, while you're typing, once you leave the box. Until then
+// the update waits instead of getting lost.
+let refreshHeld = false;
+function routeWhenFree() {
+  if (isEditing()) refreshHeld = true;
+  else route();
+}
+
+// Leaving the box: catch up on what changed meanwhile. Wait for a click in
+// progress to land first (a redraw under it would swallow it), and keep
+// anything typed into other boxes that isn't saved yet.
+let pointerDown = false;
+document.addEventListener('pointerdown', () => (pointerDown = true), true);
+document.addEventListener('pointerup', () => ((pointerDown = false), setTimeout(catchUp)), true);
+view.addEventListener('focusout', () => setTimeout(catchUp));
+function catchUp() {
+  if (!refreshHeld || pointerDown || isEditing() || currentAppId || currentResumeId) return;
+  const typed = $$('input[id], textarea[id]').filter((el) => isTextField(el) && el.value !== el.defaultValue).map((el) => [el.id, el.value]);
+  route();
+  for (const [id, value] of typed) {
+    const el = document.getElementById(id);
+    if (el && view.contains(el) && isTextField(el)) el.value = value;
+  }
 }
 
 window.addEventListener('hashchange', route);
 S.onStateChanged(async () => {
   await refreshState();
   // Don't wipe a form the user is typing in.
-  if (!isEditing() && !currentAppId && !currentResumeId) route();
+  if (!currentAppId && !currentResumeId) routeWhenFree();
 });
 S.onAppUpdated(async (app) => {
   await refreshState();
   if (currentAppId && app && app.id === currentAppId) renderApplication(currentAppId);
-  else if (!isEditing() && !currentAppId && !currentResumeId) route();
+  else if (!currentAppId && !currentResumeId) routeWhenFree();
 });
 S.onToast(({ text, kind }) => toast(text, kind));
 S.onNavigate(({ view: v, id, tab, standouts }) => {
