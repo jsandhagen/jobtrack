@@ -42,15 +42,20 @@ function screeningRequirements(job) {
     if (/\b(?:not|unable to|will not|won['’]t|cannot|can['’]t|does not|do not|no)\b[^.;]{0,140}\bsponsor/.test(t) || /\bsponsorship\b[^.;]{0,30}\b(?:is not|not)\s+(?:available|offered|provided)|without (?:the need for )?(?:current or future |now or in the future )?(?:visa |employer |employment )?sponsorship/.test(t))
       add({ id: 'no-sponsorship', label: 'no visa sponsorship', quote });
 
-    if (/\bclearance\b|\bts\s*\/\s*sci\b/.test(t) && !preferred) {
-      const level = clearanceLevel(t);
-      const obtain = /\b(?:ability|able|eligible|eligibility|willing(?:ness)?)\s+to\s+(?:obtain|get|receive|acquire)\b|\bobtainable\b|\bmust be able to obtain\b/.test(t);
+    if (/\bclearance\b|\bts\s*\/\s*sci\b|\bbackground investigation\b/.test(t) && !preferred) {
+      const level = clearanceLevel(t) || 1;
+      // No level named ("subject to a government investigation", "IRS MBI"): it's
+      // eligibility to be investigated, which comes with citizenship, not a clearance you hold.
+      const stated = /\b(?:secret|top secret|ts\s*\/\s*sci|sci|public trust)\b/.test(t);
+      const obtain = !stated || /\b(?:ability|able|eligible|eligibility|willing(?:ness)?)\s+to\s+(?:obtain|get|receive|acquire)\b|\bobtainable\b|\bmust be able to obtain\b|\bsubject to\b|\beligibility requirements\b/.test(t);
       // Getting a clearance requires U.S. citizenship; holding one requires having it.
       add({ id: 'clearance', label: `${obtain ? 'eligibility for' : 'an active'} ${CLEARANCE_NAMES[level]} clearance`, quote, level, obtain });
     }
 
     const travel = t.match(/(\d{1,3})\s*%\s*(?:of (?:the )?time\s*)?(?:domestic |international |overnight )?travel|travel(?:ing|s)?\b[^.;%]{0,40}?(\d{1,3})\s*%/);
-    if (travel && !preferred) {
+    // Travel is a fact about the job wherever the posting prints it (often under
+    // "Bonus points"): only the line itself saying "preferred" makes it optional.
+    if (travel && !/\b(?:preferred|a plus|nice to have|optional)\b/.test(t)) {
       const percent = Number(travel[1] || travel[2]);
       if (percent > 0 && percent <= 100) add({ id: 'travel', label: `travel up to ${percent}%`, quote, percent });
     }

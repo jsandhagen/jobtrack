@@ -18,13 +18,13 @@
 // Roles two or more levels below yours, in your own line of work, are capped
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
-const { SKILLS, RELATED, EMPLOYER_EVIDENCE, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, RELATED, EMPLOYER_EVIDENCE, SOFT_TERM_WORDS, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 19;
+const SCORER_VERSION = 20;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -302,7 +302,7 @@ function requirementLines(text) {
 // "3+ years in technology consulting or IT strategy roles": the kind of
 // experience asked for, not just how long. Each alternative is met when one
 // role in the documents shows its words (later ones count more).
-const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?(?:years?|months?)['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:working\s+)?(?:in|as|within|across|on)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
+const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?(?:years?|months?)['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:working\s+)?(?:in|as|within|across|on|at)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
 const KIND_CUT = /\s+(?:for|with|at|in an?|in the|where|that|who|which|on|using|ideally|preferably|including|within|across)\b.*$|,\s*(?:ideally|preferably|including|especially|with|in)\b.*$/;
 const KIND_FILLER = new Set('projects initiatives programs efforts firm firms company companies organization organizations focused based enterprise a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
 // "7+ years of hands-on Oracle ERP configuration": no "experience", but the same ask.
@@ -310,7 +310,12 @@ const YEARS_OF_PLAIN = /^(?:[-•*▪●◦]\s*)?\d{1,2}\s*\+?\s*(?:(?:-|–|to)
 function experienceKind(line) {
   const m = line.match(YEARS_OF) || line.match(YEARS_OF_PLAIN);
   if (!m) return null;
-  let phrase = (m[1] || m[2] || m[3] || '').replace(KIND_CUT, '').trim();
+  // "…at a consulting firm or in a strategy role": "or in a" starts another kind, not a qualifier.
+  let phrase = (m[1] || m[2] || m[3] || '').replace(/\s+or\s+(?:in|as|at)\s+(?:an?\s+|the\s+)?/g, ' or ').replace(KIND_CUT, '').trim();
+  // "…in at least one offering: Cloud Transformation, Operating Model…": the list is the kinds.
+  if (/^(?:at least |any )?(?:one|1)\b/.test(phrase) && /:\s*\S/.test(line.slice(m.index))) phrase = line.slice(line.indexOf(':', m.index) + 1).replace(KIND_CUT, '').trim();
+  // "at a top management consulting firm": the firm's kind is the experience.
+  phrase = phrase.replace(/^(?:a|an|the)\s+(?:top|leading|top-tier|tier[- ]1|large|global|major)?\s*/, '');
   if (!phrase) return null;
   const alts = phrase
     .split(/,|\bor\b|\band\/or\b|\/|\bsuch as\b|\be\.g\.?|\bi\.e\.?/)
@@ -446,6 +451,11 @@ function requirementUnits(job) {
         const pos = { index, end: index + term.length };
         // Part of a skill already found: "language models" in "large language models".
         if (index >= 0 && found.some((f) => f.skill && index >= f.index && pos.end <= f.end)) continue;
+        // A piece of a clause, not a thing: "role that involves".
+        if (/\b(?:that|which|who|whose|involves?|involving|including|requires?)\b/i.test(term)) continue;
+        // Soft-skill wording ("operational excellence", "influencing senior leaders")
+        // can't be judged from a resume, like the soft skills in the dictionary.
+        if (lower(term).split(/[\s-]+/).every((w) => SOFT_TERM_WORDS.has(w))) continue;
         if (GENERIC_PROGRAMMING.test(term)) {
           found.push({ key: 'programming', label: 'Programming', match: (t) => (showsProgramming(t) ? 1 : 0), ...pos });
           continue;
@@ -494,7 +504,15 @@ function requirementUnits(job) {
     // The kind of experience the title is named for ("4+ years of accounting" for a Senior Accountant).
     const titleStems = new Set(lower(job.title).split(/[^a-z0-9+#]+/).filter((w) => w.length > 3 && !STOPWORDS.has(w) && titleLevel(w) === null).map(kindStem));
     const functionKind = !!xk && xk.alts.some((ws) => ws.some((w) => titleStems.has(kindStem(w))));
-    if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindMatch(xk.alts), { gate: true, weight: kindIsSkills ? 0.5 : 1, functionKind });
+    // A kind that is a skill ("3+ years in stakeholder management") is shown the way the skill is.
+    // Only when the skill is the whole kind, not a word in a narrower one ("Oracle ERP Financials configuration").
+    const wholeKind = xk && xk.alts.every((ws) => sameAsKind.some((f) => SKILLS[f.skill].some((p) => {
+      const m = ws.join(' ').match(p);
+      return m && m[0].trim().length >= ws.join(' ').length * 0.8;
+    })));
+    const kindSkills = kindIsSkills && wholeKind ? sameAsKind.map((f) => SKILLS[f.skill]) : [];
+    const kindMatcher = kindMatch(xk ? xk.alts : []);
+    if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindSkills.length ? (t) => Math.max(kindMatcher(t), kindSkills.some((ps) => ps.some((p) => p.test(t))) ? 1 : 0) : kindMatcher, { gate: true, weight: kindIsSkills ? 0.5 : 1, functionKind, ...(kindSkills.length ? { skills: sameAsKind.map((f) => f.skill), related: relatedOf(sameAsKind.map((f) => f.skill)) } : {}) });
     // "Dashboards in Tableau" is one requirement (Tableau), not two.
     for (const [parent, children] of Object.entries(PARENT_OF)) {
       if (found.some((f) => children.includes(f.skill))) found.splice(0, found.length, ...found.filter((f) => f.skill !== parent));
@@ -921,7 +939,7 @@ function fitHeadline(f) {
   const cap = (x) => (step ? x.replace(/^./, (c) => c.toLowerCase()) : x);
   if (f.thin) return "There isn't enough in this posting to judge the fit; paste the full description for a real read.";
   if (!f.req.length) return f.score >= 65 ? 'Your background lines up with this role.' : f.score >= 45 ? 'Some of your background carries over to this role.' : 'Little of this role shows in your documents.';
-  if (!gaps.length && !partial.length) return `${step}${cap(`You meet all ${f.req.length} must-haves${done}.`)}${f.dutyGap ? ' The day-to-day work would be new, though.' : ''}`;
+  if (!gaps.length && !partial.length) return `${step}${cap(`You meet ${f.req.length === 1 ? 'the must-have' : f.req.length === 2 ? 'both must-haves' : `all ${f.req.length} must-haves`}${done}.`)}${f.dutyGap ? ' The day-to-day work would be new, though.' : ''}`;
   if (!gaps.length) return `${step}${cap(`You meet the must-haves${done}; ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown.`)}`;
   if (met / f.req.length < 0.3) return `This role needs ${listOf(gaps.slice(0, 3))}, which your documents don't show.`;
   const also = gaps.length === 1 && partial.length ? `, and ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown` : '';

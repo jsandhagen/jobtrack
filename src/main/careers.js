@@ -1141,6 +1141,13 @@ function phraseIn(t, phrase) {
 // "Sr. Ops Manager". Keywords match on their own ("chief of staff",
 // "strategy"). Internships only match when you asked for one.
 function titleMatches(title, roles = [], keywords = []) {
+  // "Manager, Process Management (Tech Strategy & Operations)": the team in
+  // brackets with the role noun is a title too ("Tech Strategy & Operations Manager").
+  const team = String(title || '').match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (team && /\b(?:manager|director|lead|analyst|consultant|strategist|associate|specialist|principal)\b/i.test(team[1])) {
+    const noun = team[1].match(/\b(?:senior manager|manager|director|lead|analyst|consultant|strategist|associate|specialist|principal)\b/i)[0];
+    if (titleMatches(`${team[2]} ${noun}`, roles, keywords)) return true;
+  }
   const t = words(title);
   if (!t.length) return false;
   const junior = JUNIOR_TRACK.test(String(title));
