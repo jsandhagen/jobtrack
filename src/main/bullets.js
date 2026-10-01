@@ -730,7 +730,8 @@ function atsSummary(job, bank) {
   // And the posting's phrases your bullets already say ("executive presentations").
   for (const ph of postingPhrases(text, job.company).slice(0, 15)) if (bankText.includes(ph)) add(wording(ph), 15);
   // "AI" adds nothing next to "AI initiatives".
-  const sing = (x) => ` ${lower(x).replace(/(\w)s\b/g, '$1')} `;
+  // "financial models" and "financial modeling" say the same thing.
+  const sing = (x) => ` ${lower(x).replace(/(\w)(?:ing|s)\b/g, '$1')} `;
   const ranked = items.sort((a, b) => b.rank - a.rank).filter((x, i, all) => !all.some((y) => y !== x && sing(y.name).includes(sing(x.name)) && (sing(y.name) !== sing(x.name) || all.indexOf(y) < i)));
   const top = ranked.slice(0, 5).map((x) => x.name);
   const list = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
