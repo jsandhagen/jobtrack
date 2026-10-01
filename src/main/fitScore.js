@@ -48,7 +48,7 @@ const SKILLS = {
   Linux: [/\blinux\b/, /\bunix\b/],
   Git: [/\bgit\b/, /\bgithub\b/, /\bgitlab\b/],
   // data & ML
-  'Machine Learning': [/\bmachine[-\s]learning\b/, /(?<!\d\s?)\bml\b(?!\s*(?:doses?|vials?|of|per)\b)/, /\bscikit[-\s]learn\b/, /\bxgboost\b/],
+  'Machine Learning': [/\bmachine[-\s]learning\b/, /(?<!\d\s?)\bml\b(?!\s*(?:doses?|vials?|of|per)\b)/, /\bscikit[-\s]learn\b/, /\bxgboost\b/, /\blightgbm\b/, /\bgradient[- ]boost(?:ing|ed)\b/, /\brandom forests?\b/],
   'Deep Learning': [/\bdeep learning\b/, /\bneural networks?\b/, /\bpytorch\b/, /\btensorflow\b/],
   'LLMs / GenAI': [/\bllms?\b/, /\blarge language models?\b/, /\bgenerative ai\b/, /\bgenai\b/, /\bprompt engineering\b/],
   // Having been a "Data Analyst" is evidence of data analysis.
@@ -69,6 +69,52 @@ const SKILLS = {
   // Not the verb: "ideas that spark innovation".
   Spark: [/\b(?:apache |py)spark\b/, /\bspark(?=\s*(?:[,/;).]|$)|\s+(?:sql|streaming|jobs?|clusters?|ecosystem|pipelines?|mllib)\b|\s+(?:and|or)\s+(?:hadoop|kafka|hive|scala|databricks|python|sql|flink)\b)/, /\bdatabricks\b/],
   Snowflake: [/\bsnowflake\b/],
+  'NumPy / pandas': [/\bnumpy\b/, /\bpandas\b/, /\bscipy\b/],
+  // quantitative finance and risk
+  // Not "probability of default" (a credit model) or "high probability".
+  Probability: [/\bprobability\b(?!\s+of\s+default)/, /\bstochastic processes\b/],
+  'Stochastic Calculus': [/\bstochastic calculus\b/, /\bstochastic differential equations?\b/, /\bito(?:'s)? (?:calculus|lemma)\b/, /\bmartingales?\b/],
+  'Derivatives Pricing': [/\b(?:derivatives?|options?) pricing\b/, /\bpricing (?:models?|librar(?:y|ies)|theory)\b/, /\bpric(?:e|ed|ing|er) (?:\w+ ){0,3}(?:options|swaptions|derivatives|exotics)\b/, /\bblack[- ]scholes\b/, /\bheston\b/, /\bsabr\b/, /\bhull[- ]white\b/, /\blocal vol(?:atility)?\b/, /\bvolatility surfaces?\b/],
+  Derivatives: [/\bderivatives\b/, /\bswaptions?\b/, /\b(?:interest rate|equity|fx|credit|commodity|variance) swaps?\b/, /\b(?:equity|index|vanilla|exotic|listed) options\b/, /\boptions and futures\b/, /\bfutures and options\b/, /\bexotics\b/],
+  'Monte Carlo': [/\bmonte carlo\b/],
+  'Numerical Methods': [/\bnumerical (?:methods|analysis|pdes?|solvers?)\b/, /\bfinite[- ]difference\b/, /\bpdes?\b/, /\blattice methods\b/, /\bbinomial trees?\b/],
+  'Fixed Income': [/\bfixed income\b/, /\binterest rate (?:models?|risk|derivatives)\b/, /\byield curves?\b/, /\bcurve construction\b/],
+  'Risk Sensitivities': [/\bgreeks\b/, /\brisk sensitivit(?:y|ies)\b/, /\bdelta[- ]hedg/, /\bp&l (?:attribution|explain)\b/],
+  'Market Risk': [/\bmarket risk\b/, /\bvalue[- ]at[- ]risk\b/, /\b(?:stressed )?var (?:models?|calculations?|back-?testing|limits)\b/, /\bexpected shortfall\b/],
+  'Regulatory Capital': [/\bfrtb\b/, /\bbasel\b/, /\bregulatory capital\b/, /\brisk[- ]weighted assets\b/],
+  'Credit Risk': [/\bcredit risk\b/, /\bcredit (?:policy|underwriting|portfolios?)\b/],
+  'Credit Risk Modeling': [/\bcredit risk (?:model(?:s|ing)?|scorecards?)\b/, /\bprobability of default\b/, /\bpd\s*(?:\/|,)\s*lgd\b/, /\blgd\b/, /\b(?:application|behavioral|behavioural|credit) scorecards?\b/, /\bscorecards? for\b/, /\bloss forecasting\b/],
+  'Stress Testing': [/\bstress test(?:s|ing)?\b/, /\bccar\b/, /\bdfast\b/],
+  CECL: [/\bcecl\b/, /\bifrs\s?9\b/, /\ballowance for (?:loan|credit) losses\b/],
+  'Model Validation': [/\bmodel validation\b/, /\bvalidat(?:e|ed|es|ing|ion of|ions of) (?:\w+ ){0,5}models?\b/, /\bindependent validations?\b/, /\bmodel risk\b/, /\bsr 11-7\b/, /\beffective challenge\b/],
+  Backtesting: [/\bback-?test(?:s|ing|ed)?\b/, /\bout-of-sample\b/, /\bwalk-forward\b/],
+  'Alpha Research': [/\balpha (?:signals?|research|generation|models?)\b/, /\b(?:predictive|trading) signals\b/, /\bsystematic (?:trading|strateg(?:y|ies)|investing)\b/, /\bstatistical arbitrage\b/, /\bstat arb\b/],
+  'Factor Models': [/\bfactor (?:models?|investing|exposures?)\b/, /\bmulti-factor\b/, /\bperformance attribution\b/, /\bstatistical risk models?\b/],
+  'Portfolio Optimization': [/\bportfolio (?:optimi[sz]ation|construction|theory)\b/, /\basset allocation\b/, /\bmean[- ]variance\b/],
+  'Quantitative Finance': [/\bquantitative finance\b/, /\bfinancial engineering\b/, /\bcomputational finance\b/, /\bmathematical finance\b/],
+  'Financial Markets': [/\bfinancial markets\b/, /\bmarket microstructure\b/, /\btrading desks?\b/, /\b(?:equity|global equity|futures|options|fx|rates) markets\b/],
+  Trading: [/\b(?:live|algorithmic|systematic|electronic|high[- ]frequency|proprietary|options|futures) trading\b/, /\bmarket[- ]making\b/, /\btrading (?:strateg(?:y|ies)|systems?|experience|infrastructure)\b/],
+  'Low Latency': [/\blow[- ]latency\b/, /\btick-to-trade\b/, /\blatency (?:and throughput|-sensitive|critical)\b/],
+  Multithreading: [/\bmulti-?thread(?:ed|ing)?\b/, /\bconcurrency\b/, /\block-free\b/],
+  'Memory Management': [/\bmemory (?:management|allocation|allocators?|layout|pools?)\b/, /\bcache[- ](?:efficient|friendly|aware|locality)\b/, /\bsmart pointers\b/, /\braii\b/],
+  'Data Structures & Algorithms': [/\bdata structures\b/, /\balgorithms\b/],
+  'Performance Optimization': [/\bperformance (?:profiling|tuning|optimi[sz]ation|engineering)\b/, /\bprofil(?:e|ed|ing) and optimi[sz]/, /\boptimi[sz](?:e|ed|ing) (?:\w+ ){0,2}code\b/],
+  'Bayesian Methods': [/\bbayesian\b/],
+  Optimization: [/\b(?:convex|linear|stochastic|mathematical|numerical|integer) (?:optimi[sz]ation|programming)\b/, /\boperations research\b/],
+  CFA: [/\bcfa\b/],
+  FRM: [/\bfrm\b/],
+  'Actuarial Exams': [/\b(?:soa|cas) (?:actuarial )?exams?\b/, /\bactuarial exams?\b/, /\b(?:fsa|asa|fcas|acas)\b/],
+  Actuarial: [/\bactuar(?:ial|y|ies)\b/, /\brate (?:indications|filings?)\b/, /\bloss reserv/],
+  // Cost and budget models: business-case work, near financial modeling but not valuation.
+  'Cost Modeling': [/\b(?:cost|budget|spend|tco) models?\b/, /\bcost modell?ing\b/],
+  'Financial Modeling': [/\bfinancial model(?:s|ing|ling)?\b/, /\b(?:valuation|revenue) models?\b/, /\bthree-statement\b/, /\bdcf\b/, /\blbo\b/, /\bdiscounted cash flow\b/],
+  'FP&A': [/\bfp&a\b/, /\bfinancial planning (?:and|&) analysis\b/, /\bvariance analysis\b/, /\bbudget(?:ing)? and forecast/, /\bannual budget\b/],
+  'M&A': [/\bm&a\b/, /\bmergers and acquisitions\b/, /\bdue diligence\b/, /\bpitch ?books?\b/, /\btransaction advisory\b/, /\bdeal execution\b/],
+  'Counterparty Risk / xVA': [/\bxva\b/, /\bcva\b/, /\bcounterparty (?:credit )?risk\b/],
+  'Operational Risk': [/\boperational risk\b/, /\brcsa\b/, /\brisk and control self-assessments?\b/, /\bkey risk indicators\b/],
+  'Audit & Controls': [/\binternal audit\b/, /\bcontrol testing\b/, /\btest(?:ing)? (?:of )?controls\b/, /\bsox\b/, /\bcoso\b/, /\bit audit\b/],
+  'Securities Licenses': [/\bseries (?:7|63|65|66|24)\b/, /\bfinra\b/],
+  'Survey Research': [/\bsurvey (?:design|research|methodolog\w*)\b/, /\blarge-scale surveys\b/],
   // product, design, business
   // A product roadmap, not a technology roadmap (that's Roadmapping).
   'Product Management': [/\bproduct management\b/, /\bproduct manager\b/, /\bproduct roadmaps?\b/, /\bprds?\b/, /\bproduct requirements\b/],
@@ -118,7 +164,7 @@ const SKILLS = {
   'IT Financial Management': [/\bit (?:spend|costs?|budgets?|financial|finance)\b/, /\b(?:spend|cost) benchmarks?\b/, /\bbenefits (?:realization|tracking)\b/, /\btechnology business management\b/, /\btbm\b/, /\bit cost optimi[sz]ation\b/, /\btechnology spend\b/, /\bfinops\b/, /\bcloud costs?\b/],
   FedRAMP: [/\bfedramp\b/],
   'Federal IT Policy': [/\bfitara\b/, /\bfederal cloud (?:computing )?strategy\b/, /\bcloud smart\b/, /\bomb (?:circulars?|guidance|a-\d+)\b/],
-  'Business Development': [/\bbusiness development\b/, /\bproposals?\b/, /\bstatements? of work\b/, /\bpursuits?\b/],
+  'Business Development': [/\bbusiness development\b/, /\bproposals?\b/, /\bstatements? of work\b/, /\bpursuits?\b/, /\b(?:sell|selling|sold)(?: and (?:lead|led|deliver(?:ed)?))? (?:\w+ ){0,3}(?:work|engagements?|projects|services|deals)\b/, /\b(?:own|owning|owned|grow|growing|grew) (?:the )?client (?:relationships?|accounts?)\b/, /\bgrew a client account\b/],
   'Data Strategy': [/\bdata strateg(?:y|ies)\b/, /\bdata governance\b/, /\bdata platform maturity\b/],
   'Data Quality': [/\bdata quality\b/, /\bdata validation\b/, /\bdata lineage\b/],
   // General business strategy (growth, corporate, strategic planning); technology strategy is its own skill.
@@ -136,7 +182,7 @@ const SKILLS = {
   'Human Resources': [/\bhuman resources\b/, /\brecruiting\b/, /\btalent acquisition\b/, /\b(?:employee|new[- ]hire) onboarding\b/],
   Healthcare: [/\bpatient care\b/, /\bclinical\b/, /\behr\b/, /\bhipaa\b/],
   Education: [/\bcurriculum\b/, /\blesson plans?\b/, /\bteaching\b/, /\binstruction(?:al)? design\b/],
-  'Legal / Compliance': [/\blegal research\b/, /\bcompliance\b/, /\bcontracts? (?:law|review|negotiation|drafting|management)\b/, /\bregulatory\b/],
+  'Legal / Compliance': [/\blegal research\b/, /\bcompliance\b/, /\bcontracts? (?:law|review|negotiation|drafting|management)\b/, /\bregulatory (?:compliance|affairs|filings?|submissions?|reporting|requirements|exams?|examinations)\b/],
   // A clearance is a credential (and a knockout), not a security skill.
   'Security Clearance': [/\bsecurity clearance\b/, /\bts\s*\/\s*sci\b/, /\b(?:top secret|secret|public trust) clearance\b/, /\bactive clearance\b/],
   Security: [/(?<!social )\bsecurity\b(?!\s+clearance)/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
@@ -158,7 +204,7 @@ const RELATED_PAIRS = [
   ['React', 'Vue', 0.5], ['React', 'Angular', 0.5], ['Vue', 'Angular', 0.5],
   ['JavaScript', 'TypeScript', 0.7],
   ['AWS', 'Azure', 0.5], ['AWS', 'GCP', 0.5], ['Azure', 'GCP', 0.5],
-  ['Java', 'C#', 0.5], ['Java', 'Kotlin', 0.6], ['Java', 'Scala', 0.5], ['C#', 'C++', 0.4],
+  ['Java', 'C#', 0.5], ['Java', 'Kotlin', 0.6], ['Java', 'C++', 0.4], ['Java', 'Scala', 0.5], ['C#', 'C++', 0.4],
   ['Python', 'R', 0.4], ['R', 'SAS', 0.5], ['R', 'Stata / SPSS', 0.5], ['SAS', 'Stata / SPSS', 0.5], ['Python', 'MATLAB', 0.4], ['R', 'MATLAB', 0.4],
   ['Machine Learning', 'Deep Learning', 0.8], ['Machine Learning', 'Statistics', 0.4], ['Deep Learning', 'LLMs / GenAI', 0.5],
   ['Econometrics', 'Regression', 0.8], ['Econometrics', 'Statistics', 0.6], ['Regression', 'Statistics', 0.6], ['Regression', 'Machine Learning', 0.5],
@@ -186,6 +232,18 @@ const RELATED_PAIRS = [
   ['FedRAMP', 'Cloud Strategy', 0.4], ['Federal IT Policy', 'IT Governance', 0.5], ['Federal IT Policy', 'Public Sector', 0.4],
   ['Machine Learning', 'AI Strategy', 0.5], ['Data Analysis', 'Data Strategy', 0.3], ['Vendor Selection', 'Consulting', 0.2],
   ['Microservices', 'Kafka', 0.4], ['Cloud Certification', 'AWS', 0.4], ['Cloud Certification', 'Azure', 0.4], ['Agile', 'Change Management', 0.2],
+  // quantitative finance and risk
+  ['NumPy / pandas', 'Python', 0.6], ['Probability', 'Statistics', 0.6], ['Stochastic Calculus', 'Probability', 0.4], ['Stochastic Calculus', 'Derivatives Pricing', 0.5],
+  ['Derivatives Pricing', 'Derivatives', 0.7], ['Derivatives Pricing', 'Numerical Methods', 0.4], ['Derivatives Pricing', 'Monte Carlo', 0.3], ['Monte Carlo', 'Numerical Methods', 0.6], ['Monte Carlo', 'Statistics', 0.3],
+  ['Fixed Income', 'Derivatives', 0.4], ['Risk Sensitivities', 'Derivatives Pricing', 0.6], ['Risk Sensitivities', 'Market Risk', 0.5], ['Market Risk', 'Regulatory Capital', 0.5], ['Market Risk', 'Model Validation', 0.3],
+  ['Credit Risk Modeling', 'Credit Risk', 0.8], ['Credit Risk Modeling', 'Model Validation', 0.6], ['Credit Risk Modeling', 'CECL', 0.5], ['Credit Risk Modeling', 'Stress Testing', 0.5], ['CECL', 'Stress Testing', 0.5],
+  ['Stress Testing', 'Regulatory Capital', 0.4], ['Model Validation', 'Regression', 0.3], ['Backtesting', 'Alpha Research', 0.4], ['Backtesting', 'Model Validation', 0.4],
+  ['Alpha Research', 'Factor Models', 0.6], ['Factor Models', 'Portfolio Optimization', 0.6], ['Portfolio Optimization', 'Optimization', 0.5], ['Alpha Research', 'Trading', 0.5], ['Trading', 'Financial Markets', 0.6],
+  ['Quantitative Finance', 'Derivatives Pricing', 0.6], ['Quantitative Finance', 'Financial Markets', 0.5], ['Quantitative Finance', 'Alpha Research', 0.4],
+  ['Low Latency', 'Multithreading', 0.5], ['Memory Management', 'Low Latency', 0.5], ['Memory Management', 'Performance Optimization', 0.5], ['Memory Management', 'C++', 0.3], ['Low Latency', 'Performance Optimization', 0.6], ['Multithreading', 'Performance Optimization', 0.4], ['Data Structures & Algorithms', 'Performance Optimization', 0.3],
+  ['Bayesian Methods', 'Statistics', 0.5], ['Financial Modeling', 'Finance', 0.6], ['Financial Modeling', 'FP&A', 0.5], ['FP&A', 'Forecasting', 0.5], ['FP&A', 'Finance', 0.6], ['M&A', 'Financial Modeling', 0.5], ['Cost Modeling', 'Financial Modeling', 0.6], ['Cost Modeling', 'Business Cases', 0.6], ['Cost Modeling', 'IT Financial Management', 0.5],
+  ['Actuarial', 'Regression', 0.3], ['Actuarial Exams', 'Actuarial', 0.5], ['CFA', 'FRM', 0.5], ['Counterparty Risk / xVA', 'Derivatives Pricing', 0.5], ['Counterparty Risk / xVA', 'Credit Risk', 0.4],
+  ['Operational Risk', 'Audit & Controls', 0.6], ['Audit & Controls', 'Legal / Compliance', 0.4], ['Survey Research', 'Statistics', 0.3], ['Survey Research', 'UX Design', 0.4],
 ];
 const RELATED = new Map();
 for (const [a, b, c] of RELATED_PAIRS) {
@@ -451,6 +509,8 @@ const DATE = `(?:(${MONTH})\\s+|(\\d{1,2})\\s*/\\s*)?((?:19|20)\\d{2})`;
 const RANGE_RE = new RegExp(`${DATE}\\s*(?:-|–|—|to|until)\\s*(?:${DATE}|(present|current|now|today)|(\\d{2})\\b)`, 'gi');
 const SKIP_SECTION = /^\s*#*\s*(?:education|academic|certifications?|licen[sc]es|volunteer|extracurricular|activities|awards|honou?rs|publications)\b[^.]{0,40}$/i;
 const WORK_SECTION = /^\s*#*\s*(?:(?:professional|relevant|work|career|employment)\s+)*(?:experience|employment|work history|career history)\b[^.]{0,40}$/i;
+// Internships, co-ops and research or teaching assistant jobs alongside school.
+const INTERN_LINE = /\b(?:intern|internship|co-?op|summer (?:analyst|associate)|(?:graduate |undergraduate )?(?:research|teaching) assistant)\b/i;
 const SCHOOL_LINE = /\b(?:university|college|school|institute|gpa|b\.?s\.?c?|b\.?a\.?|m\.?s\.?|mba|ph\.?d|bachelor|master|degree)\b/i;
 
 // Years of work the documents show: the union of their date ranges ("Jan 2020
@@ -459,23 +519,27 @@ const SCHOOL_LINE = /\b(?:university|college|school|institute|gpa|b\.?s\.?c?|b\.
 function yearsOfExperience(corpus, now = new Date()) {
   const nowM = now.getFullYear() * 12 + now.getMonth();
   const spans = [];
+  let internMonths = 0;
   let skipping = false;
   for (const line of String(corpus || '').split('\n')) {
     if (SKIP_SECTION.test(line)) skipping = true;
     else if (WORK_SECTION.test(line)) skipping = false;
     if (skipping) continue;
+    // Recruiters count internships and co-ops for little: half here.
+    const intern = INTERN_LINE.test(line);
     for (const m of line.matchAll(RANGE_RE)) {
-      if (SCHOOL_LINE.test(line)) continue;
+      if (SCHOOL_LINE.test(line) && !intern) continue;
       // Groups: 1-3 start (month name, month number, year); 4-6 end; 7 "present"; 8 two-digit end year.
       const month = (name, num) => (name ? MONTHS[name.slice(0, 3).toLowerCase()] : num ? Math.min(11, Math.max(0, parseInt(num, 10) - 1)) : 0);
       const sy = parseInt(m[3], 10);
       const start = sy * 12 + month(m[1], m[2]);
       const end = m[6] ? parseInt(m[6], 10) * 12 + month(m[4], m[5]) : m[7] ? nowM : (Math.floor(sy / 100) * 100 + parseInt(m[8], 10)) * 12;
       if (sy < 1960 || end < start) continue;
-      spans.push([start, Math.min(end, nowM)]);
+      if (intern) internMonths += Math.min(end, nowM) - start;
+      else spans.push([start, Math.min(end, nowM)]);
     }
   }
-  if (!spans.length) return null;
+  if (!spans.length) return internMonths ? Math.round((internMonths / 24) * 10) / 10 : null;
   spans.sort((a, b) => a[0] - b[0]);
   let months = 0;
   let [cs, ce] = spans[0];
@@ -486,7 +550,7 @@ function yearsOfExperience(corpus, now = new Date()) {
       [cs, ce] = [s, e];
     }
   }
-  months += ce - cs;
+  months += ce - cs + internMonths / 2;
   return Math.round((months / 12) * 10) / 10;
 }
 
