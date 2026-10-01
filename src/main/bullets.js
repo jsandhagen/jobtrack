@@ -533,7 +533,7 @@ function coreCovered(units, roles, bank) {
  * allows a second page whenever relevant bullets didn't fit on the first.
  * @returns {{roles: {experienceId:string, bullets:{bulletId:string, text:string}[]}[], coverage: object[], pages: number, fill: number, why: string}}
  */
-function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = {}, header } = {}) {
+function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = {}, header, scale = 1 } = {}) {
   const ResumeDoc = require('../shared/resumeDoc');
   const { ranked, units } = rankBullets(job, bank);
   const exps = orderedExperiences(bank);
@@ -547,8 +547,8 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
       // Within a role, strongest first.
       bullets: [...picked.get(e.id)].sort((a, b) => b.score - a.score).map((r) => ({ bulletId: r.id, text: r.text })),
     }));
-  const height = (picked, shown) => ResumeDoc.measure({ ...shell, roles: docRoles(asRoles(picked, shown), expById) }).height;
-  const { pageHeight, lineHeight } = ResumeDoc.measure(shell);
+  const height = (picked, shown) => ResumeDoc.measure({ ...shell, roles: docRoles(asRoles(picked, shown), expById) }, { scale }).height;
+  const { pageHeight, lineHeight } = ResumeDoc.measure(shell, { scale });
 
   function fill(n) {
     const room = n * pageHeight - lineHeight; // a line spare for page-break slack
@@ -632,7 +632,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
       if (fits(r)) take(r);
     }
     const roles = asRoles(picked, shown);
-    const m = ResumeDoc.measure({ ...shell, roles: docRoles(roles, expById) });
+    const m = ResumeDoc.measure({ ...shell, roles: docRoles(roles, expById) }, { scale });
     return { roles, pages: m.pages, fill: m.lastPageFill, short: dropped.length > 0, dropped: dropped.length, left, leftLines: left.reduce((s, r) => s + lines.get(r.id), 0) };
   }
 
@@ -643,11 +643,11 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     two = fill(2);
     // Building long and trimming back can fit a requirement the greedy fill ran out of room for.
     const doc = { ...shell, roles: docRoles(two.roles, expById) };
-    const trimmed = fitDocToPages(doc, job, bank, 1, { skills: false });
+    const trimmed = fitDocToPages(doc, job, bank, 1, { skills: false, scale });
     if (trimmed.pages === 1) {
       const roles = trimmed.doc.roles.map((r) => ({ experienceId: r.experienceId, bullets: r.bullets.map((b) => ({ bulletId: b.bulletId, text: b.text })) }));
       const n = (rs) => coreCovered(units, rs, bank).size;
-      if (n(roles) > n(one.roles)) one = { ...one, roles, short: two.short, dropped: two.dropped, ...(({ pages, lastPageFill }) => ({ pages, fill: lastPageFill }))(ResumeDoc.measure({ ...shell, roles: docRoles(roles, expById) })) };
+      if (n(roles) > n(one.roles)) one = { ...one, roles, short: two.short, dropped: two.dropped, ...(({ pages, lastPageFill }) => ({ pages, fill: lastPageFill }))(ResumeDoc.measure({ ...shell, roles: docRoles(roles, expById) }, { scale })) };
     }
   }
   let pick = one;
@@ -948,7 +948,7 @@ function baselineDoc({ profile, bank, job }) {
  * (unless whole roles must go, oldest first). Your wording is left alone.
  * @returns {{doc: object, removed: {role: string, text: string}[], skills: string[], roles: string[], pages: number}}
  */
-function fitDocToPages(doc, job, bank, pages = 1, { skills = true } = {}) {
+function fitDocToPages(doc, job, bank, pages = 1, { skills = true, scale = 1 } = {}) {
   const ResumeDoc = require('../shared/resumeDoc');
   const d = ResumeDoc.normalize(doc);
   d.roles.forEach((r) => (r.bullets = r.bullets.filter((b) => b.text)));
@@ -958,7 +958,7 @@ function fitDocToPages(doc, job, bank, pages = 1, { skills = true } = {}) {
   const scoreById = new Map(ranked.map((r) => [r.id, r.score]));
   const removed = [];
   const skillsOut = [];
-  const over = () => ResumeDoc.measure(d).pages > pages;
+  const over = () => !ResumeDoc.fits(d, pages, { scale });
 
   const jobLower = lower((job && job.text) || '');
   const asked = new Set(pickSkills(job || { text: '' }, bank || emptyBank()).relevant.map(norm));
@@ -997,7 +997,7 @@ function fitDocToPages(doc, job, bank, pages = 1, { skills = true } = {}) {
     const [r] = d.roles.splice(i >= 0 ? i : d.roles.length - 1, 1);
     rolesOut.push(r.title || r.organization);
   }
-  return { doc: d, removed, skills: skillsOut, roles: rolesOut, pages: ResumeDoc.measure(d).pages };
+  return { doc: d, removed, skills: skillsOut, roles: rolesOut, pages: ResumeDoc.measure(d, { scale }).pages };
 }
 
 // Link a doc written elsewhere (e.g. by Claude) back to bank roles and bullets.

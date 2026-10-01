@@ -8,6 +8,7 @@ let bankSearch = '';
 
 views.bank = () => `<div class="page" id="bankPage"><div class="empty"><span class="spinner"></span></div></div>`;
 binders.bank = () => renderBankPage();
+refreshers.bank = () => renderBankPage();
 
 function autoGrow(el) {
   el.style.height = 'auto';

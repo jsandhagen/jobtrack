@@ -265,6 +265,8 @@ details.more summary { cursor: pointer; font-weight: 700; color: var(--ink-soft)
 .ed-bar .ed-len select { font-size: 12px; padding: 3px 6px; width: auto; }
 .mode-why { display: flex; align-items: center; gap: 5px; margin: 4px 0 0; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); }
 /* Measuring the page as it prints: no "+ add" rows or empty placeholders. */
+/* Measured as it prints: empty fields and placeholders ("Address | Phone") don't print. */
+.ed-page.measuring .rs-head > [data-path]:empty, .ed-page.measuring .rs-row:not(:has([data-path]:not(:empty))), .ed-page.measuring .rs-detail:not(:has([data-path]:not(:empty))),
 .ed-page.measuring .rs-add, .ed-page.measuring li[data-path]:empty, .ed-page.measuring .rs-sec:has(> .rs-summary:empty), .ed-page.measuring .ed-float, .ed-page.measuring .ed-grip { display: none !important; }
 .ed-desk { position: relative; background: #e9e5dd; border: 1px solid var(--line); border-radius: 18px; padding: 36px 12px 40px; display: flex; justify-content: center; box-shadow: inset 0 1px 3px rgba(60, 50, 30, 0.06); }
 @media (prefers-color-scheme: dark) { .ed-desk { background: #161a18; } }

@@ -339,3 +339,19 @@ test('trimming an edited resume to a page count drops the weakest bullets and ke
   const again = fitDocToPages(out.doc, cypressJob, bank, 1);
   assert.equal(again.removed.length, 0);
 });
+
+test('trimming leaves half a line to spare, and sizes to how this computer draws the page', () => {
+  const bank = bigBank({ years: 14, strongRoles: 6, perRole: 6 });
+  const job = POSTINGS.seniorFrontend;
+  const { doc } = buildDoc({ profile: PROFILE, bank, job, roles: bank.experiences.map((e) => ({ experienceId: e.id, bullets: bank.bullets.filter((b) => b.experienceId === e.id).map((b) => ({ bulletId: b.id, text: b.text })) })) });
+  const out = fitDocToPages(doc, job, bank, 1);
+  const m = ResumeDoc.measure(out.doc);
+  assert.ok(m.height <= m.pageHeight - m.lineHeight / 2, `${m.height.toFixed(1)}pt leaves room on a ${m.pageHeight.toFixed(1)}pt page`);
+  // A computer that draws the page 6% taller: the trim goes further, and fits there.
+  const tall = fitDocToPages(doc, job, bank, 1, { scale: 1.06 });
+  assert.ok(ResumeDoc.fits(tall.doc, 1, { scale: 1.06 }));
+  assert.ok(tall.removed.length > out.removed.length);
+  // The free optimizer sizes to it too.
+  const sel = selectBullets(job, bank, { profile: PROFILE, pages: 1, scale: 1.06 });
+  assert.ok(ResumeDoc.fits(buildDoc({ profile: PROFILE, bank, job, roles: sel.roles }).doc, 1, { scale: 1.06 }));
+});

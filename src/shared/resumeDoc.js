@@ -356,9 +356,11 @@
 
   /**
    * Estimated printed height of a doc, in points, section by section.
+   * `scale` corrects for this computer's fonts: how tall the editor's page
+   * really draws against this estimate (1 where they agree).
    * @returns {{height:number, pages:number, lastPageFill:number, pageHeight:number, lineHeight:number}}
    */
-  function measure(doc) {
+  function measure(doc, { scale = 1 } = {}) {
     const d = compact(doc);
     const has = (s) => String(s || '').trim();
     const h = d.header || {};
@@ -395,9 +397,17 @@
       )
     );
     y += sec(d.certifications.length ? d.certifications.reduce((s, c) => s + lineCount(c, CONTENT_W - INDENT), 0) * LINE : 0);
+    y *= scale > 0 ? scale : 1;
     const pages = Math.max(1, Math.ceil((y - 2) / PAGE_H));
     return { height: y, pages, lastPageFill: (y - (pages - 1) * PAGE_H) / PAGE_H, pageHeight: PAGE_H, lineHeight: LINE };
   }
 
-  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, normalize, compact, labelLines, esc, measure, lineCount, textWidth };
+  // Does it fit on `pages` pages with half a line to spare? Trimming and
+  // building stop here rather than at the very bottom of the page, so a
+  // rounding difference in the browser's layout can't push it onto another.
+  function fits(doc, pages, { scale = 1 } = {}) {
+    return measure(doc, { scale }).height <= pages * PAGE_H - LINE / 2;
+  }
+
+  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, normalize, compact, labelLines, esc, measure, fits, lineCount, textWidth };
 });

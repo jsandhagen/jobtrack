@@ -951,7 +951,10 @@ function atsPanel(ats) {
 
 // ---------------- application detail ----------------
 
-async function renderApplication(id) {
+// `ifChanged`: an update from the app. Redraw only if the page would look
+// different, so an autosave or a background change doesn't rebuild the
+// editor under you (that redraw is what flickered).
+async function renderApplication(id, { ifChanged = false } = {}) {
   const a = await S.getApplication(id).catch(() => null);
   const page = document.getElementById('appPage');
   if (!page) return;
@@ -1032,7 +1035,7 @@ async function renderApplication(id) {
     return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';
   };
 
-  page.innerHTML = `
+  const html = `
     <div class="card app-card"><div class="app-head">${scoreRing(score, 84)}
       <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
@@ -1058,6 +1061,10 @@ async function renderApplication(id) {
       <button class="${appTab === 'tracking' ? 'on' : ''}" data-tab="tracking">${icon('send', 17)} Tracking${followUpDue(a) ? ` ${icon('clock', 15, 'due-ic')}` : ''}</button>
     </div>
     <div id="tabBody">${tabBody()}</div>`;
+  if (ifChanged && page.dataset.shown === id && page._html === html) return page._ready;
+  page.innerHTML = html;
+  page._html = html;
+  page.dataset.shown = id;
   animateRings(page);
   // The editor loads its own data; callers can await it to act on the new page.
   const editorReady = appTab === 'resume' && !busyResume ? renderEditor(id, a) : null;
@@ -1155,6 +1162,7 @@ async function renderApplication(id) {
       }, 'Saving…')
     )
   );
+  page._ready = editorReady;
   return editorReady;
 }
 
@@ -1355,6 +1363,12 @@ function scanFromApp(e) {
     else toast("I couldn't find a job posting on your screen. Open one and try again, or paste its text into Check a job.", 'error', 5000, 'curious');
   }, 'Reading your screen…');
 }
+
+// Pages that fill parts in after drawing (from the app): when an update
+// leaves the page itself unchanged, these refresh just those parts.
+const refreshers = {
+  settings: () => (renderExtensionCard(), renderUpdateCard()),
+};
 
 const binders = {
   home() {
@@ -1633,7 +1647,7 @@ setInterval(() => {
 // Pages fade in when you go to them, not each time they redraw in place.
 let lastRouted = null;
 
-function route() {
+function route({ ifChanged = false } = {}) {
   refreshHeld = false;
   // A search box redraws from its own value, so it keeps focus and caret through
   // a redraw; so does a checkbox or menu you just used.
@@ -1652,7 +1666,12 @@ function route() {
     openTab = null;
     currentAppId = v === 'application' ? id : null;
   }
-  view.innerHTML = views[v]();
+  const html = views[v]();
+  // An update that changes nothing on this page: leave it be (no flash, no replayed animations).
+  if (ifChanged && view._html === html && view._hash === location.hash) return refreshers[v] && refreshers[v]();
+  view._html = html;
+  view._hash = location.hash;
+  view.innerHTML = html;
   binders[v]();
   animateRings(view); // score and goal rings grow in (the application page does its own)
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => (location.hash = '#' + b.dataset.go)));
@@ -1698,7 +1717,7 @@ function isTyping() {
 let refreshHeld = false;
 function routeWhenFree() {
   if (isEditing()) refreshHeld = true;
-  else route();
+  else route({ ifChanged: true });
 }
 
 // Leaving the box: catch up on what changed meanwhile. Wait for a click in
@@ -1719,16 +1738,24 @@ function catchUp() {
 }
 
 window.addEventListener('hashchange', route);
-S.onStateChanged(async () => {
-  await refreshState();
-  // Don't wipe a form the user is typing in.
-  if (!currentAppId && !currentResumeId) routeWhenFree();
-});
-S.onAppUpdated(async (app) => {
-  await refreshState();
-  if (currentAppId && app && app.id === currentAppId) renderApplication(currentAppId);
-  else if (!currentAppId && !currentResumeId) routeWhenFree();
-});
+// Updates come in bursts (a careers check, Claude at work, autosaves): one
+// redraw for each burst, and none when the page would look the same.
+let redrawTimer = null;
+let redrawApp = false;
+function redrawSoon(app) {
+  if (app && currentAppId && app.id === currentAppId) redrawApp = true;
+  clearTimeout(redrawTimer);
+  redrawTimer = setTimeout(async () => {
+    const appToo = redrawApp;
+    redrawApp = false;
+    await refreshState();
+    if (currentAppId) {
+      if (appToo) renderApplication(currentAppId, { ifChanged: true });
+    } else if (!currentResumeId) routeWhenFree(); // don't wipe a form the user is typing in
+  }, 120);
+}
+S.onStateChanged(() => redrawSoon(null));
+S.onAppUpdated((app) => redrawSoon(app));
 S.onToast(({ text, kind }) => toast(text, kind));
 S.onNavigate(({ view: v, id, tab, standouts }) => {
   if (v === 'find' && standouts) return showStandouts(); // network.js

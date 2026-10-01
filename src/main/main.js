@@ -410,6 +410,10 @@ function scoringDocuments() {
   return bankText.trim() ? [...docs, { kind: 'bank', text: bankText }] : docs;
 }
 
+// The editor's page against the length estimate on this computer (see builder:calibrate).
+const validScale = (s) => (typeof s === 'number' && s >= 0.85 && s <= 1.3 ? Math.round(s * 1000) / 1000 : null);
+const pageScale = () => validScale(store.getSettings().pageScale) || 1;
+
 function scoreLocally(job) {
   return localFitScore(job, scoringDocuments(), store.getProfile());
 }
@@ -566,9 +570,12 @@ async function makeResume(appId) {
     const prev = rec.builder && rec.builder.doc;
     if (prev && prev.header && prev.header.name) doc.header = prev.header;
     // Keep Claude's draft within the length you chose (it's asked for one page, but can run over).
-    const limit = String(store.getSettings().resumePages) === '1' ? 1 : 2;
-    if (ResumeDoc.measure(doc).pages > limit) {
-      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit);
+    // On Auto, a second page with only a few lines on it is a spill-over: back to one.
+    const want = String(store.getSettings().resumePages);
+    const spill = ResumeDoc.measure(doc, { scale: pageScale() });
+    const limit = want === '1' || (want !== '2' && spill.pages === 2 && spill.lastPageFill < 0.3) ? 1 : 2;
+    if (!ResumeDoc.fits(doc, limit, { scale: pageScale() })) {
+      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit, { scale: pageScale() });
       doc = fit.doc;
       const n = fit.removed.length;
       if (n) notes = [...notes, `Took off ${n} of the weakest bullet${n === 1 ? '' : 's'} so it fits on ${limit === 1 ? 'one page' : 'two pages'}.`];
@@ -621,7 +628,7 @@ function makeAtsResume(appId) {
   const profile = store.getProfile();
   const header = rec.builder && rec.builder.doc ? rec.builder.doc.header : undefined;
   // Sized to the page: the template is measured as bullets go in.
-  const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages });
+  const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages, scale: pageScale() });
   const { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
   saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, atsFit: { pages: sel.pages, why: sel.why }, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
@@ -1277,12 +1284,19 @@ function registerIpc() {
     makeAtsResume(appId);
     return builderState(getHost(appId));
   });
+  // The editor reports how its page draws against the estimate; building and
+  // trimming use it. Saved quietly: nothing on screen depends on it.
+  handle('builder:calibrate', (scale) => {
+    const s = validScale(scale);
+    if (s && Math.abs(s - pageScale()) >= 0.003) store.updateSettings({ pageScale: s });
+  });
   // Trim the page to one or two pages, weakest bullets first (undoable).
-  handle('builder:fit', (appId, pages) => {
+  // `again`: another pass of the same trim, which Undo takes back with the first.
+  handle('builder:fit', (appId, pages, scale, again) => {
     const rec = getHost(appId);
     if (!rec) throw new Error('That resume no longer exists.');
-    const out = bulletBank.fitDocToPages(currentDoc(rec), rec.job, store.getBank(), pages === 2 ? 2 : 1);
-    if (out.removed.length || out.skills.length || out.roles.length) saveDoc(appId, out.doc, { builderPrev: undoPoint(rec) });
+    const out = bulletBank.fitDocToPages(currentDoc(rec), rec.job, store.getBank(), pages === 2 ? 2 : 1, { scale: validScale(scale) || pageScale() });
+    if (out.removed.length || out.skills.length || out.roles.length) saveDoc(appId, out.doc, again && rec.builderPrev ? {} : { builderPrev: undoPoint(rec) });
     hostUpdated(getHost(appId));
     return { ...builderState(getHost(appId)), trimmed: { bullets: out.removed, skills: out.skills, roles: out.roles, pages: out.pages } };
   });
