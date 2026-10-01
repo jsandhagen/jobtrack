@@ -48,7 +48,8 @@ const SKILLS = {
   'Machine Learning': [/\bmachine[-\s]learning\b/, /(?<!\d\s?)\bml\b(?!\s*(?:doses?|vials?|of|per)\b)/, /\bscikit[-\s]learn\b/, /\bxgboost\b/],
   'Deep Learning': [/\bdeep learning\b/, /\bneural networks?\b/, /\bpytorch\b/, /\btensorflow\b/],
   'LLMs / GenAI': [/\bllms?\b/, /\blarge language models?\b/, /\bgenerative ai\b/, /\bgenai\b/, /\bprompt engineering\b/],
-  'Data Analysis': [/\bdata analy(?:sis|tics)\b/, /\banalytics\b/],
+  // Having been a "Data Analyst" is evidence of data analysis.
+  'Data Analysis': [/\bdata analy(?:sis|tics|sts?)\b/, /\banalytics\b/],
   'Data Visualization': [/\bdata visuali[sz]ation\b/, /\btableau\b/, /\bpower\s*bi\b/, /\blooker\b/],
   // Not the verb: "you'll excel in a fast-paced role".
   Excel: [/\bexcel\b(?!\s+(?:in|at|as|under|within|when)\b)/, /\bspreadsheets?\b/],
@@ -111,7 +112,7 @@ const STOPWORDS = new Set(
 
 // "as required" means "as needed", not a requirement.
 const REQUIRED_CUE = /\b((?<!\bas )required|requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
-const PREFERRED_CUE = /\b(preferred|nice[- ]to[- ]haves?|bonus|plus|desired|desirable|ideally|good to have|helpful|beneficial|advantageous|an asset)\b/;
+const PREFERRED_CUE = /\b(preferred|nice[- ]to[- ]haves?|bonus|plus|desired|desirable|ideally|good to have|helpful|beneficial|advantageous|an asset|additional qualifications|extra credit)\b/;
 // "No Java experience required", "Python is not required": not a requirement.
 const NEGATED_CUE = /\bnot (?:required|necessary|needed|a requirement|mandatory)\b|\bno\b[^.;]{0,40}\b(?:required|necessary|needed)\b/;
 // Example lists ("languages may include Python, R, MATLAB", "other useful
@@ -142,11 +143,21 @@ const KIND_RANK = { preferred: 0, neutral: 1, required: 2 };
 
 const APOS = "['’]?";
 const REQUIRED_HEADING = new RegExp(
-  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you${APOS}ll (?:need|bring)|what you bring|what we${APOS}re looking for|who you are|about you|you have|must[- ]haves?)\\b[^.]{0,30}$`
+  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you${APOS}ll (?:need|bring)|what you bring|what we${APOS}re looking for|who we${APOS}re looking for|who you are|about you|you have|must[- ]haves?|your profile|(?:the )?ideal candidate|you (?:might|may) be a (?:good )?fit if|you${APOS}ll thrive if|is this you)\\b[^.]{0,30}$`
 );
 const NEUTRAL_HEADING = new RegExp(
   `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main )?(?:responsibilities|duties)|what you${APOS}ll (?:do|be doing|work on)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company))\\b[^.]{0,30}$`
 );
+
+// Markdown from Notion, careers sites or AI tools: "## Requirements",
+// "**Requirements**", "__Preferred__". Bullets ("* SQL") are kept.
+function stripMarkdown(l) {
+  return l
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/^\*(?!\s)(.+)\*$/, '$1')
+    .trim();
+}
 
 // Tag every non-empty posting line as required / preferred / neutral, using
 // both the line's own wording and the section heading it sits under.
@@ -154,10 +165,10 @@ function classifyLines(jobText) {
   const out = [];
   let section = 'neutral';
   for (const rawLine of String(jobText || '').split('\n')) {
-    const original = rawLine.trim();
+    const original = stripMarkdown(rawLine.trim());
     const line = original.toLowerCase();
     if (!line) continue;
-    const isBullet = /^([-•*▪●◦]|\d+[.)])\s*/.test(line);
+    const isBullet = /^([-•*▪●◦✓✔➢►‣–—]|\d+[.)])\s*/.test(line);
     const isHeading = !isBullet && line.length < 60 && !/[.;]$/.test(line);
     let lineKind = section;
     if (PREFERRED_CUE.test(line)) lineKind = 'preferred';

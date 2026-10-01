@@ -1,0 +1,16 @@
+We're looking for a Data Analyst to join our growing analytics team. You'll partner with finance and operations to turn data into decisions.
+
+What you'll do
+- Build and maintain dashboards in Tableau
+- Write SQL to pull and clean data from our warehouse
+- Present findings to stakeholders
+
+What you'll bring
+- 2+ years of experience in data analysis
+- Strong SQL skills
+- Experience with Tableau or Power BI
+- Bachelor's degree in a quantitative field
+
+Nice to have
+- Python
+- Experience in healthcare

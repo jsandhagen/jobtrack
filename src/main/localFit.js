@@ -15,7 +15,7 @@ const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 2;
+const SCORER_VERSION = 3;
 
 const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
 
@@ -359,6 +359,8 @@ function localFitScore(job, documents, profile = {}) {
   if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`This is a ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}`);
   if (experience !== null && experience < 0.8) concerns.push(`Asks for ${needYears}+ years; your documents show about ${haveYears ?? 'unclear'}`);
   concerns.push(...screening.unanswered);
+  // Problems with what was captured (cut-off description, a list of jobs).
+  concerns.unshift(...(job.warnings || []));
   const missingReq = req.filter((u) => u.met < 0.5).map((u) => u.label);
   if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
 
