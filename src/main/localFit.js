@@ -21,7 +21,7 @@ const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 5;
+const SCORER_VERSION = 6;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -54,7 +54,7 @@ function showsProgramming(textLower) {
 // Capitalised words that are just English, not skills.
 const NOT_TERMS = new Set(
   (
-    'we you our your the this that they their a an and or of in on for to with as at by is are be will no not ' +
+    'we you our your the this that they their a an and or of in on for to with as at by is are be will no not it executive executives cloud enterprise applications engagements industry such framework frameworks database databases ' +
     'about role team company position job candidate candidates applicants responsibilities requirements qualifications ' +
     'preferred required minimum basic nice bonus plus benefits experience knowledge ability skills strong excellent ' +
     'proven demonstrated working work must should including include etc ideal ideally equivalent degree bachelor ' +
@@ -334,7 +334,8 @@ function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
         const w = ex.isProject ? 0.85 : recencyWeight(end, now);
         const body = [ex.title, ex.organization, ...ex.bullets.map((b) => b.text)].join('\n');
         segs.push({ text: body, weight: w });
-        if (!ex.isProject && ex.title) titles.push({ title: ex.title, weight: w });
+        // "Senior Consultant, Technology Strategy, Firm" parses the practice as the organization.
+        if (!ex.isProject && ex.title) titles.push({ title: `${ex.title} ${ex.organization || ''}`, weight: w });
       }
       if (r.skills.length) segs.push({ text: r.skills.join(', '), weight: 0.75 });
       if (r.summary) segs.push({ text: r.summary, weight: 0.75 });
@@ -385,7 +386,11 @@ const TITLE_FAMILY = [
   [/^analy/, 'analy'], [/^(?:engineer|developer|programmer|swe)/, 'engineer'], [/^scien/, 'scien'], [/^manag/, 'manag'],
   [/^(?:quant|quantitative)$/, 'quant'], [/^account/, 'account'], [/^design/, 'design'], [/^consult/, 'consult'], [/^model/, 'model'],
   [/^(?:nurse|nursing|rn)$/, 'nurse'], [/^(?:front-?end|frontend)$/, 'frontend'], [/^(?:back-?end|backend)$/, 'backend'], [/^(?:full-?stack|fullstack)$/, 'fullstack'],
+  [/^architect/, 'architect'], [/^strateg/, 'strateg'], [/^(?:advis|advisory)/, 'advis'], [/^transform/, 'transform'], [/^associate/, 'associ'], [/^(?:technolog|tech|it)$|^technolog/, 'technolog'],
 ];
+// The role itself ("Consultant", "Engineer"), wherever it sits in the title:
+// "Senior Consultant, Technology Strategy" is a consultant role in a strategy practice.
+const ROLE_WORDS = new Set(['analy', 'engineer', 'scien', 'manag', 'account', 'design', 'consult', 'nurse', 'architect', 'strateg', 'advis', 'director', 'specialist', 'coordinator', 'administrator', 'officer', 'auditor', 'recruiter', 'writer', 'editor', 'teacher', 'planner', 'controller', 'economist', 'statistician', 'actuary', 'underwriter', 'technician', 'representative', 'assistant']);
 const TITLE_DROP = /\b(?:senior|sr|junior|jr|lead|principal|staff|head|chief|of|the|and|for|i{1,3}|iv|[1-4]|&|-|–|—)\b/g;
 function titleWords(title) {
   return lower(title)
@@ -402,13 +407,16 @@ function titleWords(title) {
 // last word: "analyst", "engineer") counts double.
 // Neighbouring roles: half credit (a frontend engineer is half way to a
 // frontend architect; frontend and full-stack engineers overlap).
-const TITLE_NEAR = [['engineer', 'architect'], ['analy', 'scien'], ['analy', 'model'], ['analy', 'quant'], ['frontend', 'fullstack'], ['backend', 'fullstack'], ['manag', 'lead'], ['account', 'audit'], ['design', 'ux']];
+const TITLE_NEAR = [['engineer', 'architect'], ['analy', 'scien'], ['analy', 'model'], ['analy', 'quant'], ['frontend', 'fullstack'], ['backend', 'fullstack'], ['manag', 'lead'], ['account', 'audit'], ['design', 'ux'], ['consult', 'advis'], ['consult', 'strateg'], ['consult', 'analy'], ['strateg', 'transform'], ['technolog', 'digital'], ['consult', 'associ']];
+// Big-4 ladders call consultants "Associate" / "Senior Associate".
 const near = (a, b) => TITLE_NEAR.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
 function titleMatch(posting, held) {
   const want = titleWords(posting);
   const have = [...new Set(titleWords(held))];
   if (!want.length || !have.length) return 0;
-  const weights = want.map((_, i) => (i === want.length - 1 ? 2 : 1));
+  // The role word counts double; with none recognised, the last word is the role.
+  const roleAt = want.some((w) => ROLE_WORDS.has(w)) ? (w) => ROLE_WORDS.has(w) : (w, i) => i === want.length - 1;
+  const weights = want.map((w, i) => (roleAt(w, i) ? 2 : 1));
   const total = weights.reduce((a, b) => a + b, 0);
   const credit = (w) => (have.includes(w) ? 1 : have.some((h) => near(w, h)) ? 0.5 : 0);
   return want.reduce((s, w, i) => s + credit(w) * weights[i], 0) / total;

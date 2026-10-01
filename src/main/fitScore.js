@@ -40,7 +40,10 @@ const SKILLS = {
   GCP: [/\bgcp\b/, /\bgoogle cloud\b/],
   Docker: [/\bdocker\b/, /\bcontaineri[sz](?:ed|ation)\b/],
   Kubernetes: [/\bkubernetes\b/, /\bk8s\b/],
-  Terraform: [/\bterraform\b/, /\binfrastructure as code\b/],
+  Terraform: [/\bterraform\b/, /\binfrastructure as code\b/, /\bcloudformation\b/],
+  Microservices: [/\bmicroservices?\b/, /\bdistributed systems?\b/, /\bevent[- ]driven\b/],
+  Kafka: [/\bkafka\b/],
+  'Cloud Certification': [/\baws certified\b/, /\b(?:aws )?solutions architect[- ](?:associate|professional)\b/, /\bazure (?:solutions architect|administrator|developer) (?:expert|associate)\b/, /\bgoogle cloud certified\b/],
   'CI/CD': [/\bci\s*\/\s*cd\b/, /\bcontinuous (?:integration|delivery|deployment)\b/, /\bgithub actions\b/, /\bjenkins\b/],
   Linux: [/\blinux\b/, /\bunix\b/],
   Git: [/\bgit\b/, /\bgithub\b/, /\bgitlab\b/],
@@ -67,9 +70,10 @@ const SKILLS = {
   Spark: [/\b(?:apache |py)spark\b/, /\bspark(?=\s*(?:[,/;).]|$)|\s+(?:sql|streaming|jobs?|clusters?|ecosystem|pipelines?|mllib)\b|\s+(?:and|or)\s+(?:hadoop|kafka|hive|scala|databricks|python|sql|flink)\b)/, /\bdatabricks\b/],
   Snowflake: [/\bsnowflake\b/],
   // product, design, business
-  'Product Management': [/\bproduct management\b/, /\bproduct manager\b/, /\broadmaps?\b/],
-  Agile: [/\bagile\b/, /\bscrum\b/, /\bkanban\b/, /\bsprints?\b/],
-  'Project Management': [/\bproject management\b/, /\bpmp\b/, /\bstakeholder management\b/],
+  // A product roadmap, not a technology roadmap (that's Roadmapping).
+  'Product Management': [/\bproduct management\b/, /\bproduct manager\b/, /\bproduct roadmaps?\b/, /\bprds?\b/, /\bproduct requirements\b/],
+  Agile: [/\bagile\b/, /\bscrum\b/, /\bkanban\b/, /\bsprints?\b/, /\bsafe (?:certification|agilist|framework)\b/, /\bscaled agile\b/],
+  'Project Management': [/\bproject management\b/, /\bproject manager\b/, /\bpmp\b/, /\bproject plans?\b/],
   'UX Design': [/\bux\b/, /\buser experience\b/, /\buser research\b/, /\busability\b/],
   'UI Design': [/\bui design\b/, /\bvisual design\b/, /\bdesign systems?\b/],
   Figma: [/\bfigma\b/],
@@ -80,6 +84,37 @@ const SKILLS = {
   'Social Media': [/\bsocial media\b/],
   Sales: [/\bsales\b(?!\s+tax)/, /\bquota\b/, /\bpipeline generation\b/],
   CRM: [/\bcrm\b/, /\bsalesforce\b/, /\bhubspot\b/],
+  // technology strategy & consulting
+  Consulting: [/\bconsult(?:ing|ancy)\b/, /\b(?:it|technology|management|strategy) consultant\b/, /\badvisory (?:practice|firm|services)\b/, /\bclient engagements?\b/],
+  'Technology Strategy': [/\b(?:technology|tech|it|digital|enterprise technology) strateg(?:y|ies)\b/],
+  'Digital Transformation': [/\b(?:digital|technology|it|business) transformations?\b/, /\btransformation (?:programs?|engagements?|initiatives?|roadmaps?)\b/],
+  Roadmapping: [/\b(?:technology|it|transformation|digital|implementation|multi-year|\d-year)?\s*roadmaps?\b/],
+  'Business Cases': [/\bbusiness cases?\b/, /\bcost[- ]benefit\b/, /\broi analys[ie]s\b/],
+  'Operating Model': [/\b(?:target |it |technology )?operating models?\b/, /\borgani[sz]ation(?:al)? design\b/, /\bit organi[sz]ation design\b/],
+  'Cloud Strategy': [/\bcloud (?:strategy|migration|transformation|adoption|modernization)\b/, /\bmigration (?:planning|strategy|plans?)\b/, /\b(?:rehost|re-?platform|refactor) or retire\b/],
+  'Enterprise Architecture': [/\benterprise architecture\b/, /\btogaf\b/, /\bsolution architecture\b/, /\barchitecture diagrams?\b/],
+  'Application Portfolio': [/\bapplication (?:portfolios?|rationali[sz]ation)\b/, /\bportfolio rationali[sz]ation\b/, /\bapplication landscape\b/],
+  'IT Portfolio Management': [/\b(?:it |project |technology )portfolio (?:management|planning|status|reviews?)\b/, /\bit project portfolio\b/, /\btechnology planning\b/],
+  'Vendor Selection': [/\bvendor (?:selection|evaluation|management|assessment)\b/, /\brfps?\b/, /\bsourcing strategy\b/, /\bcontract reviews?\b/],
+  'IT Governance': [/\b(?:it|technology|data) governance\b/, /\bgovernance (?:structures?|frameworks?|model)\b/, /\bcobit\b/],
+  ITSM: [/\bitil\b/, /\bitsm\b/, /\bit service management\b/],
+  ServiceNow: [/\bservicenow\b/],
+  ERP: [/\berp\b/, /\bsap\b/, /\bs\/4\s?hana\b/, /\boracle (?:cloud|ebs|e-business|fusion|erp)\b/, /\bnetsuite\b/, /\bworkday (?:hcm|financials)\b/],
+  PMO: [/\bpmo\b/, /\bprogram management(?: office)?\b/, /\braid logs?\b/],
+  'Change Management': [/\bchange management\b/, /\borgani[sz]ational change\b/, /\bchange (?:adoption|readiness)\b/],
+  'Business Analysis': [/\bbusiness analy(?:sis|sts?)\b/, /\bsystems analy(?:sis|sts?)\b/],
+  'Requirements Gathering': [/\brequirements (?:gathering|elicitation|analysis)\b/, /\bgathered requirements\b/, /\bbusiness requirements\b/, /\buser stories\b/],
+  'Process Mapping': [/\bprocess (?:mapping|maps|redesign|re-?engineering)\b/, /\b(?:current|future)[- ]state process(?:es)?\b/],
+  'Stakeholder Management': [/\bstakeholder (?:management|engagement)\b/, /\bc-suite\b/, /\bsteering committees?\b/, /\bexecutive stakeholders?\b/],
+  'Workshop Facilitation': [/\b(?:executive |discovery |client )?workshops?\b/],
+  PowerPoint: [/\bpowerpoint\b/, /\bslide decks?\b/],
+  'IT Financial Management': [/\bit (?:spend|costs?|budgets?|financial)\b/, /\b(?:spend|cost) benchmarks?\b/, /\bbenefits (?:realization|tracking)\b/, /\btechnology business management\b/],
+  'Business Development': [/\bbusiness development\b/, /\bproposals?\b/, /\bstatements? of work\b/, /\bpursuits?\b/],
+  'Data Strategy': [/\bdata strateg(?:y|ies)\b/, /\bdata governance\b/],
+  'AI Strategy': [/\bai strateg(?:y|ies)\b/, /\bai (?:initiatives|adoption|use cases)\b/],
+  // industries
+  'Financial Services': [/\bfinancial services\b/, /\bbank(?:s|ing)?\b/, /\binsur(?:ance|er|ers)\b/, /\bfintech\b/, /\bcapital markets\b/],
+  'Public Sector': [/\bpublic sector\b/, /\bfederal\b/, /\bgovernment\b/, /\bstate and local\b/],
   'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
   Finance: [/\bfinancial (?:analysis|modeling|reporting)\b/, /\bbudget(?:s|ing)?\b/],
   Accounting: [/\baccounting\b(?!\s+for\b)/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
@@ -93,7 +128,7 @@ const SKILLS = {
   // A clearance is a credential (and a knockout), not a security skill.
   'Security Clearance': [/\bsecurity clearance\b/, /\bts\s*\/\s*sci\b/, /\b(?:top secret|secret|public trust) clearance\b/, /\bactive clearance\b/],
   Security: [/(?<!social )\bsecurity\b(?!\s+clearance)/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
-  Testing: [/\bunit test(?:s|ing)?\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
+  Testing: [/\bunit test(?:s|ing)?\b/, /\bautomated test(?:s|ing)?\b/, /\btest coverage\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
   // human skills
   Leadership: [/\bleadership\b/, /\bmentor(?:ed|ing|ship|s)?\b/, /\bled (?:a |the )?(?:team|group|squad)/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
   Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/],
@@ -122,6 +157,16 @@ const RELATED_PAIRS = [
   ['Excel', 'Data Analysis', 0.3], ['Figma', 'UI Design', 0.4], ['UX Design', 'UI Design', 0.6],
   ['Product Management', 'Project Management', 0.4], ['Agile', 'Project Management', 0.4],
   ['Accounting', 'Finance', 0.4], ['CRM', 'Sales', 0.3],
+  ['Technology Strategy', 'Digital Transformation', 0.7], ['Technology Strategy', 'Roadmapping', 0.5], ['Technology Strategy', 'Enterprise Architecture', 0.5],
+  ['Technology Strategy', 'Operating Model', 0.5], ['Technology Strategy', 'Cloud Strategy', 0.5], ['Technology Strategy', 'IT Portfolio Management', 0.5],
+  ['Technology Strategy', 'Consulting', 0.4], ['Digital Transformation', 'Change Management', 0.5], ['Digital Transformation', 'Cloud Strategy', 0.5],
+  ['Cloud Strategy', 'AWS', 0.4], ['Cloud Strategy', 'Azure', 0.4], ['Cloud Strategy', 'GCP', 0.4], ['Cloud Strategy', 'Enterprise Architecture', 0.4],
+  ['Enterprise Architecture', 'Application Portfolio', 0.5], ['Application Portfolio', 'IT Portfolio Management', 0.5],
+  ['PMO', 'Project Management', 0.7], ['PMO', 'IT Portfolio Management', 0.5], ['Requirements Gathering', 'Process Mapping', 0.5], ['Business Analysis', 'Requirements Gathering', 0.6], ['Business Analysis', 'Process Mapping', 0.5], ['Business Analysis', 'IT Portfolio Management', 0.3], ['CI/CD', 'Testing', 0.3],
+  ['Business Cases', 'IT Financial Management', 0.6], ['Business Cases', 'Finance', 0.4], ['ITSM', 'ServiceNow', 0.7], ['IT Governance', 'ITSM', 0.4],
+  ['Stakeholder Management', 'Workshop Facilitation', 0.4], ['Consulting', 'Business Development', 0.3], ['Data Strategy', 'AI Strategy', 0.5],
+  ['Data Strategy', 'Technology Strategy', 0.4], ['Operating Model', 'Change Management', 0.4], ['Vendor Selection', 'ERP', 0.2],
+  ['Microservices', 'Kafka', 0.4], ['Cloud Certification', 'AWS', 0.4], ['Cloud Certification', 'Azure', 0.4], ['Agile', 'Change Management', 0.2],
 ];
 const RELATED = new Map();
 for (const [a, b, c] of RELATED_PAIRS) {
@@ -265,6 +310,9 @@ function alternativeRuns(line, items) {
   let run = [];
   let hasOr = false;
   const close = () => {
+    // "IT strategy, portfolio management, consulting or business analysis":
+    // the "or" may come after the last item we recognised.
+    if (run.length >= 2 && !hasOr) hasOr = /^[\s,]*(?:or|and\s*\/\s*or)\b/.test(line.slice(run[run.length - 1].end, run[run.length - 1].end + 20));
     if (run.length >= 2 && (hasOr || optional)) runs.push(run);
     run = [];
     hasOr = false;
