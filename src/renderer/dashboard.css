@@ -56,7 +56,7 @@ main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; backg
 .grid.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.sidebar { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
-@media (max-width: 1000px) { .grid.two, .grid.three, .grid.sidebar { grid-template-columns: 1fr; } }
+@media (max-width: 1000px) { .grid.two, .grid.sidebar { grid-template-columns: 1fr; } .grid.three { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); } }
 
 .stat { display: flex; align-items: center; gap: 14px; }
 .stat { padding: 18px 20px; }
@@ -378,6 +378,10 @@ button.mini-check:hover { transform: none; filter: brightness(0.98); }
 .ed-page li.rs-bullet[data-q='ok']::after { content: '✓'; background: #e3f0e7; color: #3f8a61; }
 .ed-page.measuring li.rs-bullet::after { display: none; }
 .modal-card.wide { width: min(880px, 100%); }
+.modal-card { position: relative; }
+.modal-x { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; padding: 0; border-radius: 50%; font-size: 15px; line-height: 1; z-index: 2; }
+/* The send buttons stay in view while you read the draft. */
+#cmpSend { position: sticky; bottom: -26px; background: var(--surface); margin: 14px -28px -26px !important; padding: 12px 28px 16px; border-top: 1px solid var(--line, rgba(0,0,0,0.08)); z-index: 1; }
 .guide h3 { margin: 18px 0 6px; font-size: 15px; }
 .guide p, .guide li { font-size: 13.5px; line-height: 1.55; }
 .guide .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -800,7 +804,7 @@ p.way-next { display: flex; }
 .avatar.warm-coworker, .avatar.warm-alumni, .avatar.warm-common { background: var(--lavender-soft); color: #6b5aa8; }
 .avatar.warm-mutual { background: var(--butter-soft); color: #a07a1c; }
 .avatar.warm-cold { background: var(--surface-3); color: var(--ink-soft); }
-.chip.stage { font-weight: 800; }
+.chip.co-stage { font-weight: 800; }
 .net-card { display: flex; align-items: flex-start; gap: 18px; margin-bottom: 16px; background: var(--lavender-soft); border: 0; }
 .net-card .grow { flex: 1; }
 .net-how { margin-top: 8px; font-size: 13px; }

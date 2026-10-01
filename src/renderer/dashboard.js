@@ -276,17 +276,23 @@ function followUpDue(a) {
   return a.followUpAt && Date.parse(a.followUpAt) <= Date.now() + 86400000;
 }
 
+// Every modal closes with its ✕, Escape, or a click outside it.
 function openModal(html) {
   const m = document.getElementById('modal');
-  document.getElementById('modalCard').innerHTML = html;
+  const card = document.getElementById('modalCard');
+  card.innerHTML = `<button class="modal-x ghost" type="button" aria-label="Close" title="Close (Esc)">✕</button>${html}`;
+  card.querySelector('.modal-x').addEventListener('click', closeModal);
   m.hidden = false;
-  return document.getElementById('modalCard');
+  return card;
 }
 function closeModal() {
   document.getElementById('modal').hidden = true;
 }
 document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') closeModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.getElementById('modal').hidden) closeModal();
 });
 
 // Yes/no questions in the page, never window.confirm(): in Electron a native
@@ -1281,14 +1287,31 @@ const binders = {
   },
   profile() {
     // Every card's Save saves the whole profile, so nothing edited elsewhere is lost.
+    const patch = () => {
+      const p = {};
+      $$('[data-k]').forEach((i) => (p[i.dataset.k] = i.value.trim()));
+      return p;
+    };
     $$('.save-profile').forEach((b) => b.addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
-        const patch = {};
-        $$('[data-k]').forEach((i) => (patch[i.dataset.k] = i.value.trim()));
-        await S.updateProfile(patch);
+        await S.updateProfile(patch());
         toast('Profile saved', 'good');
       }, 'Saving…')
     ));
+    // And each change saves itself (when you leave the field), so leaving the
+    // page without pressing Save loses nothing. The card's button says so.
+    $$('[data-k]').forEach((i) => i.addEventListener('change', async () => {
+      try {
+        await S.updateProfile(patch());
+        const b = i.closest('.card') && i.closest('.card').querySelector('.save-profile');
+        if (b) {
+          b.textContent = 'Saved ✓';
+          setTimeout(() => b.isConnected && (b.textContent = 'Save'), 1600);
+        }
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }));
   },
   settings() {
     renderExtensionCard();

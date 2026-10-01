@@ -520,3 +520,14 @@ test('a recruiter hears what you are looking for, not "what is your job like"', 
   // With a role open there, the message is about that role.
   assert.equal(O.suggestMessages(recruiter, O.DEFAULT_TEMPLATES, { profile, job: { title: 'Strategy Manager', company: 'Northwind' } })[0].template.id, 'tpl-recruiter');
 });
+
+test('drafts use what you share from their LinkedIn profile when "in common" is blank', () => {
+  const O = require('../src/shared/outreach');
+  const c = { name: 'Priya Shah', title: 'Chief of Staff to the CTO', company: 'Capital One', schools: ['University of Virginia'], employers: ['Deloitte'] };
+  const p = { name: 'Jordan Avery', schools: 'University of Virginia', pastEmployers: 'Appian, Deloitte', targetRoles: 'Technology Strategy Manager' };
+  const [best] = O.suggestMessages(c, O.DEFAULT_TEMPLATES, { profile: p, job: { title: 'Strategy Manager' } });
+  assert.match(best.text, /we both went to the University of Virginia/);
+  assert.deepEqual(best.missing, []);
+  // Typed common ground still wins.
+  assert.match(O.templateVars({ ...c, connection: 'ex-Deloitte' }, p).common, /worked at Deloitte/);
+});
