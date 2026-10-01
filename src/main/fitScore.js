@@ -147,14 +147,14 @@ const SKILLS = {
   'Business Cases': [/\bbusiness cases?\b/, /\bcost[- ]benefit\b/, /\broi analys[ie]s\b/, /\bvalue (?:sizing|cases?)\b/, /\bsizing value\b/, /\binvestment cases?\b/, /\bcosts? and benefits\b/, /\btco\b/, /\btotal cost of ownership\b/],
   // Quantified business value on a resume ("$3M in annual revenue"): evidence toward business cases.
   'Business Impact': [/\$\s?\d[\d.,]*\s?(?:m|mm|k|b|million|billion)?\+?\s*(?:\w+\s){0,4}(?:revenue|savings|cost reduction|value|benefits?|funding)\b/],
-  'Operating Model': [/\b(?:target |it |technology )?operating models?\b/, /\borgani[sz]ation(?:al)? design\b/, /\bit organi[sz]ation design\b/, /\boperating rhythm\b/],
+  'Operating Model': [/\b(?:target |it |technology )?operating models?\b/, /\borgani[sz]ation(?:al)? design\b/, /\bit organi[sz]ation design\b/],
   // Generic mentions; the specific skills (AWS, Cloud Strategy, Machine Learning…) count as these.
   Cloud: [/\bcloud\b/],
   AI: [/\b(?:ai|artificial intelligence|genai)\b/],
   'Cloud Strategy': [/\bcloud (?:strategy|migration|transformation|adoption|modernization|readiness)\b/, /\bhyperscalers?\b/, /\bmigration waves?\b/, /\bmigration (?:planning|strategy|plans?)\b/, /\b(?:rehost|re-?platform|refactor) or retire\b/],
   'Enterprise Architecture': [/\benterprise architecture\b/, /\btogaf\b/, /\bsolution architecture\b/, /\barchitecture diagrams?\b/],
   'Application Portfolio': [/\bapplication (?:portfolios?|rationali[sz]ation)\b/, /\bportfolio rationali[sz]ation\b/, /\bapplication landscape\b/],
-  'IT Portfolio Management': [/\b(?:it |project |technology )portfolio (?:management|planning|status|reviews?|metrics)\b/, /\bit project portfolio\b/, /\b(?:technology|annual|quarterly) planning\b/, /\bokrs?\b/, /\binvestment (?:planning|requests|priorities)\b/, /\binitiative portfolios?\b/],
+  'IT Portfolio Management': [/\b(?:it |project |technology )portfolio (?:management|planning|status|reviews?|metrics)\b/, /\bit project portfolio\b/, /\b(?:technology|annual|quarterly) planning\b/, /\bokrs?\b/, /\boperating (?:rhythm|cadence)\b/, /\binvestment (?:planning|requests|priorities)\b/, /\binitiative portfolios?\b/],
   'Vendor Selection': [/\bvendor (?:selection|evaluation|management|assessment|consolidation|onboarding|due diligence|negotiations?|contracts?)\b/, /\bsourc(?:e|ed|ing) (?:\w+ ){0,3}vendors\b/, /\bnegotiat\w* (?:\w+ ){0,2}(?:vendor|supplier) contracts?\b/, /\bvendor evaluations?\b/, /\brfps?\b/, /\bsourcing strateg(?:y|ies)\b/, /\bcontract reviews?\b/, /\b(?:onboard(?:ing)?|evaluat\w*|assess\w*|select\w*) (?:new |third-party )?(?:data )?(?:vendors|providers|suppliers)\b/],
   'IT Governance': [/\b(?:it|technology|data|transformation|cloud) governance\b/, /\bgovernance guardrails\b/, /\bgovernance (?:structures?|frameworks?|model)\b/, /\bcobit\b/],
   ITSM: [/\bitil\b/, /\bitsm\b/, /\bit service management\b/, /\binfrastructure library\b/],
@@ -180,10 +180,7 @@ const SKILLS = {
   'Competitive Analysis': [/\bcompetitive (?:analysis|analyses|landscape|intelligence|positioning)\b/, /\bcompetitor (?:analysis|research|benchmarking)\b/, /\bbattle ?cards?\b/, /\bwin\/loss\b/],
   'Low-Code / BPM': [/\blow[- ]code\b/, /\bno[- ]code\b/, /\bbusiness process management\b/, /\bbpm\b/, /\bworkflow (?:automation|platforms?)\b/, /\bprocess automation\b/, /\brpa\b/, /\brobotic process automation\b/],
   // industries
-  // Working at a software vendor is enterprise software experience, though few
-  // resumes say so: a vendor's name counts where it reads as an employer (a role
-  // line with dates), not where it is a tool someone used.
-  'Enterprise Software': [/\benterprise software\b/, /\bsaas\b/, /\bsoftware[- ]as[- ]a[- ]service\b/, /\bb2b software\b/, /\b(?:enterprise )?software (?:company|companies|vendors?|firms?|industry)\b/, /\b(?:appian|pegasystems|servicenow|salesforce|workday|oracle|sap|microsoft|adobe|atlassian|snowflake|databricks|uipath|outsystems|mendix|hubspot|zendesk|datadog|mongodb|okta|docusign|autodesk|palantir|veeva|guidewire|celonis|informatica|confluent|gitlab|twilio|intuit|vmware|splunk|elastic|unqork|blue prism|automation anywhere)(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\.?\s*[,|·–—-]?\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? )?(?:19|20)\d{2}\b/],
+  'Enterprise Software': [/\benterprise software\b/, /\bsaas\b/, /\bsoftware[- ]as[- ]a[- ]service\b/, /\bb2b software\b/, /\b(?:enterprise )?software (?:company|companies|vendors?|firms?|industry)\b/],
   'Financial Services': [/\bfinancial services\b/, /\bbank(?:s|ing)?\b/, /\binsur(?:ance|er|ers)\b/, /\bfintech\b/, /\bcapital markets\b/, /\bmortgage\b/, /\blending\b/, /\bcredit (?:unions?|cards?)\b/, /\bpayments\b/],
   'Public Sector': [/\bpublic sector\b/, /\bfederal\b/, /\bgovernment\b/, /\bstate and local\b/],
   'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
@@ -216,6 +213,15 @@ const SKILLS = {
 // Skills close enough that having one is partial evidence of the other (the
 // idea behind LinkedIn's skill ontology and Textkernel's skill normalisation).
 // [a, b, credit]: having b when a is asked for (and vice versa) earns `credit`.
+// Evidence a skill's own words can't give: working at a software vendor is
+// enterprise software experience, though few resumes say so. A vendor's name
+// counts where it reads as an employer (a role line with dates), not where it
+// is a tool someone used. The fit score uses it; the ATS check doesn't, since a
+// keyword search for "enterprise software" won't find "Appian".
+const EMPLOYER_EVIDENCE = {
+  'Enterprise Software': /\b(?:appian|pegasystems|servicenow|salesforce|workday|oracle|sap|microsoft|adobe|atlassian|snowflake|databricks|uipath|outsystems|mendix|hubspot|zendesk|datadog|mongodb|okta|docusign|autodesk|palantir|veeva|guidewire|celonis|informatica|confluent|gitlab|twilio|intuit|vmware|splunk|elastic|unqork|blue prism|automation anywhere)(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\.?\s*[,|·–—-]?\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? )?(?:19|20)\d{2}\b/,
+};
+
 const RELATED_PAIRS = [
   ['Tableau', 'Power BI', 0.6], ['Tableau', 'Looker', 0.6], ['Power BI', 'Looker', 0.6],
   ['Tableau', 'Data Visualization', 0.5], ['Power BI', 'Data Visualization', 0.5], ['Looker', 'Data Visualization', 0.5],
@@ -668,6 +674,7 @@ function looksLikeJobPosting(text) {
 module.exports = {
   SKILLS,
   RELATED,
+  EMPLOYER_EVIDENCE,
   SOFT_SKILLS,
   INTERPERSONAL,
   STOPWORDS,

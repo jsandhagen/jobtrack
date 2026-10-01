@@ -34,7 +34,7 @@ const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
-const { atsScore, libraryAtsScore } = require('./atsScore');
+const { atsScore, atsGaps, libraryAtsScore } = require('./atsScore');
 const outreach = require('../shared/outreach');
 const finder = require('../shared/finder');
 const careers = require('./careers');
@@ -749,7 +749,10 @@ function builderState(rec) {
     return { key: u.key, label: u.label, kind: u.kind, covered: byBullet, skillsOnly: !byBullet && u.match(skillsText) >= 0.6 };
   });
 
-  const ats = atsScore(rec.job, htmlToText(rec.resumeHtml || ResumeDoc.renderHtml(ResumeDoc.compact(doc))), { profile: store.getProfile() });
+  const pageText = htmlToText(rec.resumeHtml || ResumeDoc.renderHtml(ResumeDoc.compact(doc)));
+  const ats = atsScore(rec.job, pageText, { profile: store.getProfile() });
+  // What the screen looks for that the page doesn't say yet, with the closest bullet to each.
+  const gaps = rec.job && rec.job.text ? atsGaps(rec.job, pageText, doc.roles.flatMap((r, ri) => r.bullets.map((b, bi) => ({ r: ri, b: bi, text: b.text })))).gaps : [];
   return {
     doc,
     roles: doc.roles.map((r) => ({
@@ -772,7 +775,7 @@ function builderState(rec) {
       .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
     coverage,
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
-    ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 5), components: ats.components },
+    ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 10), components: ats.components, gaps },
     // The posting's title, for the "role named up top" check.
     jobTitle: (rec.job && rec.job.title) || '',
     bankSize: bank.bullets.length,

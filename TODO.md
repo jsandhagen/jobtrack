@@ -50,9 +50,10 @@ risk skills. Still open:
 - [ ] **Indeed's `title:` operator.** Indeed documents `title:(…)` for
       title-only searches, which would drop postings that only mention the
       role in passing. Check it works in the `q` parameter before using it.
-- [ ] **A summary without Claude.** The free resume has no summary; the
-      editor shows a placeholder. A factual one built from your own bullets
-      (years, field, two strongest proofs for the posting) would help.
+- [ ] **Check the ATS model against real systems.** The phrase keywords and
+      the knockout rule follow documented Taleo / Workday behaviour, not
+      measurements. If anyone can share real ATS search results or rankings
+      for a resume, compare them before tuning the weights.
 - [ ] **Free job boards are mostly remote.** Without an Adzuna key, By role
       only searches remote-only boards and Europe. Prompt for the free key on
       first use for someone with a location and hybrid/on-site in Profile.
