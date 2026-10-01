@@ -320,3 +320,15 @@ button.info-btn:hover, button.info-btn[aria-expanded='true'] { border-color: var
   --shadow: 0 1px 2px rgba(30, 60, 40, 0.05), 0 4px 16px -4px rgba(30, 60, 40, 0.1);
   --shadow-lg: 0 2px 6px rgba(30, 60, 40, 0.07), 0 24px 60px -12px rgba(30, 60, 40, 0.25);
 }
+
+/* The free fit score's breakdown (app, popup and browser card). */
+.fit-bars { display: grid; gap: 5px; margin: 10px 0 2px; }
+.fit-bar { display: grid; grid-template-columns: 118px 1fr 28px; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); }
+.fit-bar .track { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.fit-bar .track i { display: block; height: 100%; border-radius: 99px; }
+.fit-bar b { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.fit-details { margin: 2px 0 10px; }
+.fit-details summary { cursor: pointer; font-size: 13px; font-weight: 800; color: var(--sage-deep); list-style-position: inside; }
+.fit-details .fit-bars { margin-top: 8px; }
+.fit-skills { margin-top: 8px; }
+.fit-skills .chip { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }

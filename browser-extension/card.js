@@ -76,6 +76,7 @@
       ${atsLine(ats && ats.before)}
       ${quick.headline ? `<div class="headline">${esc(quick.headline)}</div>` : ''}
       ${chips(quick.matchedSkills.slice(0, 6))}
+      ${window.SproutInfo.fitDetails(quick)}
       ${dealbreakers(quick)}
       ${r.hasDocs ? '' : note('Add your resume to your library in Sprout so I can score you properly.')}
       ${ui.error ? note(esc(ui.error), 'err') : ''}
@@ -170,6 +171,7 @@
       ${atsLine(app.ats && app.ats.before, a && a.grade)}
       ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
       ${chips(a ? a.strengths.slice(0, 3) : app.quick.matchedSkills.slice(0, 6))}
+      ${window.SproutInfo.fitDetails(app.quick)}
       ${a ? '' : dealbreakers(app.quick)}
       ${errors.map((e) => note(esc(e), 'err')).join('')}
       ${footer}`;
@@ -220,6 +222,8 @@
   function mount(pop, opts) {
     pop.innerHTML = `${opts.closeButton === false ? '' : '<button class="ghost close" data-act="close" title="Close" aria-label="Close">✕</button>'}<div class="card-body"></div>`;
     const body = pop.querySelector('.card-body');
+    // Opening the score breakdown changes the card's height.
+    body.addEventListener('toggle', () => opts.onChange && opts.onChange(), true);
     let result = null;
     let ui = { work: null, done: null, error: null };
     let pollTimer = null;

@@ -746,3 +746,31 @@ test('role search title classes', () => {
   assert.ok(C.locationFits('Arlington, VA', 'DC, VA'));
   assert.ok(!C.locationFits('Austin, TX', 'Washington, DC'));
 });
+
+test('a careers page that draws its jobs with scripts is read after they run', async () => {
+  const url = 'https://www.acme.com/company/careers/all-jobs';
+  const drawn = `<html><body><div id="root">
+    <a href="/company/careers/details/19001">Senior Product Manager<span>San Francisco, CA</span></a>
+    <a href="/company/careers/details/19002">Principal Engineer<span>Remote</span></a>
+    <a href="/company/careers/details/19003">Technology Strategy Manager<span>Austin, TX</span></a></div></body></html>`;
+  const f = fakeFetch([[url, '<html><body><div id="root"></div><script src="/app.js"></script></body></html>']]);
+  // Without a renderer the page has no jobs.
+  assert.equal(await C.findBoard({ name: 'Acme', careersUrl: url }, f), null);
+  const rendered = [];
+  f.render = async (u) => (rendered.push(u), { text: u === url ? drawn : '', url: u });
+  const b = await C.findBoard({ name: 'Acme', careersUrl: url }, f);
+  assert.equal(b.ats, 'site');
+  assert.ok(b.render);
+  const jobs = await C.listJobs(b, f);
+  assert.deepEqual(jobs.map((j) => j.title), ['Senior Product Manager', 'Principal Engineer', 'Technology Strategy Manager']);
+  assert.equal(jobs[0].url, 'https://www.acme.com/company/careers/details/19001');
+  assert.ok(rendered.length >= 2);
+});
+
+test('Autodesk and Atlassian are found by name', async () => {
+  const f = fakeFetch([]);
+  const a = await C.findBoard({ name: 'Autodesk' }, f);
+  assert.deepEqual([a.ats, a.token, a.host, a.site], ['workday', 'autodesk', 'autodesk.wd1.myworkdayjobs.com', 'Ext']);
+  const b = await C.findBoard({ name: 'Atlassian' }, f);
+  assert.deepEqual([b.ats, b.token, !!b.render], ['site', 'https://www.atlassian.com/company/careers/all-jobs', true]);
+});

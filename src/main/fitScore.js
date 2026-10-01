@@ -217,9 +217,13 @@ const SKILLS = {
 // enterprise software experience, though few resumes say so. A vendor's name
 // counts where it reads as an employer (a role line with dates), not where it
 // is a tool someone used. The fit score uses it; the ATS check doesn't, since a
-// keyword search for "enterprise software" won't find "Appian".
+// keyword search for "enterprise software" (or "low-code") won't find "Appian".
+// The vendor's name followed by role dates: "Appian, 2019", "Pega | Jan 2021".
+const employerLine = (names) => new RegExp(`\\b(?:${names})(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\\.?\\s*[,|·–—-]?\\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.? )?(?:19|20)\\d{2}\\b`);
 const EMPLOYER_EVIDENCE = {
-  'Enterprise Software': /\b(?:appian|pegasystems|servicenow|salesforce|workday|oracle|sap|microsoft|adobe|atlassian|snowflake|databricks|uipath|outsystems|mendix|hubspot|zendesk|datadog|mongodb|okta|docusign|autodesk|palantir|veeva|guidewire|celonis|informatica|confluent|gitlab|twilio|intuit|vmware|splunk|elastic|unqork|blue prism|automation anywhere)(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\.?\s*[,|·–—-]?\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? )?(?:19|20)\d{2}\b/,
+  'Enterprise Software': employerLine('appian|pegasystems|servicenow|salesforce|workday|oracle|sap|microsoft|adobe|atlassian|snowflake|databricks|uipath|outsystems|mendix|hubspot|zendesk|datadog|mongodb|okta|docusign|autodesk|palantir|veeva|guidewire|celonis|informatica|confluent|gitlab|twilio|intuit|vmware|splunk|elastic|unqork|blue prism|automation anywhere'),
+  // Low-code and process-automation vendors: everyone there works on a low-code platform.
+  'Low-Code / BPM': employerLine('appian|pegasystems|pega|outsystems|mendix|unqork|uipath|blue prism|automation anywhere|nintex|quickbase|retool|bizagi|k2'),
 };
 
 // Words of soft-skill phrases ("operational excellence", "influencing senior leaders"): a resume can't show them, so they're neither requirements nor keywords.

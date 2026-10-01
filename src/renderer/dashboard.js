@@ -979,16 +979,14 @@ async function renderApplication(id) {
         .map((q) => `<li class="q-${q.status}" title="${esc(q.evidence)}"><span class="qi">${q.status === 'met' ? '✓' : q.status === 'partial' ? '½' : '·'}</span><span>${esc(q.requirement)}${q.type === 'preferred' ? ' <em class="faint">(preferred)</em>' : ''}${q.verified === false ? ' <em class="faint" title="Claude quoted something that isn\'t in your documents, so this was marked down">(unverified)</em>' : ''}</span></li>`)
         .join('')}</ul>` : ''}
       <div class="section-title">Talking points</div><ul class="tidy">${an.talking_points.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
-      <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>`
+      <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>
+      ${q.components ? `<div class="section-title">Free score breakdown <span class="faint" style="font-weight:600">(${q.score}/100)</span></div>${window.SproutInfo.fitBars(q.components)}` : ''}`
     : `<h3 style="margin-top:4px">Free fit score ${infoBtn('fit')} <span class="chip" title="How much of the posting the free scorer recognised">confidence: ${esc(q.confidence || 'medium')}</span></h3>
       ${q.headline ? `<p style="font-weight:700">${esc(q.headline)}</p>` : ''}
       ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Dealbreaker:</b> ${q.dealbreakers.map(esc).join('; ')}</div>` : ''}
       ${q.reasons && q.reasons.length ? `<ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
       ${q.concerns && q.concerns.length ? `<ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${q.components ? `<div class="mini-bars">${[['required', 'Required quals'], ['preferred', 'Preferred'], ['role', 'Role match'], ['experience', 'Experience'], ['seniority', 'Seniority'], ['domain', 'Domain']]
-        .filter(([k]) => q.components[k] !== null && q.components[k] !== undefined)
-        .map(([k, l]) => `<div class="ats-bar"><span>${l}</span><div class="track"><i style="width:${q.components[k]}%;background:${barColor(q.components[k])}"></i></div><b>${q.components[k]}</b></div>`)
-        .join('')}</div>` : ''}
+      ${window.SproutInfo.fitBars(q.components)}
       <div style="margin-top:12px">${
         analyzing
           ? '<p class="muted"><span class="spinner"></span> Claude is reading the posting closely…</p>'
@@ -1002,7 +1000,7 @@ async function renderApplication(id) {
   const skills = `<div class="section-title">Skills from the posting</div><div>
     ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
     ${(q.partialSkills || []).map((s) => `<span class="chip" title="Partly shown: a related skill, an older role or only a skills-list mention">~ ${esc(s)}</span>`).join('')}
-    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)}</span>`).join('')}
+    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
     ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Preferred">✓ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
@@ -1103,6 +1101,17 @@ async function renderApplication(id) {
   const ma = $('#markApplied', page);
   if (ma) ma.addEventListener('click', () => openApplyModal(a));
   $('#editJob', page).addEventListener('click', () => openEditJobModal(a));
+  $$('[data-have]', page).forEach((b) =>
+    b.addEventListener('click', () =>
+      run(b, async () => {
+        const bank = await S.getBank();
+        const skills = bank.skills || [];
+        if (!skills.some((x) => x.toLowerCase() === b.dataset.have.toLowerCase())) await S.updateBank({ skills: [...skills, b.dataset.have] });
+        await S.rescoreLocal(id);
+        toast(`Added ${b.dataset.have} to the skills in your bullet bank.`, 'good');
+      }, '…')
+    )
+  );
   const ask = $('#askClaude', page);
   if (ask) ask.addEventListener('click', () => run(ask, () => S.analyzeApplication(id), 'Asking Claude…'));
   const fu = $('#followUp', page);

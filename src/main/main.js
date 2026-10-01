@@ -836,6 +836,10 @@ const pickQuick = (q) => ({
   confidence: q.confidence,
   matchedSkills: (q.matchedSkills || []).slice(0, 8),
   dealbreakers: q.dealbreakers || [],
+  // For the card's breakdown.
+  components: q.components || null,
+  partialSkills: (q.partialSkills || []).slice(0, 8),
+  missingSkills: (q.missingSkills || []).slice(0, 8),
 });
 const pickAts = (a) => (a ? { score: a.score, grade: a.grade, skillsMatch: a.skillsMatch || '' } : null);
 const cardEnv = () => ({ hasDocs: evidenceDocs().length > 0, hasKey: !!getApiKey() });
@@ -1736,6 +1740,48 @@ function employerSummary(c) {
 }
 
 const netFetch = (url, opts) => net.fetch(url, opts); // Chromium's network stack honours system proxies
+
+// Careers pages that draw their jobs with JavaScript (Atlassian's) are loaded
+// in a hidden window and read once their links stop changing. One at a time,
+// in a session of its own (no cookies shared with Sprout), with nothing able
+// to open windows or download.
+const RENDER_TIMEOUT_MS = 30000;
+let renderQueue = Promise.resolve();
+function renderPage(url) {
+  const job = renderQueue.then(() => renderNow(url));
+  renderQueue = job.catch(() => {});
+  return job;
+}
+async function renderNow(url) {
+  if (!/^https?:\/\//i.test(url)) throw new Error('Not a web page');
+  const win = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    webPreferences: { partition: 'careers-render', sandbox: true, contextIsolation: true, nodeIntegration: false, images: false, backgroundThrottling: false },
+  });
+  win.webContents.setAudioMuted(true);
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  if (!renderNow.wired) (renderNow.wired = true), win.webContents.session.on('will-download', (e) => e.preventDefault());
+  const started = Date.now();
+  try {
+    await Promise.race([win.loadURL(url), new Promise((_, no) => setTimeout(() => no(new Error('The careers page took too long to load.')), RENDER_TIMEOUT_MS))]);
+    // Wait for the job list: the page's links stop changing for a couple of seconds.
+    let last = -1;
+    let stableSince = Date.now();
+    while (Date.now() - started < RENDER_TIMEOUT_MS) {
+      await new Promise((r) => setTimeout(r, 500));
+      const n = await win.webContents.executeJavaScript('document.links.length');
+      if (n !== last) (last = n), (stableSince = Date.now());
+      else if (Date.now() - stableSince >= 2000) break;
+    }
+    const text = await win.webContents.executeJavaScript('document.documentElement.outerHTML');
+    return { text, url: win.webContents.getURL() || url };
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+netFetch.render = renderPage;
 
 // Check the careers sites of watched companies (all of them, or `ids`) for
 // jobs matching your target roles, and say so when new ones appear.
