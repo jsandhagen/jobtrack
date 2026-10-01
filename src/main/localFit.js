@@ -111,6 +111,8 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     const words = lower(clean).split(/\s+/).filter(Boolean);
     if (!clean || clean.length < 2 || words.length > 4 || !/[a-z]/i.test(clean)) return;
     if (US_STATES.has(clean)) return; // "New York, NY"
+    // "…at the project lead or managerial level": how senior, not a skill.
+    if (/^levels?$/.test(words[words.length - 1])) return;
     if (/\d\s*\+?\s*(?:years?|yrs)\b/i.test(clean)) return; // "4+ years leading teams" is a years requirement
     // "regulatory expectations", "industry standards": what about them is the requirement, not the phrase.
     if (GENERIC_HEAD.test(lower(clean))) return;
@@ -207,6 +209,9 @@ const BANK_RANKS = [
   [5, /\b(?:managing director|executive director)\b/],
   [4, /(?:^|[—–]\s*|\s-\s)(?:senior )?(?:vice president|vp)\s*(?:,|-|–|—)|(?:,|-|–|—)\s*(?:senior )?(?:vice president|vp)\s*$/],
   [3, /\b(?:assistant vice president|avp)\b/],
+  // Capital One and Big 4 ladders: Associate → Senior Associate → Principal Associate → Manager.
+  [3, /\bprincipal associate\b/],
+  [2, /\bsenior associate\b/],
   [2, /^associate\s*(?:,|-|–|—)|(?:,|-|–|—)\s*associate\s*$/],
 ];
 function titleLevel(title) {
@@ -339,6 +344,12 @@ function experienceKind(line) {
   // "managing IT projects" / "leading programs" is project / program management.
   const run = phrase.match(/^(?:(it|technology|software|construction|engineering|digital|infrastructure)\s+)?(project|program)s\b/i);
   if (run && /\b(?:managing|leading|delivering|running)\s+$/.test(line.slice(0, line.indexOf(phrase)).replace(/\s+$/, ' '))) phrase = `${run[1] ? `${run[1]} ` : ''}${run[2]} management`;
+  // "…in management consulting at the managerial level or equivalent experience
+  // in corporate strategy": the equivalent is another kind that counts.
+  const equivalent = line.slice(m.index).match(/\bor (?:equivalent|comparable|similar|relevant) experience (?:in|as|with|within) ([^.;:()]+)/);
+  if (equivalent) phrase = `${phrase} or ${equivalent[1].replace(KIND_CUT, '').trim()}`;
+  // "…working in a matrixed / fast-paced environment": the setting, which any resume can claim.
+  if (/^(?:a |an )?(?:matrix(?:ed)?|fast[- ]paced|dynamic|global|complex|ambiguous|cross[- ]functional|agile|startup|high[- ]growth)\s+(?:environments?|organi[sz]ations?|settings?)?$/.test(phrase)) return null;
   // "at a top management consulting firm": the firm's kind is the experience.
   phrase = phrase.replace(/^(?:a|an|the)\s+(?:top|leading|top-tier|tier[- ]1|large|global|major)?\s*/, '');
   if (!phrase) return null;
@@ -491,6 +502,8 @@ function requirementUnits(job) {
         const pos = { index, end: index + term.length };
         // Part of a skill already found: "language models" in "large language models".
         if (index >= 0 && found.some((f) => f.skill && index >= f.index && pos.end <= f.end)) continue;
+        // The title said back ("As a Technology Innovation Analyst, you will…").
+        if (lower(term) === lower(job.title || '').trim()) continue;
         // A word that only means something with another ("methodology", "principles").
         if (/^(?:methodolog(?:y|ies)|principles?|concepts?|fundamentals|practices|frameworks?|tools?|platforms?|processes|environment|environments)$/i.test(term)) continue;
         // A claim, not a qualification: "shipping products customers love".
@@ -1050,7 +1063,10 @@ function localFitScore(job, documents, profile = {}) {
   // analysts as often as for people managers, so the years asked decide how
   // senior they are: a "Senior Manager, Product Strategy" asking for 6+ years
   // is one step up from a 7-year strategist, not two. Director and above stand.
-  const managerRank = /\bmanager\b/.test(lower(job.title || '').replace(NOT_LEVEL, ' ')) && !/\b(?:director|head of|vp|vice president|chief|principal|staff|lead|architect)\b/.test(lower(job.title || '').replace(NOT_LEVEL, ' '));
+  // So does "Lead" in strategy and operations, where it's a rank too: Google's
+  // "Product Strategy and Operations Lead" asks for 4 years or for 11.
+  const plainTitle = lower(job.title || '').replace(NOT_LEVEL, ' ');
+  const managerRank = (/\bmanager\b/.test(plainTitle) && !/\b(?:director|head of|vp|vice president|chief|principal|staff|lead|architect)\b/.test(plainTitle)) || (/\blead\b/.test(plainTitle) && /\b(?:strategy|operations|business|program|chief of staff)\b/.test(plainTitle) && !/\b(?:director|head of|vp|vice president|chief|principal|staff|architect|engineer(?:ing)?|tech(?:nical)? lead)\b/.test(plainTitle));
   const titled = titleLevel(job.title);
   const postingLevel = (titled !== null && managerRank && needYears !== null ? Math.min(titled, levelFromYears(needYears) + 1) : titled) ?? (ENTRY_TEXT.test(job.text || '') ? 1 : consultantRank);
   const docLevels = documents.filter((d) => d.kind === 'resume' || !d.kind).map((d) => d.text.split('\n').map(titleLevel).filter((l) => l !== null && l < 6)).flat();
@@ -1074,7 +1090,9 @@ function localFitScore(job, documents, profile = {}) {
     const m = String(job.text || '').match(/\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\s*\+?\s*(?:years?|yrs)\b/i);
     return m && +m[2] > +m[1] ? +m[2] : null;
   })();
-  const overByYears = rangeTop !== null && rangeTop <= 6 && haveYears !== null && haveYears >= rangeTop * 1.75 && required !== null && required >= 0.7;
+  // Or a role titled below yours that asks for a year or two ("Senior Associate,
+  // Strategy: at least one year of consulting") when you have five more.
+  const overByYears = haveYears !== null && required !== null && required >= 0.7 && ((rangeTop !== null && rangeTop <= 6 && haveYears >= rangeTop * 1.75) || (rangeTop === null && needYears !== null && needYears <= 2 && haveYears >= needYears + 5 && levelsBelow >= 1));
   const overqualified = (levelsBelow >= 2 && (role === null || role >= 0.5 || (required !== null && required >= 0.7))) || overByYears;
   // Under-qualified: recruiters screen out well short of the years asked
   // (half or less) or two levels up, whatever else matches.

@@ -61,6 +61,18 @@ risk skills. Still open:
       enterprise software experience (`Enterprise Software` in
       `fitScore.js`, only on a role line with dates). Other industries
       (banks, health systems, agencies) could work the same way.
+- [ ] **A product roadmap on a resume isn't product management.** "Shaped two
+      items on the product roadmap" counts as Product Management evidence, so a
+      strategist reads strong for Walmart's product-and-support "Technology
+      Strategy - Operational Technology" (ctoOfficeOpportunities.js). As
+      evidence, the PM skill should need owning the roadmap or the PM title.
+- [ ] **A tool named like the employer.** "Salesforce and Spiff" at Salesforce
+      reads as the company's name, not two required tools.
+- [ ] **Find jobs only searches the titles you list.** Similar-title roles show
+      at fit 70+, but only among what the title searches return, so "Senior
+      Manager, AI Enablement" or "Associate Principal, Business Operations and
+      Strategy" turn up on watched companies' boards and not from job board
+      searches. Consider suggesting adjacent titles from the resume on Profile.
 - [ ] **Title-implied skills.** `TITLE_IMPLIES` covers a handful of titles
       with partial credit. Extend carefully: each entry should be something
       everyone in that job does every day.
