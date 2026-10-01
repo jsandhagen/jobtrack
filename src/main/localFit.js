@@ -647,4 +647,4 @@ function localFitScore(job, documents, profile = {}) {
   };
 }
 
-module.exports = { localFitScore, conjunctive, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };
+module.exports = { localFitScore, conjunctive, titleSimilarity: titleMatch, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };

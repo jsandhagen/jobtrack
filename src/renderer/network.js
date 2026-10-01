@@ -1030,7 +1030,7 @@ const FEED_WINDOWS = [
   ['all', 'All open', Infinity],
 ];
 const PAGE_SIZE = 30;
-const FIND_TABS = ['jobs', 'searches', 'companies', 'discover'];
+const FIND_TABS = ['jobs', 'role', 'searches', 'companies', 'discover'];
 const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, sort: 'new', minPay: 0, limit: PAGE_SIZE };
 const BOARD_SORTS = [
   ['new', 'Newest first'],
@@ -1175,7 +1175,7 @@ document.addEventListener(
 
 // Logo on the left, what the job is in the middle, the fit preview and
 // what you can do with it on the right.
-function jobRow({ co, job }) {
+function jobRow({ co, job, match = '' }, { noHide = false } = {}) {
   const mine = inMyList(co, job);
   const hidden = isHidden(co, job);
   const isNew = job.firstSeenAt && Date.now() - Date.parse(job.firstSeenAt) < 3 * 86400000;
@@ -1184,7 +1184,7 @@ function jobRow({ co, job }) {
   const fit = f
     ? `<div class="fit-score pill meter ${blocked ? 'lo blocked' : pillClass(f.score)}" style="--s:${f.score}" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${blocked ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read."><b>${f.score}</b><small>${blocked ? 'dealbreaker' : 'fit'}</small></div>`
     : `<div class="fit-score pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}"><b>–</b><small>fit</small></div>`;
-  const chips = [isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '', knownChip(co.name)].join('');
+  const chips = [match ? `<span class="chip ${match === 'similar' ? 'lav' : 'good'} tiny" title="${esc(MATCH_LABEL[match][1])}">${MATCH_LABEL[match][0]}</span>` : '', isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '', knownChip(co.name)].join('');
   return `<div class="job-row ${hidden ? 'dim' : ''}">
     ${coLogo(co, 56)}
     <div class="grow">
@@ -1195,7 +1195,7 @@ function jobRow({ co, job }) {
     ${fit}
     <div class="job-actions">
       ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">${mine.saved === false ? `Checked · ${mine.score}` : 'In your list'}</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
-      <button class="small ghost icon-btn hideJob" data-co="${co.id}" data-job="${esc(job.id)}" title="${hidden ? 'Show it again' : 'Not for me: hide it'}" aria-label="${hidden ? 'Unhide' : 'Hide'}">${hidden ? icon('eye', 15) : '✕'}</button>
+      ${noHide ? '' : `<button class="small ghost icon-btn hideJob" data-co="${co.id}" data-job="${esc(job.id)}" title="${hidden ? 'Show it again' : 'Not for me: hide it'}" aria-label="${hidden ? 'Unhide' : 'Hide'}">${hidden ? icon('eye', 15) : '✕'}</button>`}
     </div>
   </div>`;
 }
@@ -1267,6 +1267,112 @@ function jobsTab() {
     <p class="faint board-foot">${all.length ? `The fit score on the right of each job is a free preview from its posting${withFit < all.length ? ` (${withFit} of ${all.length} have one so far${state.documents.length ? '' : '; add your resume to My library for the rest'})` : ''}; <b>Check my fit</b> gives the full read. Pay shows where the posting lists it (${withPay} of ${all.length}). ` : ''}Read from each company's own careers site: roles matching ${roles.length ? `<b>${esc(roles.join(', '))}</b>` : 'anything'}${cos.some((c) => c.keywords) ? ' and each company\'s extra titles' : ''}. I check every 6 hours and let you know when something new goes up.${unreadable ? ` <a href="#" data-find-tab="companies">${unreadable} compan${unreadable === 1 ? 'y needs' : 'ies need'} a job board link</a>.` : ''}</p>
   </div>`;
 }
+
+// ---------- search by role ----------
+
+const MATCH_LABEL = {
+  exact: ['exact title', 'The same title, whatever the order or level'],
+  title: ['title match', 'The title contains every word of the role'],
+  similar: ['similar title', 'A neighbouring title, shown because your fit is high'],
+};
+const MIN_FITS = [60, 70, 80];
+const roleSearch = { running: false, progress: null, result: null, error: '' };
+
+function roleSearchPrefs() {
+  const saved = state.settings.roleSearch || {};
+  return {
+    role: saved.role ?? (O.splitList(state.profile.targetRoles)[0] || ''),
+    place: saved.place ?? (String(state.profile.location || '').split(/[·(]/)[0].trim()),
+    remoteOnly: !!saved.remoteOnly,
+    minFit: saved.minFit || 70,
+  };
+}
+
+function roleTab() {
+  const p = roleSearchPrefs();
+  const cos = state.companies.filter((c) => c.status !== 'pass');
+  const readable = cos.filter((c) => c.board && c.board.ats && c.board.ats !== 'none').length;
+  const r = roleSearch.result;
+  const form = `<div class="card" style="margin-bottom:16px">
+      <h3 class="with-icon">${icon('search', 20)} Search one role across every job board</h3>
+      <p class="faint" style="margin-top:-4px">Reads the careers boards of all ${cos.length} compan${cos.length === 1 ? 'y' : 'ies'} on your list${readable < cos.length ? ` (${readable} with a known board; I look for up to 15 more each search)` : ''}, whatever the company. You get the exact title, titles containing it, and similar titles only when your fit is high.</p>
+      <div class="form-grid">
+        <div class="full"><label>Role</label><input id="roleQ" value="${esc(p.role)}" placeholder="Technology Strategy Consultant" autocomplete="off"></div>
+        <div><label>Location <span class="faint">(optional; remote jobs always fit)</span></label><input id="rolePlace" value="${esc(p.place)}" placeholder="Washington, DC"></div>
+        <div><label>Similar titles need a fit of</label><select id="roleMinFit">${MIN_FITS.map((v) => `<option value="${v}" ${p.minFit === v ? 'selected' : ''}>${v}+</option>`).join('')}</select></div>
+        <div class="full"><label class="check-label"><input type="checkbox" id="roleRemote" ${p.remoteOnly ? 'checked' : ''}> Remote only</label></div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center"><button class="primary" id="roleGo" ${roleSearch.running ? 'disabled' : ''}>${icon('search', 15)} Search</button>
+        <span class="faint" id="roleProgress">${roleSearch.running ? roleProgressText() : ''}</span></div>
+      ${!state.documents.length ? `<p class="note-box">Add your resume to <a href="#library">My library</a>: similar titles are only shown with a fit score, and that needs your resume.</p>` : ''}
+    </div>`;
+  if (!cos.length)
+    return `${form}<div class="card empty">${mascotSvg('curious', 72)}<h3>Add companies to search</h3><p>Role search reads the careers boards of the companies on your list. Add some, or find more in Discover.</p>
+      <button class="primary" data-find-tab="companies">+ Add companies</button> <button class="ghost" data-find-tab="discover">Discover companies</button></div>`;
+  if (roleSearch.error) return `${form}<div class="card"><p class="note-box" style="margin:0">${esc(roleSearch.error)}</p></div>`;
+  if (!r) return form;
+  const groups = ['exact', 'title', 'similar'].map((m) => [m, r.results.filter((x) => x.match === m)]);
+  const heading = { exact: 'Exact title', title: 'Titles containing the role', similar: `Similar titles with a fit of ${r.minFit}+` };
+  const rows = (list) =>
+    list
+      .map((x) => {
+        const co = state.companies.find((c) => c.id === x.company.id) || { id: x.company.id, name: x.company.name };
+        return jobRow({ co, job: { ...x.job, fit: x.fit }, match: x.match }, { noHide: true });
+      })
+      .join('');
+  const body = r.results.length
+    ? groups
+        .filter(([, list]) => list.length)
+        .map(([m, list]) => `<div class="section-title board-sec">${heading[m]} <span class="faint">${list.length}</span></div><div class="job-list">${rows(list)}</div>`)
+        .join('')
+    : `<p class="muted">No open <b>${esc(r.role)}</b> roles${r.place && !r.remoteOnly ? ` near ${esc(r.place)}` : r.remoteOnly ? ' that are remote' : ''} at the ${r.searched} compan${r.searched === 1 ? 'y' : 'ies'} I could read, and no similar titles with a fit of ${r.minFit}+. Try a broader title, a lower fit, or <a href="#" data-find-tab="discover">add more companies</a>.</p>`;
+  return `${form}<div class="card">${body}
+    <p class="faint board-foot">Searched ${r.searched} careers board${r.searched === 1 ? '' : 's'}${r.failed ? `; ${r.failed} couldn't be read this time` : ''}${r.noBoard ? `; ${r.noBoard} compan${r.noBoard === 1 ? 'y has' : 'ies have'} no board I can read yet` : ''}. ${r.scored ? 'Fit scores are the free preview from each posting.' : ''}</p></div>`;
+}
+
+function roleProgressText() {
+  const p = roleSearch.progress;
+  return `<span class="spinner"></span> ${p ? `Reading ${p.done} of ${p.total} boards…` : 'Starting…'}`;
+}
+
+function bindRoleTab() {
+  const go = $('#roleGo');
+  if (!go) return;
+  const search = () =>
+    run(go, async () => {
+      const opts = { role: $('#roleQ').value.trim(), place: $('#rolePlace').value.trim(), remoteOnly: $('#roleRemote').checked, minFit: Number($('#roleMinFit').value) || 70 };
+      if (!opts.role) return toast('Type the role to search for.', 'info');
+      Object.assign(roleSearch, { running: true, progress: null, error: '' });
+      route();
+      try {
+        const res = await S.searchRole(opts);
+        roleSearch.result = { ...res, ...opts };
+        await refreshState();
+      } catch (err) {
+        roleSearch.error = err.message;
+      } finally {
+        roleSearch.running = false;
+        route();
+      }
+    }, 'Searching…');
+  go.addEventListener('click', search);
+  $('#roleQ').addEventListener('keydown', (e) => e.key === 'Enter' && search());
+  $$('.scoreJob').forEach((b) =>
+    b.addEventListener('click', (e) =>
+      run(e.currentTarget, async () => {
+        const r = await S.scoreCareerJob(b.dataset.co, b.dataset.job);
+        await refreshState();
+        location.hash = `#application/${r.id}`;
+      }, 'Reading…')
+    )
+  );
+}
+
+S.onRoleSearchProgress((p) => {
+  roleSearch.progress = p;
+  const el = document.getElementById('roleProgress');
+  if (el && roleSearch.running) el.innerHTML = roleProgressText();
+});
 
 // Saved searches as one row of buttons above the board: one click opens each.
 function quickSearchesRow() {
@@ -1653,6 +1759,7 @@ views.find = () => {
   const standout = standoutLine();
   const line = {
     jobs: standout || 'Open roles at the companies you watch, newest first. Check your fit with one click.',
+    role: 'One role, every job board: exact titles first, then similar titles you fit well.',
     searches: 'One-click searches for fresh postings on LinkedIn and the startup job boards.',
     companies: "The companies you're keeping an eye on. I read their careers sites for you.",
     discover: 'Find companies you would like to work for, by how their employees rate them, their industry, size and where they are.',
@@ -1660,8 +1767,8 @@ views.find = () => {
   const tab = (k, label, n) => `<button class="${findTab === k ? 'on' : ''}" data-find-tab="${k}">${label}${n ? ` <span class="faint">${n}</span>` : ''}</button>`;
   return `<div class="page">
     ${pageHead('Find jobs', findTab === 'jobs' && standout ? 'thrilled' : 'curious', line)}
-    <div class="tabs find-tabs">${tab('jobs', `${icon('news', 17)} Jobs`, jobsN)}${tab('searches', `${icon('search', 17)} Searches`, searchesN)}${tab('companies', `${icon('home', 17)} Companies`, cosN)}${tab('discover', `${icon('sparkle', 17)} Discover`, discoverN)}</div>
-    ${findTab === 'jobs' ? `${quickSearchesRow()}${jobsTab()}` : findTab === 'searches' ? searchesTab() : findTab === 'discover' ? discoverTab() : companiesTab()}
+    <div class="tabs find-tabs">${tab('jobs', `${icon('news', 17)} Jobs`, jobsN)}${tab('role', `${icon('search', 17)} By role`, roleSearch.result ? roleSearch.result.results.length : 0)}${tab('searches', `${icon('search', 17)} Searches`, searchesN)}${tab('companies', `${icon('home', 17)} Companies`, cosN)}${tab('discover', `${icon('sparkle', 17)} Discover`, discoverN)}</div>
+    ${findTab === 'jobs' ? `${quickSearchesRow()}${jobsTab()}` : findTab === 'role' ? roleTab() : findTab === 'searches' ? searchesTab() : findTab === 'discover' ? discoverTab() : companiesTab()}
   </div>`;
 };
 
@@ -1677,6 +1784,7 @@ binders.find = () => {
     })
   );
   if (findTab === 'jobs') bindJobsTab();
+  if (findTab === 'role') bindRoleTab();
   if (findTab === 'searches') bindSearchesTab();
   if (findTab === 'companies') bindCompaniesTab();
   if (findTab === 'discover') bindDiscoverTab();

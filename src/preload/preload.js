@@ -61,6 +61,8 @@ contextBridge.exposeInMainWorld('sprout', {
   checkCareers: (ids) => call('careers:check', ids),
   careersNotThem: (id) => call('careers:notThem', id),
   scoreCareerJob: (companyId, jobId) => call('careers:score', companyId, jobId),
+  searchRole: (opts) => call('careers:searchRole', opts),
+  onRoleSearchProgress: (cb) => on('role-search-progress', cb),
   saveFinderPrefs: (prefs) => call('finder:prefs', prefs),
   runFinder: (opts) => call('finder:run', opts),
   dismissFinder: (name, undo) => call('finder:dismiss', name, undo),

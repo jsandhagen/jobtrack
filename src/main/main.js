@@ -1328,15 +1328,21 @@ function registerIpc() {
   });
   // Careers sites of the companies you watch.
   handle('careers:check', (ids) => checkCareers(ids, { manual: true }));
+  handle('careers:searchRole', (opts) => searchRole(opts || {}));
   handle('careers:notThem', (id) => {
     store.saveItem('companies', { id, board: { ats: 'none' }, seen: null, jobs: [], openCount: 0, checkError: 'no-board' });
     return true;
   });
   handle('careers:score', async (companyId, jobId) => {
     const co = store.list('companies').find((c) => c.id === companyId);
-    const job = co && (co.jobs || []).find((j) => j.id === jobId);
-    if (!job || !co.board) throw new Error('That job is no longer in the list. Check the company again?');
-    const text = await careers.jobDetail(co.board, job, netFetch).catch(() => '');
+    let job = co && (co.jobs || []).find((j) => j.id === jobId);
+    let board = co && co.board;
+    let known = '';
+    // A job from the last search by role isn't on the company's saved list.
+    const found = !job && lastRoleSearch.get(`${companyId}|${jobId}`);
+    if (found) ({ job, board, text: known } = found);
+    if (!job || !board) throw new Error('That job is no longer in the list. Check the company again?');
+    const text = known || (await careers.jobDetail(board, job, netFetch).catch(() => ''));
     if (!text || text.length < 80) throw new Error("I couldn't read that posting's description. Open it and copy the text instead.");
     const header = [job.title, co.name, job.location].filter(Boolean).join('\n');
     const rec = await handlePosting({ title: job.title, company: co.name, location: job.location, url: job.url, text: `${header}\n\n${text}`, via: 'careers' }, { fromDashboard: true });
@@ -1678,6 +1684,48 @@ const netFetch = (url, opts) => net.fetch(url, opts); // Chromium's network stac
 // Check the careers sites of watched companies (all of them, or `ids`) for
 // jobs matching your target roles, and say so when new ones appear.
 let careersChecking = false;
+// Search every company's careers board for one role, regardless of company:
+// exact titles, titles containing the role, and similar titles with a high
+// fit. Results stay in memory (for Check my fit) until the next search.
+let lastRoleSearch = new Map();
+let roleSearching = false;
+async function searchRole({ role, place = '', remoteOnly = false, minFit = 70 }) {
+  if (roleSearching) throw new Error('Already searching. Give me a moment.');
+  roleSearching = true;
+  try {
+    const docs = scoringDocuments();
+    const profile = store.getProfile();
+    const scoreJob = docs.length
+      ? (job) => {
+          const q = localFitScore(cleanPosting(job), docs, profile);
+          return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2) };
+        }
+      : null;
+    const r = await careers.searchRole(store.list('companies'), {
+      role,
+      place,
+      remoteOnly,
+      minFit: Number(minFit) || 70,
+      fetchImpl: netFetch,
+      scoreJob,
+      onProgress: (p) => broadcast('role-search-progress', p),
+    });
+    // Boards found along the way are worth keeping.
+    for (const [id, board] of Object.entries(r.boards)) store.saveItem('companies', { id, board });
+    lastRoleSearch = new Map(r.results.map((x) => [`${x.company.id}|${x.job.id}`, x]));
+    store.updateSettings({ roleSearch: { role, place, remoteOnly, minFit: Number(minFit) || 70 } });
+    return {
+      results: r.results.map(({ board, text, ...x }) => x),
+      searched: r.searched,
+      failed: r.failed.length,
+      noBoard: r.noBoard,
+      scored: !!scoreJob,
+    };
+  } finally {
+    roleSearching = false;
+  }
+}
+
 async function checkCareers(ids, { manual = false } = {}) {
   if (careersChecking) {
     if (manual) throw new Error('Already checking. Give me a moment.');

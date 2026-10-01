@@ -1083,6 +1083,8 @@ const SAME = {
   backend: 'back end',
   fullstack: 'full stack',
   internship: 'intern',
+  tech: 'technology',
+  it: 'technology',
 };
 const JUNIOR_TRACK = /\b(intern|internship|co-?op|apprentice(ship)?)\b/i;
 
@@ -1346,4 +1348,113 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
   return { patch, fresh, firstLook: !company.seen };
 }
 
-module.exports = { ATS_LABEL, siteJobs, listingLinks, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, phenomFromPage, scriptObject, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };
+// ---------------- searching one role across every board ----------------
+
+// How a job's title relates to the role searched for:
+//   exact   the same title words, whatever the order, punctuation or level
+//           ("Senior Consultant, Technology Strategy" for "Technology Strategy Consultant")
+//   title   every word of the role, close together ("…, Technology Strategy & Transformation")
+//   similar a neighbouring title ("Digital Strategy Consultant", "IT Strategy Analyst"):
+//           kept only when the fit score says it's a strong match
+function classifyTitle(title, role) {
+  const t = words(title);
+  const r = words(role);
+  if (!t.length || !r.length) return null;
+  if (JUNIOR_TRACK.test(String(title)) && !JUNIOR_TRACK.test(String(role))) return null;
+  const ts = new Set(t);
+  const rs = new Set(r);
+  if (ts.size === rs.size && [...rs].every((w) => ts.has(w))) return { match: 'exact', similarity: 1 };
+  if (phraseIn(t, r)) return { match: 'title', similarity: 0.95 };
+  const { titleSimilarity } = require('./localFit');
+  const similarity = titleSimilarity(role, title);
+  return similarity >= 0.5 ? { match: 'similar', similarity } : null;
+}
+
+const US_STATE = /^(?:al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|dc)$/;
+// Does a job's location fit "Washington, DC" / "remote"? Remote jobs fit any
+// place; with remoteOnly, only they do.
+function locationFits(jobLocation, place, remoteOnly) {
+  const loc = String(jobLocation || '').toLowerCase();
+  const remote = /\b(?:remote|anywhere|work from home|virtual)\b/.test(loc);
+  if (remoteOnly) return remote;
+  if (!String(place || '').trim()) return true;
+  if (remote) return true;
+  const parts = String(place).toLowerCase().split(/[,/;·]|\s+or\s+/).map((s) => s.trim()).filter(Boolean);
+  return parts.some((p) => (US_STATE.test(p) ? new RegExp(`(?:^|[,\\s])${p}(?:$|[,\\s])`).test(loc) : loc.includes(p)));
+}
+
+const ROLE_POOL = 4; // boards read at once
+const ROLE_DETAIL_BUDGET = 40; // descriptions read per search to score similar titles
+const ROLE_FIND_BUDGET = 15; // companies without a known board looked up per search
+
+/**
+ * Search every company's board for one role, regardless of company.
+ * @param {object[]} companies  the Companies list
+ * @param {{role:string, place?:string, remoteOnly?:boolean, minFit?:number, fetchImpl:Function,
+ *          scoreJob?:Function, onProgress?:Function}} opts
+ * @returns {Promise<{results:object[], boards:object, searched:number, failed:object[], noBoard:number}>}
+ *   results: { company, job, match, similarity, fit, text? }, exact titles first, then title
+ *   matches, then similar titles with a high fit. `boards` holds boards found on the way (to save).
+ */
+async function searchRole(companies, { role, place = '', remoteOnly = false, minFit = 70, fetchImpl, scoreJob = null, onProgress = () => {} } = {}) {
+  role = String(role || '').trim();
+  if (!role) throw new Error('Type the role to search for.');
+  const known = companies.filter((c) => c.status !== 'pass' && c.board && c.board.ats && c.board.ats !== 'none');
+  const unknown = companies.filter((c) => c.status !== 'pass' && !c.board && c.checkError !== 'no-board').slice(0, ROLE_FIND_BUDGET);
+  const todo = [...known, ...unknown];
+  const boards = {};
+  const failed = [];
+  const candidates = [];
+  let done = 0;
+  const terms = [...new Set([role, words(role).join(' ')])];
+
+  const one = async (co) => {
+    try {
+      let b = co.board && co.board.ats !== 'none' ? co.board : await findBoard(co, fetchImpl);
+      if (!b) return;
+      if (!co.board) boards[co.id] = b;
+      const jobs = await listJobs(b, fetchImpl, { searchTerms: SEARCHED.has(b.ats) ? terms : [] });
+      for (const j of jobs) {
+        const c = classifyTitle(j.title, role);
+        if (c && locationFits(j.location, place, remoteOnly)) candidates.push({ company: co, board: b, job: j, ...c });
+      }
+    } catch (err) {
+      failed.push({ company: co.name, error: err.name === 'TimeoutError' ? 'timed out' : err.message });
+    } finally {
+      onProgress({ done: ++done, total: todo.length, company: co.name });
+    }
+  };
+  const queue = [...todo];
+  await Promise.all(Array.from({ length: Math.min(ROLE_POOL, queue.length) }, async () => {
+    while (queue.length) await one(queue.shift());
+  }));
+
+  // Fit for each candidate: from the listed description, or read it (similar
+  // titles first, since they're only kept with a high fit).
+  const rank = { exact: 0, title: 1, similar: 2 };
+  candidates.sort((a, b) => (b.match === 'similar') - (a.match === 'similar') || b.similarity - a.similarity);
+  let budget = ROLE_DETAIL_BUDGET;
+  for (const c of candidates) {
+    let text = c.job.text || '';
+    if (!text && scoreJob && budget > 0) {
+      budget--;
+      text = await jobDetail(c.board, c.job, fetchImpl).catch(() => '');
+    }
+    c.text = text;
+    if (scoreJob && text && text.length >= 80) {
+      try {
+        c.fit = scoreJob({ title: c.job.title, company: c.company.name, location: c.job.location, text }) || null;
+      } catch {
+        c.fit = null;
+      }
+    }
+    if (!c.job.pay && text) c.job.pay = payFromText(text) || undefined;
+  }
+  const results = candidates
+    .filter((c) => c.match !== 'similar' || (c.fit && c.fit.score >= minFit && !(c.fit.dealbreakers || []).length))
+    .sort((a, b) => rank[a.match] - rank[b.match] || ((b.fit && b.fit.score) || 0) - ((a.fit && a.fit.score) || 0) || String(b.job.postedAt || '').localeCompare(String(a.job.postedAt || '')))
+    .map(({ company, board: b, job: { text: _t, ...job }, match, similarity, fit, text }) => ({ company: { id: company.id, name: company.name }, board: b, job, match, similarity, fit: fit || null, text }));
+  return { results, boards, searched: done, failed, noBoard: todo.length - done + companies.filter((c) => c.checkError === 'no-board').length };
+}
+
+module.exports = { ATS_LABEL, searchRole, classifyTitle, locationFits, siteJobs, listingLinks, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, phenomFromPage, scriptObject, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };

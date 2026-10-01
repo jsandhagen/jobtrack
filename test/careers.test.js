@@ -669,3 +669,61 @@ test('a careers page whose jobs are an ATS a click away is read through that ATS
   assert.equal(f.calls.find((c) => /careers\/list/.test(c.url)).opts.headers['X-Requested-With'], 'XMLHttpRequest');
   assert.equal(r.patch.jobs.length, 1);
 });
+
+test('search by role: exact and containing titles from every board, similar titles only with a high fit', async () => {
+  const { localFitScore } = require('../src/main/localFit');
+  const { POSTINGS, RESUMES } = require('./fixtures/techPostings');
+  const strategy = POSTINGS.techStrategySenior.text;
+  const engineering = POSTINGS.backendEngineer.text;
+  const gh = (id, title, location, text) => ({ id, title, location: { name: location }, absolute_url: `https://job-boards.greenhouse.io/x/jobs/${id}`, first_published: daysAgo(id), content: text });
+  const f = fakeFetch([
+    ['https://boards-api.greenhouse.io/v1/boards/alpha/jobs?content=true', { jobs: [
+      gh(1, 'Senior Consultant, Technology Strategy', 'Washington, DC', strategy),
+      gh(2, 'Digital Strategy Consultant', 'Arlington, VA', strategy),
+      gh(3, 'Software Engineer', 'Washington, DC', engineering),
+      gh(4, 'Technology Strategy Intern', 'Washington, DC', strategy),
+    ] }],
+    ['https://boards-api.greenhouse.io/v1/boards/beta/jobs?content=true', { jobs: [
+      gh(5, 'IT Strategy Analyst', 'Washington, DC', engineering),
+      gh(6, 'Technology Strategy Consultant', 'Austin, TX', strategy),
+      gh(7, 'Cloud Strategy Advisor', 'Remote - US', strategy),
+    ] }],
+  ]);
+  const companies = [
+    { id: 'a', name: 'Alpha', board: C.detectBoard('https://boards.greenhouse.io/alpha') },
+    { id: 'b', name: 'Beta', board: C.detectBoard('https://boards.greenhouse.io/beta') },
+    { id: 'c', name: 'Gamma Pass', status: 'pass', board: C.detectBoard('https://boards.greenhouse.io/gamma') },
+  ];
+  const docs = [{ kind: 'resume', text: RESUMES.techStrategyConsultant }];
+  const scoreJob = (job) => {
+    const q = localFitScore(job, docs);
+    return { score: q.score, label: q.label, dealbreakers: q.dealbreakers };
+  };
+  const progress = [];
+  const r = await C.searchRole(companies, { role: 'Technology Strategy Consultant', place: 'Washington, DC, VA', minFit: 70, fetchImpl: f, scoreJob, onProgress: (p) => progress.push(p.done) });
+  const got = r.results.map((x) => [x.company.name, x.job.title, x.match]);
+  assert.deepEqual(got.slice(0, 1), [['Alpha', 'Senior Consultant, Technology Strategy', 'exact']]);
+  assert.deepEqual(got.slice(1).sort(), [['Alpha', 'Digital Strategy Consultant', 'similar'], ['Beta', 'Cloud Strategy Advisor', 'similar']].sort());
+  // Not: software engineer (unrelated), the internship, Austin (wrong place),
+  // the IT strategy analyst whose posting is engineering work (low fit), a passed company.
+  assert.ok(r.results.every((x) => x.match !== 'similar' || x.fit.score >= 70));
+  assert.equal(r.searched, 2);
+  assert.deepEqual(progress, [1, 2]);
+  // Remote only keeps just the remote role.
+  const remote = await C.searchRole(companies, { role: 'Technology Strategy Consultant', remoteOnly: true, fetchImpl: f, scoreJob });
+  assert.deepEqual(remote.results.map((x) => x.job.title), ['Cloud Strategy Advisor']);
+});
+
+test('role search title classes', () => {
+  const role = 'Technology Strategy Consultant';
+  const m = (t) => (C.classifyTitle(t, role) || {}).match || null;
+  assert.equal(m('Consultant, Tech Strategy'), 'exact');
+  assert.equal(m('IT Strategy Consultant'), 'exact');
+  assert.equal(m('Senior Consultant, Technology Strategy & Transformation'), 'title');
+  assert.equal(m('Digital Strategy Consultant'), 'similar');
+  assert.equal(m('Software Engineer'), null);
+  assert.equal(m('Technology Strategy Intern'), null);
+  assert.ok(C.locationFits('Remote - US', 'Washington, DC'));
+  assert.ok(C.locationFits('Arlington, VA', 'DC, VA'));
+  assert.ok(!C.locationFits('Austin, TX', 'Washington, DC'));
+});
