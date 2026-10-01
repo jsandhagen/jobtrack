@@ -526,16 +526,13 @@ const views = {
 
   applications() {
     const all = state.applications;
-    const q = appSearch.toLowerCase();
-    let apps = all.filter(FILTERS.find(([k]) => k === appFilter)[2]).filter((a) => !q || `${a.job.title} ${a.job.company}`.toLowerCase().includes(q));
-    if (appSort === 'fit') apps = [...apps].sort((x, y) => y.score - x.score);
-    if (appSort === 'applied') apps = [...apps].sort((x, y) => (y.appliedAt || '').localeCompare(x.appliedAt || ''));
+    const apps = shownApps();
     return `<div class="page">
       ${pageHead('Applications', applicationsMood(all), applicationsLine(all), `<button class="soft" id="csvBtn">${icon('download')} Export CSV</button><button class="primary" data-go="check">+ Check a job</button>`)}
       <div class="tabs">${FILTERS.map(([k, label, fn]) => `<button class="${appFilter === k ? 'on' : ''}" data-filter="${k}">${label} <span class="faint">${all.filter(fn).length}</span></button>`).join('')}</div>
       <div class="inline" style="margin-bottom:12px"><input id="appSearch" data-live placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
         <select id="appSort" style="width:190px"><option value="recent">Newest first</option><option value="fit" ${appSort === 'fit' ? 'selected' : ''}>Best fit first</option><option value="applied" ${appSort === 'applied' ? 'selected' : ''}>Recently applied</option></select></div>
-      ${apps.length ? `<div class="list">${apps.map(appRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>${all.length ? 'No roles match this filter.' : 'Your checked roles will show up here.'}</p></div>`}
+      ${apps.length ? `${bulkBar(apps)}<div class="list">${apps.map((a) => appRow(a, true)).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>${all.length ? 'No roles match this filter.' : 'Your checked roles will show up here.'}</p></div>`}
     </div>`;
   },
 
@@ -714,14 +711,116 @@ function usageSummary() {
     <p class="faint" style="margin-top:6px">fit reads ${k.fit || 0} · screen reads ${k.screen || 0} · resumes ${k.resume || 0} · cover letters ${k.letter || 0}. Costs are estimates from token counts.</p>`;
 }
 
-function appRow(a) {
+// The Applications page's list, as filtered, searched and sorted.
+function shownApps() {
+  const q = appSearch.toLowerCase();
+  let apps = state.applications.filter(FILTERS.find(([k]) => k === appFilter)[2]).filter((a) => !q || `${a.job.title} ${a.job.company}`.toLowerCase().includes(q));
+  if (appSort === 'fit') apps = [...apps].sort((x, y) => y.score - x.score);
+  if (appSort === 'applied') apps = [...apps].sort((x, y) => (y.appliedAt || '').localeCompare(x.appliedAt || ''));
+  return apps;
+}
+
+// Above the list: pick all, and what to do with the picked ones.
+function bulkBar(apps) {
+  const ids = new Set(state.applications.map((a) => a.id));
+  for (const id of picked) if (!ids.has(id)) picked.delete(id); // deleted elsewhere
+  const n = apps.filter((a) => picked.has(a.id)).length;
+  const all = n === apps.length;
+  return `<div class="bulk-bar${n ? ' on' : ''}"><label class="bulk-all"><input type="checkbox" id="pickAll" ${all ? 'checked' : ''}> ${n ? `<b>${n} selected</b>` : 'Select all'}</label>
+    ${n ? `<button class="soft small" id="bulkRescore">${icon('refresh', 15)} Refresh scores</button>
+      <select id="bulkStatus" class="small-select" style="width:auto"><option value="">Move to…</option>${STATUSES.filter((st) => st !== 'applied').map((st) => `<option value="${st}">${STATUS_LABEL[st]}</option>`).join('')}</select>
+      <button class="ghost danger small" id="bulkDelete">Delete</button><button class="ghost small" id="bulkClear">Clear</button>`
+    : `<button class="ghost small" id="rescoreAll" title="Recompute every score shown, against your profile and library as they are now">${icon('refresh', 15)} Refresh all scores</button>`}</div>`;
+}
+
+// `manage` (the Applications page): a checkbox to pick it for actions on
+// several at once, and a ⋯ menu to refresh its score, move it or delete it.
+function appRow(a, manage = false) {
   const meta = [a.job.company, a.appliedAt ? `applied ${fmtDate(a.appliedAt)}` : `found ${timeAgo(a.createdAt)}`].filter(Boolean).join(' · ');
-  return `<div class="row-item" data-app="${a.id}"><div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}" style="--s:${a.score}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
+  const busy = a.rescoring || rescoring.has(a.id);
+  return `<div class="row-item${manage && picked.has(a.id) ? ' picked' : ''}" data-app="${a.id}">${
+    manage ? `<input type="checkbox" class="pickApp" data-id="${a.id}" ${picked.has(a.id) ? 'checked' : ''} aria-label="Select ${esc(a.job.title)}" title="Select">` : ''
+  }<div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}${busy ? ' busy' : ''}" style="--s:${a.score}" title="${busy ? 'Refreshing the score…' : a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${busy ? '<span class="spinner"></span>' : a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     ${followUpDue(a) ? `<span class="chip due">${icon('clock', 14)} follow up</span>` : ''}
     ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
     ${a.hasResume || a.hasLetter ? `<span class="chip ic-only good" title="${[a.hasResume && 'Tailored resume', a.hasLetter && 'cover letter'].filter(Boolean).join(' + ')}">${a.hasResume ? icon('doc', 15) : ''}${a.hasLetter ? icon('letter', 15) : ''}</span>` : ''}
-    <span class="status ${a.status}">${esc(STATUS_LABEL[a.status] || a.status)}</span></div>`;
+    <span class="status ${a.status}">${esc(STATUS_LABEL[a.status] || a.status)}</span>${manage ? appMenu(a) : ''}</div>`;
+}
+
+function appMenu(a) {
+  const archived = ['rejected', 'skipped', 'closed'].includes(a.status);
+  return `<details class="more-menu row-menu"><summary class="ghost small" title="More actions" aria-label="More actions">⋯</summary><div class="more-list">
+    <button class="ghost rowAct" data-act="rescore" data-id="${a.id}">${icon('refresh', 15)} Refresh score${a.scoreSource === 'claude' && state.hasApiKey ? ' with Claude' : ''}</button>
+    ${a.url ? `<button class="ghost rowAct" data-act="link" data-id="${a.id}">${icon('link', 15)} Open the posting</button>` : ''}
+    <label class="row-menu-status">${icon('send', 15)} Status <select class="rowStatus small-select" data-id="${a.id}">${STATUSES.map((st) => `<option value="${st}" ${st === a.status ? 'selected' : ''}>${STATUS_LABEL[st]}</option>`).join('')}</select></label>
+    ${archived ? '' : `<button class="ghost rowAct" data-act="archive" data-id="${a.id}">${icon('folder', 15)} Archive (skipped)</button>`}
+    <button class="ghost danger rowAct" data-act="delete" data-id="${a.id}">Delete</button>
+  </div></details>`;
+}
+
+// A click anywhere else closes an open ⋯ menu.
+document.addEventListener('click', (e) => $$('.row-menu[open]').forEach((d) => !d.contains(e.target) && (d.open = false)));
+
+// Picked rows on the Applications page, and rows whose score is being refreshed.
+const picked = new Set();
+const rescoring = new Set();
+
+// A fresh score: Claude's again when Claude scored it (and Claude is connected),
+// otherwise the free score, recomputed against your profile and library as they are now.
+async function rescoreApp(a) {
+  rescoring.add(a.id);
+  try {
+    if (a.scoreSource === 'claude' && state.hasApiKey) await S.analyzeApplication(a.id);
+    else await S.rescoreLocal(a.id);
+  } finally {
+    rescoring.delete(a.id);
+  }
+}
+
+async function rescoreApps(apps) {
+  if (!apps.length) return;
+  const claudeCalls = apps.filter((a) => a.scoreSource === 'claude' && state.hasApiKey).length;
+  if (claudeCalls > 1 && !(await askConfirm(`Refresh ${apps.length} scores? ${claudeCalls} of them were scored by Claude, so that's ${claudeCalls} Claude calls.`, 'Refresh'))) return;
+  const before = new Map(apps.map((a) => [a.id, a.score]));
+  apps.forEach((a) => rescoring.add(a.id));
+  routeWhenFree();
+  let failed = 0;
+  for (const a of apps) {
+    try {
+      await rescoreApp(a);
+    } catch {
+      failed++;
+    }
+  }
+  apps.forEach((a) => rescoring.delete(a.id));
+  await refreshState();
+  routeWhenFree();
+  const now = (id) => (state.applications.find((x) => x.id === id) || {}).score;
+  const changed = apps.filter((a) => now(a.id) !== undefined && now(a.id) !== before.get(a.id)).length;
+  if (failed) toast(`Refreshed ${apps.length - failed} of ${apps.length}. ${failed} couldn't be scored; open them to see why.`, 'error', 6000);
+  else if (apps.length === 1) toast(changed ? `Score updated: ${before.get(apps[0].id)} → ${now(apps[0].id)}.` : 'Score is up to date.', 'good');
+  else toast(changed ? `Refreshed ${apps.length} scores; ${changed} changed.` : `Refreshed ${apps.length} scores. Nothing changed.`, 'good');
+}
+
+async function deleteApps(ids) {
+  if (!ids.length) return;
+  const one = ids.length === 1 && state.applications.find((a) => a.id === ids[0]);
+  const msg = one ? `Delete “${one.job.title}”${one.job.company ? ` at ${one.job.company}` : ''}? Its resume and cover letter go too. This can't be undone.` : `Delete ${ids.length} applications? Their resumes and cover letters go too. This can't be undone.`;
+  if (!(await askConfirm(msg, 'Delete'))) return;
+  for (const id of ids) {
+    await S.removeApplication(id);
+    picked.delete(id);
+  }
+  toast(ids.length === 1 ? 'Deleted.' : `Deleted ${ids.length} applications.`, 'good');
+}
+
+async function setAppsStatus(ids, status) {
+  for (const id of ids) {
+    await S.updateApplication(id, { status });
+    picked.delete(id);
+  }
+  toast(ids.length === 1 ? `Moved to ${STATUS_LABEL[status]}.` : `Moved ${ids.length} to ${STATUS_LABEL[status]}.`, 'good');
 }
 
 // A job you checked but haven't saved: open it, or keep it.
@@ -730,6 +829,56 @@ function checkedRow(a) {
   return `<div class="row-item" data-app="${a.id}"><div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}" style="--s:${a.score}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     <button class="small soft saveChecked" data-id="${a.id}">Save</button></div>`;
+}
+
+// The Applications list's checkboxes, ⋯ menus and the bar above it.
+function bindAppActions() {
+  const apps = shownApps();
+  const byId = (id) => state.applications.find((a) => a.id === id);
+  const pickedApps = () => apps.filter((a) => picked.has(a.id));
+  // Clicks inside these stay off the row (which opens the application).
+  $$('.pickApp, .row-menu').forEach((el) => el.addEventListener('click', (e) => e.stopPropagation()));
+  $$('.pickApp').forEach((b) => b.addEventListener('change', () => (b.checked ? picked.add(b.dataset.id) : picked.delete(b.dataset.id), route())));
+  const pickAll = $('#pickAll');
+  if (pickAll) pickAll.addEventListener('change', () => (apps.forEach((a) => (pickAll.checked ? picked.add(a.id) : picked.delete(a.id))), route()));
+  $$('.row-menu').forEach((d) => d.addEventListener('toggle', () => d.open && $$('.row-menu').forEach((o) => o !== d && (o.open = false))));
+  $$('.rowAct').forEach((b) =>
+    b.addEventListener('click', () => {
+      b.closest('details').open = false;
+      const a = byId(b.dataset.id);
+      if (!a) return;
+      const act = b.dataset.act;
+      if (act === 'rescore') run(null, () => rescoreApps([a]));
+      else if (act === 'link') S.openExternal(a.url);
+      else if (act === 'archive') run(null, () => setAppsStatus([a.id], 'skipped'));
+      else if (act === 'delete') run(null, () => deleteApps([a.id]));
+    }),
+  );
+  $$('.rowStatus').forEach((sel) =>
+    sel.addEventListener('change', () =>
+      run(null, async () => {
+        sel.closest('details').open = false;
+        // Applying gets its own questions (when, where, what you sent).
+        if (sel.value === 'applied') {
+          const full = await S.getApplication(sel.dataset.id);
+          if (full && !full.appliedAt) return openApplyModal(full);
+        }
+        await setAppsStatus([sel.dataset.id], sel.value);
+      }),
+    ),
+  );
+  const on = (id, fn) => {
+    const el = $('#' + id);
+    if (el) el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'click', fn);
+  };
+  on('rescoreAll', (e) => run(e.currentTarget, () => rescoreApps(apps), 'Refreshing…'));
+  on('bulkRescore', (e) => run(e.currentTarget, () => rescoreApps(pickedApps()), 'Refreshing…'));
+  on('bulkDelete', () => run(null, () => deleteApps(pickedApps().map((a) => a.id))));
+  on('bulkClear', () => (picked.clear(), route()));
+  on('bulkStatus', (e) => {
+    const st = e.target.value;
+    if (st) run(null, () => setAppsStatus(pickedApps().map((a) => a.id), st));
+  });
 }
 
 function viaLabel(via) {
@@ -1228,6 +1377,7 @@ const binders = {
     });
     $('#appSort').addEventListener('change', (e) => ((appSort = e.target.value), route()));
     $('#csvBtn').addEventListener('click', (e) => run(e.currentTarget, async () => (await S.exportCsv()) && toast('Exported.', 'good'), 'Exporting…'));
+    bindAppActions();
   },
   library() {
     const drop = $('#drop');

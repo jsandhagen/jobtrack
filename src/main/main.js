@@ -2004,6 +2004,7 @@ function summarizeApp(a) {
     score: a.analysis ? a.analysis.score : a.quick.score,
     label: a.analysis ? a.analysis.label : a.quick.label,
     scoreSource: a.analysis ? 'claude' : 'free',
+    rescoring: a.analysisStatus === 'working',
     confidence: a.quick.confidence || null,
     dealbreaker: !!(a.quick.dealbreakers && a.quick.dealbreakers.length),
     appliedAt: a.appliedAt || null,
