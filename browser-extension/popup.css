@@ -1,10 +1,14 @@
-/* Toolbar popup. The card itself is card.css on top of vendor/theme.css. */
-body { width: 380px; margin: 0; }
+/* Toolbar popup. The card itself is card.css on top of vendor/theme.css.
+   Chrome cuts a popup off at 600px tall, so the popup is a column that never
+   grows past that: the header and settings stay put, the middle scrolls. */
+html, body { height: auto; max-height: 600px; overflow: hidden; }
+body { width: 380px; margin: 0; display: flex; flex-direction: column; }
+header, .update, footer { flex: none; }
 header { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
 header b { display: block; font-size: 15px; line-height: 1.2; color: var(--sage-deep); }
 header small { color: var(--ink-soft); font-weight: 700; font-size: 12px; }
-main { background: var(--surface); }
-.in-popup .pop { max-height: 520px; }
+main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--surface); }
+.in-popup .pop { overflow: visible; }
 .intro { padding: 16px; text-align: center; }
 .intro .sprout { display: block; margin: 0 auto 6px; }
 .intro h3 { font-size: 15px; margin: 0 0 6px; }

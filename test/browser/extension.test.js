@@ -267,6 +267,7 @@ test('Phenom careers sites (careers.freddiemac.com and the like): reads the job 
   // Data left over from another job (moved on without a reload) isn't used.
   await p.evaluate(() => (document.querySelector('h1').textContent = 'Data Engineer'));
   await p.evaluate(() => (document.title = 'Data Engineer | Contoso Careers'));
+  await p.evaluate(() => history.pushState({}, '', '/us/en/job/JR456/Data-Engineer'));
   await p.addScriptTag({ path: path.join(EXT_DIR, 'extract.js') });
   const stale = await p.evaluate(() => globalThis.sproutExtract());
   assert.ok(!stale.isPosting || stale.title !== 'Chief of Staff');
