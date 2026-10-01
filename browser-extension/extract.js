@@ -25,6 +25,7 @@
     /\bequal (opportunity|employment)\b/i,
     /\bremote\b|\bhybrid\b|\bon[-\s]site\b/i,
     /\bpreferred\b|\bnice to have\b/i,
+    /\b(position|role|job) (overview|summary|purpose)\b|\byour (impact|work team)\b|\bkeys? to success\b/i,
   ];
 
   // Lines that are a button's label, not the posting ("Show more", "Apply now").
@@ -170,11 +171,9 @@
             } else if (c === '"' || c === "'") quote = c;
             else if (c === '{') depth++;
             else if (c === '}' && --depth === 0) {
-              try {
-                return JSON.parse(text.slice(start, i + 1));
-              } catch {
-                break;
-              }
+              const obj = parseLoose(text.slice(start, i + 1));
+              if (obj) return obj;
+              break;
             }
           }
         }
@@ -187,18 +186,29 @@
   function fromPageData() {
     const ddo = scriptObject('phApp.ddo');
     const job = ddo && ddo.jobDetail && ddo.jobDetail.data && ddo.jobDetail.data.job;
-    if (!job || !job.description || !job.title) return null;
+    if (!job || !job.title) return null;
+    // Titles come entity-escaped sometimes ("Risk &amp; Controls").
+    const title = htmlToText(job.title);
     // Moving between jobs without a reload can leave the old job's data
-    // behind: it has to be the job the page shows.
+    // behind: it has to be the job the page shows, by its id in the address
+    // ("/job/JR17397/…") or by its title.
+    const ids = [job.jobId, job.reqId, job.jobSeqNo].filter((x) => x && String(x).length >= 3).map(String);
     const shown = shownText();
-    if (shown && !shown.includes(norm(job.title))) return null;
-    const parts = [job.description, job.responsibilities, job.qualifications].filter((x) => typeof x === 'string' && x.trim());
+    const here = ids.some((id) => decodeURIComponent(location.pathname).includes(id)) || !shown || shown.includes(norm(title));
+    if (!here) return null;
+    const parts = [job.description, job.responsibilities, job.qualifications, job.descriptionTeaser && !job.description ? job.descriptionTeaser : '']
+      .filter((x) => typeof x === 'string' && x.trim());
+    if (!parts.length) return null;
     const ogSite = document.querySelector('meta[property="og:site_name"]');
+    const extra = [
+      job.type || job.jobType ? `Employment type: ${job.type || job.jobType}` : '',
+      job.salary || job.payRange ? `Pay: ${job.salary || job.payRange}` : '',
+    ].filter((x) => typeof x === 'string' && x);
     return {
-      title: clean(job.title),
+      title: clean(title),
       company: clean(job.companyName || job.company || (ogSite && ogSite.content) || ''),
       location: clean(job.location || job.cityStateCountry || [job.city, job.state, job.country].filter(Boolean).join(', ')),
-      text: htmlToText(parts.join('\n')),
+      text: clean([htmlToText(parts.join('\n')), ...extra].join('\n\n')),
       source: 'phenom',
     };
   }
@@ -431,8 +441,11 @@
     return { title, company: clean(company) };
   }
 
+  // Structured data already says "this is a job posting", so it needs less
+  // of the page's usual wording to count; anything else needs more.
+  const STRUCTURED = new Set(['structured-data', 'phenom']);
   function looksLikePosting(p) {
-    return p && p.text && p.text.length >= 300 && signalCount(p.text) >= 4;
+    return !!(p && p.text && p.text.length >= 300 && signalCount(p.text) >= (STRUCTURED.has(p.source) ? 2 : 4));
   }
 
   globalThis.sproutExtract = function sproutExtract() {
@@ -441,27 +454,39 @@
     // previously viewed job, so trust the visible layout first there.
     const site = SITES.find((x) => x.test.test(location.href));
     const order = site && site.spa ? [fromKnownSite, fromJsonLd, fromPageData, fromPage] : [fromJsonLd, fromPageData, fromKnownSite, fromPage];
+    // The first strategy that finds a whole posting wins; one that finds only
+    // a teaser ("…and much more") doesn't stop the others from looking.
+    let teaser = null;
     for (const fn of order) {
       try {
         const r = fn();
-        if (r && r.text && r.text.length >= 200) {
+        if (!r || !r.text || r.text.length < 200) continue;
+        if (looksLikePosting(r)) {
           result = r;
           break;
         }
+        if (!teaser) teaser = r;
       } catch (e) {
         /* try the next strategy */
       }
     }
+    if (!result) result = teaser;
+    // The whole text came from the page, after a teaser in the structured
+    // data: the teaser still has the best title, company and location.
+    else if (teaser && STRUCTURED.has(teaser.source) && !STRUCTURED.has(result.source))
+      result = { ...result, ...Object.fromEntries(['title', 'company', 'location', 'salary'].filter((k) => teaser[k]).map((k) => [k, teaser[k]])) };
     if (!result) return { isPosting: false, url: location.href };
     // Fill gaps from the page if structured data was thin on details.
     if (!result.title) result.title = text('h1');
-    // A teaser in the structured data ("…and much more"): the page has the whole posting.
-    if ((result.source === 'structured-data' || result.source === 'phenom') && result.text.length < 2500) {
-      try {
-        const page = fromKnownSite() || fromPage();
-        if (page && looksLikePosting(page) && page.text.length > result.text.length * 1.5) result = { ...result, text: page.text };
-      } catch {
-        /* keep the structured data */
+    // A teaser in the structured data: the page has the whole posting.
+    if (STRUCTURED.has(result.source) && result.text.length < 2500) {
+      for (const fn of [fromPageData, fromKnownSite, fromPage]) {
+        try {
+          const page = fn();
+          if (page && page.source !== result.source && looksLikePosting(page) && page.text.length > result.text.length * 1.5) result = { ...result, text: page.text };
+        } catch {
+          /* keep what we have */
+        }
       }
     }
     // Headers and descriptions sometimes repeat the title on line one.

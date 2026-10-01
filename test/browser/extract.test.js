@@ -118,3 +118,25 @@ test('LinkedIn profiles: the mobile site and Person data under mainEntity are re
   assert.deepEqual(r.schools, ['University of Virginia']);
   assert.ok(r.employers.includes('Deloitte'), JSON.stringify(r.employers));
 });
+
+// Phenom careers sites (careers.freddiemac.com and many big employers) carry
+// the job in `phApp.ddo = {...}` and often a teaser in JSON-LD as well.
+const ddo = (job) => `<script>var phApp = phApp || {"pageName":"job"};\nphApp.ddo = ${JSON.stringify({ siteConfig: {}, jobDetail: { status: 200, data: { job } } })};\nphApp.experimentData = {};</script>`;
+const FM_DESC = '<p><b>Position Overview:</b></p><p>Freddie Mac\'s Workplace Experience team runs our offices.</p><p><b>Your Work Team:</b></p><ul><li>Plan events and run the front desk for 400 people</li><li>Partner with facilities and security on day-to-day operations</li></ul><p><b>Qualifications:</b></p><ul><li>3 years of workplace or hospitality work</li><li>Bachelor\'s degree or the equivalent</li></ul><p><b>Keys to Success in this Role:</b></p><ul><li>Calm under pressure</li></ul>';
+
+test('Phenom: a teaser in JSON-LD doesn\'t hide the whole posting in the page data', async () => {
+  const teaser = job({ title: 'Workplace Experience Senior', hiringOrganization: { name: 'Freddie Mac' }, description: '<p>Freddie Mac\'s Workplace Experience team runs our offices, and the Senior is the person everyone goes to when they need something done right, from events to the front desk to the day-to-day…</p>' });
+  const r = await read('https://careers.freddiemac.example/us/en/job/JR17397/Workplace-Experience-Senior', `<html><head><title>Workplace Experience Senior in New Jersey | Freddie Mac</title>${ld(teaser)}${ddo({ jobId: 'JR17397', title: 'Workplace Experience Senior', companyName: 'Freddie Mac', location: 'Jersey City, New Jersey', description: FM_DESC })}</head><body><h1>Workplace Experience Senior</h1><div id="jd">Loading…</div></body></html>`);
+  assert.ok(r.isPosting, JSON.stringify(r));
+  assert.equal(r.company, 'Freddie Mac');
+  assert.match(r.text, /Plan events and run the front desk/);
+  assert.match(r.text, /Calm under pressure/);
+});
+
+test('Phenom: an escaped "&" in the title and raw tabs in the data still read, matched by the job id in the address', async () => {
+  const data = ddo({ jobId: 'JR2001', title: 'Risk &amp; Controls Senior', companyName: 'Freddie Mac', description: FM_DESC }).replace('Calm under pressure', 'Calm\tunder pressure');
+  const r = await read('https://careers.freddiemac.example/us/en/job/JR2001/Risk-Controls-Senior', `<html><head><title>Freddie Mac Careers</title>${data}</head><body><div id="app"></div></body></html>`);
+  assert.ok(r.isPosting, JSON.stringify(r));
+  assert.equal(r.title, 'Risk & Controls Senior');
+  assert.match(r.text, /Keys to Success/);
+});
