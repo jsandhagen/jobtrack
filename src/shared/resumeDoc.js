@@ -28,17 +28,17 @@
 .rs-name { font-size: 20pt; font-weight: 700; text-align: center; line-height: 1.15; }
 .rs-line { text-align: center; }
 .rs-sec { margin-top: 14pt; }
-.rs-h { font-size: 11pt; font-weight: 700; text-transform: uppercase; margin: 0 0 1pt; padding: 0; border-bottom: 2.25pt solid #000; line-height: 1.25; letter-spacing: 0; }
-.rs-summary { text-align: justify; margin: 0; }
-.rs-row { display: flex; justify-content: space-between; align-items: baseline; gap: 18pt; }
+.rs-h { font-size: 11pt; font-weight: 700; text-transform: uppercase; margin: 0 0 3pt; padding: 0; border-bottom: 2.25pt solid #000; line-height: 1.25; letter-spacing: 0; break-after: avoid; }
+.rs-summary { text-align: justify; margin: 0; widows: 2; orphans: 2; }
+.rs-row { display: flex; justify-content: space-between; align-items: baseline; gap: 18pt; break-after: avoid; }
 .rs-row > .rs-right { flex: none; text-align: right; }
 .rs-b { font-weight: 700; }
 .rs-role + .rs-role, .rs-edu + .rs-edu { margin-top: 7pt; }
 .rs-bullets { list-style: none; margin: 0; padding: 0; }
-.rs-bullets > li, .rs-skills > li, .rs-certs > li { position: relative; padding-left: 18pt; }
-.rs-bullets > li::before, .rs-skills > li::before, .rs-certs > li::before { content: "\\25CF"; position: absolute; left: 0; top: 0; font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 13.2pt; }
-.rs-skills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9pt 12pt; list-style: none; margin: 3pt 0 0; padding: 0; }
-.rs-certs { list-style: none; margin: 1pt 0 0; padding: 0; }
+.rs-bullets > li, .rs-skills > li, .rs-certs > li { position: relative; padding-left: 18pt; break-inside: avoid; }
+.rs-bullets > li::before, .rs-skills > li::before, .rs-certs > li::before { content: "\\25CF"; position: absolute; left: 3pt; top: 0; font-family: Arial, Helvetica, sans-serif; font-size: 7pt; line-height: 13.2pt; }
+.rs-skills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2pt 12pt; list-style: none; margin: 0; padding: 0; }
+.rs-certs { list-style: none; margin: 0; padding: 0; }
 .rs-detail { margin: 0; }
 .rs-label { font-weight: 700; }
 `;
@@ -365,7 +365,7 @@
     let y = 0;
     if (has(h.name)) y += lineCount(h.name, CONTENT_W, 20, true) * 20 * 1.15;
     for (const l of [h.line1, h.line2]) if (has(l)) y += lineCount(l, CONTENT_W) * LINE;
-    const SECTION = 14 + PT * 1.25 + 2.25 + 1;
+    const SECTION = 14 + PT * 1.25 + 2.25 + 3;
     const sec = (inner) => (inner > 0 ? SECTION + inner : 0);
 
     y += sec(d.summary ? lineCount(d.summary, CONTENT_W) * LINE : 0);
@@ -379,8 +379,8 @@
     y += sec(stack(d.roles.filter((r) => !r.isProject).map(roleH)));
     y += sec(stack(d.roles.filter((r) => r.isProject && r.bullets.length).map(roleH)));
     if (d.skills.length) {
-      let grid = 3;
-      for (let i = 0; i < d.skills.length; i += 3) grid += Math.max(...d.skills.slice(i, i + 3).map((s) => lineCount(s, SKILL_COL))) * LINE + (i ? 9 : 0);
+      let grid = 0;
+      for (let i = 0; i < d.skills.length; i += 3) grid += Math.max(...d.skills.slice(i, i + 3).map((s) => lineCount(s, SKILL_COL))) * LINE + (i ? 2 : 0);
       y += sec(grid);
     }
     y += sec(
@@ -394,7 +394,7 @@
         )
       )
     );
-    y += sec(d.certifications.length ? 1 + d.certifications.reduce((s, c) => s + lineCount(c, CONTENT_W - INDENT), 0) * LINE : 0);
+    y += sec(d.certifications.length ? d.certifications.reduce((s, c) => s + lineCount(c, CONTENT_W - INDENT), 0) * LINE : 0);
     const pages = Math.max(1, Math.ceil((y - 2) / PAGE_H));
     return { height: y, pages, lastPageFill: (y - (pages - 1) * PAGE_H) / PAGE_H, pageHeight: PAGE_H, lineHeight: LINE };
   }

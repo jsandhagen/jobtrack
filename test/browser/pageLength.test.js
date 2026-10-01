@@ -80,3 +80,29 @@ test('a resume the optimizer sized to one page prints on one page', async () => 
     await browser.close();
   }
 });
+
+test('a page break never strands a role header away from its first bullet', async () => {
+  const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    for (const [roles, per] of [[6, 5], [7, 4], [5, 6], [8, 3], [6, 6]]) {
+      const doc = makeDoc(roles, per, 6);
+      doc.roles.forEach((r, i) => {
+        r.organization = `Employer${i}`;
+        r.title = `Title${i}`;
+        r.bullets[0].text = `First${i} ${r.bullets[0].text}`;
+      });
+      await page.setContent(ResumeDoc.renderHtml(ResumeDoc.compact(doc)).replace('"Times New Roman", Tinos, ', ''));
+      const texts = [];
+      await pdfParse(await page.pdf({ preferCSSPageSize: true }), { pagerender: (p) => p.getTextContent().then((t) => (texts.push(t.items.map((x) => x.str).join(' ')), '')) });
+      const pageOf = (s) => texts.findIndex((t) => t.includes(s));
+      for (let i = 0; i < roles; i++) {
+        const at = [`Employer${i}`, `Title${i}`, `First${i}`].map(pageOf);
+        assert.ok(at[0] >= 0 && at.every((p) => p === at[0]), `${roles}×${per}: role ${i}'s employer, title and first bullet print on pages ${at.join(', ')}`);
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+});

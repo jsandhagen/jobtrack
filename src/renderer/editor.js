@@ -15,6 +15,16 @@ const ed = {
   info: null,
   focus: null, // {kind:'bullet', r, b} | {kind:'skill', i} | null
   filter: null, // requirement key the tray is filtered to
+  showAll: new Set(), // roles whose full list of bank bullets is open in the tray
+  tab: (() => {
+    try {
+      return localStorage.getItem('sprout.edTab') || 'bullets';
+    } catch {
+      return 'bullets';
+    }
+  })(), // side panel tab: bullets | check | job
+  why: new Set(), // checks whose "Why?" is open
+  checks: null, // the latest ResumeCheck.checkResume result
   polish: new Map(), // "r:b" -> {text, why}
   held: [], // polish edits the fact checks held back: {id, text, why}
   timer: null,
@@ -168,6 +178,8 @@ async function renderEditor(appId, app) {
     ed.held = [];
     ed.filter = null;
     ed.focus = null;
+    ed.showAll = new Set();
+    ed.why = new Set();
   }
   ed.appId = appId;
   ed.app = app;
@@ -196,7 +208,7 @@ async function renderEditor(appId, app) {
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
         </div>
-        <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click anywhere on the page to edit · Enter = new bullet</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
+        <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click the page to edit · Enter = new bullet · drag a bullet’s grip (right margin) to move it, or onto the side panel to remove it</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
       </div>
       <aside class="ed-tray" id="edTray"></aside>
     </div>`;
@@ -239,15 +251,16 @@ async function exportResume(btn, fmt) {
 function renderPaper(focusSel) {
   const page = document.getElementById('edPage');
   if (!page) return;
-  page.innerHTML = ResumeDoc.renderBody(ed.doc, { editable: true }) + '<div class="ed-float" id="edFloat" hidden></div><div id="edGuides"></div>';
+  page.innerHTML = ResumeDoc.renderBody(ed.doc, { editable: true }) + '<div class="ed-float" id="edFloat" hidden></div><div class="ed-grip" id="edGrip" hidden></div><div id="edGuides"></div>';
   // Mark bullets with a pending Claude suggestion.
   for (const key of ed.polish.keys()) {
     const [r, b] = key.split(':');
     const li = page.querySelector(`li[data-role="${r}"][data-bullet="${b}"]`);
     if (li) li.classList.add('has-suggestion');
   }
-  // Bullets that match the tray filter.
+  // Bullets that match the tray filter, and each bullet's checks.
   if (ed.filter) highlightFilter();
+  if (ed.info) markPage(pageChecks());
   drawGuides();
   if (focusSel) {
     const el = page.querySelector(focusSel);
@@ -298,7 +311,8 @@ function drawGuides() {
   const starts = [];
   for (let k = 1; k < pages; k++) {
     const cut = top0 + usable * k;
-    starts.push(visible.find((el) => yOf(el) + el.getBoundingClientRect().height / scale > cut + 1) || null);
+    const el = visible.find((x) => yOf(x) + x.getBoundingClientRect().height / scale > cut + 1);
+    starts.push(el ? keepWith(el, top0 + usable * (k - 1)) : null);
   }
   page.classList.remove('measuring');
 
@@ -308,6 +322,24 @@ function drawGuides() {
     .join('');
   const fill = (h - usable * (pages - 1)) / usable;
   showLength(pages, fill);
+}
+
+// Where the printed page really breaks before a line: the template keeps a
+// role's or school's header rows with its first line, and a section heading
+// with its first entry (break-after: avoid), so those move down together.
+// pageTop: where the page before starts; a block taller than that page splits.
+function keepWith(el, pageTop) {
+  const page = document.getElementById('edPage');
+  const scale = page.getBoundingClientRect().height / page.offsetHeight || 1;
+  const yOf = (x) => (x.getBoundingClientRect().top - page.getBoundingClientRect().top) / scale;
+  let at = el;
+  const block = el.closest('.rs-role, .rs-edu');
+  const firstLine = block && (el.matches('.rs-row') || (el.matches('.rs-bullets > li') && !el.previousElementSibling) || (el.matches('.rs-detail') && !el.previousElementSibling.matches('.rs-detail')));
+  if (firstLine && yOf(block) > pageTop) at = block;
+  const sec = at.closest('.rs-sec');
+  const first = sec && sec.querySelector(':scope > .rs-h + *');
+  if (first && (first === at || first.contains(at)) && yOf(at) === yOf(first) && yOf(sec) > pageTop) at = sec;
+  return at;
 }
 
 // The page count, and a one-click trim when the resume runs long.
@@ -363,6 +395,27 @@ async function fitToPages(btn, pages) {
 }
 
 // ---------- tray ----------
+//
+// Three rings up top (requirements shown, ATS match, strong bullets), then
+// three tabs: Bullets (edit and add), Check (how well it's written) and Job
+// match (how well it fits this posting, and the score behind it). The tray
+// never switches tabs by itself.
+
+const TABS = [
+  ['bullets', 'Bullets'],
+  ['check', 'Check'],
+  ['job', 'Job match'],
+];
+
+const ATS_PARTS = [
+  ['hardSkills', 'Hard skills', 35],
+  ['parseability', 'Parse-ready format', 20],
+  ['jobTitle', 'Job title', 10],
+  ['experience', 'Years', 10],
+  ['education', 'Education', 10],
+  ['keywords', 'Other keywords', 10],
+  ['softSkills', 'Soft skills', 5],
+];
 
 function coverChips(keys) {
   const units = new Map((ed.info.units || []).map((u) => [u.key, u]));
@@ -373,75 +426,102 @@ function coverChips(keys) {
     .join('');
 }
 
+// The resume checks for what's on the page right now.
+function pageChecks() {
+  const covers = (ed.info.roles || []).map((r) => (r.bullets || []).map((b) => b.covers || []));
+  const aimed = !ed.info.standalone || ed.info.hasTarget;
+  return ResumeCheck.checkResume(ed.doc, { jobTitle: aimed ? ed.info.jobTitle : '', covers });
+}
+
+const quote = (t, n = 90) => esc(t.length > n ? `${t.slice(0, n - 1)}…` : t);
+
+// One check as a row: ✓ or !, its label, a fix, and "Why?" with the reasoning
+// and how it's measured.
+function checkRow(c, key) {
+  const spec = ResumeCheck.CHECKS[c.id];
+  const open = ed.why.has(key);
+  const move = c.moves && c.moves.length ? `<span class="fix">${c.moves.map((m) => `<button class="small soft" data-move-best="${m.r}:${m.best}">Move the strongest to the top of ${esc(m.role)}</button>`).join(' ')}</span>` : '';
+  return `<li class="${c.ok ? 'ok' : 'no'}"><span class="m">${c.ok ? '✓' : '!'}</span><span>${esc(c.label)}</span><button class="why" data-why="${esc(key)}" aria-expanded="${open}">${open ? 'Hide' : 'Why?'}</button>
+    ${!c.ok && c.fix ? `<span class="fix">${esc(c.fix)}</span>` : ''}${move}
+    ${open ? `<span class="expl">${esc(spec.why)}<span class="how"><b>How Sprout checks:</b> ${esc(spec.how)}</span></span>` : ''}</li>`;
+}
+
 function renderTray() {
   const tray = document.getElementById('edTray');
   if (!tray || !ed.info) return;
   const info = ed.info;
-  const req = info.coverage.filter((c) => c.kind !== 'preferred');
-  const pref = info.coverage.filter((c) => c.kind === 'preferred');
-  const covered = req.filter((c) => c.covered).length;
-  const chip = (c) =>
-    `<button class="req ${c.covered ? 'ok' : c.skillsOnly ? 'half' : 'gap'} ${ed.filter === c.key ? 'sel' : ''} ${c.kind === 'preferred' ? 'pref' : ''}" data-filter="${esc(c.key)}"
-      title="${c.covered ? 'A bullet on the page shows this' : c.skillsOnly ? 'Only in your skills list — a bullet would be stronger' : 'Nothing on the page shows this yet'}">${c.covered ? '✓' : c.skillsOnly ? '½' : '○'} ${esc(c.label)}</button>`;
-
-  // Candidate bullets from the bank.
-  let groups = ed.doc.roles.map((role, r) => ({ r, role, items: (info.roles[r] && info.roles[r].more) || [] }));
-  if (ed.filter) groups = groups.map((g) => ({ ...g, items: g.items.filter((m) => m.covers.includes(ed.filter)) }));
-  const focusRole = ed.focus && ed.focus.kind === 'bullet' ? ed.focus.r : null;
-  const cand = groups
-    .filter((g) => g.items.length)
-    .sort((a, b) => (a.r === focusRole ? -1 : b.r === focusRole ? 1 : 0))
-    .map(
-      (g) => `<div class="tray-group"><div class="tray-role">${esc(g.role.title || g.role.organization || 'Role')}</div>${g.items
-        .slice(0, ed.filter ? 20 : 6)
-        .map(
-          (m) => `<div class="cand" draggable="true" data-r="${g.r}" data-bullet-id="${esc(m.bulletId)}" title="Drag onto the page, or click + Add">
-            <div class="cand-text">${esc(m.text)}</div><div class="cand-foot">${coverChips(m.covers)}<button class="small soft" data-add-cand="${g.r}" data-bullet-id="${esc(m.bulletId)}">+ Add</button></div></div>`
-        )
-        .join('')}</div>`
-    )
-    .join('');
-  const filterLabel = ed.filter && (info.units.find((u) => u.key === ed.filter) || {}).label;
-
   const aimed = !info.standalone || info.hasTarget;
-  tray.innerHTML = `
-    ${aimed ? `<div class="tray-card">
-      <div class="tray-score"><div>${window.SproutMascot.miniRing((req.length ? (covered / req.length) * 100 : 0), { color: barColor((req.length ? (covered / req.length) * 100 : 0)) })}<b>${covered}/${req.length}</b><span>requirements shown</span></div><div>${window.SproutMascot.miniRing(info.ats.score, { color: barColor(info.ats.score) })}<b>${info.ats.score}%${info.ats.grade ? ` <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}</b><span>ATS match ${window.SproutInfo.infoBtn('ats')}</span></div></div>
-      <div class="req-list">${req.map(chip).join('')}${pref.map(chip).join('')}</div>
-      <p class="faint" style="margin:6px 0 0">Tap a requirement to see bullets that prove it.</p>
-    </div>` : `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS match.</p></div>`}
-    ${checksPanel()}
-    ${focusPanel()}
-    <div class="tray-card">
-      <h4>${ed.filter ? `Bullets that show “${esc(filterLabel)}”` : 'Slot in a bullet'}${ed.filter ? ' <button class="small ghost" id="clearFilter">show all</button>' : ''}</h4>
-      ${
-        cand ||
-        (ed.filter
-          ? (info.coverage.find((c) => c.key === ed.filter) || {}).covered
-            ? `<p class="muted">✓ Already shown on the page${document.querySelector('#edPage li.lit') ? ' — highlighted in purple' : ''}. No other bullets in your bank mention it.</p>`
-            : `<p class="muted">No bullet in your bank shows “${esc(filterLabel)}”. If you have that experience, click into a role on the page, press Enter, and write it — you can save it to your bank.</p>`
-          : info.bankSize
-            ? sproutSays('proud', 'Every relevant bullet in your bank is already on the page.', 40, { cls: 'tight' })
-            : sproutSays('curious', 'Your bullet bank is empty — add a resume to <a href="#library">My library</a>.', 40, { cls: 'tight' }))
-      }
-      ${info.otherRoles.length ? `<div class="tray-role" style="margin-top:10px">Roles not on this resume</div>${info.otherRoles.map((o) => `<div class="cand slim"><span>${esc([o.title, o.organization].filter(Boolean).join(' · '))} <span class="faint">(${o.count})</span></span><button class="small soft" data-add-role-id="${o.id}">+ Add</button></div>`).join('')}` : ''}
-    </div>
-    ${polishPanel()}
-    <div class="tray-card">
-      <h4>More</h4>
-      <div class="tray-actions">
-        ${state.hasApiKey ? `<button class="soft" id="edPolish" title="One Claude call; you approve each change">${icon('sparkle')} Polish wording${aimed ? ' for this job' : ''}</button>` : ''}
-      </div>
-      <div class="faint" style="margin-top:10px">Make this resume's… <a href="#" data-default="header">header</a> · <a href="#" data-default="summary">summary</a> · <a href="#" data-default="skills">skills</a> · <a href="#" data-default="education">education</a> …your default for new resumes.</div>
-    </div>
-    ${aimed && info.ats.tips.length ? `<details class="tray-card"><summary><b>ATS tips (${info.ats.tips.length})</b></summary><ul class="tidy" style="margin-top:6px">${info.ats.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>` : ''}`;
+  const pc = pageChecks();
+  ed.checks = pc;
+  markPage(pc);
+  const req = info.coverage.filter((c) => c.kind !== 'preferred');
+  const covered = req.filter((c) => c.covered).length;
+  const flagged = ed.doc.roles.reduce((s, r) => s + r.bullets.filter((b) => b.flag).length, 0);
+  const tips = pc.tips + flagged + ed.polish.size;
+  const ring = window.SproutMascot.miniRing;
+  const reqPct = req.length ? (covered / req.length) * 100 : 0;
+  const strongPct = pc.total ? (pc.strong / pc.total) * 100 : 0;
+  const tile = (go, pct, segs, big, label, title) =>
+    `<button data-tab-go="${go}" title="${title}"><div>${ring(pct, { color: barColor(pct), segments: segs, size: 30 })}<b>${big}</b></div><span>${label}</span></button>`;
+  const head = `<div class="tray-top">
+    <div class="tray-card tray-head"><div class="tray-score">
+      ${aimed ? tile('job', reqPct, req.length <= 12 ? req.length : 0, `${covered}/${req.length}`, 'requirements', 'Requirements a bullet on the page shows') : ''}
+      ${aimed ? tile('job', info.ats.score, 0, `${info.ats.score}%`, `ATS match${info.ats.grade ? ` <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}`, 'How applicant tracking systems would read this resume') : ''}
+      ${tile('check', strongPct, pc.total && pc.total <= 12 ? pc.total : 0, `${pc.strong}/${pc.total}`, 'strong bullets', 'Bullets that pass every check')}
+    </div></div>
+    <div class="tray-tabs" role="tablist">${TABS.map(([k, label]) => `<button role="tab" data-tab="${k}" aria-selected="${ed.tab === k}" class="${ed.tab === k ? 'on' : ''}">${label}${k === 'check' && tips ? ` <span class="n">${tips}</span>` : ''}${k === 'job' && aimed && req.length - covered ? ` <span class="n">${req.length - covered}</span>` : ''}</button>`).join('')}</div>
+  </div>`;
+  const pane = ed.tab === 'check' ? checkPane(pc) : ed.tab === 'job' ? jobPane() : bulletsPane(pc);
+  const scroll = tray.scrollTop;
+  tray.innerHTML = head + pane;
+  tray.scrollTop = scroll;
   wireTray();
 }
 
-// Context for the bullet being edited: other wordings, saving back to the bank.
-function focusPanel() {
+// ----- Bullets: the bullet you're editing, and your bank -----
+
+function bulletsPane(pc) {
+  const info = ed.info;
+  const groups = ed.doc.roles.map((role, r) => ({ r, role, items: (info.roles[r] && info.roles[r].more) || [] }));
+  const focusRole = ed.focus && ed.focus.kind === 'bullet' ? ed.focus.r : null;
+  const SHOW = 4;
+  const cand = groups
+    .filter((g) => g.items.length)
+    .sort((a, b) => (a.r === focusRole ? -1 : b.r === focusRole ? 1 : 0))
+    .map((g) => {
+      const all = ed.showAll.has(g.r);
+      const shown = g.items.slice(0, all ? 30 : SHOW);
+      const rest = g.items.length - shown.length;
+      const where = g.role.isProject ? '' : g.role.organization && g.role.title ? g.role.organization : '';
+      return `<div class="tray-group"><div class="tray-role">${esc(g.role.title || g.role.organization || 'Role')}${where ? ` <small>· ${esc(where)}</small>` : ''}</div>${shown.map(candHtml).join('')}${
+        rest > 0 ? `<button class="small ghost tray-more" data-show-all="${g.r}">Show ${rest} more</button>` : g.items.length > SHOW ? `<button class="small ghost tray-more" data-show-all="${g.r}">Show fewer</button>` : ''
+      }</div>`;
+    })
+    .join('');
+  return `${focusPanel(pc)}
+    <div class="tray-card">
+      <h4>Slot in a bullet</h4>
+      ${cand || (info.bankSize ? sproutSays('proud', 'Every relevant bullet in your bank is already on the page.', 40, { cls: 'tight' }) : sproutSays('curious', 'Your bullet bank is empty — add a resume to <a href="#library">My library</a>.', 40, { cls: 'tight' }))}
+      ${info.otherRoles.length ? `<div class="tray-role" style="margin-top:10px">Roles not on this resume</div>${info.otherRoles.map((o) => `<div class="cand slim"><span>${esc([o.title, o.organization].filter(Boolean).join(' · '))} <span class="faint">(${o.count})</span></span><button class="small soft" data-add-role-id="${o.id}">+ Add</button></div>`).join('')}` : ''}
+    </div>`;
+}
+
+function candHtml(m) {
+  const r = ed.info.roles.findIndex((x) => x.more && x.more.includes(m));
+  return `<div class="cand" draggable="true" data-r="${r}" data-bullet-id="${esc(m.bulletId)}" title="Drag onto the page, or click + Add">
+    <span class="handle" aria-hidden="true"></span><div><div class="cand-text">${esc(m.text)}</div><div class="cand-foot">${coverChips(m.covers)}<button class="small soft" data-add-cand="${r}" data-bullet-id="${esc(m.bulletId)}" title="Add to the end of this role">+ Add</button></div></div></div>`;
+}
+
+const focused = (pc) => {
   const f = ed.focus;
-  if (!f || f.kind !== 'bullet') return '';
+  return f && f.kind === 'bullet' && pc.bullets.find((x) => x.r === f.r && x.b === f.b);
+};
+
+// The bullet being edited: other wordings, saving back to the bank, and a
+// one-line summary of its checks (the detail is on the Check tab).
+function focusPanel(pc) {
+  const f = ed.focus;
+  if (!f || f.kind !== 'bullet') return `<p class="tray-hint">${icon('pencil', 13)} Click a bullet on the page for its other wordings and checks.</p>`;
   const role = ed.doc.roles[f.r];
   const b = role && role.bullets[f.b];
   const meta = ed.info.roles[f.r] && ed.info.roles[f.r].bullets[f.b];
@@ -450,12 +530,15 @@ function focusPanel() {
   const words = ((meta && meta.wordings) || []).filter((w) => w !== text);
   const edited = meta && meta.inBank ? !meta.wordings.includes(text) : false;
   const sug = ed.polish.get(`${f.r}:${f.b}`);
+  const mine = focused(pc);
+  const misses = mine ? mine.checks.filter((c) => !c.ok) : [];
   return `<div class="tray-card focus">
     <h4>This bullet</h4>
     ${b.flag ? `<div class="flag-note">${icon('warn', 15)} Check this: ${esc(b.flag)} <button class="small ghost" data-clear-flag="${f.r}:${f.b}">It's accurate</button></div>` : ''}
     ${meta && meta.covers.length ? `<div>${coverChips(meta.covers)}</div>` : ''}
+    ${mine ? (misses.length ? `<button class="mini-check" data-tab-go="check"><b>${misses.length} tip${misses.length === 1 ? '' : 's'}</b><span>${esc(misses.map((c) => c.label.toLowerCase()).join(' · '))}</span><i>Check →</i></button>` : `<div class="mini-check ok"><b>✓ Strong bullet</b><span>passes every check</span></div>`) : ''}
     ${sug ? `<div class="suggest"><b>${icon('sparkle', 15)} Suggested:</b> ${esc(sug.text)}${sug.why ? ` <span class="faint">(${esc(sug.why)})</span>` : ''}<div class="inline" style="margin-top:4px"><button class="small soft" data-use-sug>Use it</button><button class="small ghost" data-drop-sug>Keep mine</button></div></div>` : ''}
-    ${words.length ? `<div class="tray-role">Other wordings in your bank</div>${words.map((w, i) => `<div class="cand slim wording" data-wording="${i}">${esc(w)}</div>`).join('')}` : ''}
+    ${words.length ? `<div class="tray-role">Other wordings in your bank</div>${words.map((w, i) => `<div class="cand slim wording" data-wording="${i}" title="Use this wording">${esc(w)}</div>`).join('')}` : ''}
     ${
       b.bulletId && edited
         ? `<div class="save-back">Reworded here. <button class="small ghost" data-saveback="variant">Save as another wording</button><button class="small ghost" data-saveback="replace">Replace original</button></div>`
@@ -464,6 +547,30 @@ function focusPanel() {
           : ''
     }
   </div>`;
+}
+
+// ----- Check: how well it's written -----
+
+function checkPane(pc) {
+  const mine = focused(pc);
+  const others = pc.bullets.filter((x) => x.tips && x !== mine);
+  const weak = pc.bullets.filter((x) => !x.checks[0].ok).length;
+  const first = pc.resume.find((c) => c.id === 'first');
+  const bulletCard = mine
+    ? `<div class="tray-card focus"><h4>This bullet</h4><p class="q">${esc(mine.text)}</p><ul class="qcheck">${mine.checks.map((c) => checkRow(c, `b:${c.id}`)).join('')}</ul></div>`
+    : `<p class="tray-hint">${icon('pencil', 13)} Click a bullet on the page to check it here.</p>`;
+  const resumeCard = pc.total
+    ? `<div class="tray-card"><h4><span>Resume check</span></h4>
+      <div class="qbar"><div><b>${pc.withResult} of ${pc.total}</b>show a result</div><div><b>${weak}</b>weak opener${weak === 1 ? '' : 's'}</div><div><b>${first && !first.ok ? '!' : '✓'}</b>best bullet first</div></div>
+      <ul class="qcheck">${pc.resume.map((c) => checkRow(c, `r:${c.id}`)).join('')}</ul>
+      ${others.length ? `<div class="tray-role" style="margin-top:12px">Other bullets with tips (${others.length})</div>${others
+        .slice(0, 10)
+        .map((x) => `<div class="tip-row"><span class="q">${quote(x.text)}</span><span class="faint">${esc(x.checks.filter((c) => !c.ok).map((c) => c.label.toLowerCase()).join(' · '))}</span><button class="small ghost" data-goto="${x.r}:${x.b}">Go to it</button></div>`)
+        .join('')}` : pc.strong === pc.total ? `<p class="muted" style="margin:10px 0 0">${icon('sparkle', 14)} Every bullet passes every check.</p>` : ''}
+    </div>`
+    : '';
+  return `${checksPanel()}${bulletCard}${resumeCard}${polishPanel()}
+    <p class="honest">Rules of thumb from how recruiters read, worked out on your computer. Not a score anyone screens you on, and you can ignore any of them. <a href="#" data-guide>What makes a resume work →</a></p>`;
 }
 
 // What the fact checks found in Claude's draft: bullets to verify, other
@@ -482,7 +589,7 @@ function checksPanel() {
       .map(
         (f) => `<div class="sug-row"><div><b>${esc(f.role.title || f.role.organization || 'Role')}:</b> ${esc(f.bullet.text)}</div>
           <div class="faint">${esc(f.bullet.flag)}</div>
-          <div class="inline"><button class="small ghost" data-goto-flag="${f.r}:${f.b}">Show me</button><button class="small ghost" data-clear-flag="${f.r}:${f.b}">It's accurate</button></div></div>`
+          <div class="inline"><button class="small ghost" data-goto="${f.r}:${f.b}">Show me</button><button class="small ghost" data-clear-flag="${f.r}:${f.b}">It's accurate</button></div></div>`
       )
       .join('')}
     ${checks.length ? `<ul class="tidy" style="margin-top:6px">${checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
@@ -491,12 +598,14 @@ function checksPanel() {
 }
 
 function polishPanel() {
+  const aimed = !ed.info.standalone || ed.info.hasTarget;
   const held = ed.held.length
     ? `<details class="tray-card"><summary><b>Held back (${ed.held.length})</b> <span class="faint">— suggestions that added facts</span></summary>${ed.held
         .map((h) => `<div class="sug-row"><div>${esc(h.text)}</div><div class="faint">${esc(h.why)}</div></div>`)
         .join('')}</details>`
     : '';
-  if (!ed.polish.size) return held;
+  const button = state.hasApiKey ? `<button class="soft" id="edPolish" title="One Claude call; you approve each change">${icon('sparkle')} Polish wording${aimed ? ' for this job' : ''}</button>` : '';
+  if (!ed.polish.size) return button ? `<div class="tray-card"><h4>Claude's suggestions</h4><p class="faint" style="margin:0 0 8px">Claude rewords bullets for this posting without adding facts. You approve each one.</p><div class="tray-actions">${button}</div></div>${held}` : held;
   const rows = [...ed.polish.entries()]
     .map(([key, s]) => {
       const [r, b] = key.split(':').map(Number);
@@ -507,6 +616,59 @@ function polishPanel() {
     })
     .join('');
   return `<div class="tray-card"><h4><span>${icon('sparkle', 16)} Suggestions (${ed.polish.size})</span> <button class="small ghost" id="sugAll">Use all</button></h4>${rows}</div>${held}`;
+}
+
+// ----- Job match: what the posting asks for, and the score behind it -----
+
+function jobPane() {
+  const info = ed.info;
+  const aimed = !info.standalone || info.hasTarget;
+  const defaults = `<div class="faint tray-foot">Make this resume's <a href="#" data-default="header">header</a> · <a href="#" data-default="summary">summary</a> · <a href="#" data-default="skills">skills</a> · <a href="#" data-default="education">education</a> your default for new resumes.</div>`;
+  if (!aimed) return `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS match.</p></div>${defaults}`;
+  const units = new Map((info.units || []).map((u) => [u.key, u]));
+  const proofs = (key) => {
+    const out = [];
+    info.roles.forEach((r, ri) => (r.bullets || []).forEach((m, bi) => m.covers.includes(key) && ed.doc.roles[ri] && ed.doc.roles[ri].bullets[bi] && out.push({ r: ri, b: bi, text: ed.doc.roles[ri].bullets[bi].text })));
+    return out;
+  };
+  const bank = (key) => info.roles.flatMap((r) => (r.more || []).filter((m) => m.covers.includes(key)));
+  const row = (c) => {
+    const mark = c.covered ? '✓' : c.skillsOnly ? '½' : '○';
+    const cls = c.covered ? 'ok' : c.skillsOnly ? 'half' : 'gap';
+    const open = ed.filter === c.key;
+    const shown = c.covered ? proofs(c.key) : [];
+    const from = c.covered ? [] : bank(c.key);
+    let line;
+    if (c.covered) line = shown.length === 1 ? `“${quote(shown[0].text, 70)}”` : shown.length ? `${shown.length} bullets show it` : 'Shown on the page';
+    else if (c.skillsOnly) line = 'Only in your skills list. A bullet showing it is stronger.';
+    else line = from.length ? `Not on the page. ${from.length} bullet${from.length === 1 ? '' : 's'} in your bank show${from.length === 1 ? 's' : ''} it.` : 'Not on the page, and no bullet in your bank shows it.';
+    let detail = '';
+    if (open) {
+      if (c.covered) detail = shown.length > 1 ? shown.map((s) => `<span class="src">“${quote(s.text, 80)}”</span>`).join('') : '';
+      else if (from.length) detail = from.slice(0, 6).map(candHtml).join('');
+      else detail = `<span class="src">If you have this experience, click into a role on the page, press Enter, and write it. You can save it to your bank.</span>`;
+    }
+    return `<div class="jm-req ${cls} ${open ? 'open' : ''}" data-filter="${esc(c.key)}" role="button" tabindex="0" title="${c.covered ? 'Highlight the bullets that show this' : 'See bullets that would show this'}">
+      <span class="m">${mark}</span><b>${c.kind === 'preferred' ? `<i>${esc(c.label)}</i>` : esc(c.label)}</b><span class="faint">${c.kind === 'preferred' ? 'nice to have' : 'required'}</span>
+      <span class="src">${line}</span>${detail}</div>`;
+  };
+  const reqs = info.coverage.filter((c) => c.kind !== 'preferred');
+  const prefs = info.coverage.filter((c) => c.kind === 'preferred');
+  const parts = info.ats.components || {};
+  const bars = ATS_PARTS.filter(([k]) => parts[k] != null)
+    .map(([k, label, w]) => `<div class="jm-bar"><span>${label} <i class="faint">${w}%</i></span><div><div style="width:${parts[k]}%;background:${barColor(parts[k])}"></div></div><b>${parts[k]}</b></div>`)
+    .join('');
+  return `<div class="tray-card">
+      <h4>What the posting asks for</h4>
+      ${info.coverage.length ? `<div class="jm-legend"><span>✓ a bullet shows it</span><span>½ skills list only</span><span>○ not shown</span></div>${reqs.map(row).join('')}${prefs.map(row).join('')}<p class="faint" style="margin:8px 0 0">Tap one to highlight its bullets on the page, or to see bullets from your bank that would show it.</p>` : '<p class="muted" style="margin:0">Sprout couldn\'t find specific requirements in this posting.</p>'}
+    </div>
+    <div class="tray-card"><h4><span>How the ATS match adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4>
+      ${bars || '<p class="muted" style="margin:0">No breakdown for this posting.</p>'}
+      ${bars ? '<p class="faint" style="margin:6px 0 0">Parts that don\'t apply to this posting are left out and the rest re-weighted.</p>' : ''}
+      ${info.ats.tips.length ? `<div class="tray-role" style="margin-top:12px">To raise it</div><ul class="tidy" style="margin:4px 0 0">${info.ats.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+      <p class="honest">Applicant tracking systems mostly rank and search; few reject on a match score alone. Use this to make sure the posting's words for skills you really have are on the page. <a href="#" data-guide>More →</a></p>
+    </div>
+    ${defaults}`;
 }
 
 function highlightFilter() {
@@ -525,19 +687,109 @@ function highlightFilter() {
   );
 }
 
+// Marks in the left margin: ✓ for a bullet that passes every check, or how
+// many tips it has.
+function markPage(pc) {
+  const page = document.getElementById('edPage');
+  if (!page) return;
+  const by = new Map(pc.bullets.map((x) => [`${x.r}:${x.b}`, x]));
+  page.querySelectorAll('li.rs-bullet').forEach((li) => {
+    const x = by.get(`${li.dataset.role}:${li.dataset.bullet}`);
+    if (!x) delete li.dataset.q;
+    else li.dataset.q = x.tips ? String(x.tips) : 'ok';
+  });
+}
+
+// "What makes a resume work": everything the checks are based on, what they
+// can't tell you, and what's worked in your own applications.
+function openGuide() {
+  const row = (c) => `<tr><td><b>${esc(c.title)}</b></td><td>${esc(c.why)}</td><td class="faint">${esc(c.how)}</td></tr>`;
+  const sent = ((state && state.applications) || []).filter((a) => a.appliedAt && a.sent && a.sent.resume === 'tailored');
+  const reached = (a) => ['interviewing', 'offer'].includes(a.status) || (a.statusHistory || []).some((h) => ['interviewing', 'offer'].includes(h.status));
+  const pct = (list) => (list.length ? `${list.filter(reached).length} (${Math.round((list.filter(reached).length / list.length) * 100)}%)` : '—');
+  const NAMES = { ats: 'Optimized for ATS', claude: 'Written with Claude', baseline: 'Baseline' };
+  const bySource = Object.entries(NAMES).map(([k, name]) => [name, sent.filter((a) => a.sent.source === k)]).filter(([, l]) => l.length);
+  const withStrength = sent.filter((a) => a.sent.strong && a.sent.strong.of);
+  const mostly = withStrength.filter((a) => a.sent.strong.pass * 3 >= a.sent.strong.of * 2);
+  const fewer = withStrength.filter((a) => !mostly.includes(a));
+  const MIN = 10;
+  const working =
+    sent.length >= MIN
+      ? `<table class="guide-table"><tr><th>Resume you sent</th><th>Sent</th><th>Got an interview</th></tr>${bySource.map(([n, l]) => `<tr><td>${n}</td><td>${l.length}</td><td>${pct(l)}</td></tr>`).join('')}
+        ${mostly.length && fewer.length ? `<tr><td>Two-thirds or more strong bullets</td><td>${mostly.length}</td><td>${pct(mostly)}</td></tr><tr><td>Fewer strong bullets</td><td>${fewer.length}</td><td>${pct(fewer)}</td></tr>` : ''}</table>
+        <p class="faint">Small numbers, and the jobs differ too. Treat this as a hint, not proof.</p>`
+      : `<p class="muted">This fills in once you've sent ${MIN} tailored resumes from Sprout (you've sent ${sent.length}). With fewer than that, the numbers would mostly be luck.</p>`;
+  const card = openModal(`<div class="guide">
+    <h2>What makes a resume work</h2>
+    <p>Here is everything Sprout's resume checks are based on, how each one is measured, and what they can't tell you.</p>
+    <h3>Your resume gets read twice</h3>
+    <div class="two">
+      <div><b>1. Searched by software.</b> Recruiters search their applicant tracking system for keywords and filter on knockout questions (location, work authorization, years). Most systems don't reject you for a low match score; you rank lower in a search.<br><i>So:</i> use the posting's own words for skills you really have. The ATS match on the Job match tab checks this.</div>
+      <div><b>2. Skimmed by a person</b>, often in under a minute, mostly the top third and the first bullet or two of each role.<br><i>So:</i> name the role up top, lead with your strongest proof, and show results. The Check tab checks this.</div>
+    </div>
+    <h3>Each bullet</h3>
+    <table class="guide-table"><tr><th>Check</th><th>Why it matters</th><th>How it's measured</th></tr>${ResumeCheck.BULLET_CHECKS.map(row).join('')}</table>
+    <h3>The whole resume</h3>
+    <table class="guide-table"><tr><th>Check</th><th>Why it matters</th><th>How it's measured</th></tr>${ResumeCheck.RESUME_CHECKS.map(row).join('')}</table>
+    <div class="wont"><b>What these checks can't tell you:</b> whether your achievements are impressive for this employer, whether your numbers are right, or what a particular recruiter likes. They're rules of thumb that hold for most resumes, not guarantees, and you can ignore any of them. Never add a number or a skill that isn't true.</div>
+    <h3>What's working for you</h3>
+    ${working}
+    <div class="inline" style="margin-top:14px"><button class="primary" id="guideClose">Got it</button></div>
+  </div>`);
+  card.classList.add('wide');
+  $('#guideClose', card).addEventListener('click', closeModal);
+}
+
 // ---------- tray events ----------
+
+function gotoBullet(r, b) {
+  const li = document.querySelector(`#edPage li[data-role="${r}"][data-bullet="${b}"]`);
+  if (li) (li.scrollIntoView({ block: 'center', behavior: 'smooth' }), placeCaret(li, true));
+}
 
 function wireTray() {
   const tray = document.getElementById('edTray');
-  $$('[data-filter]', tray).forEach((b) =>
+  $$('[data-tab]', tray).forEach((b) => b.addEventListener('click', () => ((ed.tab = b.dataset.tab), saveTab(), renderTray(), (tray.scrollTop = 0))));
+  $$('[data-tab-go]', tray).forEach((b) => b.addEventListener('click', () => ((ed.tab = b.dataset.tabGo), saveTab(), renderTray(), (tray.scrollTop = 0))));
+  $$('[data-why]', tray).forEach((b) =>
     b.addEventListener('click', () => {
-      ed.filter = ed.filter === b.dataset.filter ? null : b.dataset.filter;
-      highlightFilter();
+      const k = b.dataset.why;
+      if (ed.why.has(k)) ed.why.delete(k);
+      else ed.why.add(k);
       renderTray();
     })
   );
-  const cf = $('#clearFilter', tray);
-  if (cf) cf.addEventListener('click', () => ((ed.filter = null), renderTray(), highlightFilter()));
+  $$('[data-guide]', tray).forEach((a) => a.addEventListener('click', (e) => (e.preventDefault(), openGuide())));
+  $$('[data-goto]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [r, b] = btn.dataset.goto.split(':').map(Number);
+      gotoBullet(r, b);
+    })
+  );
+  $$('[data-move-best]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [r, b] = btn.dataset.moveBest.split(':').map(Number);
+      if (ed.doc.roles[r] && ed.doc.roles[r].bullets[b]) moveBullet({ r, b }, { r, b: 0 });
+    })
+  );
+  $$('[data-filter]', tray).forEach((el) => {
+    const toggle = (e) => {
+      if (e.target.closest('button, .cand')) return;
+      ed.filter = ed.filter === el.dataset.filter ? null : el.dataset.filter;
+      highlightFilter();
+      renderTray();
+    };
+    el.addEventListener('click', toggle);
+    el.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle(e)));
+  });
+  $$('[data-show-all]', tray).forEach((b) =>
+    b.addEventListener('click', () => {
+      const r = +b.dataset.showAll;
+      if (ed.showAll.has(r)) ed.showAll.delete(r);
+      else ed.showAll.add(r);
+      renderTray();
+    })
+  );
   $$('[data-add-cand]', tray).forEach((b) =>
     b.addEventListener('click', () => {
       const r = +b.dataset.addCand;
@@ -553,6 +805,7 @@ function wireTray() {
       e.dataTransfer.effectAllowed = 'copyMove';
       dragGhost(e, m.text);
       document.body.classList.add('dragging');
+      hideGrip();
     })
   );
   $$('.cand[draggable]', tray).forEach((c) => c.addEventListener('dragend', endDrag));
@@ -616,13 +869,6 @@ function wireTray() {
       saveNow();
     })
   );
-  $$('[data-goto-flag]', tray).forEach((btn) =>
-    btn.addEventListener('click', () => {
-      const [r, b] = btn.dataset.gotoFlag.split(':').map(Number);
-      const li = document.querySelector(`#edPage li[data-role="${r}"][data-bullet="${b}"]`);
-      if (li) (li.scrollIntoView({ block: 'center', behavior: 'smooth' }), li.focus());
-    })
-  );
   const all = $('#sugAll', tray);
   if (all) all.addEventListener('click', () => ([...ed.polish.keys()].forEach(useSug), renderPaper(), saveNow()));
   const pol = $('#edPolish', tray);
@@ -634,7 +880,7 @@ function wireTray() {
         ed.polish = new Map(edits.map((e) => [e.id, e]));
         ed.held = rejected || [];
         const heldMsg = ed.held.length ? ` (${ed.held.length} held back for adding facts)` : '';
-        toast(edits.length ? `${edits.length} suggestion${edits.length === 1 ? '' : 's'} — review them in the panel${heldMsg}` : `Your wording already fits this posting — nice!${heldMsg}`, 'good', 4000, edits.length ? 'happy' : 'proud');
+        toast(edits.length ? `${edits.length} suggestion${edits.length === 1 ? '' : 's'} — review them on the Check tab${heldMsg}` : `Your wording already fits this posting — nice!${heldMsg}`, 'good', 4000, edits.length ? 'happy' : 'proud');
         renderPaper();
         renderTray();
       }, 'Polishing…')
@@ -648,6 +894,13 @@ function wireTray() {
       S.saveDefault(kind, value).then(() => toast(`New resumes will start with this ${kind}`, 'good'));
     })
   );
+}
+
+// The tab you were on, for next time.
+function saveTab() {
+  try {
+    localStorage.setItem('sprout.edTab', ed.tab);
+  } catch {}
 }
 
 // ---------- structural edits ----------
@@ -713,7 +966,7 @@ function wirePaper() {
     if (!text.trim()) el.innerHTML = '';
     if (/\.label$/.test(el.dataset.path)) text = text.replace(/:\s*$/, '');
     setPath(ed.doc, el.dataset.path, text);
-    requestAnimationFrame(drawGuides);
+    requestAnimationFrame(() => (drawGuides(), placeTools(), markPage(pageChecks())));
     scheduleSave();
   });
 
@@ -779,7 +1032,11 @@ function wirePaper() {
       if (tool.dataset.tool === 'up' && f.b > 0) moveBullet(f, { r: f.r, b: f.b - 1 });
       if (tool.dataset.tool === 'down' && f.b < n - 1) moveBullet(f, { r: f.r, b: f.b + 2 });
       if (tool.dataset.tool === 'remove') removeBullet(f.r, f.b, false);
-      if (tool.dataset.tool === 'swap') document.querySelector('.tray-card.focus') && document.querySelector('.tray-card.focus').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (tool.dataset.tool === 'swap') {
+        if (ed.tab !== 'bullets') (ed.tab = 'bullets'), saveTab(), renderTray();
+        const card = document.querySelector('#edTray .tray-card.focus');
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
       return;
     }
     const roleTool = e.target.closest('[data-role-tool]');
@@ -805,21 +1062,32 @@ function wirePaper() {
     }
   });
 
-  // Hover controls for roles (right margin).
+  // Hover controls (right margin): a drag grip for the bullet under the
+  // pointer, and ✕ / ▲ for its role.
   page.addEventListener('mouseover', (e) => {
+    if (document.body.classList.contains('dragging')) return;
+    if (e.target.closest('.role-tools, .ed-grip, .ed-float')) return;
+    const li = e.target.closest('li.rs-bullet');
+    if (li) showGrip(li);
+    else if (!e.target.closest('.rs-bullets')) hideGrip();
     const block = e.target.closest('[data-role-block]');
-    page.querySelectorAll('.role-tools').forEach((t) => t.remove());
+    const have = page.querySelector('.role-tools');
+    if (have && block && have.dataset.r === block.dataset.roleBlock) return;
+    if (have) have.remove();
     if (!block) return;
     const r = +block.dataset.roleBlock;
     const t = document.createElement('div');
     t.className = 'role-tools';
+    t.dataset.r = r;
     t.contentEditable = 'false';
     t.innerHTML = `${r > 0 && !ed.doc.roles[r].isProject ? `<button data-role-tool="up" data-r="${r}" title="Move role up">▲</button>` : ''}<button data-role-tool="remove" data-r="${r}" title="Take this role off this resume">✕</button>`;
     t.style.top = `${offsetWithin(block, page)}px`;
     page.appendChild(t);
   });
 
-  // Drag & drop: bullets from the tray, or reordering by the ⋮⋮ handle.
+  page.addEventListener('mouseleave', () => document.body.classList.contains('dragging') || hideGrip());
+
+  // Drag & drop: bullets from the tray, or reordering by a bullet's grip.
   page.addEventListener('dragover', (e) => {
     const list = e.target.closest('[data-role-list]');
     if (!list) return;
@@ -920,35 +1188,89 @@ function hideDropLine() {
   if (line) line.remove();
 }
 
-// Tools in the left margin next to the bullet being edited.
+// Start dragging bullet r:b (by its grip): onto another spot on the page to
+// move it, or off the page to take it off.
+function startMove(e, r, b) {
+  e.dataTransfer.setData('application/x-sprout', JSON.stringify({ move: { r, b } }));
+  e.dataTransfer.setData(MOVE_TYPE, '1'); // readable during dragover, unlike the payload
+  e.dataTransfer.effectAllowed = 'move';
+  dragGhost(e, ed.doc.roles[r].bullets[b].text);
+  document.body.classList.add('dragging', 'dragging-out');
+}
+
+function gripHtml(li) {
+  return `<span class="handle" draggable="true" title="Drag to move · drag off the page to remove" style="height:${Math.max(18, li.offsetHeight)}px"></span>`;
+}
+
+// Line a margin tool up with its bullet.
+function placeBeside(el, li) {
+  el.style.top = `${offsetWithin(li, document.getElementById('edPage'))}px`;
+  const h = el.querySelector('.handle');
+  if (h) h.style.height = `${Math.max(18, li.offsetHeight)}px`;
+}
+
+function liAt(r, b) {
+  return document.querySelector(`#edPage li[data-role="${r}"][data-bullet="${b}"]`);
+}
+
+// Keep the margin tools beside their bullets as the text reflows.
+function placeTools() {
+  const fl = document.getElementById('edFloat');
+  const f = ed.focus;
+  const li = fl && !fl.hidden && f && f.kind === 'bullet' && liAt(f.r, f.b);
+  if (li) placeBeside(fl, li);
+}
+
+// A grip beside whichever bullet the pointer is on, so any bullet can be
+// dragged without clicking into it first.
+function showGrip(li) {
+  const g = document.getElementById('edGrip');
+  if (!g) return;
+  const r = +li.dataset.role;
+  const b = +li.dataset.bullet;
+  const f = ed.focus;
+  if (f && f.kind === 'bullet' && f.r === r && f.b === b) return hideGrip(); // its tools are showing
+  if (!g.hidden && g.dataset.at === `${r}:${b}`) return placeBeside(g, li);
+  g.dataset.at = `${r}:${b}`;
+  g.hidden = false;
+  g.contentEditable = 'false';
+  g.innerHTML = gripHtml(li);
+  placeBeside(g, li);
+  const handle = g.firstElementChild;
+  handle.addEventListener('dragstart', (e) => startMove(e, r, b));
+  handle.addEventListener('dragend', endDrag);
+}
+
+function hideGrip() {
+  const g = document.getElementById('edGrip');
+  if (g) (g.hidden = true), delete g.dataset.at;
+}
+
+// Tools in the right margin next to the bullet being edited, with its grip
+// on the outside, nearest the bullet bin.
 function showFloat(li) {
   const fl = document.getElementById('edFloat');
-  const page = document.getElementById('edPage');
   if (!fl) return;
   if (!li) {
     fl.hidden = true;
     return;
   }
+  hideGrip();
   const r = +li.dataset.role;
   const b = +li.dataset.bullet;
   const meta = ed.info.roles[r] && ed.info.roles[r].bullets[b];
   const nWords = meta ? meta.wordings.filter((w) => w !== ed.doc.roles[r].bullets[b].text).length : 0;
   fl.hidden = false;
   fl.contentEditable = 'false';
-  fl.innerHTML = `<span class="handle" draggable="true" title="Drag to move">⋮⋮</span>
-    <button data-tool="up" title="Move up" ${b === 0 ? 'disabled' : ''}>▲</button>
-    <button data-tool="down" title="Move down" ${b === ed.doc.roles[r].bullets.length - 1 ? 'disabled' : ''}>▼</button>
-    ${nWords ? `<button data-tool="swap" title="Other wordings in your bank">⇄${nWords}</button>` : ''}
-    <button data-tool="remove" title="Remove from this resume">✕</button>`;
-  fl.style.top = `${offsetWithin(li, page)}px`;
+  fl.innerHTML = `<div class="tools">
+      <button data-tool="up" title="Move up" ${b === 0 ? 'disabled' : ''}>▲</button>
+      <button data-tool="down" title="Move down" ${b === ed.doc.roles[r].bullets.length - 1 ? 'disabled' : ''}>▼</button>
+      ${nWords ? `<button data-tool="swap" title="${nWords} other wording${nWords === 1 ? '' : 's'} in your bank">⇄${nWords > 1 ? nWords : ''}</button>` : ''}
+      <button data-tool="remove" title="Take off this resume" ${nWords ? '' : 'class="wide"'}>✕</button>
+    </div>${gripHtml(li)}`;
+  placeBeside(fl, li);
   const handle = fl.querySelector('.handle');
-  handle.addEventListener('dragstart', (e) => {
-    e.dataTransfer.setData('application/x-sprout', JSON.stringify({ move: { r, b } }));
-    e.dataTransfer.setData(MOVE_TYPE, '1'); // readable during dragover, unlike the payload
-    e.dataTransfer.effectAllowed = 'move';
-    dragGhost(e, ed.doc.roles[r].bullets[b].text);
-    document.body.classList.add('dragging', 'dragging-out');
-  });
+  handle.addEventListener('dragstart', (e) => startMove(e, r, b));
   handle.addEventListener('dragend', endDrag);
   // Keep the caret in the bullet when clicking tools.
   fl.addEventListener('mousedown', (e) => {
