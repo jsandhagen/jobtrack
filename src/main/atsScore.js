@@ -194,7 +194,10 @@ const FILLER = new Set(
   'delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional used focus possible various unique primarily motivates'.split(' ')
 );
 
+// Resumes are written in the past tense: "built" is "building", "led" is "leading".
+const IRREGULAR = { built: 'build', led: 'lead', ran: 'run', wrote: 'write', written: 'write', made: 'make', drove: 'drive', driven: 'drive', grew: 'grow', grown: 'grow', began: 'begin', brought: 'bring', taught: 'teach', bought: 'buy', sold: 'sell', thought: 'think', won: 'win', spent: 'spend', set: 'set', met: 'meet', held: 'hold', kept: 'keep', took: 'take', gave: 'give', chose: 'choose', saw: 'see', spoke: 'speak', oversaw: 'oversee', undertook: 'undertake', underwent: 'undergo' };
 function wordStem(w) {
+  w = IRREGULAR[w] || w;
   return w.replace(/(?:ations?|ments?|ings?|ers?|ed|es|s)$/, '').replace(/(?:e|y|i)$/, '');
 }
 
@@ -230,7 +233,8 @@ function postingPhrases(jobText, company = '') {
     if (/^[-•*▪●◦]/.test(l.original)) started = true;
     if (!started && l.kind === 'neutral') continue;
     if (degreeLevels(l.original, true).length) continue;
-    const segments = l.original.replace(/^[-•*▪●◦]\s*/, '').split(/[,;:()/.]|\s[-–—]\s|\b(?:and|or|with|for|to|in|of|on|across|such as|from|through|by|at)\b/i);
+    // "point-of-view papers" stays one phrase: a joining word inside a hyphenated one isn't a break.
+    const segments = l.original.replace(/^[-•*▪●◦]\s*/, '').split(/[,;:()/.]|\s[-–—]\s|(?<![\w-])(?:and|or|with|for|to|in|of|on|across|such as|from|through|by|at)(?![\w-])/i);
     for (const seg of segments) {
       let run = [];
       const flush = () => {
@@ -524,7 +528,12 @@ function atsGaps(job, resumeText, bullets = []) {
     if (INTERPERSONAL.has(w.skill) || SOFT_SKILLS.has(w.skill) || INDUSTRIES.has(w.skill) || containsTerm(resumeLower, w.term)) continue;
     gaps.push({ type: 'wording', phrase: w.term, why: 'You show this in other words. Strict systems match the posting\'s words literally.', closest: closest(w.term, w.skill) });
   }
-  for (const k of r.missingKeywords.slice(0, 6)) gaps.push({ type: 'search', phrase: k, why: 'A phrase from the posting a recruiter might search for.', closest: closest(k, null) });
+  // Searched phrases only (a posting too short for phrases gives single words, which aren't worth chasing),
+  // and not one already in a gap above ("language models" next to "large language models").
+  for (const k of r.missingKeywords.filter((k) => k.includes(' ')).slice(0, 6)) {
+    if (gaps.some((g) => ` ${lower(g.phrase)} `.includes(` ${k} `) || ` ${k} `.includes(` ${lower(g.phrase)} `))) continue;
+    gaps.push({ type: 'search', phrase: k, why: 'A phrase from the posting a recruiter might search for.', closest: closest(k, null) });
+  }
   return { score: r.score, grade: r.grade, gaps };
 }
 

@@ -244,3 +244,21 @@ test('optimizing never reads worse to an ATS than the resume you started with', 
   assert.match(B.atsSummary(F.POSTINGS.productStrategyAI, bank), /at Appian \(enterprise software\)/);
   assert.doesNotMatch(B.atsSummary(F.POSTINGS.octoStrategyOps, bank), /enterprise software/);
 });
+
+test('ATS phrases: past tenses match, hyphenated phrases stay whole, and suggestions are never single verbs or repeats', () => {
+  const { atsGaps, postingPhrases } = require('../src/main/atsScore');
+  const B = require('../src/main/bullets');
+  // "Built prototypes" on the resume is "building prototypes" in the posting.
+  const tech = atsGaps(F.POSTINGS.emergingTechStrategist, F.RESUMES.ctoOfficeStrategist, []).gaps.map((g) => g.phrase);
+  assert.ok(!tech.includes('building prototypes'), tech.join(', '));
+  assert.ok(postingPhrases(F.POSTINGS.emergingTechStrategist.text).includes('point-of-view papers'));
+  // A short posting's single words aren't suggestions.
+  const short = atsGaps(H.POSTINGS.aiStrategyITTransformation, F.RESUMES.ctoOfficeStrategist, []).gaps;
+  assert.ok(short.every((g) => g.type !== 'search' || g.phrase.includes(' ')), short.map((g) => g.phrase).join(', '));
+  // Nothing said twice: "language models" next to "large language models".
+  const pm = atsGaps(F.POSTINGS.productStrategyAI, F.RESUMES.ctoOfficeStrategist, []).gaps.map((g) => g.phrase);
+  assert.ok(!(pm.includes('language models') && pm.includes('large language models')), pm.join(', '));
+  const bank = B.mergeIntoBank(B.emptyBank(), parseResume(F.RESUMES.ctoOfficeStrategist), { id: 'r', name: 'Resume' }).bank;
+  const s = B.atsSummary(H.POSTINGS.bizOpsEngineering, bank);
+  assert.ok(!(/financial models/.test(s) && /financial modeling/.test(s)), s);
+});
