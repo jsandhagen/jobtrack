@@ -17,7 +17,7 @@
 
 const { voiceProfile } = require('./voice');
 
-const PROMPT_VERSION = '2026-09-29.2';
+const PROMPT_VERSION = '2026-10-01.1';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -140,7 +140,7 @@ The checklist (qualifications):
 - Take requirements from the posting's requirements, qualifications, "you have" or "nice to have" sections and from explicit must-haves elsewhere. Skip responsibilities that describe the job rather than the candidate, benefits, company descriptions and equal-opportunity text.
 - type is "basic" for anything presented as required or minimum, or listed under a requirements or qualifications heading without preference language; "preferred" for "preferred", "nice to have", "bonus", "a plus", "ideally" or "desired".
 - Look for evidence in every candidate document, not only the resume; writing samples don't count as evidence.
-- status is "met" when the documents directly show it; "partial" when they show something adjacent or less than asked (three years against five, a closely related tool, coursework instead of work experience); "not_met" when nothing in the documents shows it. For years of experience, add up the date ranges of the relevant roles, treating "Present"/"Current" as today. Judge only by what the documents show, not by what someone in the candidate's role would probably know.
+- status is "met" when the documents directly show it; "partial" when they show something adjacent or less than asked (three years against five, a closely related tool, coursework instead of work experience); "not_met" when nothing in the documents shows it. For years of experience, add up the date ranges of the relevant roles, treating "Present"/"Current" as today. A higher degree meets a lower degree requirement: a master's or doctorate meets "bachelor's degree required" even when no bachelor's is listed, and a graduate degree in a related field meets "bachelor's in X or a related field"; quote the higher degree as the evidence. Judge only by what the documents show, not by what someone in the candidate's role would probably know.
 - evidence_quote: for "met" or "partial", copy the shortest exact excerpt from the candidate documents (any kind except writing samples) (about 3 to 25 words, verbatim, including any typos) that shows it. The app checks every quote against the documents, and an entry whose quote can't be found is downgraded. For "not_met", leave it empty.
 
 The rest of the assessment:
@@ -172,7 +172,7 @@ Summary: two or three sentences, no first person. Open with the candidate's prof
 
 Skills: 9 to 12 items, ordered by importance to the posting, for a three-column grid. Each is a skill, tool or method the documents show the candidate using, in one to four words, in the posting's wording when it is the same skill. Include the candidate's own relevant skills from their documents even if the posting doesn't name them, after the posting's.
 
-Notes: for the candidate, not printed. List each basic requirement the resume can't evidence, any preferred requirement worth adding if they have it, and any judgement call you made (a role you shortened, a bullet you swapped out and why).
+Notes: for the candidate, not printed. List each basic requirement the resume can't evidence (a higher degree evidences a lower degree requirement), any preferred requirement worth adding if they have it, and any judgement call you made (a role you shortened, a bullet you swapped out and why).
 </task>`,
 
   polish: `<task>

@@ -153,3 +153,26 @@ test('ATS keywords accept other forms of the same word (Taleo "related terms"), 
   const r = atsScore(job, 'Relationship management with vendors; account reconciliation', { checkFormatting: false });
   for (const w of ['managed', 'relationships', 'vendor']) assert.ok(!r.missingKeywords.includes(w), w);
 });
+
+test('a master\'s or PhD meets a bachelor\'s requirement everywhere, not just in the education score', () => {
+  const resume = 'Risk Analyst Jun 2020 – Present\nSQL, Python\nEDUCATION\nMasters of Economics, State University';
+  for (const line of ['Bachelor’s degree in Finance, Economics, or a related field required', 'BS in Statistics or related field', "Bachelor's degree or higher in a quantitative field"]) {
+    const job = { title: 'Risk Analyst', company: 'Acme', text: `Requirements\n- ${line}\n- SQL and Python` };
+    const fit = localFitScore(job, [{ kind: 'resume', text: resume }]);
+    assert.deepEqual(fit.missingSkills, [], line);
+    const ats = atsScore(job, resume);
+    assert.equal(ats.components.education, 100, line);
+    assert.deepEqual(ats.knockouts, [], line);
+    assert.ok(!ats.missingKeywords.some((k) => /bachelor|degree|higher|statistics|finance/.test(k)), `${line}: ${ats.missingKeywords}`);
+  }
+  // A higher requirement is still a gap.
+  const phd = localFitScore({ title: 'Researcher', company: 'Acme', text: 'Requirements\n- PhD required' }, [{ kind: 'resume', text: resume }]);
+  assert.deepEqual(phd.missingSkills, ['PhD']);
+});
+
+test("Claude's prompts say a higher degree meets a lower degree requirement", () => {
+  const P = require('../src/main/prompts');
+  const all = JSON.stringify(P);
+  assert.match(all, /higher degree meets a lower degree requirement/);
+  assert.match(all, /higher degree evidences a lower degree requirement/);
+});

@@ -199,7 +199,9 @@ function wordStem(w) {
 
 function scoreKeywords(jobText, resumeLower, company) {
   const companyWords = new Set(lower(company).split(/\W+/));
-  jobText = jobText.split('\n').filter((l) => !BOILERPLATE_LINE.test(l)).join('\n');
+  // Degree lines are scored by education (where a master's meets a bachelor's
+  // requirement), so "bachelor", "degree" and the field aren't keywords here.
+  jobText = jobText.split('\n').filter((l) => !BOILERPLATE_LINE.test(l) && !degreeLevels(l, true).length).join('\n');
   const skillWords = new Set(
     Object.values(SKILLS)
       .flat()
@@ -421,4 +423,4 @@ function libraryAtsScore(job, documents, profile) {
   return { ...atsScore(job, documents.map((d) => d.text).join('\n\n'), { checkFormatting: false, profile }), basis: 'your whole library (add a resume for formatting checks)' };
 }
 
-module.exports = { atsScore, libraryAtsScore, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };
+module.exports = { atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };

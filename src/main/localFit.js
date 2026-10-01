@@ -11,7 +11,7 @@
 // Dealbreakers from your profile (work mode, minimum salary, words to avoid)
 // cap the score so those roles never pop up as good matches.
 const { SKILLS, INTERPERSONAL, STOPWORDS, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
-const { degreeLevel, degreeRequirements } = require('./atsScore');
+const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
@@ -205,7 +205,8 @@ function dealbreakers(job, profile) {
  * @param {{text:string, kind?:string}[]} documents
  * @param {object} [profile]  { targetRoles, workModes, minSalary, avoidKeywords }
  */
-const DEGREE_LINE = /\b(bachelor|master|degree|ph\.?d|doctorate|diploma|b\.s\.|m\.s\.|mba)\b/i;
+// Degree lines count once, as the degree requirement (met by that level or higher).
+const isDegreeLine = (original) => degreeLevels(original, true).length > 0 || /\bdiploma\b/i.test(original);
 
 // What the posting asks for, as a list of units, each able to say how well a
 // piece of text (your whole library, or a single resume bullet) covers it.
@@ -233,7 +234,7 @@ function requirementUnits(job) {
     }
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
-    if ((lineKind !== 'neutral' || !hasRequiredSection) && !DEGREE_LINE.test(line)) {
+    if ((lineKind !== 'neutral' || !hasRequiredSection) && !isDegreeLine(original)) {
       for (const term of extractTerms(original, ignoreWords, `${lower(job.title)} | ${lower(job.company)}`)) {
         const index = line.indexOf(lower(term));
         const pos = { index, end: index + term.length };
