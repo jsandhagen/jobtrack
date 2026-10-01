@@ -24,7 +24,7 @@ const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 15;
+const SCORER_VERSION = 16;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -321,7 +321,7 @@ function experienceKind(line) {
     // One generic word isn't a kind of experience, unless it's a skill ("analytics").
     .filter((ws) => ws.length && ws.length <= 5 && !(ws.length === 1 && (ws[0].length < 3 || (NOT_TERMS.has(ws[0]) && !isDictionarySkill(ws[0])))));
   if (!alts.length) return null;
-  return { alts, label: `experience in ${alts.map((ws) => ws.join(' ')).join(' or ')}` };
+  return { alts, phrase, label: `experience in ${alts.map((ws) => ws.join(' ')).join(' or ')}` };
 }
 // One form for a word family: analysis / analyst / analytics, consulting /
 // consultant, recruiting / recruiter, engineering / engineer.
@@ -343,15 +343,28 @@ const KIND_SYNONYMS = [
   [/\bux\b/g, 'user experience'],
   [/\bstrats?\b/g, 'quantitative'],
   [/\bmodel risk\b/g, 'model validation'],
+  // Analytics is data work; "wrote analyses" is not.
+  [/\b(?:data |business |product |people |marketing )?analytics\b/g, 'data analytics'],
 ];
 const canonicalKind = (t) => KIND_SYNONYMS.reduce((x, [re, to]) => x.replace(re, to), t);
+const BROAD_KIND = new Set(['strategy', 'management', 'consulting', 'operations', 'planning', 'development', 'leadership'].map(kindStem));
 function kindMatch(alts) {
   const stems = alts.map((ws) => canonicalKind(ws.join(' ')).split(/\s+/).map(kindStem));
+  const tokens = (t) => (canonicalKind(t).match(/[a-z0-9][a-z0-9+#&-]*/g) || []).map(kindStem);
+  // A shorter form matches a longer one only when it's distinctive (engine / engineer).
+  const hasIn = (toks) => (s) => toks.some((x) => x === s || (Math.min(x.length, s.length) >= 5 && (x.startsWith(s) || s.startsWith(x))));
   return (t) => {
-    const toks = (canonicalKind(t).match(/[a-z0-9][a-z0-9+#&-]*/g) || []).map(kindStem);
-    // A shorter form matches a longer one only when it's distinctive (engine / engineer).
-    const has = (s) => toks.some((x) => x === s || (Math.min(x.length, s.length) >= 5 && (x.startsWith(s) || s.startsWith(x))));
-    return Math.max(...stems.map((ss) => Math.pow(ss.filter(has).length / ss.length, 2)));
+    const has = hasIn(tokens(t));
+    // A kind named in several words ("business intelligence", "data
+    // analytics") is one thing: its words count together only within one line
+    // or sentence, so "data vendors" and "wrote analyses" aren't data analytics.
+    // A role's title goes with each of its lines ("Event Manager" and "planned
+    // 40 conferences a year" is event planning), and so does the line after
+    // ("commercial jobs", then "electrical systems").
+    const lines = String(t).split(/\n|[.;](?:\s|$)/).filter((x) => x.trim());
+    const pieces = lines.map((x, i) => hasIn(tokens(`${i ? lines[0] : ''} ${x} ${lines[i + 1] || ''}`)));
+    // Broad words ("… strategy", "… management") can sit anywhere.
+    return Math.max(...stems.map((ss) => (ss.length === 1 ? (has(ss[0]) ? 1 : 0) : Math.max(...pieces.map((h) => Math.pow(ss.filter((w) => (BROAD_KIND.has(w) ? has(w) : h(w))).length / ss.length, 2))))));
   };
 }
 
@@ -430,6 +443,8 @@ function requirementUnits(job) {
       for (const term of terms.filter((x) => !terms.some((y) => contains(x, y)))) {
         const index = line.indexOf(lower(term));
         const pos = { index, end: index + term.length };
+        // Part of a skill already found: "language models" in "large language models".
+        if (index >= 0 && found.some((f) => f.skill && index >= f.index && pos.end <= f.end)) continue;
         if (GENERIC_PROGRAMMING.test(term)) {
           found.push({ key: 'programming', label: 'Programming', match: (t) => (showsProgramming(t) ? 1 : 0), ...pos });
           continue;
@@ -468,7 +483,9 @@ function requirementUnits(job) {
     // the skills are alternatives of the experience asked for, not must-haves of their own.
     else if (xk && xk.alts.length > 1) found.splice(0, found.length, ...found.filter((f) => !sameAsKind.includes(f)));
     if (xk) {
-      const inKind = (f) => f.key.startsWith('t:') && xk.alts.some((ws) => lower(f.label).split(/\s+/).filter((w) => !KIND_FILLER.has(w)).every((w) => ws.includes(w)));
+      // A term from the kind's own wording ("… or technology roles") is the kind again.
+      const phraseWords = new Set(lower(xk.phrase).match(/[a-z0-9+#&-]+/g) || []);
+      const inKind = (f) => f.key.startsWith('t:') && (xk.alts.some((ws) => lower(f.label).split(/\s+/).filter((w) => !KIND_FILLER.has(w)).every((w) => ws.includes(w))) || lower(f.label).split(/\s+/).every((w) => phraseWords.has(w)));
       found.splice(0, found.length, ...found.filter((f) => !inKind(f)));
     }
     const head = line.split(/,\s*(?:ideally|preferably|especially)\b/)[0];
@@ -582,7 +599,8 @@ function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
       for (const ex of r.experiences) {
         const end = /present|current|now|today/i.test(ex.end || '') ? now : yearFrom(ex.end) ?? yearFrom(ex.dates);
         const w = ex.isProject ? 0.85 : recencyWeight(end, now);
-        const body = [ex.title, ex.organization, ...ex.bullets.map((b) => b.text)].join('\n');
+        // The employer keeps its dates: a software vendor's name counts as an employer on a dated line.
+        const body = [ex.title, [ex.organization, ex.dates].filter(Boolean).join(', '), ...ex.bullets.map((b) => b.text)].join('\n');
         segs.push({ text: body, weight: w });
         // "Senior Consultant, Technology Strategy, Firm" parses the practice as the organization.
         // "Consultant, Office of the CTO, Appian" keeps the team with the title, so the organization is the employer.

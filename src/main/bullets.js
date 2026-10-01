@@ -19,7 +19,7 @@ const SECTION = {
   experience: /^((relevant|professional|work|career|selected)\s+)*(experience|employment( history)?|work history|career history)$/i,
   projects: /^((selected|key|relevant|personal|academic)\s+)*projects$/i,
   education: /^(education|academic background)(\s*(&|and)\s*(training|certifications?))?$/i,
-  skills: /^((relevant|technical|core|key|professional)\s+)*(skills|competencies|technologies|tools|expertise)(\s*(&|and)\s*(tools|abilities|interests))?$/i,
+  skills: /^((relevant|technical|core|key|professional|top)\s+)*(skills|competencies|technologies|tools|expertise)(\s*(&|and)\s*(tools|abilities|interests))?$/i,
   summary: /^((professional|career|executive)\s+)?(summary|profile|about( me)?|objective)$/i,
   certifications: /^(licenses?\s*(&|and)\s*)?certifications?(\s*(&|and)\s*licenses?)?$/i,
   other: /^(volunteer(ing| experience| work)?|awards|honors|publications|interests|languages|references|activities|leadership|additional information)$/i,
@@ -145,6 +145,15 @@ function cap(s) {
 
 // A role header: one to three lines that include a date range, possibly
 // split across lines ("... Analytics   June" / "2022-Current").
+// LinkedIn's PDF export says how long each role and each company lasted:
+// "July 2022 - Present (3 years 3 months)", and "4 years 3 months" under the company.
+const DURATION = /\(\s*(?:\d+\s+(?:years?|yrs?|months?|mos?)(?:\s+\d+\s+(?:months?|mos?))?|less than a year)\s*\)/i;
+const DURATION_LINE = /^\(?\s*(?:\d+\s+(?:years?|yrs?|months?|mos?)(?:\s+\d+\s+(?:months?|mos?))?|less than a year)\s*\)?$/i;
+// "McLean, Virginia, United States", "Greater Boston Area", "Remote".
+const PLACE_LINE = /^(?:[A-Z][A-Za-z.'-]+(?:\s[A-Z][A-Za-z.'-]+)*(?:,\s*[A-Z][A-Za-z.'-]+(?:\s[A-Za-z.'-]+)*){1,2}|(?:greater\s+)?[A-Z][A-Za-z .'-]+\s(?:area|metropolitan area)|remote|hybrid)$/i;
+// A line of prose (a role description) is never part of a header.
+const isProse = (l) => l.trim().length > 100 || l.trim().split(/\s+/).length > 14;
+
 function headerAt(L, i) {
   for (let span = 1; span <= 3 && i + span <= L.length; span++) {
     const chunk = L.slice(i, i + span);
@@ -155,13 +164,23 @@ function headerAt(L, i) {
     // Only accept if the date is on the last line of the chunk (it ends the header).
     const lastStart = joined.lastIndexOf('\n') + 1;
     if (m.index + m[0].length < lastStart) return null;
+    if (chunk.slice(0, -1).some(isProse)) return null;
+    const duration = DURATION.test(joined) || chunk.some((l) => DURATION_LINE.test(l.trim()));
     const rest = (joined.slice(0, m.index) + ' ' + joined.slice(m.index + m[0].length))
+      .replace(DURATION, ' ')
       .split('\n')
       .map((l) => l.replace(/[\s|·•,–—-]+$/, '').trim())
-      .filter((l) => l.replace(/[\W_]/g, ''));
-    return { span, start: m[1].replace(/\s+/g, ' '), end: m[2].replace(/\s+/g, ' '), lines: rest };
+      .filter((l) => l.replace(/[\W_]/g, '') && !DURATION_LINE.test(l));
+    return { span, start: m[1].replace(/\s+/g, ' '), end: m[2].replace(/\s+/g, ' '), lines: rest, duration };
   }
   return null;
+}
+
+// "Built X. Led Y. Ran Z." in one paragraph (LinkedIn descriptions): one
+// bullet per sentence, so each accomplishment can be picked on its own.
+function sentences(text) {
+  const parts = String(text).split(/(?<=[a-z0-9)%]{2}\.)\s+(?=[A-Z])/).map((x) => x.trim()).filter(Boolean);
+  return parts.length > 1 && parts.every((x) => x.split(/\s+/).length >= 5) ? parts : [text];
 }
 
 function roleFromHeader(h) {
@@ -198,6 +217,16 @@ function parseEducation(lines) {
     }
     const date = line.match(new RegExp(`(?:${MONTH}\\s+)?(?:19|20)\\d{2}(?:\\s*(?:-|–|—|to)\\s*(?:${MONTH}\\s+)?(?:(?:19|20)\\d{2}|present|current))?\\s*$`, 'i'));
     const body = (date ? line.slice(0, date.index) : line).replace(/[\s,|–—-]+$/, '').trim();
+    // "University of Virginia — B.S. Systems Engineering"
+    const pair = body.split(/\s+[—–|]\s+|\s+-\s+/);
+    if (pair.length === 2 && SCHOOL.test(pair[0]) !== SCHOOL.test(pair[1]) && DEGREE_WORD.test(SCHOOL.test(pair[0]) ? pair[1] : pair[0])) {
+      const [school, degree] = SCHOOL.test(pair[0]) ? pair : [pair[1], pair[0]];
+      if (!cur || cur.school || cur.degree) fresh();
+      Object.assign(cur, { school: school.trim(), degree: degree.replace(/,\s*$/, '').trim() });
+      if (date && !cur.dates) cur.dates = date[0].trim();
+      lastLabel = null;
+      continue;
+    }
     if (SCHOOL.test(body) && !DEGREE_WORD.test(body.replace(SCHOOL, ''))) {
       if (!cur || cur.school) fresh();
       Object.assign(cur, (({ organization, location }) => ({ school: organization, location }))(splitOrgLocation(body)));
@@ -280,6 +309,7 @@ function parseRoles(lines, isProject, preamble) {
   let cur = null;
   let last = null;
   let pending = [];
+  let group = ''; // the company over a run of roles (LinkedIn's export)
   for (let i = 0; i < L.length; i++) {
     const raw = L[i];
     const line = raw.trim();
@@ -298,11 +328,36 @@ function parseRoles(lines, isProject, preamble) {
     const h = headerAt(L, i);
     if (h) {
       cur = roleFromHeader(h);
+      // LinkedIn's export: the title line is the whole title ("…, Office of the CTO"),
+      // and the company sits above it once for all its roles.
+      if (h.duration && !isProject) {
+        if (h.lines.length === 1) {
+          cur.title = h.lines[0];
+          const company = [...pending].reverse().find((l) => !DURATION_LINE.test(l) && !PLACE_LINE.test(l) && !isProse(l) && l.length < 60);
+          cur.organization = company || group || '';
+          cur.location = '';
+        }
+        group = cur.organization;
+      } else if (!isProject) {
+        // "Appian Corporation — McLean, VA" over "Consultant | Office of the CTO   2022 – Present":
+        // later roles under the same employer name only their team.
+        if (h.lines.length >= 2) group = cur.organization;
+        else if (group && TEAM.test(cur.organization)) {
+          cur.title = `${cur.title}, ${cur.organization}`;
+          cur.organization = group;
+        } else group = '';
+        cur.title = cur.title.replace(/\s+\|\s+(?=(.+)$)/, (m, team) => (TEAM.test(team) ? ', ' : m));
+      }
       if (isProject) cur.isProject = true;
       roles.push(cur);
       last = null;
       pending = [];
       i += h.span - 1;
+      continue;
+    }
+    // The place under a role's dates (LinkedIn's export puts it there).
+    if (cur && cur.dates && !cur.bullets.length && !cur.location && PLACE_LINE.test(line) && line.length < 60) {
+      cur.location = line;
       continue;
     }
     // A wrapped bullet continues on the next line (PDFs lose the indentation).
@@ -318,6 +373,7 @@ function parseRoles(lines, isProject, preamble) {
     }
     pending.push(line);
   }
+  for (const r of roles) if (!r.glyph) r.bullets = r.bullets.flatMap((b) => sentences(b.text).map((text) => ({ ...b, text })));
   return preamble ? roles.filter((r) => r.dates) : roles;
 }
 
