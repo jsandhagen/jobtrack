@@ -691,9 +691,16 @@ function atsSummary(job, bank) {
   if (!text.trim() || !current) return '';
   const { postingPhrases } = require('./atsScore');
   const bankText = lower([...(bank.skills || []), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n'));
+  // What you did, without the skills list: "business process management" listed as a
+  // technology isn't years "in process management".
+  const workText = lower([...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n'));
+  const listed = lower((bank.skills || []).join('\n'));
   const years = Math.floor(careerYears(bank));
   // The phrase itself, other word forms allowed ("technology strategies"), not its words scattered about.
-  const has = (phrase) => new RegExp(`\\b${phrase.split(' ').map((w) => escapeRe(w.replace(/(?:ies|s)$/, ''))).join('[a-z]*\\s+')}`).test(bankText);
+  const phraseRe = (phrase) => new RegExp(`\\b${phrase.split(' ').map((w) => escapeRe(w.replace(/(?:ies|s)$/, ''))).join('[a-z]*\\s+')}`);
+  // A field you worked in: in your roles and bullets, not part of a longer name
+  // ("business process management" isn't "process management"), and a real noun ("technical" isn't one).
+  const has = (phrase) => (phrase.includes(' ') || /(?:ing|y|s|ment|ion)$/.test(phrase)) && phrase.split(' ').every((w) => w.length > 2) && new RegExp(`\\b${phrase.split(' ').map((w) => escapeRe(w.replace(/(?:ies|s)$/, ''))).join('[a-z]*\\s+')}`).test(workText.replace(/business process management/g, 'bpm'));
   // The kinds of experience asked for ("strategy, management consulting or technology strategy roles") you show.
   const kinds = [];
   for (const u of requirementUnits(job).units.filter((x) => x.key.startsWith('x:'))) {
@@ -721,11 +728,21 @@ function atsSummary(job, bank) {
   const textLower = lower(text);
   for (const [skill, { kind, mentions = 1 }] of classifyJobSkills(text)) {
     if (NOT_IN_GRID.has(skill)) continue;
-    // A wording of the skill that both the posting and your resume use ("generative AI").
+    // The posting's own words for it, found as such on your resume ("generative AI"):
+    // a pattern that covers several things ("management consultant" and
+    // "technology consultant") doesn't make one of them yours.
     const p = SKILLS[skill].find((re) => re.test(textLower) && re.test(bankText));
     if (!p) continue;
-    const term = textLower.match(p)[0].trim().replace(/^[^a-z0-9]+|[^a-z0-9+#]+$/g, "");
-    add(wording(term), (KIND_RANK[kind] || 2) * 10 + mentions - (term.length <= 3 ? 5 : 0));
+    const term = textLower.match(p)[0].trim().replace(/^[^a-z0-9]+|[^a-z0-9+#]+$/g, '');
+    if (!phraseRe(term).test(bankText)) continue;
+    // A product or company named in your bullets may be one you analysed or competed
+    // with ("ServiceNow"): only your skills list says you use it.
+    // A phrase, not a preposition with an object ("for the CTO").
+    if (/^(?:for|with|to|by|at|in|of|on|from)\b/.test(term)) continue;
+    // "Tech strategy" reads as "tech strategy" mid-sentence.
+    const w = wording(term).replace(/^([A-Z])([a-z]+)(?= [a-z])/, (m, a, b) => a.toLowerCase() + b);
+    if (/^[A-Z][a-z]*[A-Z]|^[A-Z][a-z]+$/.test(w) && !/[A-Z]{2,}/.test(w) && !phraseRe(term).test(listed)) continue;
+    add(w, (KIND_RANK[kind] || 2) * 10 + mentions - (term.length <= 3 ? 5 : 0));
   }
   // And the posting's phrases your bullets already say ("executive presentations").
   for (const ph of postingPhrases(text, job.company).slice(0, 15)) if (bankText.includes(ph)) add(wording(ph), 15);

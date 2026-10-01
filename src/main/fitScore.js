@@ -165,7 +165,7 @@ const SKILLS = {
   'Business Analysis': [/\bbusiness analy(?:sis|sts?)\b/, /\bsystems analy(?:sis|sts?)\b/],
   'Requirements Gathering': [/\brequirements (?:gathering|elicitation|analysis)\b/, /\bgathered requirements\b/, /\bbusiness requirements\b/, /\buser stories\b/],
   'Process Mapping': [/\bprocess (?:mapping|maps|redesign|re-?engineering)\b/, /\b(?:current|future)[- ]state process(?:es)?\b/],
-  'Stakeholder Management': [/\bstakeholder (?:management|engagement|advising)\b/, /\bclients and stakeholders\b/, /\bfor (?:\w+ ){0,3}(?:cios|ctos|cfos|ceos|c-suite|executives|agency leaders)\b/, /\b(?:work|working|worked) directly with (?:clients|stakeholders|executives|customers)\b/, /\bc-suite\b/, /\bsteering committees?\b/, /\bexecutive stakeholders?\b/, /\badvis(?:e|ed|ing) (?:senior|executive|leadership|stakeholders|clients|the cio|ctos?|cios?)\b/, /\b(?:recommendations|insights|briefings?) to (?:senior |executive )?(?:management|leadership|executives|stakeholders)\b/, /\b(?:key|primary|main) point of contact\b/, /\b(?:internal|external|cross-functional|business|key|technology and compliance) stakeholders\b/, /\bthought partner\b/],
+  'Stakeholder Management': [/\bstakeholder (?:management|engagement|advising)\b/, /\bclients and stakeholders\b/, /\bfor (?:\w+ ){0,3}(?:cios?|ctos?|cfos?|ceos?|c-suite|executives|executive team|agency leaders)\b/, /\b(?:work|working|worked) directly with (?:clients|stakeholders|executives|customers)\b/, /\bc-suite\b/, /\bsteering committees?\b/, /\bexecutive stakeholders?\b/, /\badvis(?:e|ed|ing) (?:senior|executive|leadership|stakeholders|clients|the cio|ctos?|cios?)\b/, /\b(?:recommendations|insights|briefings?) to (?:senior |executive )?(?:management|leadership|executives|stakeholders)\b/, /\b(?:key|primary|main) point of contact\b/, /\b(?:internal|external|cross-functional|business|key|technology and compliance) stakeholders\b/, /\bthought partner\b/],
   'Workshop Facilitation': [/\b(?:executive |discovery |client )?workshops?\b/],
   PowerPoint: [/\bpowerpoint\b/, /\bslide decks?\b/],
   'IT Financial Management': [/\bit (?:spend|costs?|budgets?|financial|finance)\b/, /\b(?:spend|cost) benchmarks?\b/, /\bbenefits (?:realization|tracking)\b/, /\btechnology business management\b/, /\btbm\b/, /\bit cost optimi[sz]ation\b/, /\btechnology spend\b/, /\bfinops\b/, /\bcloud costs?\b/],
@@ -222,6 +222,9 @@ const EMPLOYER_EVIDENCE = {
   'Enterprise Software': /\b(?:appian|pegasystems|servicenow|salesforce|workday|oracle|sap|microsoft|adobe|atlassian|snowflake|databricks|uipath|outsystems|mendix|hubspot|zendesk|datadog|mongodb|okta|docusign|autodesk|palantir|veeva|guidewire|celonis|informatica|confluent|gitlab|twilio|intuit|vmware|splunk|elastic|unqork|blue prism|automation anywhere)(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\.?\s*[,|·–—-]?\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? )?(?:19|20)\d{2}\b/,
 };
 
+// Words of soft-skill phrases ("operational excellence", "influencing senior leaders"): a resume can't show them, so they're neither requirements nor keywords.
+const SOFT_TERM_WORDS = new Set('operational excellence influencing influence influential senior leaders leadership leader stakeholders stakeholder relationships relationship trusted trust building ownership owning owner ambiguity ambiguous fast-paced environments environment initiative independently thinking strategic strategically mindset growth mindset curiosity curious collaborative collaboration interpersonal executive presence judgment high integrity humility passion passionate self-starter self-motivated motivated proactive accountability accountable empathy resilience adaptable adaptability agility agile-minded attention detail team player excellent strong effective effectively ability able skills skill drive driven results-oriented outcomes customer-obsessed bias action'.split(' '));
+
 const RELATED_PAIRS = [
   ['Tableau', 'Power BI', 0.6], ['Tableau', 'Looker', 0.6], ['Power BI', 'Looker', 0.6],
   ['Tableau', 'Data Visualization', 0.5], ['Power BI', 'Data Visualization', 0.5], ['Looker', 'Data Visualization', 0.5],
@@ -252,7 +255,7 @@ const RELATED_PAIRS = [
   ['IT Financial Management', 'Finance', 0.5],
   ['Business Impact', 'Business Cases', 0.5], ['Digital Products', 'Digital Transformation', 0.5], ['Digital Products', 'Product Management', 0.4],
   ['Data Quality', 'Data Strategy', 0.5], ['Data Quality', 'IT Governance', 0.3], ['Strategy', 'Technology Strategy', 0.5], ['Strategy', 'Consulting', 0.4],
-  ['Strategy', 'Business Cases', 0.3], ['Strategy', 'Competitive Analysis', 0.5], ['Strategy', 'AI Strategy', 0.5], ['Project Management', 'Digital Transformation', 0.3], ['Program Management', 'Digital Transformation', 0.3],
+  ['Strategy', 'Business Cases', 0.3], ['Operations', 'IT Portfolio Management', 0.5], ['Strategy', 'Competitive Analysis', 0.5], ['Strategy', 'AI Strategy', 0.5], ['Project Management', 'Digital Transformation', 0.3], ['Program Management', 'Digital Transformation', 0.3],
   ['FedRAMP', 'Cloud Strategy', 0.4], ['Federal IT Policy', 'IT Governance', 0.5], ['Federal IT Policy', 'Public Sector', 0.4],
   ['Machine Learning', 'AI Strategy', 0.5], ['Data Analysis', 'Data Strategy', 0.3], ['Vendor Selection', 'Consulting', 0.2],
   ['Microservices', 'Kafka', 0.4], ['Cloud Certification', 'AWS', 0.4], ['Cloud Certification', 'Azure', 0.4], ['Agile', 'Change Management', 0.2],
@@ -486,7 +489,9 @@ function classifyJobSkills(jobText) {
     // "5+ years of experience in strategy & operations, account management,
     // program management, consulting, or similar roles": the kinds of
     // experience listed are alternatives, however long the list.
-    const years = line.match(/\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?['’]?\s+(?:of\s+)?(?:[a-z-]+\s+){0,2}?(?:experience\s+)?(?:in|as|within|across)\s+/);
+    // Also "4+ years technical consulting, …, or related experience" and "proven
+    // experience in Chief of Staff, program management, or strategic operations roles".
+    const years = line.match(/\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?['’]?\s+(?:of\s+)?(?:[a-z-]+\s+){0,2}?(?:experience\s+)?(?:in|as|within|across)\s+/) || line.match(/\b\d{1,2}\s*\+\s*years?\s+(?=[a-z])/) || line.match(/\b(?:proven |demonstrated |prior |previous )?experience\s+(?:in|as)\s+(?=[^.;]*\broles?\b)/);
     const kindList = years && /\bor\b/.test(line.slice(years.index)) ? found.filter((f) => f.index >= years.index + years[0].length) : [];
     const runs = kindList.length >= 2 ? [kindList, ...alternativeRuns(line, found.filter((f) => !kindList.includes(f)))] : alternativeRuns(line, found);
     const groupOf = new Map();
@@ -675,6 +680,7 @@ module.exports = {
   SKILLS,
   RELATED,
   EMPLOYER_EVIDENCE,
+  SOFT_TERM_WORDS,
   SOFT_SKILLS,
   INTERPERSONAL,
   STOPWORDS,

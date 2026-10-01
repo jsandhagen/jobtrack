@@ -17,7 +17,7 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, SOFT_SKILLS, INTERPERSONAL, RELATED, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
+const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
 
@@ -241,7 +241,7 @@ function postingPhrases(jobText, company = '') {
         while (run.length && (PHRASE_EDGE.has(run[0]) || PHRASE_VERBS.has(run[0]))) run.shift();
         while (run.length && PHRASE_EDGE.has(run[run.length - 1])) run.pop();
         const key = run.join(' ');
-        if (run.length >= 2 && run.length <= 4 && !run.some((w) => companyWords.has(w))) counts.set(key, (counts.get(key) || 0) + (l.kind === 'required' ? 1.5 : 1));
+        if (run.length >= 2 && run.length <= 4 && !run.some((w) => companyWords.has(w)) && !run.every((w) => SOFT_TERM_WORDS.has(w))) counts.set(key, (counts.get(key) || 0) + (l.kind === 'required' ? 1.5 : 1));
         run = [];
       };
       for (const w of phraseWords(seg)) {
