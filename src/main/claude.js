@@ -8,7 +8,7 @@ const { gradeFromQualifications } = require('./atsScore');
 const P = require('./prompts');
 const { quoteFound, checkRewrite, checkNewText, norm } = require('./grounding');
 
-const DEFAULT_MODEL = 'claude-opus-5-5';
+const DEFAULT_MODEL = 'claude-sonnet-5-5';
 // If a request is declined by a safety classifier, let the API re-run it on
 // Anthropic's recommended fallback model instead of failing outright.
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';

@@ -76,7 +76,7 @@ test('localFitScore rewards matching documents', () => {
 test('Store persists settings, documents and applications', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-'));
   const s = new Store(dir);
-  assert.equal(s.getSettings().model, 'claude-opus-5-5');
+  assert.equal(s.getSettings().model, 'claude-sonnet-5-5');
   s.updateSettings({ screenWatch: true });
   const d = s.addDocument({ name: 'resume.pdf', kind: 'resume', text: RESUME });
   const a = s.addApplication({ job: { title: 'X', text: POSTING }, quick: { score: 50 } });
@@ -256,7 +256,7 @@ test('analyzeFit scores from its own checklist, verifies every quote, and caches
   assert.deepEqual(res.keywords, ['React']); // Kubernetes isn't in the posting
   assert.ok(res.promptVersion);
   const req = client.requests[0];
-  assert.equal(req.model, 'claude-opus-5-5');
+  assert.equal(req.model, 'claude-sonnet-5-5');
   assert.equal(req.fallbacks, 'default');
   assert.deepEqual(req.betas, ['server-side-fallback-2026-07-01']);
   assert.equal(req.output_config.format.type, 'json_schema');

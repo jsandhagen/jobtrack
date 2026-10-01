@@ -586,7 +586,7 @@ const views = {
           ${state.hasApiKey ? '<button class="ghost danger" id="clearKey">Remove</button>' : ''}</div>
           <label style="margin-top:14px">Model</label>
           <input id="model" value="${esc(s.model)}">
-          <p class="faint">Default: claude-opus-5-5.</p>
+          <p class="faint">Default: claude-sonnet-5-5.</p>
         </div>
         <div class="card"><h2>When to use Claude</h2>
           <p class="muted">Every posting gets a <b>free fit score</b> computed on your computer. Claude only costs anything when it reads more closely, reads your screen, or writes for you.</p>
@@ -1263,7 +1263,7 @@ const binders = {
     );
     const clear = $('#clearKey');
     if (clear) clear.addEventListener('click', () => S.setApiKey('').then(() => toast('API key removed')));
-    $('#model').addEventListener('change', (e) => S.updateSettings({ model: e.target.value.trim() || 'claude-opus-5-5' }).then(() => toast('Model saved', 'good')));
+    $('#model').addEventListener('change', (e) => S.updateSettings({ model: e.target.value.trim() || 'claude-sonnet-5-5' }).then(() => toast('Model saved', 'good')));
     $('#saveClaudeUse').addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         await S.updateSettings({

@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const DEFAULT_SETTINGS = {
-  model: 'claude-opus-5-5',
+  model: 'claude-sonnet-5-5',
   clipboardWatch: true,
   screenWatch: false,
   screenWatchIntervalSec: 20,

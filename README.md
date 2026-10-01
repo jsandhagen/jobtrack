@@ -105,7 +105,7 @@ Sprout keeps running in the system tray after you close the window, so detection
 | `src/renderer/` | Dashboard, floating popup, Sprout the mascot (`mascot.js`, inline SVG) and the hand-drawn icons (`icons.js`) |
 
 ### Claude usage notes
-- Model: `claude-opus-5-5` by default. You can change it in Settings.
+- Model: `claude-sonnet-5-5` by default. You can change it in Settings.
 - **Structured outputs** (`output_config.format`, built from Zod schemas) mean the app gets validated JSON back, so the resume layout never has to be parsed out of prose.
 - **Effort** is matched to each task: `low` for reading screenshots, `medium` for fit scoring, `high` for writing.
 - **Prompt caching**: the instructions and your whole document library form a stable, cached system prompt. After the first call, checking another posting only pays full price for the new posting text.
