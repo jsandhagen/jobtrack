@@ -616,6 +616,7 @@ h3.with-icon .small { margin-left: 8px; }
 .check-label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 700; font-size: 13px; white-space: nowrap; cursor: pointer; }
 .check-label input { width: auto; margin: 0; }
 .board-bar2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
+.board-note { margin: -2px 0 8px; font-size: 12.5px; }
 .board-status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .tabs.compact { padding: 3px; }
 .tabs.compact button { padding: 5px 10px; font-size: 13px; }

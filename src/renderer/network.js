@@ -1031,7 +1031,31 @@ const FEED_WINDOWS = [
 ];
 const PAGE_SIZE = 30;
 const FIND_TABS = ['jobs', 'role', 'searches', 'companies', 'discover'];
-const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, sort: 'new', minPay: 0, limit: PAGE_SIZE };
+const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, sort: 'new', minPay: 0, minFit: savedMinFit(), showUnscored: false, limit: PAGE_SIZE };
+// Remembered between sessions: a fit threshold is a standing preference.
+function savedMinFit() {
+  try {
+    return Number(localStorage.getItem('sprout.boardMinFit')) || 0;
+  } catch {
+    return 0;
+  }
+}
+const MIN_FITS_BOARD = [0, 50, 60, 70, 80];
+function setMinFit(v) {
+  board.minFit = v;
+  try {
+    localStorage.setItem('sprout.boardMinFit', String(v));
+  } catch {
+    // remembering the threshold is only a nicety
+  }
+}
+// With a fit threshold on, jobs below it (or with a dealbreaker) go; jobs with
+// no fit preview yet go too unless you ask to see them.
+function fitPasses(job) {
+  if (!board.minFit) return true;
+  if (!job.fit) return board.showUnscored;
+  return job.fit.score >= board.minFit && !(job.fit.dealbreakers && job.fit.dealbreakers.length);
+}
 const BOARD_SORTS = [
   ['new', 'Newest first'],
   ['fit', 'Best fit first'],
@@ -1137,6 +1161,7 @@ function boardMatches({ co, job }) {
   if (board.remote && !isRemote(job)) return false;
   // Minimum pay only rules out jobs that show pay below it; unknown pay stays.
   if (board.minPay && job.pay && yearly(job.pay) < board.minPay) return false;
+  if (!fitPasses(job)) return false;
   if (!board.showHidden && isHidden(co, job)) return false;
   const q = board.q.trim().toLowerCase();
   return !q || q.split(/\s+/).every((w) => `${job.title} ${co.name} ${job.location || ''}`.toLowerCase().includes(w));
@@ -1221,7 +1246,9 @@ function jobsTab() {
   const unreadable = cos.filter((c) => c.checkError === 'no-board').length;
   const readable = cos.filter((c) => c.board && c.board.ats !== 'none').length;
   const withJobs = cos.filter((c) => (c.jobs || []).length);
-  const filtersOn = board.q || board.company || board.remote || board.minPay;
+  const filtersOn = board.q || board.company || board.remote || board.minPay || board.minFit;
+  // Jobs the fit threshold hides only because they have no preview yet.
+  const unscoredOut = board.minFit && !board.showUnscored ? all.filter(({ co, job }) => !job.fit && (board.showHidden || !isHidden(co, job))).length : 0;
 
   if (!cos.length)
     return `<div class="card empty">${mascotSvg('curious', 72)}<h3>Your job board starts with companies</h3>
@@ -1238,9 +1265,11 @@ function jobsTab() {
         .join('')}</select>
       <select id="boardSort" class="small-select" aria-label="Sort">${BOARD_SORTS.map(([k, l]) => `<option value="${k}" ${board.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="boardPay" class="small-select" aria-label="Minimum pay" title="Hides jobs whose posted pay tops out below this. Jobs that don't show pay stay.">${MIN_PAYS.map((v) => `<option value="${v}" ${board.minPay === v ? 'selected' : ''}>${v ? `Pay ${payText({ min: v, max: v, currency: 'USD', interval: 'year' })}+` : 'Any pay'}</option>`).join('')}</select>
+      <select id="boardFit" class="small-select" aria-label="Minimum fit" title="Hides jobs whose fit preview is below this, or that hit a dealbreaker">${MIN_FITS_BOARD.map((v) => `<option value="${v}" ${board.minFit === v ? 'selected' : ''}>${v ? `Fit ${v}+` : 'Any fit'}</option>`).join('')}</select>
       <label class="check-label"><input type="checkbox" id="boardRemote" ${board.remote ? 'checked' : ''}> Remote only</label>
       ${hiddenCount ? `<label class="check-label faint"><input type="checkbox" id="boardHidden" ${board.showHidden ? 'checked' : ''}> Hidden (${hiddenCount})</label>` : ''}
     </div>
+    ${unscoredOut || (board.minFit && board.showUnscored) ? `<p class="faint board-note">${board.showUnscored ? `Showing jobs without a fit preview too. <a href="#" id="boardUnscored">Hide them</a>` : `${unscoredOut} job${unscoredOut === 1 ? '' : 's'} without a fit preview yet ${unscoredOut === 1 ? 'is' : 'are'} hidden by the fit filter. <a href="#" id="boardUnscored">Show ${unscoredOut === 1 ? 'it' : 'them'}</a>`}</p>` : ''}
     <div class="board-bar2"><div class="tabs compact" style="margin:0">${FEED_WINDOWS.map(([k, l, d]) => `<button class="${board.window === k ? 'on' : ''}" data-feed="${k}">${l} <span class="faint">${filtered.filter(({ job }) => inWindow(job, d)).length}</span></button>`).join('')}</div>
       <span class="board-status"><span class="faint">${state.careersChecking ? (checked ? '<span class="spinner"></span> checking…' : '') : checked ? `checked ${timeAgo(checked)}` : ''}</span>
       <button class="small ghost" id="checkCareers" ${state.careersChecking ? 'disabled' : ''} title="Check their careers sites now">${icon('refresh', 14)} Check now</button></span></div>`;
@@ -1809,13 +1838,16 @@ function bindJobsTab() {
   $('#boardSort').addEventListener('change', (e) => ((board.sort = e.target.value), (board.limit = PAGE_SIZE), route()));
   $('#boardPay').addEventListener('change', (e) => ((board.minPay = Number(e.target.value) || 0), (board.limit = PAGE_SIZE), route()));
   $('#boardRemote').addEventListener('change', (e) => ((board.remote = e.target.checked), (board.limit = PAGE_SIZE), route()));
+  $('#boardFit').addEventListener('change', (e) => (setMinFit(Number(e.target.value) || 0), (board.limit = PAGE_SIZE), route()));
+  const unscored = $('#boardUnscored');
+  if (unscored) unscored.addEventListener('click', (e) => (e.preventDefault(), (board.showUnscored = !board.showUnscored), route()));
   const hid = $('#boardHidden');
   if (hid) hid.addEventListener('change', (e) => ((board.showHidden = e.target.checked), route()));
   $$('[data-feed]').forEach((b) => b.addEventListener('click', (e) => (e.preventDefault(), (board.window = b.dataset.feed), (board.limit = PAGE_SIZE), route())));
   const more = $('#boardMore');
   if (more) more.addEventListener('click', () => ((board.limit += PAGE_SIZE), route()));
   const clear = $('#boardClear');
-  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), Object.assign(board, { q: '', company: '', remote: false, minPay: 0, limit: PAGE_SIZE }), route()));
+  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), Object.assign(board, { q: '', company: '', remote: false, minPay: 0, limit: PAGE_SIZE }), setMinFit(0), route()));
   const check = $('#checkCareers');
   if (check)
     check.addEventListener('click', (e) =>
