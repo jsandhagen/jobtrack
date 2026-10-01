@@ -27,12 +27,20 @@
     /\bpreferred\b|\bnice to have\b/i,
   ];
 
+  // Lines that are a button's label, not the posting ("Show more", "Apply now").
+  const BUTTON_LINE = /^(?:show (?:more|less)|see (?:more|less)|(?:…|\.\.\.)\s*(?:more|see more)|read (?:more|less)|(?:easy )?apply(?: now| for this job)?|save(?: job)?|saved|share(?: this job)?|report(?: this)? job|back to (?:jobs|search(?: results)?)|copy link)$/i;
   const clean = (s) =>
     String(s || '')
-      .replace(/ /g, ' ')
+      .replace(/\u00a0/g, ' ')
+      .replace(/[\u200b-\u200d\ufeff]/g, '')
+      .replace(/\r\n?/g, '\n')
       .replace(/[ \t]+\n/g, '\n')
+      .split('\n')
+      .filter((l) => !BUTTON_LINE.test(l.trim()))
+      .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const signalCount = (t) => SIGNALS.filter((re) => re.test(t)).length;
   const q = (sel, root = document) => {
     for (const s of [].concat(sel)) {
@@ -63,30 +71,56 @@
   }
 
   // ---------- 1. schema.org JobPosting ----------
+  // Sites write JSON-LD by hand: raw line breaks inside strings, trailing commas.
+  function parseLoose(s) {
+    try {
+      return JSON.parse(s);
+    } catch {
+      try {
+        return JSON.parse(s.replace(/[\u0000-\u001f]+/g, ' ').replace(/,\s*([}\]])/g, '$1'));
+      } catch {
+        return null;
+      }
+    }
+  }
+  // What the page shows as its job: the tab title and the first headings.
+  const shownText = () => norm([document.title, ...[...document.querySelectorAll('h1,h2')].slice(0, 6).map((h) => h.innerText)].join(' '));
   function fromJsonLd() {
     const found = [];
-    const visit = (node) => {
-      if (!node || typeof node !== 'object') return;
-      if (Array.isArray(node)) return node.forEach(visit);
+    let listed = false; // inside an ItemList: a page of search results
+    const visit = (node, inList, depth = 0) => {
+      if (!node || typeof node !== 'object' || depth > 8) return;
+      if (Array.isArray(node)) return node.forEach((n) => visit(n, inList, depth + 1));
       const type = [].concat(node['@type'] || []);
-      if (type.includes('JobPosting')) found.push(node);
-      if (node['@graph']) visit(node['@graph']);
-    };
-    document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
-      try {
-        visit(JSON.parse(s.textContent));
-      } catch {
-        /* some sites ship invalid JSON-LD */
+      const list = inList || type.includes('ItemList');
+      if (type.includes('JobPosting')) {
+        found.push(node);
+        if (list) listed = true;
+        return;
       }
-    });
-    const jp = found[0];
-    if (!jp || !jp.description) return null;
+      // JobPostings sit under @graph, mainEntity, itemListElement[].item and the like.
+      for (const v of Object.values(node)) if (v && typeof v === 'object') visit(v, list, depth + 1);
+    };
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => visit(parseLoose(s.textContent || ''), false));
+    const usable = found.filter((j) => j.description && typeof j.title === 'string' && j.title.trim());
+    if (!usable.length) return null;
+    // Several postings (a search page, or a job page that also describes
+    // similar jobs): the one the page shows, and none when it shows none or many.
+    let jp = usable[0];
+    if (usable.length > 1 || listed) {
+      const shown = shownText();
+      const matches = usable.filter((j) => norm(j.title) && shown.includes(norm(j.title)));
+      if (matches.length !== 1) return null;
+      jp = matches[0];
+    }
     const org = [].concat(jp.hiringOrganization || [])[0];
     const places = [].concat(jp.jobLocation || []).map((l) => {
       const a = (l && l.address) || {};
       return [a.addressLocality, a.addressRegion, a.addressCountry && (a.addressCountry.name || a.addressCountry)].filter((x) => typeof x === 'string' && x).join(', ');
     });
-    const remote = /TELECOMMUTE/i.test(jp.jobLocationType || '') ? 'Remote' : '';
+    // Remote, and where applicants may live ("Remote · United States").
+    const where = [].concat(jp.applicantLocationRequirements || []).map((a) => (typeof a === 'string' ? a : a && a.name)).filter((x) => typeof x === 'string' && x);
+    const remote = /TELECOMMUTE/i.test([].concat(jp.jobLocationType || []).join(' ')) ? ['Remote', where.join(', ')].filter(Boolean).join(' · ') : '';
     const salary = (() => {
       const b = jp.baseSalary && jp.baseSalary.value;
       if (!b) return '';
@@ -100,7 +134,7 @@
     const extra = [
       jp.employmentType ? `Employment type: ${[].concat(jp.employmentType).join(', ')}` : '',
       salary ? `Pay: ${salary}` : '',
-      remote ? 'Location type: Remote' : '',
+      remote ? `Location type: ${remote}` : '',
     ].filter(Boolean);
     return {
       title: clean(jp.title),
@@ -150,15 +184,13 @@
     return null;
   }
 
-  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
   function fromPageData() {
     const ddo = scriptObject('phApp.ddo');
     const job = ddo && ddo.jobDetail && ddo.jobDetail.data && ddo.jobDetail.data.job;
     if (!job || !job.description || !job.title) return null;
     // Moving between jobs without a reload can leave the old job's data
     // behind: it has to be the job the page shows.
-    const shown = norm([document.title, ...[...document.querySelectorAll('h1')].map((h) => h.innerText)].join(' '));
+    const shown = shownText();
     if (shown && !shown.includes(norm(job.title))) return null;
     const parts = [job.description, job.responsibilities, job.qualifications].filter((x) => typeof x === 'string' && x.trim());
     const ogSite = document.querySelector('meta[property="og:site_name"]');
@@ -334,19 +366,69 @@
       const t = main ? clean(main.innerText) : '';
       if (t.length > 300 && signalCount(t) >= 4) best = { el: main, text: t };
     }
+    if (!best) best = fromShadowRoots();
     if (!best) return null;
-    // Title: an <h1> in or just before the block, else the tab title.
-    const h1 = best.el.querySelector('h1') || document.querySelector('h1');
-    let title = h1 ? clean(h1.innerText).split('\n')[0] : '';
-    let company = '';
-    if (!title || title.length > 120) {
-      const parts = document.title.split(/\s[|–—-]\s/);
-      title = parts[0] || '';
-      company = parts[1] || '';
-    }
-    const ogSite = document.querySelector('meta[property="og:site_name"]');
-    if (!company && ogSite) company = ogSite.content;
+    // An article about job descriptions reads like one; a posting isn't "how to".
+    if (ARTICLE_URL.test(location.pathname) || HOW_TO.test(document.title) || HOW_TO.test((document.querySelector('h1') || {}).innerText || '')) return null;
+    const { title, company } = titleAndCompany(best.el);
     return { title, company, location: '', text: best.text, source: 'page' };
+  }
+
+  // Careers sites drawn as web components keep the posting in a shadow root,
+  // where the page's own text doesn't reach.
+  function fromShadowRoots() {
+    const roots = [];
+    const walk = (root) => {
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot && roots.length < 50) {
+          roots.push(el.shadowRoot);
+          walk(el.shadowRoot);
+        }
+      }
+    };
+    walk(document);
+    let best = null;
+    for (const r of roots) {
+      const t = clean([...r.children].map((c) => c.innerText || '').join('\n'));
+      if (t.length > 300 && signalCount(t) >= 4 && (!best || t.length < best.text.length)) best = { el: r, text: t };
+    }
+    return best;
+  }
+
+  const ARTICLE_URL = /\/(?:blog|blogs|articles?|news|resources|guides?|insights|advice|career-advice|templates?)\//i;
+  const HOW_TO = /^\s*(?:how to|\d+\s+(?:tips|ways|examples|questions)|what (?:is|does))\b|\b(?:template|job description examples?|sample job description)\b/i;
+  // A heading that names the site, not the job: "Careers at Acme", "Open roles".
+  const SITE_HEADING = /\b(?:careers?|job (?:openings|search|board)|open (?:positions|roles|jobs)|join (?:us|our team)|work (?:with|at) us|search results|current openings)\b/i;
+  const SECTION = /^(?:benefits|perks|compensation|pay|salary|location|who we are|why (?:join|work)|how to apply|our (?:team|mission|values|benefits)|about (?:us|the company)|equal (?:opportunity|employment))\b/i;
+  const firstLine = (el) => clean(el.innerText || el.textContent || '').split('\n')[0].trim();
+  // "Senior Manager, Product Strategy | Acme Careers", "Job Application for X at Acme".
+  function fromTabTitle() {
+    let t = document.title.replace(/^job application for\s+/i, '');
+    let company = '';
+    const at = t.match(/^(.*\S)\s+at\s+([^|–—-]+)$/);
+    if (at) [, t, company] = at;
+    const parts = t.split(/\s[|–—-]\s|\s·\s/).map((x) => x.trim()).filter(Boolean);
+    return { title: parts[0] || '', company: (company || parts[1] || '').replace(/\s*\b(?:careers?|jobs?|job board|career site|careers site|recruiting|hiring)\s*$/i, '').trim() };
+  }
+  function titleAndCompany(block) {
+    const ogSite = document.querySelector('meta[property="og:site_name"]');
+    const site = norm(ogSite && ogSite.content);
+    const ok = (t) => t && t.length <= 120 && !ANCHOR.test(t) && !SECTION.test(t) && !SITE_HEADING.test(t) && norm(t) !== site;
+    const tab = fromTabTitle();
+    let title = '';
+    // The posting's <h1>, the page's, the posting's first heading if it isn't
+    // a section ("Responsibilities", "Benefits"), then the tab title.
+    const first = block.querySelector('h2,h3');
+    for (const h of [...block.querySelectorAll('h1'), ...document.querySelectorAll('h1'), ...(first ? [first] : [])]) {
+      const t = firstLine(h);
+      if (ok(t)) {
+        title = t;
+        break;
+      }
+    }
+    if (!title) title = tab.title;
+    const company = (ogSite && ogSite.content) || tab.company || '';
+    return { title, company: clean(company) };
   }
 
   function looksLikePosting(p) {
@@ -373,6 +455,15 @@
     if (!result) return { isPosting: false, url: location.href };
     // Fill gaps from the page if structured data was thin on details.
     if (!result.title) result.title = text('h1');
+    // A teaser in the structured data ("…and much more"): the page has the whole posting.
+    if ((result.source === 'structured-data' || result.source === 'phenom') && result.text.length < 2500) {
+      try {
+        const page = fromKnownSite() || fromPage();
+        if (page && looksLikePosting(page) && page.text.length > result.text.length * 1.5) result = { ...result, text: page.text };
+      } catch {
+        /* keep the structured data */
+      }
+    }
     // Headers and descriptions sometimes repeat the title on line one.
     return { ...result, url: location.href, isPosting: looksLikePosting(result) };
   };

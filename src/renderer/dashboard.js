@@ -276,17 +276,23 @@ function followUpDue(a) {
   return a.followUpAt && Date.parse(a.followUpAt) <= Date.now() + 86400000;
 }
 
+// Every modal closes with its ✕, Escape, or a click outside it.
 function openModal(html) {
   const m = document.getElementById('modal');
-  document.getElementById('modalCard').innerHTML = html;
+  const card = document.getElementById('modalCard');
+  card.innerHTML = `<button class="modal-x ghost" type="button" aria-label="Close" title="Close (Esc)">✕</button>${html}`;
+  card.querySelector('.modal-x').addEventListener('click', closeModal);
   m.hidden = false;
-  return document.getElementById('modalCard');
+  return card;
 }
 function closeModal() {
   document.getElementById('modal').hidden = true;
 }
 document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') closeModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.getElementById('modal').hidden) closeModal();
 });
 
 // Yes/no questions in the page, never window.confirm(): in Electron a native
@@ -583,7 +589,8 @@ const views = {
           'Your target roles shape the fit score. Postings that hit a dealbreaker are capped at 30 and labelled "Dealbreaker", so they don\'t pop up as good matches.',
           `<div class="full"><label>Roles you are aiming for</label><textarea data-k="targetRoles" rows="2" style="min-height:0" placeholder="Frontend engineer, design engineer">${esc(p.targetRoles)}</textarea><small class="faint">Separate with commas. List every title you'd take: the same job goes by many names (Technology Strategy Manager, Strategy &amp; Operations Manager, Chief of Staff), and Find jobs looks for each one.</small></div>
           ${f('workModes', 'Work arrangements', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
-          ${f('avoidKeywords', 'Skip postings that mention', 'commission only, night shift', true)}`
+          ${f('avoidKeywords', 'Skip postings that mention', 'commission only, night shift', true)}
+          <div class="full"><label>Employers to skip</label><textarea data-k="skipEmployers" rows="2" style="min-height:0" placeholder="Accenture, Deloitte, KPMG, PwC, EY, McKinsey, BCG, Booz Allen">${esc(p.skipEmployers)}</textarea><small class="faint">Separate with commas. Their postings read as a dealbreaker, Find jobs leaves them out, and the company finder won't suggest them. "Deloitte" also covers Deloitte Consulting. Use this rather than "consulting" above: in-house roles often ask for consulting experience.</small></div>`
         )}
         ${card(
           'shield',
@@ -1280,14 +1287,31 @@ const binders = {
   },
   profile() {
     // Every card's Save saves the whole profile, so nothing edited elsewhere is lost.
+    const patch = () => {
+      const p = {};
+      $$('[data-k]').forEach((i) => (p[i.dataset.k] = i.value.trim()));
+      return p;
+    };
     $$('.save-profile').forEach((b) => b.addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
-        const patch = {};
-        $$('[data-k]').forEach((i) => (patch[i.dataset.k] = i.value.trim()));
-        await S.updateProfile(patch);
+        await S.updateProfile(patch());
         toast('Profile saved', 'good');
       }, 'Saving…')
     ));
+    // And each change saves itself (when you leave the field), so leaving the
+    // page without pressing Save loses nothing. The card's button says so.
+    $$('[data-k]').forEach((i) => i.addEventListener('change', async () => {
+      try {
+        await S.updateProfile(patch());
+        const b = i.closest('.card') && i.closest('.card').querySelector('.save-profile');
+        if (b) {
+          b.textContent = 'Saved ✓';
+          setTimeout(() => b.isConnected && (b.textContent = 'Save'), 1600);
+        }
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }));
   },
   settings() {
     renderExtensionCard();

@@ -52,7 +52,7 @@ const SKILLS = {
   'Deep Learning': [/\bdeep learning\b/, /\bneural networks?\b/, /\bpytorch\b/, /\btensorflow\b/],
   'LLMs / GenAI': [/\bllms?\b/, /\blarge language models?\b/, /\bgenerative ai\b/, /\bgenai\b/, /\bprompt engineering\b/],
   // Having been a "Data Analyst" is evidence of data analysis.
-  'Data Analysis': [/\bdata analy(?:sis|tics|sts?)\b/, /\banalytics\b/, /\banaly[sz](?:e|ed|es|ing)\s+(?:\w+\s+){0,2}(?:data|usage|metrics|results|trends)\b/],
+  'Data Analysis': [/\bdata analy(?:sis|tics|sts?)\b/, /\banalytics\b/, /\banaly[sz](?:e|ed|es|ing)\s+(?:\w+\s+){0,2}(?:data|usage|metrics|results)\b/],
   // Separate tools, so the fit score can tell the exact one from a related one.
   'Data Visualization': [/\bdata visuali[sz]ation\b/, /\bdashboards?\b/],
   Tableau: [/\btableau\b/],
@@ -246,7 +246,7 @@ const RELATED_PAIRS = [
   ['Spark', 'ETL / Pipelines', 0.4], ['Snowflake', 'SQL', 0.5], ['Spark', 'Snowflake', 0.3],
   ['Docker', 'Kubernetes', 0.5], ['Terraform', 'AWS', 0.3], ['CI/CD', 'Git', 0.3],
   ['Django', 'Flask', 0.6], ['Node.js', 'JavaScript', 0.4],
-  ['Excel', 'Data Analysis', 0.3], ['Figma', 'UI Design', 0.4], ['UX Design', 'UI Design', 0.6],
+  ['Excel', 'Data Analysis', 0.3], ['SQL', 'Data Analysis', 0.5], ['Financial Modeling', 'Data Analysis', 0.4], ['Figma', 'UI Design', 0.4], ['UX Design', 'UI Design', 0.6],
   ['Product Management', 'Project Management', 0.4], ['Agile', 'Project Management', 0.4],
   ['Accounting', 'Finance', 0.4], ['CRM', 'Sales', 0.3],
   ['Technology Strategy', 'Digital Transformation', 0.7], ['Technology Strategy', 'Roadmapping', 0.5], ['Technology Strategy', 'Enterprise Architecture', 0.5],
@@ -422,6 +422,17 @@ const LIST_GAP = /^(?:[\s,/]|\band\b|\bor\b|\b(?:another|other|similar|equivalen
 // (The second form: one unrecognised item before the "or": "cloud, data or AI".)
 const OR_GAP = /\/|\bor\b/;
 function alternativeRuns(line, items) {
+  // "Scaling emerging technologies (AI, automation, analytics, platforms)":
+  // examples of a kind of thing, in brackets, any of which shows it. (Not
+  // "interest rate models (Hull-White, LMM, SABR)", where each is the ask.)
+  const bracket = /\b(?:technolog(?:y|ies)|tools|platforms|systems|capabilities|solutions|areas|domains)\s*\(([^()]{3,120})\)/g;
+  for (const b of line.matchAll(bracket)) {
+    if (!/,/.test(b[1])) continue;
+    const start = b.index + b[0].indexOf('(') + 1;
+    const end = start + b[1].length;
+    const inside = items.filter((it) => it.index >= start && it.end <= end);
+    if (inside.length >= 2) return [inside, ...alternativeRuns(line.slice(0, b.index) + ' '.repeat(b[0].length) + line.slice(b.index + b[0].length), items.filter((it) => !inside.includes(it)))];
+  }
   const optional = ALTERNATIVES_CUE.test(line);
   const sorted = [...items].sort((a, b) => a.index - b.index);
   // "Coursework may include econometrics, optimization, Bayesian methods...":

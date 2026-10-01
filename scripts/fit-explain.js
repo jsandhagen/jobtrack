@@ -3,7 +3,7 @@
 // offline fit score against the fixtures:
 //   node scripts/fit-explain.js <resume key> <posting key>
 const { localFitScore, requirementUnits } = require('../src/main/localFit');
-const fixtures = ['fitCases', 'techPostings', 'techStrategyDeep', 'techStrategyHoldout', 'techStrategyNearMiss', 'quantPostings', 'quantNearMiss', 'quantHoldout', 'fitHoldout2', 'realWorld', 'randomJobs', 'ctoOfficePersona'].map((f) => {
+const fixtures = ['fitCases', 'techPostings', 'techStrategyDeep', 'techStrategyHoldout', 'techStrategyNearMiss', 'quantPostings', 'quantNearMiss', 'quantHoldout', 'fitHoldout2', 'realWorld', 'randomJobs', 'ctoOfficePersona', 'ctoOfficeOpportunities'].map((f) => {
   try {
     return require(`../test/fixtures/${f}`);
   } catch {

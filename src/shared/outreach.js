@@ -694,7 +694,8 @@
     const alum = /\s+(alum|alumni|alumnus|alumna|grad|graduate)s?$/i.test(c);
     const core = commonCore(c);
     const has = (list) => splitList(list).some((x) => norm(x) === norm(core));
-    if (has(profile.schools) || (alum && !has(profile.pastEmployers))) return `went to ${core}`;
+    // "went to the University of Virginia", "went to UVA".
+    if (has(profile.schools) || (alum && !has(profile.pastEmployers))) return `went to ${/^university of\b/i.test(core) ? 'the ' : ''}${core}`;
     if (has(profile.pastEmployers) || ex) return `worked at ${core}`;
     return `have ${c} in common`;
   }
@@ -706,14 +707,17 @@
   // The known details for a message. Unknown ones are '' (see FALLBACK).
   function templateVars(contact = {}, profile = {}, job = null) {
     const roles = splitList(profile.targetRoles);
-    const core = commonCore(splitList(contact.connection)[0] || '');
+    // What you have in common: as typed, else the schools and employers read
+    // off their LinkedIn profile that you share ("University of Virginia alum").
+    const connection = clean(contact.connection) || connectionText(sharedBackground(contact, profile));
+    const core = commonCore(splitList(connection)[0] || '');
     const linkedin = String(profile.links || '').split(/[\s·,|]+/).find((l) => /linkedin\.com\//i.test(l)) || '';
     return {
       first: clean(contact.name).split(' ')[0],
       name: clean(contact.name),
       title: clean(contact.title),
       company: clean(contact.company),
-      common: commonPhrase(contact.connection, profile),
+      common: commonPhrase(connection, profile),
       commonShort: core && core.split(' ').length <= 3 && !/^(went|worked|know|met)\b/i.test(core) ? core : '',
       role: roles.length ? roles.slice(0, 2).join(' and ').toLowerCase() : '',
       job: clean(job && job.title),

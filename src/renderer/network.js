@@ -188,7 +188,7 @@ views.people = () => {
   const body = peopleTab === 'companies' ? wayInTab() : peopleTab === 'find' ? findPeopleTab() : peopleTab === 'templates' ? templatesCard() : myPeopleTab(st);
   return `<div class="page">
     ${pageHead('People', mood, esc(line), `<button class="soft" id="importPeople">${icon('clipboard')} Import from a spreadsheet</button><button class="primary" data-add-person="">+ Add a person</button>`)}
-    <div class="tabs find-tabs">${tab('people', `${icon('user', 17)} My people`, cs.length)}${tab('companies', `${icon('home', 17)} Companies`, targets().length)}${tab('find', `${icon('search', 17)} Find people`)}${tab('templates', `${icon('letter', 17)} Templates`, state.templates.length)}</div>
+    <div class="tabs find-tabs">${tab('people', `${icon('user', 17)} My people`, cs.length)}${tab('companies', `${icon('home', 17)} By company`, targets().length)}${tab('find', `${icon('search', 17)} Find people`)}${tab('templates', `${icon('letter', 17)} Templates`, state.templates.length)}</div>
     ${body}
   </div>`;
 };
@@ -463,15 +463,15 @@ function openContactModal(c = {}) {
   const f = (k, label, ph, full) => `<div class="${full ? 'full' : ''}"><label>${label}</label><input data-ck="${k}" value="${esc(c[k] || '')}" placeholder="${esc(ph)}"></div>`;
   const card = openModal(`<h2 style="margin-top:0">${editing ? esc(c.name) : 'Add a person'}</h2>
     <div class="form-grid">
+      <div class="full"><label>LinkedIn profile <span class="faint">(optional: paste it and I\'ll fill in the name)</span></label><div class="inline"><input data-ck="linkedinUrl" value="${esc(c.linkedinUrl || '')}" placeholder="linkedin.com/in/…" style="flex:1"><button class="small ghost" id="findProfile" title="Google search: their name and company on LinkedIn">${icon('search', 14)} Find it</button></div></div>
       ${f('name', 'Name', 'Frederick Lee')}${f('title', 'Their title', 'Chief of Staff')}
       ${f('company', 'Company', 'OCTA')}${f('connection', 'What you have in common', 'UVA · ex-Appian · met at a meetup')}
-      <div class="full"><label>LinkedIn profile <span class="faint">(optional)</span></label><div class="inline"><input data-ck="linkedinUrl" value="${esc(c.linkedinUrl || '')}" placeholder="linkedin.com/in/…" style="flex:1"><button class="small ghost" id="findProfile" title="Google search: their name and company on LinkedIn">${icon('search', 14)} Find it</button></div></div>
       ${f('email', 'Email <span class="faint">(optional)</span>', 'fred@example.com')}
       <div><label>Status</label><select data-ck="status">${O.CONTACT_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (c.status || 'to-reach') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="full"><label>Notes</label><textarea data-ck="notes" style="min-height:60px" placeholder="How you know them, what they work on, what you talked about…">${esc(c.notes || '')}</textarea></div>
     </div>
     ${background(c)}
-    ${!editing ? `<p class="faint" style="margin-bottom:0">${icon('sparkle', 13)} Paste their LinkedIn link and I'll fill in the name. With the Sprout browser extension, open their profile and click <b>Add to my people</b>: title, company, schools and past jobs come along.</p>` : ''}
+    ${!editing ? `<p class="faint" style="margin-bottom:0">${icon('sparkle', 13)} With the Sprout browser extension, open their profile and click <b>Add to my people</b>: title, company, schools and past jobs come along.</p>` : ''}
     ${editing && (c.log || []).length ? `<div class="section-title">History</div><ul class="timeline">${c.log.slice().reverse().map((l) => `<li><b>${esc(l.what === 'reached' ? `Reached out${l.channel ? ` (${l.channel})` : ''}` : O.CONTACT_LABEL[l.what] || l.what)}</b><span>${fmtDate(l.at)}</span></li>`).join('')}</ul>` : ''}
     <div class="inline" style="margin-top:16px"><button class="primary" id="saveContact">${editing ? 'Save' : 'Add person'}</button>
       ${editing ? `<button class="soft" data-msg="${c.id}">${icon('chat', 15)} Write a message</button><button class="ghost danger" id="delContact">Remove</button>` : ''}
@@ -621,13 +621,13 @@ function openComposeModal(contactId, appId) {
     <input id="cmpSubject" placeholder="Subject" style="margin-top:10px;display:none">
     <textarea id="cmpBody" style="min-height:170px;margin-top:10px"></textarea>
     <p class="faint" id="cmpCount" style="margin:4px 0 0"></p>
-    <div class="inline" style="margin-top:14px" id="cmpSend"></div>
     <div class="note-box" id="cmpSent" style="display:none;margin-top:14px">
       <b>Did you send it?</b> I'll remind you to follow up if they don't answer.
       <div class="inline" style="margin-top:8px"><button class="primary small" id="cmpYes">Yes, I reached out</button>
         <label style="margin:0" class="faint">Follow up in <select id="cmpDays" class="small-select">${[3, 5, 7, 10, 14].map((d) => `<option ${d === (Number(state.settings.followUpDays) || 7) ? 'selected' : ''}>${d}</option>`).join('')}</select> days</label>
         <button class="ghost small" id="cmpNotYet">Not yet</button></div>
-    </div>`);
+    </div>
+    <div class="inline" style="margin-top:14px" id="cmpSend"></div>`);
   const body = $('#cmpBody', card);
   const subject = $('#cmpSubject', card);
 
@@ -716,7 +716,12 @@ function openComposeModal(contactId, appId) {
     });
   render();
 
-  const askSent = () => ($('#cmpSent', card).style.display = 'block');
+  // Above the send bar, scrolled into view: the question comes right after the click.
+  const askSent = () => {
+    const box = $('#cmpSent', card);
+    box.style.display = 'block';
+    box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
   $('#cmpNotYet', card).addEventListener('click', closeModal);
   $('#cmpYes', card).addEventListener('click', async (e) =>
     run(e.currentTarget, async () => {
@@ -767,7 +772,7 @@ const way = (company) => O.wayIn(company, { contacts: state.contacts, connection
 const targets = () => O.targetCompanies({ companies: state.companies, contacts: state.contacts, applications: state.applications });
 
 const STAGE_CLS = { none: 'due', found: '', reached: 'lav', talking: 'good', referred: 'good' };
-const stageChip = (stage) => `<span class="chip tiny stage ${STAGE_CLS[stage]}" title="Where you stand at this company">${stage === 'referred' ? '✓ ' : ''}${esc(O.STAGE_LABEL[stage])}</span>`;
+const stageChip = (stage) => `<span class="chip tiny co-stage ${STAGE_CLS[stage]}" title="Where you stand at this company">${stage === 'referred' ? '✓ ' : ''}${esc(O.STAGE_LABEL[stage])}</span>`;
 const WARM_CLS = { know: 'good', first: 'good', coworker: 'lav', alumni: 'lav', mutual: 'due', common: 'lav', cold: '' };
 const warmChip = (p) => `<span class="chip tiny ${WARM_CLS[p.warmth]}">${esc(O.warmthLabel(p.warmth, p.contact || {}))}</span>`;
 const roleChip = (p) => (p.role ? `<span class="chip tiny">${esc(O.ROLE_KINDS[p.role])}</span>` : '');

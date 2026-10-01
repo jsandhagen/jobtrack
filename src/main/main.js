@@ -20,7 +20,7 @@ const {
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
 const { analyzeLayout } = require('./layout');
-const { localFitScore, SCORER_VERSION } = require('./localFit');
+const { localFitScore, skippedEmployer, SCORER_VERSION } = require('./localFit');
 const { cleanPosting } = require('./posting');
 const claude = require('./claude');
 const draft = require('./draft');
@@ -1677,7 +1677,8 @@ async function runFinder({ lookup = '', watched = false } = {}) {
   let names = outreach.splitList(lookup).slice(0, 10);
   if (watched) names = cos.filter((c) => c.status !== 'pass' && !(c.employer && c.employer.checkedAt && Date.now() - Date.parse(c.employer.checkedAt) < 30 * 86400000)).map((c) => c.name).slice(0, 10);
   if (watched && !names.length) throw new Error('Every company you watch was looked up in the last month.');
-  const exclude = names.length ? [] : [...new Set([...cos.map((c) => c.name), ...f.dismissed, ...f.results.map((r) => r.name)])].slice(0, 200);
+  const skip = outreach.splitList(store.getProfile().skipEmployers);
+  const exclude = names.length ? [] : [...new Set([...skip, ...cos.map((c) => c.name), ...f.dismissed, ...f.results.map((r) => r.name)])].slice(0, 200);
   const client = claudeClient();
   const costBefore = store.getUsage().cost;
   finderRunning = true;
@@ -1693,7 +1694,7 @@ async function runFinder({ lookup = '', watched = false } = {}) {
       model: store.getSettings().model,
     });
     const now = new Date().toISOString();
-    const found = out.companies.map((c) => ({ ...c, checkedAt: now }));
+    const found = out.companies.filter((c) => names.length || !skippedEmployer(c.name, skip.join(','))).map((c) => ({ ...c, checkedAt: now }));
     // Newest first; a company found again replaces its old entry.
     const results = [...found, ...f.results.filter((r) => !found.some((c) => outreach.sameCompany(c.name, r.name)))].slice(0, 60);
     // Companies you watch get their ratings on their card.
@@ -1769,7 +1770,8 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
       if (co) x.company = { id: co.id, name: co.name };
       if (!listed.has(`${x.company.id}|${x.job.title.toLowerCase()}`)) fromBoards.push(x);
     }
-    const all = [...mine.results, ...fromBoards].sort(
+    // Employers you said you won't work for aren't results at all.
+    const all = [...mine.results, ...fromBoards].filter((x) => !skippedEmployer(x.company.name, profile.skipEmployers)).sort(
       (a, b) => ROLE_RANK[a.match] - ROLE_RANK[b.match] || ((b.fit && b.fit.score) || 0) - ((a.fit && a.fit.score) || 0) || String(b.job.postedAt || '').localeCompare(String(a.job.postedAt || '')),
     );
     lastRoleSearch = new Map(all.map((x) => [`${x.company.id}|${x.job.id}`, x]));
