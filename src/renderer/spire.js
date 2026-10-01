@@ -444,7 +444,7 @@ function endSpireTurn(c) {
 
 // Number keys play cards, E ends the turn.
 document.addEventListener('keydown', (e) => {
-  if (!document.getElementById('spirePage') || isEditing() || !document.getElementById('modal').hidden) return;
+  if (!document.getElementById('spirePage') || isTyping() || !document.getElementById('modal').hidden) return;
   if (!spireRun || !spireRun.combat || spireRun.combat.result) return;
   if (/^[1-9]$/.test(e.key)) playCard(Number(e.key) - 1);
   else if (e.key === 'e' || e.key === 'E') endSpireTurn(spireCareer());

@@ -527,7 +527,7 @@ const views = {
     return `<div class="page">
       ${pageHead('Applications', applicationsMood(all), applicationsLine(all), `<button class="soft" id="csvBtn">${icon('download')} Export CSV</button><button class="primary" data-go="check">+ Check a job</button>`)}
       <div class="tabs">${FILTERS.map(([k, label, fn]) => `<button class="${appFilter === k ? 'on' : ''}" data-filter="${k}">${label} <span class="faint">${all.filter(fn).length}</span></button>`).join('')}</div>
-      <div class="inline" style="margin-bottom:12px"><input id="appSearch" placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
+      <div class="inline" style="margin-bottom:12px"><input id="appSearch" data-live placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
         <select id="appSort" style="width:190px"><option value="recent">Newest first</option><option value="fit" ${appSort === 'fit' ? 'selected' : ''}>Best fit first</option><option value="applied" ${appSort === 'applied' ? 'selected' : ''}>Recently applied</option></select></div>
       ${apps.length ? `<div class="list">${apps.map(appRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>${all.length ? 'No roles match this filter.' : 'Your checked roles will show up here.'}</p></div>`}
     </div>`;
@@ -1400,6 +1400,11 @@ setInterval(() => {
 let lastRouted = null;
 
 function route() {
+  refreshHeld = false;
+  // A search box redraws from its own value, so it keeps focus and caret through
+  // a redraw; so does a checkbox or menu you just used.
+  const act = document.activeElement;
+  const live = act && act.id && view.contains(act) && (act.dataset.live !== undefined || !isTextField(act)) ? { id: act.id, at: act.dataset.live !== undefined ? act.selectionStart : null, end: act.selectionEnd } : null;
   view.classList.toggle('settled', location.hash === lastRouted);
   lastRouted = location.hash;
   const [name, id] = (location.hash.slice(1) || 'home').split('/');
@@ -1429,23 +1434,66 @@ function route() {
   );
   if (v === 'application') renderApplication(id);
   if (v === 'resume') renderResumePage(id);
+  const again = live && document.getElementById(live.id);
+  if (again && again !== document.activeElement) {
+    again.focus();
+    if (live.at != null) again.setSelectionRange(live.at, live.end);
+  }
 }
 
+// A box you type into (not a checkbox, button or the like).
+const NOT_TEXT = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'file', 'color', 'image']);
+function isTextField(el) {
+  return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'IFRAME' || el.isContentEditable || (el.tagName === 'INPUT' && !NOT_TEXT.has(el.type)));
+}
+
+// Typing in the page, where a redraw would wipe what you typed. Search boxes
+// marked data-live redraw from their own value, so they don't count.
 function isEditing() {
   const el = document.activeElement;
-  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'IFRAME') && view.contains(el);
+  return isTextField(el) && el.dataset.live === undefined && view.contains(el);
+}
+
+// Typing anywhere (a search box or a modal too): keyboard shortcuts stay out of the way.
+function isTyping() {
+  return isTextField(document.activeElement);
+}
+
+// Redraw now, or, while you're typing, once you leave the box. Until then
+// the update waits instead of getting lost.
+let refreshHeld = false;
+function routeWhenFree() {
+  if (isEditing()) refreshHeld = true;
+  else route();
+}
+
+// Leaving the box: catch up on what changed meanwhile. Wait for a click in
+// progress to land first (a redraw under it would swallow it), and keep
+// anything typed into other boxes that isn't saved yet.
+let pointerDown = false;
+document.addEventListener('pointerdown', () => (pointerDown = true), true);
+document.addEventListener('pointerup', () => ((pointerDown = false), setTimeout(catchUp)), true);
+view.addEventListener('focusout', () => setTimeout(catchUp));
+function catchUp() {
+  if (!refreshHeld || pointerDown || isEditing() || currentAppId || currentResumeId) return;
+  const typed = $$('input[id], textarea[id]').filter((el) => isTextField(el) && el.value !== el.defaultValue).map((el) => [el.id, el.value]);
+  route();
+  for (const [id, value] of typed) {
+    const el = document.getElementById(id);
+    if (el && view.contains(el) && isTextField(el)) el.value = value;
+  }
 }
 
 window.addEventListener('hashchange', route);
 S.onStateChanged(async () => {
   await refreshState();
   // Don't wipe a form the user is typing in.
-  if (!isEditing() && !currentAppId && !currentResumeId) route();
+  if (!currentAppId && !currentResumeId) routeWhenFree();
 });
 S.onAppUpdated(async (app) => {
   await refreshState();
   if (currentAppId && app && app.id === currentAppId) renderApplication(currentAppId);
-  else if (!isEditing() && !currentAppId && !currentResumeId) route();
+  else if (!currentAppId && !currentResumeId) routeWhenFree();
 });
 S.onToast(({ text, kind }) => toast(text, kind));
 S.onNavigate(({ view: v, id, tab, standouts }) => {

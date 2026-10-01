@@ -32,7 +32,7 @@ async function copyText(text) {
 async function netRefresh({ from } = {}) {
   await refreshState();
   if (from && document.activeElement === from) from.blur();
-  if (!isEditing()) route();
+  routeWhenFree();
 }
 
 const initials = (name) =>
@@ -226,7 +226,7 @@ function myPeopleTab(st) {
     </div>` : ''}
     <div class="tabs compact">${PEOPLE_FILTERS.map(([k, label, fn]) => `<button class="${peopleFilter === k ? 'on' : ''}" data-pfilter="${k}">${label} <span class="faint">${cs.filter(fn).length}</span></button>`).join('')}</div>
     <div class="people-bar">
-      <input id="peopleSearch" type="search" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" autocomplete="off">
+      <input data-live id="peopleSearch" type="search" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" autocomplete="off">
       ${shared.map(([k, label, , fn]) => `<label class="check-label" title="People you share ${k === 'alumni' ? 'a school' : 'an employer'} with"><input type="checkbox" data-pshared="${k}" ${peopleShared === k ? 'checked' : ''}> ${label} <span class="faint">${cs.filter(fn).length}</span></label>`).join('')}
     </div>
     ${shown.length ? `<div class="list">${shown.map(contactRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 72)}<h3>Nobody here</h3><p>No one matches ${filtered ? 'these filters' : 'this filter'}. <a href="#" id="peopleClear">Show everyone</a></p></div>`}`;
@@ -1231,7 +1231,7 @@ function jobsTab() {
 
   // Filters, then the list.
   const toolbar = `<div class="board-bar">
-      <input id="boardQ" type="search" placeholder="Filter by title, company or place" title="Shortcut: press /" value="${esc(board.q)}" autocomplete="off">
+      <input data-live id="boardQ" type="search" placeholder="Filter by title, company or place" title="Shortcut: press /" value="${esc(board.q)}" autocomplete="off">
       <select id="boardCo" class="small-select" aria-label="Company"><option value="">All companies</option>${withJobs
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((c) => `<option value="${c.id}" ${board.company === c.id ? 'selected' : ''}>${esc(c.name)} (${(c.jobs || []).length})</option>`)
@@ -1564,7 +1564,10 @@ function bindDiscoverTab() {
   $$('.fzInd').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ industries: toggle(p().industries, b.dataset.v) })));
   $$('.fzSize').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ sizes: toggle(p().sizes, b.dataset.v) })));
   $$('.fzPrio').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ priorities: toggle(p().priorities, b.dataset.v, F.MAX_PRIORITIES) })));
+  // Enter saves too: it leaves the box, so the list re-sorts right away.
+  const enterLeaves = (el) => el.addEventListener('keydown', (e) => e.key === 'Enter' && el.blur());
   const other = $('#fzIndOther');
+  if (other) enterLeaves(other);
   if (other)
     other.addEventListener('change', () => {
       const chips = p().industries.filter((i) => F.INDUSTRIES.some((x) => x.toLowerCase() === i.toLowerCase()));
@@ -1573,6 +1576,7 @@ function bindDiscoverTab() {
   const text = (id, key) => {
     const el = $(id);
     if (el) el.addEventListener('change', () => saveFinderPrefs({ [key]: el.value }));
+    if (el) enterLeaves(el);
   };
   text('#fzLoc', 'location');
   text('#fzNotes', 'notes');
@@ -1877,7 +1881,7 @@ function bindCompanyModals() {
 
 // "/" jumps to the job filter, like most job sites.
 document.addEventListener('keydown', (e) => {
-  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isEditing()) return;
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isTyping()) return;
   const q = document.getElementById('boardQ');
   if (!q) return;
   e.preventDefault();
