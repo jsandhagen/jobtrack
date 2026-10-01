@@ -21,7 +21,7 @@ const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 7;
+const SCORER_VERSION = 8;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -226,6 +226,26 @@ function requirementUnits(job) {
   const lines = classifyLines(job.text).filter((l) => !BOILERPLATE_LINE.test(l.line));
   const hasRequiredSection = lines.some((l) => l.kind === 'required');
   const ignoreWords = new Set([...lower(job.company).split(/\W+/), ...lower(job.title).split(/\W+/)].filter(Boolean));
+  // The title repeated back isn't a requirement, unless it names a product
+  // ("Workday HCM Consultant", "Salesforce Administrator"): a word the
+  // posting only ever writes as a name, mid-sentence ("hands-on Workday").
+  // Then it's the job's core requirement, not an echo. Not acronyms: ICU or
+  // HR in a title is a specialty with other names, not a product.
+  const companyWords = new Set(lower(job.company).split(/\W+/));
+  const text = job.text || '';
+  const named = new Set(
+    (job.title || '')
+      .split(/[^A-Za-z0-9]+/)
+      .filter((w) => /^[A-Z]/.test(w) && /[a-z]/.test(w) && !companyWords.has(lower(w)) && !NOT_TERMS.has(lower(w)) && !STOPWORDS.has(lower(w)))
+      .filter((w) => ![...ROLE_WORDS].some((r) => stem(lower(w)).startsWith(r)) && !new RegExp(TITLE_DROP.source).test(lower(w)))
+      .filter((w) => new RegExp(`[a-z,]\\s+${escapeRe(w)}\\b`).test(text) && !new RegExp(`\\b${escapeRe(lower(w))}\\b`).test(text))
+      .map(lower)
+  );
+  const termIgnoreWords = new Set([...ignoreWords].filter((w) => !named.has(w)));
+  const termIgnoreText = `${lower(job.title)
+    .split(/(\W+)/)
+    .map((w) => (named.has(w) ? ' ' : w))
+    .join('')} | ${lower(job.company)}`;
   const units = new Map(); // key -> {key, label, kind, match}
   const rank = { preferred: 0, neutral: 1, required: 2 };
   const addUnit = (key, label, kind, match, extra = {}) => {
@@ -256,7 +276,7 @@ function requirementUnits(job) {
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
     if ((lineKind !== 'neutral' || !hasRequiredSection) && !isDegreeLine(original)) {
-      const terms = extractTerms(original, ignoreWords, `${lower(job.title)} | ${lower(job.company)}`);
+      const terms = extractTerms(original, termIgnoreWords, termIgnoreText);
       // "Econometrics" and "Econometrics modeling" from one phrase are one requirement.
       const contains = (long, short) => long !== short && ` ${lower(long)} `.includes(` ${lower(short)} `);
       for (const term of terms.filter((x) => !terms.some((y) => contains(x, y)))) {
@@ -306,6 +326,8 @@ function requirementUnits(job) {
   // A degree is shown where it's shown (Education), so it isn't discounted by section.
   if (deg.required) addUnit('degree', DEGREE_NAMES[deg.required], 'required', (t, original) => (degreeLevel(original ?? t) >= deg.required ? 1 : equivalentOk ? 0.5 : 0), { anywhere: true });
   if (deg.preferred) addUnit('degree-pref', DEGREE_NAMES[deg.preferred], 'preferred', (t, original) => (degreeLevel(original ?? t) >= deg.preferred ? 1 : 0), { anywhere: true });
+  // A required product the title names is the job's core requirement.
+  for (const u of units.values()) if (u.kind === 'required' && lower(u.label).split(/[^a-z0-9]+/).some((w) => named.has(w))) u.core = true;
   return { units: [...units.values()], lines, hasRequiredSection, ignoreWords };
 }
 
@@ -543,7 +565,7 @@ function localFitScore(job, documents, profile = {}) {
   const { segs, titles } = evidenceSegments(documents);
   // "Coursework or work experience": the posting accepts what school shows.
   if (/\bcoursework\b/i.test(job.text)) for (const s of segs) if (s.weight < 0.9) s.weight = 0.9;
-  const all = units.map((u) => ({ label: u.label, kind: u.kind, met: evidenceFor(u, segs, lib, libText) }));
+  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, met: evidenceFor(u, segs, lib, libText) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
   // Communication, collaboration, problem solving: can't be judged from
@@ -605,6 +627,10 @@ function localFitScore(job, documents, profile = {}) {
   const screening = screeningCheck(job, profile);
   const breakers = [...dealbreakers(job, profile), ...screening.conflicts];
   if (breakers.length) score = Math.min(score, 30);
+  // Without the product the title names ("Workday HCM Consultant" and no
+  // Workday), the rest can't make it more than a stretch.
+  const missingCore = all.filter((u) => u.core && u.met < 0.4).map((u) => u.label);
+  if (missingCore.length) score = Math.min(score, 40);
 
   // How much should you trust this number?
   const recognized = all.length;
@@ -621,6 +647,7 @@ function localFitScore(job, documents, profile = {}) {
   concerns.push(...screening.unanswered);
   // Problems with what was captured (cut-off description, a list of jobs).
   concerns.unshift(...(job.warnings || []));
+  if (missingCore.length) concerns.push(`The title names ${missingCore.join(', ')}, which your documents don't show`);
   const missingReq = req.filter((u) => u.met < 0.5).map((u) => u.label);
   if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
 
