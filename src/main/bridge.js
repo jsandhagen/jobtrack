@@ -30,6 +30,18 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+// A person read off a LinkedIn profile page, trimmed to what we keep.
+function cleanPerson(b) {
+  const str = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+  const list = (v) => (Array.isArray(v) ? v : []).map((x) => str(x, 200)).filter(Boolean).slice(0, 15);
+  const url = str(b.url, 500);
+  const name = str(b.name, 120);
+  if (!/^https:\/\/([a-z]{2,3}\.|www\.)?linkedin\.com\/in\/[^/?#\s]+/i.test(url) || !name) return null;
+  const degree = [1, 2, 3].includes(Number(b.degree)) ? Number(b.degree) : null;
+  const mutual = Math.max(0, Math.min(9999, Math.floor(Number(b.mutual) || 0)));
+  return { url, name, headline: str(b.headline, 300), title: str(b.title, 200), company: str(b.company, 200), location: str(b.location, 200), schools: list(b.schools), employers: list(b.employers), degree, mutual };
+}
+
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -62,6 +74,9 @@ function readJson(req) {
  * @param {(id:string) => Promise<object>} [opts.onGet]  a saved job, for the extension's card
  * @param {(req:{id:string, action:string}) => Promise<object>} [opts.onAction]  act on a saved job
  * @param {(id:string) => void} opts.onOpen
+ * @param {(person:object) => Promise<object>} [opts.onPerson]  a LinkedIn profile: already in your people? what you share?
+ * @param {(person:object) => Promise<object>} [opts.onAddPerson]  add them to your people
+ * @param {(id:string) => void} [opts.onOpenPerson]  show a person in the app
  * @param {(origin:string) => void} [opts.onSeen]
  * @param {string} [opts.version]
  * @param {string} [opts.extensionVersion]  the extension that ships with this app
@@ -154,6 +169,19 @@ function createBridge(opts) {
         if (!ACTIONS.includes(b.action)) return send(res, 400, { error: 'Unknown action.' });
         return send(res, 200, await opts.onAction({ id: String(b.id || ''), action: b.action }));
       }
+      if (url.pathname === '/person' || url.pathname === '/person/add') {
+        const handler = url.pathname === '/person' ? opts.onPerson : opts.onAddPerson;
+        if (!handler) return send(res, 404, { error: 'Not found' });
+        const person = cleanPerson(await readJson(req));
+        if (!person) return send(res, 422, { error: "That doesn't look like a LinkedIn profile." });
+        return send(res, 200, await handler(person));
+      }
+      if (url.pathname === '/person/open') {
+        if (!opts.onOpenPerson) return send(res, 404, { error: 'Not found' });
+        const b = await readJson(req);
+        opts.onOpenPerson(String(b.id || ''));
+        return send(res, 200, { ok: true });
+      }
       if (url.pathname === '/open') {
         const b = await readJson(req);
         opts.onOpen(String(b.id || ''));
@@ -186,4 +214,4 @@ function createBridge(opts) {
   return { server, listen, close: () => new Promise((r) => server.close(() => r())) };
 }
 
-module.exports = { createBridge, isExtensionOrigin, DEFAULT_PORT, ACTIONS };
+module.exports = { createBridge, isExtensionOrigin, cleanPerson, DEFAULT_PORT, ACTIONS };

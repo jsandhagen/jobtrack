@@ -3,10 +3,12 @@
 // toolbar popup agree.
 //
 // A job is only scored when it's found (/preview); it's added to your saved
-// jobs when you say so on the card (/posting).
+// jobs when you say so on the card (/posting). The same goes for people: a
+// LinkedIn profile is looked up (/person) and added to your people when you
+// say so (/person/add).
 const PORTS = [47321, 47322, 47323, 47324, 47325];
 // Everything the card on the page needs, in load order (see manifest.json).
-const CONTENT_FILES = ['vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'extract.js', 'card.js', 'content.js'];
+const CONTENT_FILES = ['vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'extract.js', 'person.js', 'card.js', 'content.js'];
 
 async function getConfig() {
   return chrome.storage.local.get({ port: null, token: '', autoSend: true });
@@ -62,7 +64,7 @@ async function call(path, body) {
   });
   const data = await r.json().catch(() => ({}));
   if (r.status === 401) throw Object.assign(new Error('Not connected to Sprout yet. Click the Sprout button in your toolbar to connect.'), { code: 'unpaired' });
-  if (r.status === 404 && /^\/(preview|app|action)$/.test(path) && !data.error) throw new Error('Update the Sprout app to use this.');
+  if (r.status === 404 && /^\/(preview|app|action|person(\/add|\/open)?)$/.test(path) && !data.error) throw new Error('Update the Sprout app to use this.');
   if (!r.ok) throw new Error(data.error || `Sprout said ${r.status}`);
   return data;
 }
@@ -101,6 +103,7 @@ const cardResult = (d) =>
 
 function badge(tabId, result) {
   if (tabId === undefined || tabId === null) return;
+  if (result && result.person) return chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
   const q = result && (result.saved ? result.app.analysis || result.app.quick : result.preview && result.preview.quick);
   if (!q) return chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
   const quick = result.saved ? result.app.quick : result.preview.quick;
@@ -111,8 +114,25 @@ function badge(tabId, result) {
 }
 
 // Tell the card on the page (if any) about something that happened in the popup.
+// Only the page itself (frame 0) talks back; frames inside it just report postings.
+const TOP = { frameId: 0 };
+
 function tellTab(tabId, msg) {
-  if (tabId !== undefined && tabId !== null) chrome.tabs.sendMessage(tabId, msg).catch(() => {});
+  if (tabId !== undefined && tabId !== null) chrome.tabs.sendMessage(tabId, msg, TOP).catch(() => {});
+}
+
+// Postings read inside frames on a page (iCIMS and other boards embedded in
+// a company's careers page), by tab and frame. Kept in session storage, since
+// this worker sleeps between events.
+async function getFrames(tabId) {
+  return (await chrome.storage.session.get('frames:' + tabId).catch(() => ({})))['frames:' + tabId] || {};
+}
+async function setFramePosting(tabId, frameId, posting) {
+  const frames = await getFrames(tabId);
+  if (posting) frames[frameId] = posting;
+  else delete frames[frameId];
+  if (Object.keys(frames).length) await chrome.storage.session.set({ ['frames:' + tabId]: frames }).catch(() => {});
+  else await chrome.storage.session.remove('frames:' + tabId).catch(() => {});
 }
 
 // A job is on the page: score it (without saving) unless it's the one we already have.
@@ -143,7 +163,7 @@ async function save(tabId) {
 
 // Keep every tab showing this saved job up to date.
 async function updateSaved(result) {
-  for (const [tabId, e] of tabs) if (e.result && e.result.saved && e.result.app.id === result.app.id) await setEntry(tabId, { ...e, result: { ...result, seen: e.result.seen } });
+  for (const [tabId, e] of tabs) if (e.result && e.result.saved && e.result.app && e.result.app.id === result.app.id) await setEntry(tabId, { ...e, result: { ...result, seen: e.result.seen } });
 }
 
 async function action(id, act) {
@@ -158,13 +178,35 @@ async function getSaved(id) {
   return result;
 }
 
+// ---------- people (LinkedIn profiles) ----------
+
+// A profile is on the page: are they in your people already, and what do you share?
+async function personDetected(tabId, person, { force = false } = {}) {
+  const { autoSend, token } = await getConfig();
+  if (!force && (!autoSend || !token)) return { skipped: true };
+  const key = `person|${person.url}`;
+  const e = await getEntry(tabId);
+  const result = await call('/person', person);
+  const same = e && e.key === key;
+  await setEntry(tabId, { key, posting: { url: person.url }, person, result, dismissed: same && e.dismissed });
+  return { result, dismissed: same && e.dismissed && !force };
+}
+
+async function addPerson(tabId) {
+  const e = await getEntry(tabId);
+  if (!e || !e.person) throw new Error("I can't find that profile on the page anymore. Try reloading it.");
+  const result = await call('/person/add', e.person);
+  await setEntry(tabId, { ...e, result, dismissed: false });
+  return result;
+}
+
 // ---------- reading the page ----------
 
 // Makes sure the card's scripts are on the page. They usually are (see the
 // manifest); tabs opened before the extension was installed need them added.
 async function ensureContent(tabId) {
   try {
-    if (await chrome.tabs.sendMessage(tabId, { type: 'ping' })) return true;
+    if (await chrome.tabs.sendMessage(tabId, { type: 'ping' }, TOP)) return true;
   } catch {
     /* not there yet */
   }
@@ -174,7 +216,7 @@ async function ensureContent(tabId) {
 
 async function extractFromTab(tabId) {
   try {
-    const p = await chrome.tabs.sendMessage(tabId, { type: 'extract' });
+    const p = await chrome.tabs.sendMessage(tabId, { type: 'extract' }, TOP);
     if (p) return p;
   } catch {
     /* no content script on this page */
@@ -184,8 +226,23 @@ async function extractFromTab(tabId) {
   return result;
 }
 
+async function personFromTab(tabId) {
+  try {
+    const p = await chrome.tabs.sendMessage(tabId, { type: 'extractPerson' }, TOP);
+    if (p) return p;
+  } catch {
+    /* no content script on this page */
+  }
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['person.js'] });
+  const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: () => globalThis.sproutPerson() });
+  return result;
+}
+
 // The toolbar popup: read the page now, so it never shows a job you've moved on from.
 async function check(tabId) {
+  // A LinkedIn profile: offer to add the person.
+  const person = await personFromTab(tabId).catch(() => null);
+  if (person && person.isProfile) return { found: true, ...(await personDetected(tabId, person, { force: true })) };
   let p;
   try {
     p = await extractFromTab(tabId);
@@ -235,8 +292,26 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     switch (msg.type) {
       case 'detected':
         return detected(tabId, msg.posting, { force: !!msg.force });
+      case 'personDetected':
+        return personDetected(tabId, msg.person, { force: !!msg.force });
+      case 'addPerson': {
+        const result = await addPerson(tabId);
+        if (!fromPage) tellTab(tabId, { type: 'update', result });
+        return result;
+      }
+      case 'openPerson':
+        return call('/person/open', { id: msg.id });
       case 'cleared':
         return setEntry(tabId, null);
+      case 'framePosting': {
+        // A frame inside the page found (or lost) a posting: tell the page.
+        if (!fromPage || !sender.frameId) return null;
+        await setFramePosting(tabId, sender.frameId, msg.posting || null);
+        if (msg.posting) tellTab(tabId, { type: 'framePosting' });
+        return null;
+      }
+      case 'framePostings':
+        return Object.values(await getFrames(tabId));
       case 'css':
         return css();
       case 'save': {
@@ -287,7 +362,7 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   if (!t) return;
   try {
     await ensureContent(t.id);
-    await chrome.tabs.sendMessage(t.id, { type: 'showCard' });
+    await chrome.tabs.sendMessage(t.id, { type: 'showCard' }, TOP);
   } catch {
     /* a page extensions can't touch (chrome://, the web store) */
   }
@@ -297,7 +372,11 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 // shows one. content.js re-reports the job if it's still the same one.
 chrome.tabs.onUpdated.addListener(async (tabId, change) => {
   if (!change.url) return;
+  await chrome.storage.session.remove('frames:' + tabId).catch(() => {});
   const e = await getEntry(tabId);
   if (e && e.posting.url !== change.url) await setEntry(tabId, null);
 });
-chrome.tabs.onRemoved.addListener((tabId) => setEntry(tabId, null));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  setEntry(tabId, null);
+  chrome.storage.session.remove('frames:' + tabId).catch(() => {});
+});

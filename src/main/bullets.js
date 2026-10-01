@@ -2,7 +2,7 @@
 // under the role it belongs to, so resumes can be assembled from the ones
 // that fit a posting best. Everything here is offline and free.
 const crypto = require('crypto');
-const { SKILLS, STOPWORDS, significantTerms } = require('./fitScore');
+const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 
@@ -432,62 +432,244 @@ function roleLimit(exp, index) {
   return 3;
 }
 
+// Years from the first role's start to the last one's end.
+function careerYears(bank) {
+  const starts = bank.experiences.filter((e) => !e.isProject).map((e) => yearOf(e.start)).filter(Boolean);
+  const ends = bank.experiences.filter((e) => !e.isProject).map((e) => yearOf(e.end) || yearOf(e.start)).filter(Boolean);
+  return starts.length && ends.length ? Math.max(...ends) - Math.min(...starts) : 0;
+}
+
+// Required (and "what you'll do") requirements a set of roles shows.
+function coreCovered(units, roles, bank) {
+  return new Set(coverageOf(units, roles, bank).filter((c) => c.covered && c.kind !== 'preferred').map((c) => c.key));
+}
+
 /**
- * Pick bullets for a resume: greedily add the bullet that covers the most
- * not-yet-covered requirements, so the resume shows breadth rather than five
- * ways of saying "React".
- * @returns {{roles: {experienceId:string, bullets:{bulletId:string, text:string}[]}[]}}
+ * Pick bullets for a resume, sized to the page. Greedily adds the bullet that
+ * proves the most not-yet-covered requirements (so the resume shows breadth
+ * rather than five ways of saying "React"), measuring the real template as it
+ * goes, then fills what's left of the page with your strongest remaining
+ * bullets. One page unless a second earns its place: `pages` 'auto' goes to
+ * two only to show a required qualification one page can't fit, or for a
+ * long career with plenty of relevant bullets; 1 always fits one page; 2
+ * allows a second page whenever relevant bullets didn't fit on the first.
+ * @returns {{roles: {experienceId:string, bullets:{bulletId:string, text:string}[]}[], coverage: object[], pages: number, fill: number, why: string}}
  */
-function selectBullets(job, bank, { total = 16 } = {}) {
+function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = {}, header } = {}) {
+  const ResumeDoc = require('../shared/resumeDoc');
   const { ranked, units } = rankBullets(job, bank);
   const exps = orderedExperiences(bank);
-  const limits = new Map(exps.map((e, i) => [e.id, roleLimit(e, i)]));
-  const picked = new Map(exps.map((e) => [e.id, []]));
-  const covered = new Map();
-  const pool = [...ranked];
-  let count = 0;
+  const shell = docShell({ profile, bank, job, header });
+  const expById = new Map(exps.map((e) => [e.id, e]));
+  const lines = new Map(ranked.map((r) => [r.id, ResumeDoc.lineCount(r.text, 450)]));
 
-  // Every role keeps at least one bullet, so the timeline has no holes.
-  for (const e of exps) {
-    const top = pool.find((r) => r.experienceId === e.id);
-    if (top) take(top);
-  }
-  // Then bring each role up to its minimum with its strongest remaining bullets.
-  exps.forEach((e, i) => {
-    const min = roleMinimum(e, i);
-    for (const r of pool.filter((x) => x.experienceId === e.id)) {
-      if (picked.get(e.id).length >= min) break;
-      take(r);
+  const asRoles = (picked, shown) =>
+    exps.filter((e) => shown.has(e.id)).map((e) => ({
+      experienceId: e.id,
+      // Within a role, strongest first.
+      bullets: [...picked.get(e.id)].sort((a, b) => b.score - a.score).map((r) => ({ bulletId: r.id, text: r.text })),
+    }));
+  const height = (picked, shown) => ResumeDoc.measure({ ...shell, roles: docRoles(asRoles(picked, shown), expById) }).height;
+  const { pageHeight, lineHeight } = ResumeDoc.measure(shell);
+
+  function fill(n) {
+    const room = n * pageHeight - lineHeight; // a line spare for page-break slack
+    const extra = n > 1 ? 2 : 0;
+    const limits = new Map(exps.map((e, i) => [e.id, roleLimit(e, i) + extra]));
+    // Room to spare (or a second page) lets each role run a little longer.
+    const roleLimits2 = new Map(exps.map((e, i) => [e.id, roleLimit(e, i) + 2]));
+    const picked = new Map(exps.map((e) => [e.id, []]));
+    const covered = new Map();
+    const pool = [...ranked];
+    let count = 0;
+    const shown = new Set(); // roles on the page
+    const dropped = []; // older roles with no room left
+    const fits = (r) => {
+      const fresh = !shown.has(r.experienceId);
+      shown.add(r.experienceId);
+      picked.get(r.experienceId).push(r);
+      const ok = height(picked, shown) <= room;
+      picked.get(r.experienceId).pop();
+      if (fresh) shown.delete(r.experienceId);
+      return ok;
+    };
+    const take = (r) => {
+      shown.add(r.experienceId);
+      picked.get(r.experienceId).push(r);
+      pool.splice(pool.indexOf(r), 1);
+      for (const c of r.covers) covered.set(c.key, Math.max(covered.get(c.key) || 0, c.m));
+      count++;
+    };
+
+    // Every role keeps at least one bullet, so the timeline has no holes;
+    // the oldest roles go when even that doesn't fit.
+    for (const e of exps) {
+      const top = pool.find((r) => r.experienceId === e.id);
+      if (dropped.length) dropped.push(e);
+      else if (top && fits(top)) take(top);
+      else if (!top && !e.isProject) {
+        shown.add(e.id); // a job with no bullets still shows on the timeline
+        if (height(picked, shown) > room) shown.delete(e.id), dropped.push(e);
+      } else if (top) dropped.push(e);
     }
-  });
-  while (count < total && pool.length) {
-    let best = null;
-    for (const r of pool) {
-      if (picked.get(r.experienceId).length >= limits.get(r.experienceId)) continue;
-      const fresh = r.covers.reduce((s, c) => s + KIND_WEIGHT[c.kind] * Math.max(0, c.m - (covered.get(c.key) || 0)), 0);
-      const gain = fresh * 1.5 + r.score * 0.5;
-      if (!best || gain > best.gain) best = { r, gain };
+    // Bring a role up to its minimum with its strongest remaining bullets, room allowing.
+    const topUp = (e, i) => {
+      const min = roleMinimum(e, i);
+      for (const r of pool.filter((x) => x.experienceId === e.id)) {
+        if (picked.get(e.id).length >= min) break;
+        if (fits(r)) take(r);
+      }
+    };
+    // Recent roles first: they're what a reader looks at.
+    exps.forEach((e, i) => roleMinimum(e, i) >= 3 && topUp(e, i));
+    // Then the bullets that prove the most new requirements per line of page.
+    const gainOf = (r) => r.covers.reduce((s, c) => s + KIND_WEIGHT[c.kind] * Math.max(0, c.m - (covered.get(c.key) || 0)), 0) * 1.5 + r.score * 0.5;
+    let left = []; // relevant bullets that didn't fit
+    while (count < total && pool.length) {
+      const open = pool.filter((r) => picked.get(r.experienceId).length < limits.get(r.experienceId)).map((r) => ({ r, gain: gainOf(r) }));
+      const worth = open.filter((x) => x.gain >= 0.9).sort((a, b) => b.gain / (1 + 0.2 * (lines.get(b.r.id) - 1)) - a.gain / (1 + 0.2 * (lines.get(a.r.id) - 1)));
+      const next = worth.find((x) => fits(x.r));
+      if (!next) {
+        // What a second page could add: relevant bullets out of room, or over this page's per-role limit.
+        left = pool.filter((r) => picked.get(r.experienceId).length < roleLimits2.get(r.experienceId) && gainOf(r) >= 0.9);
+        break;
+      }
+      take(next.r);
     }
-    if (!best || best.gain < 0.9) break;
-    take(best.r);
+    // Older roles get their minimum next, so each reads as a real job.
+    exps.forEach((e, i) => topUp(e, i));
+    // A half-empty page reads as thin: top it up with your strongest remaining bullets.
+    const target = (n - 1 + 0.92) * pageHeight;
+    for (const r of [...pool].sort((a, b) => b.score - a.score)) {
+      if (count >= total || height(picked, shown) >= target) break;
+      if (r.score < 0.8 || picked.get(r.experienceId).length >= roleLimits2.get(r.experienceId)) continue;
+      if (fits(r)) take(r);
+    }
+    const roles = asRoles(picked, shown);
+    const m = ResumeDoc.measure({ ...shell, roles: docRoles(roles, expById) });
+    return { roles, pages: m.pages, fill: m.lastPageFill, short: dropped.length > 0, dropped: dropped.length, left, leftLines: left.reduce((s, r) => s + lines.get(r.id), 0) };
   }
 
-  function take(r) {
-    picked.get(r.experienceId).push(r);
-    pool.splice(pool.indexOf(r), 1);
-    for (const c of r.covers) covered.set(c.key, Math.max(covered.get(c.key) || 0, c.m));
-    count++;
+  const want = pages === 1 || pages === '1' ? 1 : pages === 2 || pages === '2' ? 2 : 'auto';
+  let one = fill(1);
+  let two = null;
+  if (one.left.length || one.short) {
+    two = fill(2);
+    // Building long and trimming back can fit a requirement the greedy fill ran out of room for.
+    const doc = { ...shell, roles: docRoles(two.roles, expById) };
+    const trimmed = fitDocToPages(doc, job, bank, 1, { skills: false });
+    if (trimmed.pages === 1) {
+      const roles = trimmed.doc.roles.map((r) => ({ experienceId: r.experienceId, bullets: r.bullets.map((b) => ({ bulletId: b.bulletId, text: b.text })) }));
+      const n = (rs) => coreCovered(units, rs, bank).size;
+      if (n(roles) > n(one.roles)) one = { ...one, roles, short: two.short, dropped: two.dropped, ...(({ pages, lastPageFill }) => ({ pages, fill: lastPageFill }))(ResumeDoc.measure({ ...shell, roles: docRoles(roles, expById) })) };
+    }
   }
+  let pick = one;
+  let why = 'Fits on one page.';
+  if (want !== 1 && two && two.pages === 2) {
+    const gained = [...coreCovered(units, two.roles, bank)].filter((k) => !coreCovered(units, one.roles, bank).has(k));
+    const perPage = pageHeight / lineHeight;
+    if (one.short) (pick = two), (why = 'Two pages: your roles need more room than one page.');
+    else if (gained.length) (pick = two), (why = `Two pages, to also show ${gained.map((k) => units.find((u) => u.key === k).label).join(', ')}.`);
+    else if (want === 2) (pick = two), (why = 'Two pages: more of your relevant bullets fit.');
+    // A second page should look intended, not like spill-over.
+    else if (careerYears(bank) >= 10 && one.leftLines >= perPage / 3 && two.fill >= 0.4) (pick = two), (why = 'Two pages: a long career with plenty of relevant bullets.');
+    else why = 'Fits on one page; the bullets left out add nothing new for this posting.';
+  }
+  if (pick.pages === 1 && pick !== one) why = 'Fits on one page.';
+  if (pick.dropped) why += ` Left off your ${pick.dropped === 1 ? 'oldest role' : `${pick.dropped} oldest roles`} to make room (add ${pick.dropped === 1 ? 'it' : 'them'} back from the side panel).`;
+  return { roles: pick.roles, coverage: coverageOf(units, pick.roles, bank), pages: pick.pages, fill: pick.fill, why };
+}
 
-  const roles = exps.map((e) => ({
-    experienceId: e.id,
-    // Within a role, strongest first.
-    bullets: picked
-      .get(e.id)
-      .sort((a, b) => b.score - a.score)
-      .map((r) => ({ bulletId: r.id, text: r.text })),
-  }));
-  return { roles, coverage: coverageOf(units, roles, bank) };
+// The roles as the doc shows them: jobs always (their header keeps the
+// timeline whole), projects only with bullets.
+function docRoles(roles, expById) {
+  return roles
+    .filter((x) => expById.has(x.experienceId) && (x.bullets.length || !expById.get(x.experienceId).isProject))
+    .map((x) => {
+      const e = expById.get(x.experienceId);
+      return { experienceId: e.id, isProject: !!e.isProject, organization: e.organization || '', location: e.location || '', title: e.title || '', dates: e.dates || '', bullets: x.bullets.map((b) => ({ bulletId: b.bulletId, text: b.text })) };
+    });
+}
+
+// Everything on the page except the roles.
+function docShell({ profile = {}, bank, job, header }) {
+  const ResumeDoc = require('../shared/resumeDoc');
+  return {
+    header: header || ResumeDoc.headerFromProfile(profile),
+    summary: bank.summary || '',
+    titles: {},
+    roles: [],
+    skills: pickSkills(job, bank).all,
+    education: (bank.education || []).map((e) => ({ school: e.school || '', location: e.location || '', degree: e.degree || '', dates: e.dates || '', lines: e.lines || ResumeDoc.labelLines(e.details) })),
+    certifications: [],
+  };
+}
+
+const KIND_RANK = { required: 3, neutral: 2, preferred: 1 };
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hasWord = (hay, term) => new RegExp(`(^|[^a-z0-9])${escapeRe(lower(term))}($|[^a-z0-9])`).test(hay);
+
+/**
+ * Skills for the grid, strongest case first:
+ *  1. skills the posting asks for that your bank backs up (required first,
+ *     then the ones it mentions most), written the way the posting writes
+ *     them when your own documents use that wording too, so literal-keyword
+ *     ATS searches find them;
+ *  2. your own listed skills the posting names in other words;
+ *  3. the rest of your list, to complete the grid's last row (9 at least).
+ * Never a skill your documents don't show.
+ * @returns {{relevant: string[], other: string[], all: string[]}}
+ */
+function pickSkills(job, bank, { max = 15 } = {}) {
+  const jobText = String((job && job.text) || '');
+  const jobLower = lower(jobText);
+  const listed = (bank.skills || []).filter((s) => String(s).trim());
+  const bankText = lower([listed.join(', '), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text)].join('\n'));
+  const keys = new Set();
+  const found = []; // {name, rank, mentions, pos}
+  const add = (name, kind, mentions, term) => {
+    if (!name || found.some((x) => norm(x.name) === norm(name))) return;
+    const pos = jobLower.indexOf(lower(term || name));
+    found.push({ name, rank: KIND_RANK[kind] || 2, mentions: mentions || 1, pos: pos < 0 ? Infinity : pos });
+  };
+
+  for (const [skill, { kind, term, mentions }] of classifyJobSkills(jobText)) {
+    if (!SKILLS[skill].some((p) => p.test(bankText))) continue;
+    keys.add(skill);
+    const mine = listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s))) && hasWord(lower(s), term));
+    const name = mine || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s)))) || skill);
+    add(name, kind, mentions, term);
+  }
+  // Your own listed skills the posting names outside the skills dictionary ("Storybook", "HIPAA").
+  const { units } = requirementUnits(job || { text: '' });
+  for (const s of listed) {
+    const l = lower(s);
+    const unit = units.filter((u) => !u.key.startsWith('s:') && u.match(l) >= 1).sort((x, y) => KIND_RANK[y.kind] - KIND_RANK[x.kind])[0];
+    if (unit || hasWord(jobLower, l)) add(s, unit ? unit.kind : 'preferred', 1, s);
+  }
+  found.sort((x, y) => y.rank - x.rank || y.mentions - x.mentions || x.pos - y.pos);
+  const out = found.map((x) => x.name);
+  const relevant = out.slice(0, max);
+  const size = Math.min(max, Math.max(9, Math.ceil(relevant.length / 3) * 3));
+  const other = [];
+  for (const s of listed) {
+    if (relevant.length + other.length >= size) break;
+    if ([...relevant, ...other].some((x) => norm(x) === norm(s))) continue;
+    // "Postgres" adds nothing next to "PostgreSQL".
+    const tags = skillTags(s);
+    if (tags.length && tags.every((t) => keys.has(t))) continue;
+    other.push(s);
+  }
+  return { relevant, other, all: [...relevant, ...other] };
+}
+
+// "postgresql" as the posting writes it ("PostgreSQL").
+function postingWording(jobText, term, skill) {
+  const m = jobText.match(new RegExp(`(?<![A-Za-z0-9])${escapeRe(term)}(?![A-Za-z0-9])`, 'i'));
+  const w = m ? m[0] : term;
+  if (w !== lower(w)) return w;
+  return lower(skill) === lower(w) ? skill : w.replace(/^./, (c) => c.toUpperCase());
 }
 
 // Which requirements a set of chosen bullets covers (with each role's title as context).
@@ -513,14 +695,11 @@ function buildResume({ profile, bank, job, roles }) {
   const chosen = roles
     .map((r) => ({ exp: expById.get(r.experienceId), bullets: r.bullets.map((b) => b.text).filter((t) => t && t.trim()) }))
     .filter((r) => r.exp && (r.bullets.length || !r.exp.isProject));
-  const jobSkillNames = new Set(units.filter((u) => u.key.startsWith('s:')).map((u) => u.label));
-  const allText = lower([bank.skills.join(', '), ...bank.bullets.map((b) => b.text)].join('\n'));
   // Skills: what the posting asks for and you have, first; then the rest of your list.
-  const relevant = [...jobSkillNames].filter((s) => SKILLS[s].some((p) => p.test(allText)));
-  const listed = bank.skills.filter((s) => !relevant.some((r) => norm(r) === norm(s)));
+  const { relevant, other: listed } = pickSkills(job, bank);
   const skills = [];
   if (relevant.length) skills.push({ category: 'Relevant skills', items: relevant });
-  if (listed.length) skills.push({ category: relevant.length ? 'Also' : 'Skills', items: listed.slice(0, 14) });
+  if (listed.length) skills.push({ category: relevant.length ? 'Also' : 'Skills', items: listed });
 
   const jobs = chosen.filter((r) => !r.exp.isProject);
   const projects = chosen.filter((r) => r.exp.isProject);
@@ -552,30 +731,10 @@ function buildResume({ profile, bank, job, roles }) {
  * bullets under each role, skills (relevant ones first) and education, all
  * in the shared template's format (src/shared/resumeDoc.js).
  */
-function buildDoc({ profile, bank, job, roles }) {
-  const ResumeDoc = require('../shared/resumeDoc');
+function buildDoc({ profile, bank, job, roles, header }) {
   const r = buildResume({ profile, bank, job, roles });
   const expById = new Map(bank.experiences.map((e) => [e.id, e]));
-  const skills = [];
-  for (const g of r.skills) for (const s of g.items) if (!skills.some((x) => x.toLowerCase() === s.toLowerCase())) skills.push(s);
-  return {
-    doc: {
-      header: ResumeDoc.headerFromProfile(profile),
-      summary: bank.summary || '',
-      titles: {},
-      roles: roles
-        .filter((x) => expById.has(x.experienceId) && (x.bullets.length || !expById.get(x.experienceId).isProject))
-        .map((x) => {
-          const e = expById.get(x.experienceId);
-          return { experienceId: e.id, isProject: !!e.isProject, organization: e.organization || '', location: e.location || '', title: e.title || '', dates: e.dates || '', bullets: x.bullets.map((b) => ({ bulletId: b.bulletId, text: b.text })) };
-        }),
-      // A tidy grid: up to 12 skills, most relevant first.
-      skills: skills.slice(0, 12),
-      education: (bank.education || []).map((e) => ({ school: e.school || '', location: e.location || '', degree: e.degree || '', dates: e.dates || '', lines: e.lines || ResumeDoc.labelLines(e.details) })),
-      certifications: [],
-    },
-    notes: r.tailoring_notes,
-  };
+  return { doc: { ...docShell({ profile, bank, job, header }), roles: docRoles(roles, expById) }, notes: r.tailoring_notes };
 }
 
 /**
@@ -591,6 +750,66 @@ function baselineDoc({ profile, bank, job }) {
   const { doc } = buildDoc({ profile, bank, job, roles });
   doc.skills = bank.skills.slice();
   return doc;
+}
+
+/**
+ * Trim a resume you've been editing down to a page count, taking off what
+ * matters least for this posting first: skills the posting doesn't mention
+ * (keeping a grid of 9), then bullets, weakest first. A bullet that's the
+ * only proof of a requirement goes last, and every role keeps one bullet
+ * (unless whole roles must go, oldest first). Your wording is left alone.
+ * @returns {{doc: object, removed: {role: string, text: string}[], skills: string[], roles: string[], pages: number}}
+ */
+function fitDocToPages(doc, job, bank, pages = 1, { skills = true } = {}) {
+  const ResumeDoc = require('../shared/resumeDoc');
+  const d = ResumeDoc.normalize(doc);
+  d.roles.forEach((r) => (r.bullets = r.bullets.filter((b) => b.text)));
+  d.skills = d.skills.filter(Boolean);
+  const { units } = requirementUnits(job || { text: '' });
+  const { ranked } = rankBullets(job || { text: '' }, bank || emptyBank());
+  const scoreById = new Map(ranked.map((r) => [r.id, r.score]));
+  const removed = [];
+  const skillsOut = [];
+  const over = () => ResumeDoc.measure(d).pages > pages;
+
+  const jobLower = lower((job && job.text) || '');
+  const asked = new Set(pickSkills(job || { text: '' }, bank || emptyBank()).relevant.map(norm));
+  const relevantSkill = (s) => asked.has(norm(s)) || hasWord(jobLower, lower(s)) || units.some((u) => u.match(lower(s)) >= 1);
+  while (skills && over() && d.skills.length > 9) {
+    const i = d.skills.map((s, k) => ({ s, k })).reverse().find(({ s }) => !relevantSkill(s));
+    if (!i) break;
+    skillsOut.push(...d.skills.splice(i.k, 1));
+  }
+
+  const texts = () => d.roles.flatMap((r, ri) => r.bullets.map((b, bi) => ({ ri, bi, b, t: lower(`${b.text}\n${r.title}`) })));
+  while (over()) {
+    const all = texts();
+    const shows = (x, u) => u.match(x.t) >= 0.6;
+    const candidates = all
+      .filter((x) => d.roles[x.ri].bullets.length > 1 || d.roles[x.ri].isProject)
+      .map((x) => {
+        const sole = units.filter((u) => shows(x, u) && !all.some((y) => y !== x && shows(y, u)));
+        const covers = units.filter((u) => shows(x, u));
+        const score = x.b.bulletId && scoreById.has(x.b.bulletId) ? scoreById.get(x.b.bulletId) : covers.reduce((s, u) => s + KIND_WEIGHT[u.kind], 0) + (isQuantified(x.b.text) ? 0.8 : 0);
+        return { ...x, value: sole.reduce((s, u) => s + KIND_WEIGHT[u.kind], 0) * 10 + score - ResumeDoc.lineCount(x.b.text, 450) * 0.3 };
+      })
+      .sort((a, b) => a.value - b.value);
+    const drop = candidates[0];
+    if (!drop) break;
+    const role = d.roles[drop.ri];
+    removed.push({ role: role.title || role.organization, text: drop.b.text });
+    role.bullets.splice(drop.bi, 1);
+    // A project with nothing left goes entirely.
+    if (role.isProject && !role.bullets.length) d.roles.splice(drop.ri, 1);
+  }
+  // Still too long with one bullet a role: the last roles on the page go (projects, then the oldest jobs).
+  const rolesOut = [];
+  while (over() && d.roles.length > 1) {
+    const i = d.roles.map((r) => r.isProject).lastIndexOf(true);
+    const [r] = d.roles.splice(i >= 0 ? i : d.roles.length - 1, 1);
+    rolesOut.push(r.title || r.organization);
+  }
+  return { doc: d, removed, skills: skillsOut, roles: rolesOut, pages: ResumeDoc.measure(d).pages };
 }
 
 // Link a doc written elsewhere (e.g. by Claude) back to bank roles and bullets.
@@ -613,6 +832,8 @@ function linkDocToBank(doc, bank) {
 
 module.exports = {
   buildDoc,
+  pickSkills,
+  fitDocToPages,
   baselineDoc,
   linkDocToBank,
   SAME_BULLET,

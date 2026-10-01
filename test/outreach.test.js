@@ -25,6 +25,23 @@ test('LinkedIn job searches near a city keep a distance; "any time" drops the da
   assert.equal(p.f_WT, undefined);
 });
 
+test('Indeed job searches: quoted titles, newest first, radius near a city, remote filter', () => {
+  const near = params(O.indeedJobsUrl({ titles: 'Chief of Staff, Operations Manager', location: 'Arlington, VA' }));
+  assert.equal(near.q, '"Chief of Staff" OR "Operations Manager"');
+  assert.equal(near.l, 'Arlington, VA');
+  assert.equal(near.radius, '25');
+  assert.equal(near.fromage, '7');
+  assert.equal(near.sort, 'date');
+  assert.equal(near.sc, undefined);
+  const remote = params(O.indeedJobsUrl({ titles: 'Chief of Staff', workType: 'remote', within: 'any' }));
+  assert.equal(remote.l, 'Remote');
+  assert.equal(remote.radius, undefined);
+  assert.equal(remote.fromage, undefined);
+  assert.equal(remote.sc, '0kf:attr(DSQF7);');
+  assert.match(O.searchUrl({ kind: 'jobs', source: 'indeed', titles: 'Chief of Staff' }), /^https:\/\/www\.indeed\.com\/jobs\?/);
+  assert.match(O.describeSearch({ kind: 'jobs', source: 'indeed', within: 'month' }), /^Indeed jobs · past 14 days/);
+});
+
 test('startup board searches go through Google, limited to the past week', () => {
   const url = O.startupBoardsUrl({ titles: 'chief of staff', workType: 'remote' });
   const p = params(url);
@@ -54,6 +71,8 @@ test('suggested searches follow the profile: each role near you, remote, at star
   const names = s.map((x) => x.name);
   assert.ok(names.includes('Chief of Staff near Arlington, VA'));
   assert.ok(names.includes('Chief of Staff, remote'));
+  assert.ok(names.includes('Chief of Staff near Arlington, VA on Indeed'));
+  assert.ok(names.includes('Chief of Staff, remote on Indeed'));
   assert.ok(names.includes('BizOps at startups'));
   assert.deepEqual(s.filter((x) => x.kind === 'people').map((x) => x.common), ['UVA', 'Appian']);
   assert.equal(new Set(s.map((x) => x.key)).size, s.length);
@@ -214,6 +233,8 @@ test('company links and suggestions', () => {
   assert.equal(L.careers, '');
   assert.equal(params(L.jobs).keywords, '"Ramp"');
   assert.equal(params(L.jobs).f_TPR, 'r604800');
+  assert.equal(params(L.indeedJobs).q, 'company:(Ramp)');
+  assert.equal(params(L.indeedJobs).fromage, '7');
   assert.equal(params(L.peopleInCommon).keywords, '"Ramp" "UVA"');
   assert.equal(O.companyLinks({ name: 'Ramp' }, {}).peopleInCommon, '');
   const sugg = O.companySuggestions([{ name: 'Ramp' }], [{ name: 'Fred Lee', company: 'OCTA' }], [
@@ -242,4 +263,220 @@ test('store keeps people, companies, searches and templates; templates start fro
   assert.equal(reloaded.list('contacts').length, 1);
   assert.equal(reloaded.getProfile().schools, '');
   assert.throws(() => s.list('secrets'), /Unknown list/);
+});
+
+test('alumni and old coworkers at a company: one search per school and past employer, plus the role', () => {
+  const profile = { schools: 'University of Virginia, TJHSST', pastEmployers: 'Appian, Ramp', targetRoles: 'Chief of Staff' };
+  const s = O.insiderSearches({ company: 'Ramp', titles: 'Chief of Staff' }, profile);
+  assert.deepEqual(s.map((x) => x.kind), ['alumni', 'alumni', 'coworkers', 'role', 'recruiters'], 'your old employer that is the company itself is left out');
+  assert.equal(params(s[4].linkedin).keywords, '("Recruiter" OR "Talent Acquisition") "Ramp"');
+  assert.equal(s[0].label, 'University of Virginia alumni at Ramp');
+  assert.equal(s[2].label, 'Also worked at Appian, now at Ramp');
+  assert.equal(params(s[0].linkedin).keywords, '"Chief of Staff" "Ramp" "University of Virginia"');
+  assert.equal(params(s[2].google).q, 'site:linkedin.com/in "Chief of Staff" "Ramp" "Appian"');
+  assert.equal(s[3].label, 'Chief of Staff at Ramp');
+  assert.equal(params(s[3].linkedin).keywords, '"Chief of Staff" "Ramp"');
+  // A role alone works too (alumni in that job, anywhere); nothing at all gives nothing.
+  assert.equal(O.insiderSearches({ titles: 'Chief of Staff' }, profile)[0].label, 'University of Virginia alumni');
+  assert.deepEqual(O.insiderSearches({}, profile), []);
+  assert.deepEqual(O.insiderSearches({ company: 'Ramp' }, {}).map((x) => x.label), ['People at Ramp', 'Recruiters at Ramp']);
+});
+
+test('LinkedIn profile links: tidied, and a name guessed from the link', () => {
+  assert.equal(O.linkedinProfileUrl('linkedin.com/in/fred-lee-4a5b6c/?miniProfileUrn=x'), 'https://www.linkedin.com/in/fred-lee-4a5b6c');
+  assert.equal(O.linkedinProfileUrl('https://uk.linkedin.com/in/jane'), 'https://www.linkedin.com/in/jane');
+  assert.equal(O.linkedinProfileUrl('https://www.linkedin.com/company/ramp'), '');
+  assert.equal(O.nameFromProfileUrl('https://www.linkedin.com/in/frederick-lee-4a5b6c12/'), 'Frederick Lee');
+  assert.equal(O.nameFromProfileUrl('https://www.linkedin.com/in/maria-garcia'), 'Maria Garcia');
+  assert.equal(O.nameFromProfileUrl('https://www.linkedin.com/in/ACoAAB12345'), '', 'an id is not a name');
+});
+
+test('what you share with someone: their schools and past jobs, their company, or the "in common" note', () => {
+  const me = { schools: 'University of Virginia, JMU', pastEmployers: 'Appian, Deloitte' };
+  assert.deepEqual(O.sharedBackground({ schools: ['University of Virginia - Darden School of Business'], employers: ['Appian Corporation'] }, me), { schools: ['University of Virginia'], employers: ['Appian'] });
+  assert.deepEqual(O.sharedBackground({ company: 'Deloitte' }, me), { schools: [], employers: ['Deloitte'] });
+  assert.deepEqual(O.sharedBackground({ connection: 'JMU alum · ex-Appian' }, me), { schools: ['JMU'], employers: ['Appian'] });
+  assert.deepEqual(O.sharedBackground({ connection: 'Tufts alum' }, me), { schools: ['Tufts'], employers: [] });
+  assert.deepEqual(O.sharedBackground({ schools: ['Virginia Tech'] }, me), { schools: [], employers: [] }, 'different schools that share a word');
+  assert.equal(O.sameOrg('UVA', 'UVA Health'), false, 'too short to match inside a longer name');
+  assert.equal(O.connectionText({ schools: ['JMU'], employers: ['Appian'] }), 'JMU alum · ex-Appian');
+  // A two-part note still reads naturally in a message.
+  assert.equal(O.commonPhrase('JMU alum · ex-Appian', me), 'went to JMU');
+  assert.equal(O.templateVars({ name: 'A B', connection: 'JMU alum · ex-Appian' }, me).commonShort, 'JMU');
+});
+
+test('a LinkedIn profile becomes a contact, with what you share filled in', () => {
+  const me = { schools: 'University of Virginia', pastEmployers: 'Appian' };
+  const c = O.contactFromProfile(
+    { url: 'https://www.linkedin.com/in/fred-lee-99/', name: 'Frederick Lee', headline: 'Chief of Staff at OCTA | ex-Appian', location: 'Arlington, Virginia', schools: ['University of Virginia'], employers: ['OCTA', 'Appian', 'Appian'] },
+    me
+  );
+  assert.equal(c.title, 'Chief of Staff');
+  assert.equal(c.company, 'OCTA');
+  assert.equal(c.linkedinUrl, 'https://www.linkedin.com/in/fred-lee-99');
+  assert.deepEqual(c.employers, ['Appian'], 'their current company is not a past job');
+  assert.equal(c.connection, 'University of Virginia alum · ex-Appian');
+  // Title and company from the experience section win over the headline.
+  assert.equal(O.contactFromProfile({ url: 'https://www.linkedin.com/in/x', name: 'X', headline: 'Builder at heart', title: 'Ops Lead', company: 'Ramp' }).company, 'Ramp');
+  assert.equal(O.contactFromProfile({ url: 'https://www.linkedin.com/in/jane-doe-1a2b3c' }).name, 'Jane Doe');
+  // Found again later: the same person, by their link.
+  assert.ok(O.findContact([{ name: 'Fred', linkedinUrl: 'https://www.linkedin.com/in/fred-lee-99/' }], c));
+});
+
+test("LinkedIn's Connections.csv: skips the notes at the top, keeps one row per person", () => {
+  const csv = [
+    'Notes:',
+    '"When exporting your connection data, you may notice that some of the email addresses are missing. You will only see email addresses for connections who have allowed their connections to see or download their email address using this setting https://www.linkedin.com/psettings/privacy/email"',
+    '',
+    'First Name,Last Name,URL,Email Address,Company,Position,Connected On',
+    'Priya,Shah,https://www.linkedin.com/in/priya-shah,,Ramp,Chief of Staff,12 Mar 2024',
+    'Sam,Ortiz,https://www.linkedin.com/in/sam-o,sam@example.com,"Stripe, Inc.",Technical Recruiter,01 Jan 2023',
+    'Priya,Shah,https://www.linkedin.com/in/priya-shah/,,Ramp,Chief of Staff,12 Mar 2024',
+    ',,,,,,',
+  ].join('\n');
+  const { connections, error } = O.parseLinkedInConnections(csv);
+  assert.equal(error, undefined);
+  assert.equal(connections.length, 2);
+  assert.deepEqual(connections[1], { name: 'Sam Ortiz', linkedinUrl: 'https://www.linkedin.com/in/sam-o', email: 'sam@example.com', company: 'Stripe, Inc.', position: 'Technical Recruiter', connectedOn: '01 Jan 2023' });
+  assert.match(O.parseLinkedInConnections('Name,Company\nFred,OCTA').error, /Connections\.csv/);
+});
+
+test('who someone is to you: recruiter, does your job, or a leader', () => {
+  const me = { targetRoles: 'Chief of Staff, BizOps' };
+  assert.equal(O.roleKind('Senior Technical Recruiter', me), 'recruiter');
+  assert.equal(O.roleKind('Talent Acquisition Partner', me), 'recruiter');
+  assert.equal(O.roleKind('Chief of Staff to the CEO', me), 'peer');
+  assert.equal(O.roleKind('VP of Operations', me), 'leader');
+  assert.equal(O.roleKind('Software Engineer', me), '');
+  assert.equal(O.roleKind('', me), '');
+});
+
+test('warmth: someone you know, then a connection, ex-coworker, alum, mutual connections, then cold', () => {
+  const me = { schools: 'UVA', pastEmployers: 'Appian' };
+  assert.equal(O.warmth({ status: 'talked' }, me), 'know');
+  assert.equal(O.warmth({ connection: 'former colleague' }, me), 'know');
+  assert.equal(O.warmth({ degree: 1 }, me), 'first');
+  assert.equal(O.warmth({ employers: ['Appian'], schools: ['UVA'] }, me), 'coworker');
+  assert.equal(O.warmth({ schools: ['UVA'] }, me), 'alumni');
+  assert.equal(O.warmth({ degree: 2, mutual: 4 }, me), 'mutual');
+  assert.equal(O.warmthLabel('mutual', { mutual: 4 }), '4 mutual connections');
+  assert.equal(O.warmth({ connection: 'rock climbing' }, me), 'common');
+  assert.equal(O.warmth({}, me), 'cold');
+});
+
+test('a way in at a company: everyone you could ask, warmest first, a stage and one next step', () => {
+  const profile = { schools: 'UVA', pastEmployers: 'Appian', targetRoles: 'Chief of Staff' };
+  const applications = [{ id: 'a1', status: 'scored', job: { title: 'Operations Lead', company: 'Ramp' } }];
+  const contacts = [
+    { id: 'c1', name: 'Cold Carl', company: 'Ramp', status: 'to-reach' },
+    { id: 'c2', name: 'Alum Ana', company: 'Ramp Inc.', status: 'to-reach', schools: ['UVA'], title: 'Chief of Staff' },
+    { id: 'c3', name: 'Elsewhere Eve', company: 'OCTA', status: 'to-reach' },
+  ];
+  const connections = [
+    { name: 'Priya Shah', company: 'Ramp', position: 'Technical Recruiter', linkedinUrl: 'https://www.linkedin.com/in/priya' },
+    { name: 'Cold Carl', company: 'Ramp', position: '', linkedinUrl: '' }, // already on your list: a connection, so warmer
+  ];
+  let w = O.wayIn('Ramp', { contacts, connections, profile, applications });
+  // A recruiter connection ranks above a plain one; Carl is on your list and a connection, so no longer cold.
+  assert.deepEqual(w.people.map((p) => [p.name, p.warmth, p.role]), [
+    ['Priya Shah', 'first', 'recruiter'],
+    ['Cold Carl', 'first', ''],
+    ['Alum Ana', 'alumni', 'peer'],
+  ]);
+  assert.equal(w.people.filter((p) => p.connection).length, 1, 'a connection already on your list shows once');
+  assert.equal(w.stage, 'found');
+  assert.equal(w.next.kind, 'message');
+  assert.equal(w.roles.length, 1);
+
+  // Talking to someone while a role is open: ask for the referral.
+  w = O.wayIn('Ramp', { contacts: contacts.map((c) => (c.id === 'c2' ? { ...c, status: 'talked' } : c)), connections, profile, applications });
+  assert.equal(w.stage, 'talking');
+  assert.equal(w.next.kind, 'referral');
+  assert.match(w.next.text, /Ask them to refer you for Operations Lead/);
+
+  // A referral: apply, and mention them.
+  w = O.wayIn('Ramp', { contacts: contacts.map((c) => (c.id === 'c2' ? { ...c, status: 'referred' } : c)), connections, profile, applications });
+  assert.equal(w.stage, 'referred');
+  assert.equal(w.next.kind, 'apply');
+
+  // Nobody at all, with a role open: find someone before applying.
+  w = O.wayIn('Stripe', { contacts, connections, profile, applications: [{ status: 'scored', job: { title: 'BizOps', company: 'Stripe' } }] });
+  assert.equal(w.stage, 'none');
+  assert.equal(w.next.kind, 'search');
+  assert.match(w.next.text, /before you apply/);
+
+  // Only a connection there: add them.
+  w = O.wayIn('Figma', { connections: [{ name: 'Lee Park', company: 'Figma', position: 'Designer' }], profile });
+  assert.equal(w.next.kind, 'add');
+});
+
+test('target companies and where your network already is', () => {
+  const t = O.targetCompanies({
+    applications: [{ status: 'applied', job: { company: 'Ramp' } }, { status: 'skipped', job: { company: 'Nope' } }],
+    companies: [{ id: 'k1', name: 'Ramp, Inc.', status: 'interested' }, { id: 'k2', name: 'Meh', status: 'pass' }, { id: 'k3', name: 'Figma', status: 'watching' }],
+    contacts: [{ name: 'A', company: 'OCTA' }],
+  });
+  assert.deepEqual(t.map((x) => [x.name, x.why]), [['Ramp', ['applying', 'watching']], ['Figma', ['watching']], ['OCTA', ['people']]]);
+  assert.equal(t[0].companyId, 'k1');
+  assert.ok(!O.targetCompanies({ companies: [{ name: 'OCTA', status: 'pass' }], contacts: [{ name: 'A', company: 'OCTA' }] }).length, '"Not for me" hides it here too');
+  const n = O.networkCompanies([{ company: 'Stripe' }, { company: 'Stripe Inc' }, { company: 'Ramp' }, { company: 'Notion' }, { company: '' }], t);
+  assert.deepEqual(n, [{ name: 'Stripe', count: 2 }, { name: 'Notion', count: 1 }]);
+});
+
+test('recruiters get a message about the role you applied for', () => {
+  const recruiter = { name: 'Sam Ortiz', title: 'Technical Recruiter', company: 'Stripe', status: 'to-reach' };
+  const [best] = O.suggestMessages(recruiter, O.DEFAULT_TEMPLATES, { profile: { name: 'Jordan Rivera' }, job: { title: 'BizOps Lead' } });
+  assert.equal(best.template.id, 'tpl-recruiter');
+  assert.match(best.text, /applied for the BizOps Lead role at Stripe/);
+  assert.ok(!O.suggestMessages({ ...recruiter, title: 'Engineer' }, O.DEFAULT_TEMPLATES, { job: { title: 'X' }, limit: 99 }).some((m) => m.template.id === 'tpl-recruiter'));
+});
+
+test('once you have talked to someone and a role is open, asking for the referral comes first', () => {
+  const job = { title: 'Operations Lead' };
+  const talked = O.suggestMessages({ name: 'Priya Shah', company: 'Ramp', status: 'talked' }, O.DEFAULT_TEMPLATES, { job });
+  assert.equal(talked[0].template.id, 'tpl-referral');
+  const fresh = O.suggestMessages({ name: 'Priya Shah', company: 'Ramp', status: 'to-reach' }, O.DEFAULT_TEMPLATES, { job });
+  assert.notEqual(fresh[0].template.id, 'tpl-referral', 'too big an ask for a first message');
+  assert.ok(!O.suggestMessages({ name: 'P', company: 'Ramp', status: 'referred' }, O.DEFAULT_TEMPLATES, { job, limit: 99 }).some((m) => m.template.id === 'tpl-referral'));
+});
+
+test('re-importing LinkedIn connections replaces the list but keeps ids stable', () => {
+  const s = new Store(fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-')));
+  const key = (x) => x.linkedinUrl || `${x.name}|${x.company}`;
+  assert.equal(s.replaceList('connections', [{ name: 'A', linkedinUrl: 'https://www.linkedin.com/in/a' }, { name: 'B', company: 'Ramp' }], key), 2);
+  const [a] = s.list('connections');
+  s.replaceList('connections', [{ name: 'A', linkedinUrl: 'https://www.linkedin.com/in/a', company: 'Stripe' }], key);
+  assert.deepEqual(s.list('connections').map((x) => [x.id, x.company]), [[a.id, 'Stripe']]);
+  assert.equal(new Store(s.dir).list('connections').length, 1, 'saved to disk');
+});
+
+test('standout jobs: strong fits that are new, or at a company you just added', () => {
+  const now = Date.parse('2026-09-30T12:00:00Z');
+  const ago = (days) => new Date(now - days * 86400000).toISOString();
+  const fit = (score, dealbreakers = []) => ({ score, label: 'x', dealbreakers });
+  const companies = [
+    {
+      id: 'a',
+      name: 'Acme',
+      firstCheckedAt: ago(30),
+      hidden: ['hid'],
+      jobs: [
+        { id: 'new-strong', title: 'Chief of Staff', firstSeenAt: ago(1), fit: fit(82) },
+        { id: 'new-weak', title: 'Ops Lead', firstSeenAt: ago(1), fit: fit(50) },
+        { id: 'old-strong', title: 'Ops Manager', firstSeenAt: null, fit: fit(90) },
+        { id: 'stale', title: 'Ops Director', firstSeenAt: ago(5), fit: fit(90) },
+        { id: 'blocked', title: 'Ops VP', firstSeenAt: ago(1), fit: fit(95, ['Requires relocation']) },
+        { id: 'hid', title: 'Hidden', firstSeenAt: ago(1), fit: fit(95) },
+        { id: 'unscored', title: 'Unscored', firstSeenAt: ago(1) },
+      ],
+    },
+    // Just added: every open role counts, even ones up before its first check.
+    { id: 'b', name: 'Brio', firstCheckedAt: ago(1), jobs: [{ id: 'b1', title: 'Chief of Staff', firstSeenAt: null, fit: fit(88) }, { id: 'b2', title: 'Analyst', firstSeenAt: null, fit: fit(40) }] },
+    { id: 'c', name: 'Passed', status: 'pass', firstCheckedAt: ago(1), jobs: [{ id: 'c1', title: 'x', fit: fit(99) }] },
+  ];
+  const out = O.standoutJobs(companies, { now });
+  assert.deepEqual(out.map((x) => x.job.id), ['b1', 'new-strong'], 'best fit first');
+  assert.deepEqual(out.map((x) => x.justAdded), [true, false]);
+  assert.equal(O.standoutJobs(companies, { now: now + 4 * 86400000 }).length, 0, 'only for a few days');
+  assert.deepEqual(O.standoutJobs([]), []);
 });

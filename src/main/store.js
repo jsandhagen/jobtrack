@@ -19,6 +19,9 @@ const DEFAULT_SETTINGS = {
   // this month's estimated spend reaches this many dollars. 0 = no limit.
   autoBudgetUsd: 5,
   followUpDays: 7,
+  // Resume length for the free ATS optimizer: 'auto' (one page, two only when
+  // it shows more of what the posting asks for), 1, or 2 (up to two pages).
+  resumePages: 'auto',
   // How to read job postings off the screen: 'ocr' (free, on this computer),
   // 'ocr-then-claude' (free first, Claude only if that finds nothing), or 'claude'.
   screenReader: 'ocr',
@@ -55,7 +58,8 @@ const DEFAULT_PROFILE = {
 
 // Lists kept by the People and Find jobs pages. Templates start with
 // Sprout's defaults (src/shared/outreach.js) until you edit them.
-const LISTS = ['contacts', 'companies', 'searches', 'templates'];
+// `connections` is your LinkedIn network, from its Connections.csv export.
+const LISTS = ['contacts', 'companies', 'searches', 'templates', 'connections'];
 
 class Store {
   constructor(dir) {
@@ -85,6 +89,8 @@ class Store {
       companies: raw.companies || [],
       searches: raw.searches || [],
       templates: raw.templates || null,
+      connections: raw.connections || [],
+      finder: raw.finder || null,
       bank: raw.bank || { experiences: [], bullets: [], education: [], skills: [], summary: '' },
     };
   }
@@ -275,9 +281,31 @@ class Store {
     this.save();
     return { ...rec };
   }
+  // Replace a whole list at once (an import), keeping ids stable by `key`.
+  replaceList(kind, items, key = (x) => x.id) {
+    const before = new Map(this.list(kind).map((x) => [key(x), x]));
+    const now = new Date().toISOString();
+    this.data[kind] = items.map((x) => {
+      const old = before.get(key(x));
+      return { ...x, id: old ? old.id : crypto.randomUUID(), addedAt: old ? old.addedAt : now };
+    });
+    this.save();
+    return this.data[kind].length;
+  }
   removeItem(kind, id, defaults = []) {
     this.data[kind] = this.list(kind, defaults).filter((x) => x.id !== id);
     this.save();
+  }
+
+  // ---- company finder (src/shared/finder.js): what you're looking for,
+  // the companies found, and the ones you said no to ----
+  getFinder() {
+    return { prefs: {}, results: [], dismissed: [], lastRun: null, ...(this.data.finder || {}) };
+  }
+  updateFinder(patch) {
+    this.data.finder = { ...this.getFinder(), ...patch };
+    this.save();
+    return this.getFinder();
   }
 
   // ---- Sprout the Spire run (the game logic lives in src/shared/spire.js) ----

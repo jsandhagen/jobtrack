@@ -193,3 +193,149 @@ test('the baseline resume is the bank as it stands: every role, bullets in order
   // Skills in your own order, not re-sorted for the posting.
   assert.deepEqual(doc.skills, bank.skills);
 });
+
+// ---------- fitting the page ----------
+
+const ResumeDoc = require('../src/shared/resumeDoc');
+const { buildDoc, pickSkills, fitDocToPages } = require('../src/main/bullets');
+
+// A long career: 6 jobs, 8 bullets each, plenty to choose from.
+function bigBank({ years = 12, extra = [], strongRoles = 2, perRole = 3, roles = 6 } = {}) {
+  const bank = emptyBank();
+  const now = new Date().getFullYear();
+  const filler = [
+    'Partnered with product managers to plan quarterly roadmaps and cut scope creep by 20%',
+    'Ran weekly demos for 12 stakeholders and turned feedback into prioritized backlog items',
+    'Wrote onboarding guides that brought new hires to their first shipped change in 5 days',
+    'Reviewed 300+ pull requests a year, focusing on readability and test coverage',
+    'Organized a quarterly hack week that produced 3 features later shipped to customers',
+    'Reduced flaky CI failures by 60% by isolating slow integration tests into a nightly job',
+  ];
+  const strong = [
+    'Built a React and TypeScript design system documented in Storybook, used by 40 engineers',
+    'Designed GraphQL and REST APIs for the checkout flow serving 2M monthly users',
+    'Cut page load time 35% with code splitting, caching and React Server Components',
+    'Led accessibility audits to WCAG 2.1 AA across 14 React screens with the design team',
+    'Migrated the marketing site to Next.js, raising Lighthouse performance scores from 62 to 95',
+    'Wrote TypeScript types for 80 REST API endpoints, catching 30 bugs before release',
+  ];
+  for (let i = 0; i < roles; i++) {
+    const end = i === 0 ? 'Present' : String(now - Math.round((i * years) / roles));
+    const start = String(now - Math.round(((i + 1) * years) / roles));
+    const e = { id: `e${i}`, title: i % 2 ? 'Frontend Engineer' : 'Senior Frontend Engineer', organization: `Company ${i}`, location: 'Portland, OR', start, end, dates: `${start} – ${end}` };
+    bank.experiences.push(e);
+    const texts = [...(i < strongRoles ? strong.slice(0, perRole).map((s) => `${s} (team ${i})`) : []), ...filler.map((f) => `${f} at Company ${i}`), ...(extra[i] || [])];
+    texts.forEach((text, j) => bank.bullets.push({ id: `b${i}-${j}`, experienceId: e.id, text, variants: [] }));
+  }
+  bank.skills = ['JavaScript', 'TypeScript', 'React', 'GraphQL', 'Storybook', 'Figma', 'Jest', 'Git', 'CSS', 'Node.js', 'Docker', 'Kubernetes', 'Python', 'Go', 'Redis', 'Kafka', 'Terraform'];
+  bank.summary = 'Frontend engineer who builds design systems and fast, accessible web apps.';
+  bank.education = [{ school: 'Oregon State University', location: 'Corvallis, OR', degree: 'B.S. Computer Science', dates: '2012', details: '' }];
+  return bank;
+}
+
+const PROFILE = { name: 'Jordan Rivera', email: 'jordan@example.com', phone: '(555) 123-4567', location: 'Portland, OR' };
+const pagesOf = (job, bank, roles) => ResumeDoc.measure(buildDoc({ profile: PROFILE, bank, job, roles }).doc);
+
+test('the free optimizer fills exactly one page when one page shows everything the posting asks for', () => {
+  const bank = bigBank({ years: 6 });
+  const job = POSTINGS.seniorFrontend;
+  const sel = selectBullets(job, bank, { profile: PROFILE });
+  const m = pagesOf(job, bank, sel.roles);
+  assert.equal(sel.pages, 1, sel.why);
+  assert.equal(m.pages, 1);
+  assert.ok(m.lastPageFill > 0.85, `page only ${Math.round(m.lastPageFill * 100)}% full`);
+  // The bullets that prove the requirements are the ones that made it.
+  const texts = sel.roles.flatMap((r) => r.bullets.map((b) => b.text)).join('\n');
+  for (const s of ['Storybook', 'GraphQL', 'TypeScript']) assert.match(texts, new RegExp(s));
+  // Every role is still on the timeline.
+  assert.equal(sel.roles.filter((r) => r.bullets.length).length, 6);
+});
+
+test('one page is a hard limit when asked for, and two pages is never exceeded', () => {
+  // Relevant bullets on every role: more than one page's worth.
+  const bank = bigBank({ years: 14, strongRoles: 6, perRole: 6 });
+  const job = POSTINGS.seniorFrontend;
+  const one = selectBullets(job, bank, { profile: PROFILE, pages: 1 });
+  assert.equal(pagesOf(job, bank, one.roles).pages, 1);
+  const two = selectBullets(job, bank, { profile: PROFILE, pages: 2 });
+  assert.equal(two.pages, 2, two.why);
+  assert.equal(pagesOf(job, bank, two.roles).pages, 2);
+  const count = (s) => s.roles.reduce((n, r) => n + r.bullets.length, 0);
+  assert.ok(count(two) > count(one));
+  // "Up to two pages" stays on one when the extra bullets aren't relevant.
+  assert.equal(selectBullets(job, bigBank({ years: 6 }), { profile: PROFILE, pages: 2 }).pages, 1);
+  // A long career with lots of relevant bullets earns the second page on its own...
+  const long = selectBullets(job, bigBank({ years: 20, strongRoles: 8, perRole: 6, roles: 8 }), { profile: PROFILE });
+  assert.equal(long.pages, 2, long.why);
+  assert.ok(long.fill >= 0.4);
+  // ...but not when the second page would be a few lines of spill-over.
+  const thin = selectBullets(job, bank, { profile: PROFILE });
+  assert.ok(thin.pages === 1 || thin.fill >= 0.4, thin.why);
+});
+
+test('a second page only when it earns it: a required skill one page has no room for', () => {
+  // The only Storybook bullet is on the oldest role, beyond what one page holds.
+  const job = { ...POSTINGS.seniorFrontend, text: POSTINGS.seniorFrontend.text.replace('design systems and Storybook', 'design systems, Storybook and Cypress end-to-end testing') };
+  const extra = { 5: ['Wrote the Cypress end-to-end test suite covering 120 checkout scenarios across browsers'] };
+  const bank = bigBank({ years: 8, extra });
+  // Make the Cypress bullet compete: lots of strong bullets ahead of it.
+  const auto = selectBullets(job, bank, { profile: PROFILE });
+  const texts = auto.roles.flatMap((r) => r.bullets.map((b) => b.text)).join('\n');
+  assert.match(texts, /Cypress/);
+  assert.ok(auto.pages <= 2);
+  // Twenty jobs can't all fit on one page: the oldest are left off, and it says so.
+  const many = bigBank({ years: 25, roles: 20 });
+  const sel1 = selectBullets(job, many, { profile: PROFILE, pages: 1 });
+  assert.equal(pagesOf(job, many, sel1.roles).pages, 1);
+  assert.ok(sel1.roles.length < 20 && sel1.roles[0].experienceId === 'e0');
+  assert.match(sel1.why, /oldest roles/);
+  // Without that requirement, the same bank stays on one page.
+  assert.equal(selectBullets(POSTINGS.seniorFrontend, bigBank({ years: 8 }), { profile: PROFILE }).pages, 1);
+});
+
+test('skills: the posting\'s asks you can back up first, in its wording, the grid filled out, nothing you don\'t have', () => {
+  const bank = bigBank();
+  bank.skills.push('Postgres');
+  bank.bullets.push({ id: 'pg', experienceId: 'e0', text: 'Moved reporting from MySQL to PostgreSQL, cutting query time 40%', variants: [] });
+  const job = { title: 'Frontend Engineer', company: 'Acme', text: 'Requirements\n- React and TypeScript\n- PostgreSQL\n- Experience with Storybook\nNice to have\n- Vue\n- Kubernetes' };
+  const { relevant, all } = pickSkills(job, bank);
+  assert.deepEqual(relevant.slice(0, 4), ['React', 'TypeScript', 'PostgreSQL', 'Storybook']);
+  assert.ok(relevant.includes('Kubernetes'));
+  assert.ok(!all.includes('Vue'), 'never a skill your documents lack');
+  assert.ok(!all.includes('Postgres'), '"Postgres" is redundant next to "PostgreSQL"');
+  assert.equal(all.length % 3, 0, 'complete rows of three');
+  assert.ok(all.length >= 9 && all.length <= 15);
+  // A posting asking for MySQL doesn't get "MySQL" from someone whose documents only say PostgreSQL.
+  const b2 = bigBank();
+  b2.bullets.push({ id: 'pg', experienceId: 'e0', text: 'Tuned PostgreSQL queries, cutting report time 40%', variants: [] });
+  assert.ok(!pickSkills({ text: 'Requirements\n- MySQL' }, b2).all.includes('MySQL'));
+});
+
+test('trimming an edited resume to a page count drops the weakest bullets and keeps the only proof of each requirement', () => {
+  const bank = bigBank({ years: 14, strongRoles: 6, perRole: 6 });
+  const job = POSTINGS.seniorFrontend;
+  // Everything in the bank on the page: far too long.
+  const { doc } = buildDoc({ profile: PROFILE, bank, job, roles: bank.experiences.map((e) => ({ experienceId: e.id, bullets: bank.bullets.filter((b) => b.experienceId === e.id).map((b) => ({ bulletId: b.id, text: b.text })) })) });
+  doc.roles[3].bullets.push({ bulletId: null, text: 'Wrote the Cypress end-to-end suite for checkout' });
+  doc.skills.push('Gardening', 'Chess', 'Juggling');
+  const cypressJob = { ...job, text: job.text.replace('Storybook', 'Storybook and Cypress') };
+  assert.ok(ResumeDoc.measure(doc).pages > 2);
+  const out = fitDocToPages(doc, cypressJob, bank, 1);
+  assert.equal(out.pages, 1);
+  assert.equal(ResumeDoc.measure(out.doc).pages, 1);
+  assert.ok(out.removed.length > 10);
+  assert.ok(out.doc.roles.every((r) => r.bullets.length >= 1), 'every role keeps a bullet');
+  assert.ok(out.doc.roles.some((r) => r.bullets.some((b) => /Cypress/.test(b.text))), 'the only Cypress bullet stays');
+  assert.ok(['Gardening', 'Chess', 'Juggling'].every((s) => out.skills.includes(s)), 'off-topic skills go first');
+  assert.ok(out.doc.skills.includes('React'));
+  // Too many roles for one page even at a bullet each: the oldest go.
+  const many = bigBank({ years: 25, roles: 22 });
+  const crowded = buildDoc({ profile: PROFILE, bank: many, job, roles: many.experiences.map((e) => ({ experienceId: e.id, bullets: many.bullets.filter((b) => b.experienceId === e.id).slice(0, 2).map((b) => ({ bulletId: b.id, text: b.text })) })) }).doc;
+  const cut = fitDocToPages(crowded, job, many, 1);
+  assert.equal(cut.pages, 1);
+  assert.ok(cut.roles.length > 0);
+  assert.equal(cut.doc.roles[0].organization, 'Company 0', 'the newest roles stay');
+  // Already short enough: nothing changes.
+  const again = fitDocToPages(out.doc, cypressJob, bank, 1);
+  assert.equal(again.removed.length, 0);
+});

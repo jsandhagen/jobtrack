@@ -21,6 +21,8 @@ let bridge;
 const previews = []; // scored, not saved
 const postings = []; // saved
 const actions = [];
+const people = []; // looked up
+const added = []; // added to your people
 const pairings = [];
 let askedToPair = 0;
 
@@ -71,6 +73,16 @@ test.before(async () => {
       return card(app);
     },
     onOpen: () => {},
+    onPerson: async (p) => {
+      people.push(p);
+      const c = added.find((x) => x.url === p.url);
+      return { person: true, saved: !!c, contact: { id: c ? 'c1' : null, name: p.name, title: p.title, company: p.company, status: c ? 'Not contacted' : '' }, shared: ['went to University of Virginia'], roles: ['Operations Lead'], hasProfile: true };
+    },
+    onAddPerson: async (p) => {
+      added.push(p);
+      return { person: true, saved: true, justAdded: true, contact: { id: 'c1', name: p.name, title: p.title, company: p.company, status: 'Not contacted' }, shared: [], roles: [] };
+    },
+    onOpenPerson: () => {},
   });
   await bridge.listen(47321);
   context = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'sprout-ext-')), {
@@ -80,8 +92,13 @@ test.before(async () => {
   });
   // Serve fixture pages at their real addresses, so content scripts match exactly as on the live sites.
   await context.route('https://www.linkedin.com/jobs/**', (r) => r.fulfill({ contentType: 'text/html', body: page('linkedin.html') }));
+  await context.route('https://www.linkedin.com/in/**', (r) => r.fulfill({ contentType: 'text/html', body: page('linkedin-profile.html') }));
   await context.route('https://boards.greenhouse.io/**', (r) => r.fulfill({ contentType: 'text/html', body: page('greenhouse.html') }));
   await context.route('https://careers.fabrikam.example/**', (r) => r.fulfill({ contentType: 'text/html', body: page('generic.html') }));
+  await context.route('https://careers.contoso.example/**', (r) => r.fulfill({ contentType: 'text/html', body: page('phenom.html') }));
+  await context.route('https://cdn.phenompeople.com/**', (r) => r.fulfill({ contentType: 'text/javascript', body: '' }));
+  await context.route('https://careers.northwind.example/**', (r) => r.fulfill({ contentType: 'text/html', body: page('framed-top.html') }));
+  await context.route('https://northwind.ats-frame.example/**', (r) => r.fulfill({ contentType: 'text/html', body: page('framed-posting.html') }));
   sw = context.serviceWorkers()[0] || (await context.waitForEvent('serviceworker'));
 });
 
@@ -238,6 +255,54 @@ test('company careers pages: finds the posting, leaves out menus and other openi
   await p.close();
 });
 
+test('Phenom careers sites (careers.freddiemac.com and the like): reads the job data the page carries', async () => {
+  const p = await context.newPage();
+  await p.goto('https://careers.contoso.example/us/en/job/JR123/Chief-of-Staff');
+  const r = await waitFor(() => previews.find((x) => x.title === 'Chief of Staff' && x.company === 'Contoso'));
+  assert.equal(r.location, 'McLean, Virginia');
+  assert.match(r.text, /Partner with the CEO on strategy/);
+  assert.match(r.text, /- 8\+ years of experience in strategy/);
+  assert.ok(!r.text.includes('Life at Contoso'), 'menus are left out');
+  await waitFor(async () => (await cardText(p)).includes('Add this job to your saved jobs?'));
+  // Data left over from another job (moved on without a reload) isn't used.
+  await p.evaluate(() => (document.querySelector('h1').textContent = 'Data Engineer'));
+  await p.evaluate(() => (document.title = 'Data Engineer | Contoso Careers'));
+  await p.addScriptTag({ path: path.join(EXT_DIR, 'extract.js') });
+  const stale = await p.evaluate(() => globalThis.sproutExtract());
+  assert.ok(!stale.isPosting || stale.title !== 'Chief of Staff');
+  await p.close();
+});
+
+test('postings under headings like "Position Overview:" are found without any job data', async () => {
+  const html = `<!doctype html><html><head><title>Senior Analyst | Adatum Careers</title></head><body>
+    <div class="nav">Search jobs · Students · Benefits</div>
+    <div class="wrap"><div class="jd"><h1>Senior Analyst</h1>
+      <div><b>Position Overview:</b></div><div>Build the models behind our pricing decisions and present findings to leadership.</div>
+      <div><b>Your Work Team:</b></div><div>You will join a team of six analysts working with finance and product.</div>
+      <div><b>Qualifications:</b></div><div>4+ years of experience in analytics. Experience with SQL and Python. Master's preferred.</div>
+      <div>Full-time, hybrid. Adatum is an equal opportunity employer. Benefits include a 401k match.</div></div></div></body></html>`;
+  await context.route('https://careers.adatum.example/**', (r) => r.fulfill({ contentType: 'text/html', body: html }));
+  const p = await context.newPage();
+  await p.goto('https://careers.adatum.example/us/en/job/R9/Senior-Analyst');
+  const r = await waitFor(() => previews.find((x) => x.title === 'Senior Analyst'));
+  assert.match(r.text, /Experience with SQL and Python/);
+  assert.ok(!r.text.includes('Students'), 'menus are left out');
+  await p.close();
+});
+
+test('a careers page that shows its posting in a frame from another site: the card still pops up', async () => {
+  const p = await context.newPage();
+  await p.goto('https://careers.northwind.example/careers/job?id=55');
+  const r = await waitFor(() => previews.find((x) => x.title === 'Operations Manager'));
+  assert.equal(r.url, 'https://careers.northwind.example/careers/job?id=55', 'the address is the page you can come back to');
+  assert.match(r.text, /Lean and Six Sigma/);
+  await waitFor(async () => (await cardText(p)).includes('Add this job to your saved jobs?'));
+  // Only one card, on the page itself, not one inside the frame too.
+  const frameCards = await p.frames()[1].evaluate(() => document.querySelectorAll('sprout-card').length);
+  assert.equal(frameCards, 0);
+  await p.close();
+});
+
 test('pages that are not job postings are ignored', async () => {
   await context.route('https://www.linkedin.com/jobs/search/**', (r) => r.fulfill({ contentType: 'text/html', body: '<h1>Jobs you may be interested in</h1><ul><li>Engineer</li></ul>' }));
   const before = previews.length;
@@ -246,5 +311,43 @@ test('pages that are not job postings are ignored', async () => {
   await new Promise((r) => setTimeout(r, 2500));
   assert.equal(previews.length, before);
   assert.equal(await cardText(p), '');
+  await p.close();
+});
+
+test('LinkedIn profile: reads the person, says what you share, and adds them when you say so', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.linkedin.com/in/frederick-lee-4a5b6c/?miniProfileUrn=abc');
+  const f = await waitFor(() => people.find((x) => x.name === 'Frederick Lee'));
+  assert.equal(f.url, 'https://www.linkedin.com/in/frederick-lee-4a5b6c');
+  assert.equal(f.title, 'Chief of Staff to the COO');
+  assert.equal(f.company, 'OCTA');
+  assert.match(f.headline, /^Chief of Staff to the COO/);
+  assert.match(f.location, /Arlington, Virginia/);
+  assert.deepEqual(f.schools, ['University of Virginia']);
+  assert.equal(f.degree, 2);
+  assert.equal(f.mutual, 12);
+  assert.deepEqual(f.employers, ['OCTA', 'Appian Corporation', 'Booz Allen Hamilton'], 'grouped roles count their company once');
+
+  const text = await waitFor(async () => ((await cardText(p)).includes('Add Frederick to your people?') ? cardText(p) : null));
+  assert.match(text, /You both went to University of Virginia/);
+  assert.match(text, /Your Operations Lead role is here/);
+  assert.equal(added.length, 0, 'nobody is added until you say so');
+  const badge = await sw.evaluate(async () => chrome.action.getBadgeText({ tabId: (await chrome.tabs.query({ active: true }))[0].id }));
+  assert.equal(badge, '');
+
+  assert.ok(await clickCard(p, 'add-person'));
+  await waitFor(() => added.length === 1);
+  assert.equal(added[0].name, 'Frederick Lee');
+  await waitFor(async () => (await cardText(p)).includes('Added to your people'));
+  assert.ok(await inCard(p, function () {
+    return !!this.querySelector('.dock:not([hidden]) [data-act="open-person"]');
+  }));
+
+  // Leaving the profile (no reload) puts the card away.
+  await p.evaluate(() => {
+    history.pushState({}, '', '/feed/');
+    document.body.innerHTML = '<h1>Your feed</h1>';
+  });
+  await waitFor(async () => (await cardText(p)) === '');
   await p.close();
 });

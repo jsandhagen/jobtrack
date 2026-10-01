@@ -27,9 +27,12 @@ async function copyText(text) {
   }
 }
 
-async function netRefresh() {
+// Redraws unless you're typing somewhere. `from`: the box you just submitted
+// with Enter. It still has focus but is done, so it doesn't hold the redraw back.
+async function netRefresh({ from } = {}) {
   await refreshState();
-  if (!isEditing()) route();
+  if (from && document.activeElement === from) from.blur();
+  routeWhenFree();
 }
 
 const initials = (name) =>
@@ -47,6 +50,12 @@ function contactLine(c) {
 function openRolesAt(company) {
   return state.applications.filter((a) => ['scored', 'resume-ready', 'applied', 'interviewing'].includes(a.status) && O.sameCompany(a.job.company, company));
 }
+
+// The way-in line on a company card works from the keyboard too.
+document.addEventListener('keydown', (e) => {
+  const el = (e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('[data-way-co][role="link"]');
+  if (el) (e.preventDefault(), el.click());
+});
 
 // Anywhere in the app: open a link, write a message, add a person.
 document.addEventListener('click', (e) => {
@@ -68,6 +77,34 @@ document.addEventListener('click', (e) => {
     openComposeModal(msg.dataset.msg, msg.dataset.job);
     return;
   }
+  const conn = e.target.closest('[data-add-conn]');
+  if (conn) {
+    e.preventDefault();
+    e.stopPropagation();
+    addConnection(conn.dataset.addConn);
+    return;
+  }
+  const boardOpen = e.target.closest('[data-board-open]');
+  if (boardOpen) {
+    e.preventDefault();
+    e.stopPropagation();
+    showOnBoard(boardOpen.dataset.boardOpen);
+    return;
+  }
+  const edit = e.target.closest('[data-edit-contact]');
+  if (edit) {
+    e.preventDefault();
+    e.stopPropagation();
+    openContactModal(state.contacts.find((c) => c.id === edit.dataset.editContact));
+    return;
+  }
+  const co = e.target.closest('[data-way-co]');
+  if (co) {
+    e.preventDefault();
+    e.stopPropagation();
+    showWayIn(co.dataset.wayCo);
+    return;
+  }
   const add = e.target.closest('[data-add-person]');
   if (add) {
     e.preventDefault();
@@ -87,6 +124,32 @@ const PEOPLE_FILTERS = [
   ['replied', 'Talking', (c) => ['replied', 'talked', 'referred'].includes(c.status)],
   ['quiet', 'No reply', (c) => c.status === 'quiet'],
 ];
+// People you share a school or an employer with (toggles by the search box;
+// shown once your Profile lists schools / past employers).
+let peopleShared = '';
+const SHARED_FILTERS = [
+  ['alumni', 'Alumni', 'schools', (c) => O.sharedBackground(c, state.profile).schools.length > 0],
+  ['coworkers', 'Ex-coworkers', 'pastEmployers', (c) => O.sharedBackground(c, state.profile).employers.length > 0],
+];
+
+// Three tabs, like Find jobs: your people, finding more, and templates.
+const PEOPLE_TABS = ['people', 'companies', 'find', 'templates'];
+let peopleTab = (() => {
+  try {
+    return PEOPLE_TABS.includes(localStorage.getItem('sprout.peopleTab')) ? localStorage.getItem('sprout.peopleTab') : 'people';
+  } catch {
+    return 'people';
+  }
+})();
+function setPeopleTab(tab) {
+  peopleTab = tab;
+  try {
+    localStorage.setItem('sprout.peopleTab', tab);
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  route();
+}
 
 function peopleMood(st) {
   if (!st.total) return ['wave', "Reaching out is the scary part, so I'll write the first draft. Add someone you'd like to talk to: a chief of staff you admire, someone from your school, an old coworker."];
@@ -99,8 +162,8 @@ function peopleMood(st) {
 
 function reasonChip(c, roles) {
   if (roles && roles.length) return `<span class="chip good tiny">${icon('target', 13)} ${roles.length === 1 ? `${esc(roles[0].job.title)} role here` : `${roles.length} of your roles here`}</span>`;
-  if (c.connection) return `<span class="chip lav tiny">${esc(c.connection)}</span>`;
-  return '';
+  const common = c.connection || O.connectionText(O.sharedBackground(c, state.profile));
+  return common ? `<span class="chip lav tiny" title="${esc(common)}">${esc(common)}</span>` : '';
 }
 
 function contactRow(c) {
@@ -109,7 +172,7 @@ function contactRow(c) {
   return `<div class="row-item person" data-contact="${c.id}">
     <div class="avatar">${esc(initials(c.name))}</div>
     <div class="grow"><div class="title">${esc(c.name)}</div><div class="sub">${esc(contactLine(c))}${c.reachedAt ? ` · reached out ${fmtDate(c.reachedAt)}` : ''}</div>
-      <div style="margin-top:4px">${reasonChip(c, roles)}${roles.length && c.connection ? `<span class="chip lav tiny">${esc(c.connection)}</span>` : ''}${due ? `<span class="chip due tiny">${icon('clock', 13)} follow up</span>` : ''}</div></div>
+      <div style="margin-top:4px">${reasonChip(c, roles)}${roles.length && c.connection ? `<span class="chip lav tiny" title="${esc(c.connection)}">${esc(c.connection)}</span>` : ''}${due ? `<span class="chip due tiny">${icon('clock', 13)} follow up</span>` : ''}</div></div>
     <select class="small-select contactStatus" data-id="${c.id}" title="Where things stand">${O.CONTACT_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (c.status || 'to-reach') ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <button class="small ${c.status === 'to-reach' || !c.status || due ? 'primary' : 'soft'}" data-msg="${c.id}">${icon('chat', 15)} ${due ? 'Nudge' : 'Message'}</button>
     <button class="small ghost" data-open-url="${esc(O.profileUrl(c))}" title="${c.linkedinUrl ? 'Open their LinkedIn profile' : 'Find their LinkedIn profile (Google search by name and company)'}">${icon('link', 15)} ${c.linkedinUrl ? 'Profile' : 'Find profile'}</button>
@@ -121,59 +184,177 @@ views.people = () => {
   const cs = state.contacts;
   const st = O.outreachStats(cs);
   const [mood, line] = peopleMood(st);
+  const tab = (k, label, n) => `<button class="${peopleTab === k ? 'on' : ''}" data-people-tab="${k}">${label}${n ? ` <span class="faint">${n}</span>` : ''}</button>`;
+  const body = peopleTab === 'companies' ? wayInTab() : peopleTab === 'find' ? findPeopleTab() : peopleTab === 'templates' ? templatesCard() : myPeopleTab(st);
+  return `<div class="page">
+    ${pageHead('People', mood, esc(line), `<button class="soft" id="importPeople">${icon('clipboard')} Import from a spreadsheet</button><button class="primary" data-add-person="">+ Add a person</button>`)}
+    <div class="tabs find-tabs">${tab('people', `${icon('user', 17)} My people`, cs.length)}${tab('companies', `${icon('home', 17)} Companies`, targets().length)}${tab('find', `${icon('search', 17)} Find people`)}${tab('templates', `${icon('letter', 17)} Templates`, state.templates.length)}</div>
+    ${body}
+  </div>`;
+};
+
+function myPeopleTab(st) {
+  const cs = state.contacts;
   const q = peopleSearch.toLowerCase();
+  const shared = SHARED_FILTERS.filter(([k, , needs]) => O.splitList(state.profile[needs]).length || peopleShared === k);
+  const sharedFn = (SHARED_FILTERS.find(([k]) => k === peopleShared) || [])[3] || (() => true);
+  const statusFn = (PEOPLE_FILTERS.find(([k]) => k === peopleFilter) || PEOPLE_FILTERS[0])[2];
   const shown = cs
-    .filter(PEOPLE_FILTERS.find(([k]) => k === peopleFilter)[2])
-    .filter((c) => !q || [c.name, c.title, c.company, c.connection, c.notes].join(' ').toLowerCase().includes(q))
+    .filter(statusFn)
+    .filter(sharedFn)
+    .filter((c) => !q || [c.name, c.title, c.company, c.connection, c.notes, c.headline, ...(c.schools || []), ...(c.employers || [])].join(' ').toLowerCase().includes(q))
     .sort((a, b) => Number(O.contactFollowUpDue(b)) - Number(O.contactFollowUpDue(a)) || String(b.lastTouchAt || b.addedAt).localeCompare(String(a.lastTouchAt || a.addedAt)));
   // With only a few people the whole list is short enough; then only call
   // out someone at a company you're applying to.
   const next = O.nextToReach(cs, state.applications, 3).filter((n) => cs.length > 4 || n.roles.length);
   const due = cs.filter((c) => O.contactFollowUpDue(c));
+  const filtered = peopleFilter !== 'all' || peopleShared || q;
 
-  return `<div class="page">
-    ${pageHead('People', mood, esc(line), `<button class="soft" id="importPeople">${icon('clipboard')} Import from a spreadsheet</button><button class="primary" data-add-person="">+ Add a person</button>`)}
-    ${cs.length ? `<div class="grid three" style="margin-bottom:16px">
+  if (!cs.length)
+    return `<div class="card empty">${mascotSvg('curious', 72)}<h3>No people yet</h3>
+      <p>Look for alumni and old coworkers at the companies you want in <a href="#" data-people-tab="find">Find people</a>. With the Sprout browser extension, adding someone is one click on their LinkedIn profile. Or import the spreadsheet you already have.</p>
+      <button class="primary" data-people-tab="find">${icon('search', 15)} Find people</button></div>`;
+
+  return `<div class="grid three" style="margin-bottom:16px">
       <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('send', 26)}</div><div><b>${st.reachedWeek}</b><span>reached out this week · ${st.reached} total</span></div></div>
       <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('chat', 26)}</div><div><b>${st.replied}</b><span>wrote back or talked with you</span></div></div>
       <div class="card stat"><div class="stat-icon" style="background:var(--peach-soft);color:#b8653e">${icon('user', 26)}</div><div><b>${st.toReach}</b><span>still to contact</span></div></div>
-    </div>` : ''}
-    <div class="grid sidebar">
-      <div>
-        ${next.length || due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0">
-          ${due.length ? `<h3 class="with-icon">${icon('clock', 20)} Time for a nudge</h3><div class="list" style="margin-bottom:${next.length ? 14 : 0}px">${due.map(contactRow).join('')}</div>` : ''}
-          ${next.length ? `<h3 class="with-icon">${icon('sparkle', 20)} Reach out next</h3><p class="faint" style="margin-top:-4px">People at companies you're applying to come first. Click <b>Message</b>: the draft is ready, you only have to send it.</p><div class="list">${next.map(({ contact }) => contactRow(contact)).join('')}</div>` : ''}
-        </div>` : ''}
-        <div class="tabs">${PEOPLE_FILTERS.map(([k, label, fn]) => `<button class="${peopleFilter === k ? 'on' : ''}" data-pfilter="${k}">${label} <span class="faint">${cs.filter(fn).length}</span></button>`).join('')}</div>
-        <input id="peopleSearch" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" style="margin-bottom:12px">
-        ${shown.length ? `<div class="list">${shown.map(contactRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 72)}<h3>${cs.length ? 'Nobody here' : 'No people yet'}</h3><p>${cs.length ? 'No one matches this filter.' : 'Use <b>Find people</b> on the right to search LinkedIn, then add the ones you want to talk to. Or import the spreadsheet you already have.'}</p></div>`}
-      </div>
-      <div>
-        ${findPeopleCard()}
-        ${templatesCard()}
-      </div>
     </div>
-  </div>`;
-};
+    ${next.length || due.length ? `<div class="card spotlight">
+      ${due.length ? `<h3 class="with-icon">${icon('clock', 20)} Time for a nudge</h3><div class="list" style="margin-bottom:${next.length ? 14 : 0}px">${due.map(contactRow).join('')}</div>` : ''}
+      ${next.length ? `<h3 class="with-icon">${icon('sparkle', 20)} Reach out next</h3><p class="faint" style="margin-top:-4px">People at companies you're applying to come first. Click <b>Message</b>: the draft is ready, you only have to send it.</p><div class="list">${next.map(({ contact }) => contactRow(contact)).join('')}</div>` : ''}
+    </div>` : ''}
+    <div class="tabs compact">${PEOPLE_FILTERS.map(([k, label, fn]) => `<button class="${peopleFilter === k ? 'on' : ''}" data-pfilter="${k}">${label} <span class="faint">${cs.filter(fn).length}</span></button>`).join('')}</div>
+    <div class="people-bar">
+      <input data-live id="peopleSearch" type="search" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" autocomplete="off">
+      ${shared.map(([k, label, , fn]) => `<label class="check-label" title="People you share ${k === 'alumni' ? 'a school' : 'an employer'} with"><input type="checkbox" data-pshared="${k}" ${peopleShared === k ? 'checked' : ''}> ${label} <span class="faint">${cs.filter(fn).length}</span></label>`).join('')}
+    </div>
+    ${shown.length ? `<div class="list">${shown.map(contactRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 72)}<h3>Nobody here</h3><p>No one matches ${filtered ? 'these filters' : 'this filter'}. <a href="#" id="peopleClear">Show everyone</a></p></div>`}`;
+}
 
+function findPeopleTab() {
+  return `<div class="grid sidebar-wide">
+    ${insidersCard()}
+    ${findPeopleCard()}
+  </div>`;
+}
+
+// ---------------- alumni & old coworkers at a company ----------------
+
+const insider = { company: '', titles: '' };
+
+// Companies worth looking inside: roles you're going for, companies you
+// watch, then where the people you know work.
+function insiderCompanies() {
+  const out = [];
+  const add = (name) => name && !out.some((x) => O.sameCompany(x, name)) && out.push(name);
+  state.applications.filter((a) => ['scored', 'resume-ready', 'applied', 'interviewing'].includes(a.status)).forEach((a) => add(a.job.company));
+  watched().forEach((c) => add(c.name));
+  state.contacts.forEach((c) => add(c.company));
+  return out;
+}
+
+function insidersCard() {
+  const cos = insiderCompanies();
+  const roles = O.splitList(state.profile.targetRoles);
+  return `<div class="card"><h3 class="with-icon">${icon('user', 20)} Alumni & old coworkers</h3>
+    <p class="faint" style="margin-top:-4px">Pick a company, a role, or both. I'll look for people who went to your schools or worked where you did: they're the likeliest to say yes.</p>
+    <div class="form-grid">
+      <div><label>At a company</label><input id="inCompany" list="inCompanies" value="${esc(insider.company)}" placeholder="${esc(cos[0] || 'e.g. Ramp')}" autocomplete="off"><datalist id="inCompanies">${cos.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+      <div><label>In a role <span class="faint">(optional)</span></label><input id="inTitles" value="${esc(insider.titles)}" placeholder="${esc(`e.g. ${roles[0] || 'Chief of Staff'}`)}" autocomplete="off"></div>
+    </div>
+    ${cos.length ? `<div class="inline" style="margin-top:8px;flex-wrap:wrap;gap:0">${cos.slice(0, 8).map((c) => `<button class="chip tiny ${O.sameCompany(c, insider.company) ? 'good' : ''}" data-in-co="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
+    <div id="insiderResults" style="margin-top:10px">${insiderResults()}</div>
+  </div>`;
+}
+
+function insiderResults() {
+  const company = insider.company.trim();
+  const titles = insider.titles.trim();
+  const p = state.profile;
+  if (!company && !titles) return `<p class="faint" style="margin:0">Type a company above${insiderCompanies().length ? ', or pick one of yours' : ''}.</p>`;
+  const found = O.insiderSearches({ company, titles }, p);
+  const known = company ? O.contactsAt(state.contacts, company) : [];
+  const groups = [
+    ['alumni', 'Went to your school'],
+    ['coworkers', 'Worked where you did'],
+    ['role', company ? `Anyone at ${company}` : 'In this role'],
+    ['recruiters', 'Recruiters'],
+  ];
+  const row = (s) => `<div class="search-row insider">
+      <div class="grow"><div class="title">${esc(s.label)}</div></div>
+      <button class="small soft" data-open-url="${esc(s.linkedin)}" title="LinkedIn people search">${icon('link', 14)} LinkedIn</button>
+      <button class="small ghost" data-open-url="${esc(s.google)}" title="Google search of public LinkedIn profiles; works when LinkedIn limits your searches">Google</button>
+      <button class="small ghost inSave" data-i="${found.indexOf(s)}" title="Keep this search">Save</button>
+    </div>`;
+  return `${known.length ? `<p class="note-box" style="margin-top:0">You already know ${known.length === 1 ? `<b>${esc(known[0].name)}</b>` : `<b>${known.length} people</b>`} at ${esc(company)}. <a href="#" id="inKnown">Show ${known.length === 1 ? 'them' : 'them all'}</a></p>` : ''}
+    <div class="insider-groups">${groups
+      .map(([k, label]) => {
+        const list = found.filter((s) => s.kind === k);
+        return list.length ? `<div><div class="section-title" style="margin-top:4px">${esc(label)}</div>${list.map(row).join('')}</div>` : '';
+      })
+      .join('')}</div>
+    ${!O.splitList(p.schools).length && !O.splitList(p.pastEmployers).length ? `<p class="note-box">Add your schools and past employers in <a href="#profile">Profile</a> and I'll search for alumni and old coworkers here too.</p>` : ''}
+    <p class="faint" style="margin-bottom:0">Found someone? Open their LinkedIn profile: the Sprout browser extension adds them in one click, with their schools and past jobs.</p>`;
+}
+
+function bindInsiders() {
+  const co = $('#inCompany');
+  const ti = $('#inTitles');
+  const redraw = () => {
+    $('#insiderResults').innerHTML = insiderResults();
+    $$('[data-in-co]').forEach((b) => b.classList.toggle('good', O.sameCompany(b.dataset.inCo, insider.company)));
+    bindInsiderResults();
+  };
+  co.addEventListener('input', () => ((insider.company = co.value), redraw()));
+  ti.addEventListener('input', () => ((insider.titles = ti.value), redraw()));
+  $$('[data-in-co]').forEach((b) =>
+    b.addEventListener('click', () => {
+      insider.company = co.value = b.dataset.inCo;
+      redraw();
+    })
+  );
+  bindInsiderResults();
+}
+
+function bindInsiderResults() {
+  $$('.inSave').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const s = O.insiderSearches({ company: insider.company.trim(), titles: insider.titles.trim() }, state.profile)[Number(b.dataset.i)];
+      if (!s) return;
+      await S.saveItem('searches', { ...s.search, source: 'linkedin', name: s.label });
+      toast('Saved. It will be under Your searches whenever you want fresh results.', 'good');
+      netRefresh();
+    })
+  );
+  const known = $('#inKnown');
+  if (known)
+    known.addEventListener('click', (e) => {
+      e.preventDefault();
+      peopleFilter = 'all';
+      peopleShared = '';
+      peopleSearch = insider.company.trim();
+      setPeopleTab('people');
+    });
+}
+
+// Saved people searches, and a search of your own. (Alumni and old
+// coworkers have their own card, so there are no suggestions here.)
 function findPeopleCard() {
   const p = state.profile;
   const roles = O.splitList(p.targetRoles);
   const common = [...O.splitList(p.schools), ...O.splitList(p.pastEmployers)];
   const saved = state.searches.filter((s) => s.kind === 'people');
-  const savedKeys = new Set(saved.map(O.searchKey));
-  const sugg = O.suggestedSearches(p).filter((s) => s.kind === 'people' && !savedKeys.has(s.key));
-  return `<div class="card" style="margin-bottom:16px"><h3 class="with-icon">${icon('search', 20)} Find people</h3>
-    <p class="faint" style="margin-top:-4px">Opens a LinkedIn search in your browser. Titles in quotes, so "chief of staff" doesn't match every staff job.</p>
-    ${saved.map((s) => searchRow(s, true)).join('')}
-    ${sugg.map((s) => searchRow(s, false)).join('')}
-    ${!common.length ? `<p class="note-box">Add your school and past employers in <a href="#profile">Profile</a> and I'll suggest searches for people you have something in common with.</p>` : ''}
-    <div class="form-grid" style="margin-top:12px;grid-template-columns:1fr">
+  return `<div class="card"><h3 class="with-icon">${icon('search', 20)} Your searches</h3>
+    ${saved.length ? saved.map((s) => searchRow(s, true)).join('') : '<p class="faint" style="margin-top:-4px">Searches you save show up here, one click from fresh results.</p>'}
+    <div class="section-title" style="margin-top:14px">Search your own way</div>
+    <div class="form-grid" style="grid-template-columns:1fr">
       <div><label>Their job title</label><input id="ppTitles" placeholder="${esc(roles.slice(0, 2).join(', ') || 'Chief of staff, operations manager')}"></div>
       <div><label>At a company <span class="faint">(optional)</span></label><input id="ppCompany" placeholder="e.g. Ramp"></div>
-      <div><label>In common <span class="faint">(school or past employer)</span></label><input id="ppCommon" placeholder="${esc(common.slice(0, 2).join(', ') || 'UVA, Appian')}"></div>
+      <div><label>In common <span class="faint">(optional)</span></label><input id="ppCommon" placeholder="${esc(common.slice(0, 2).join(', ') || 'UVA, Appian')}"></div>
     </div>
-    <div class="inline" style="margin-top:10px"><button class="soft small" id="ppOpen">${icon('link', 15)} Search LinkedIn</button><button class="ghost small" id="ppGoogle" title="Same search through Google, if LinkedIn limits your searches">Via Google</button><button class="ghost small" id="ppSave">Save search</button></div>
+    <div class="inline" style="margin-top:10px;flex-wrap:wrap"><button class="soft small" id="ppOpen">${icon('link', 15)} LinkedIn</button><button class="ghost small" id="ppGoogle" title="Same search through Google, if LinkedIn limits your searches">Google</button><button class="ghost small" id="ppSave">Save</button></div>
+    <p class="faint" style="margin-bottom:0">Titles go in quotes, so "chief of staff" doesn't match every staff job.</p>
   </div>`;
 }
 
@@ -195,15 +376,28 @@ function templatesCard() {
 }
 
 binders.people = () => {
+  $$('[data-people-tab]').forEach((b) => b.addEventListener('click', (e) => (e.preventDefault(), setPeopleTab(b.dataset.peopleTab))));
+  $('#importPeople').addEventListener('click', openImportModal);
+  if (peopleTab === 'people') bindMyPeople();
+  if (peopleTab === 'find') bindFindPeople();
+  if (peopleTab === 'companies') bindCompanies();
+  if (peopleTab === 'templates') bindTemplates();
+};
+
+function bindMyPeople() {
   $$('[data-pfilter]').forEach((b) => b.addEventListener('click', () => ((peopleFilter = b.dataset.pfilter), route())));
+  $$('[data-pshared]').forEach((b) => b.addEventListener('change', () => ((peopleShared = b.checked ? b.dataset.pshared : ''), route())));
+  const clear = $('#peopleClear');
+  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), (peopleFilter = 'all'), (peopleShared = ''), (peopleSearch = ''), route()));
   const search = $('#peopleSearch');
-  search.addEventListener('input', () => {
-    peopleSearch = search.value;
-    route();
-    const el = $('#peopleSearch');
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  });
+  if (search)
+    search.addEventListener('input', () => {
+      peopleSearch = search.value;
+      route();
+      const el = $('#peopleSearch');
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
   $$('.contactStatus').forEach((sel) =>
     sel.addEventListener('change', async () => {
       await S.setContactStatus(sel.dataset.id, sel.value).catch((err) => toast(err.message, 'error'));
@@ -213,9 +407,11 @@ binders.people = () => {
     })
   );
   $$('.editContact').forEach((b) => b.addEventListener('click', () => openContactModal(state.contacts.find((c) => c.id === b.dataset.id))));
-  $('#importPeople').addEventListener('click', openImportModal);
-  bindSearchRows();
+}
 
+function bindFindPeople() {
+  bindSearchRows();
+  bindInsiders();
   const pp = () => ({ kind: 'people', titles: $('#ppTitles').value, company: $('#ppCompany').value, common: $('#ppCommon').value });
   const filled = (s) => s.titles.trim() || s.company.trim() || s.common.trim();
   $('#ppOpen').addEventListener('click', () => (filled(pp()) ? openUrl(O.linkedinPeopleUrl(pp())) : toast('Add a title, a company or something in common first.')));
@@ -228,15 +424,17 @@ binders.people = () => {
     toast('Search saved.', 'good');
     netRefresh();
   });
+}
 
+function bindTemplates() {
   $$('.editTpl').forEach((b) => b.addEventListener('click', () => openTemplateModal(state.templates.find((t) => t.id === b.dataset.id))));
   $('#newTpl').addEventListener('click', () => openTemplateModal({ name: '', body: 'Hi {first}, \n\n{me}' }));
   $('#resetTpl').addEventListener('click', async () => {
-    if (!confirm("Put Sprout's templates back? Your edited and new templates will be replaced.")) return;
+    if (!(await askConfirm("Put Sprout's templates back? Your edited and new templates will be replaced.", 'Put them back'))) return;
     await S.resetTemplates();
     netRefresh();
   });
-};
+}
 
 // Open / save / remove buttons on search rows (both pages).
 function bindSearchRows() {
@@ -272,6 +470,8 @@ function openContactModal(c = {}) {
       <div><label>Status</label><select data-ck="status">${O.CONTACT_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (c.status || 'to-reach') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="full"><label>Notes</label><textarea data-ck="notes" style="min-height:60px" placeholder="How you know them, what they work on, what you talked about…">${esc(c.notes || '')}</textarea></div>
     </div>
+    ${background(c)}
+    ${!editing ? `<p class="faint" style="margin-bottom:0">${icon('sparkle', 13)} Paste their LinkedIn link and I'll fill in the name. With the Sprout browser extension, open their profile and click <b>Add to my people</b>: title, company, schools and past jobs come along.</p>` : ''}
     ${editing && (c.log || []).length ? `<div class="section-title">History</div><ul class="timeline">${c.log.slice().reverse().map((l) => `<li><b>${esc(l.what === 'reached' ? `Reached out${l.channel ? ` (${l.channel})` : ''}` : O.CONTACT_LABEL[l.what] || l.what)}</b><span>${fmtDate(l.at)}</span></li>`).join('')}</ul>` : ''}
     <div class="inline" style="margin-top:16px"><button class="primary" id="saveContact">${editing ? 'Save' : 'Add person'}</button>
       ${editing ? `<button class="soft" data-msg="${c.id}">${icon('chat', 15)} Write a message</button><button class="ghost danger" id="delContact">Remove</button>` : ''}
@@ -281,6 +481,14 @@ function openContactModal(c = {}) {
     $$('[data-ck]', card).forEach((i) => (out[i.dataset.ck] = i.value.trim()));
     return out;
   };
+  const li = $('[data-ck="linkedinUrl"]', card);
+  li.addEventListener('change', () => {
+    const url = O.linkedinProfileUrl(li.value);
+    if (!url) return;
+    li.value = url;
+    const name = $('[data-ck="name"]', card);
+    if (!name.value.trim()) name.value = O.nameFromProfileUrl(url);
+  });
   $('#findProfile', card).addEventListener('click', () => {
     const r = read();
     if (!r.name) return toast('Add their name first.');
@@ -303,12 +511,29 @@ function openContactModal(c = {}) {
   const del = $('#delContact', card);
   if (del)
     del.addEventListener('click', async () => {
-      if (!confirm(`Remove ${c.name} from your people?`)) return;
+      if (!(await askConfirm(`Remove ${c.name} from your people?`, 'Remove'))) return;
       await S.removeItem('contacts', c.id);
       closeModal();
       netRefresh();
     });
   $('[data-ck="name"]', card).focus();
+}
+
+// What we know about their background (read from LinkedIn by the extension).
+function background(c) {
+  const shared = O.sharedBackground(c, state.profile);
+  const schools = c.schools || [];
+  const jobs = c.employers || [];
+  const net = [c.degree ? `${['', '1st', '2nd', '3rd'][c.degree]}-degree connection` : '', c.degree !== 1 && c.mutual ? `${c.mutual} mutual connection${c.mutual === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+  if (!schools.length && !jobs.length && !c.headline && !net) return '';
+  const mark = (list, mine) => list.map((x) => (mine.some((m) => O.sameOrg(m, x)) ? `<b>${esc(x)}</b>` : esc(x))).join(', ');
+  return `<div class="note-box" style="margin-top:12px">
+    ${c.headline ? `<div>${esc(c.headline)}</div>` : ''}
+    ${net ? `<div><span class="faint">On LinkedIn:</span> ${esc(net)}</div>` : ''}
+    ${schools.length ? `<div><span class="faint">Studied at</span> ${mark(schools, shared.schools)}</div>` : ''}
+    ${jobs.length ? `<div><span class="faint">Worked at</span> ${mark(jobs, shared.employers)}</div>` : ''}
+    ${shared.schools.length || shared.employers.length ? `<div class="faint" style="margin-top:4px">In bold: what you share.</div>` : ''}
+  </div>`;
 }
 
 function openImportModal() {
@@ -509,18 +734,270 @@ function openComposeModal(contactId, appId) {
 function peopleAtCard(a) {
   const company = a.job.company;
   if (!company) return '';
-  const here = O.contactsAt(state.contacts, company);
-  const links = O.companyLinks({ name: company }, state.profile);
-  return `<div class="card" style="margin-top:16px"><h3 class="with-icon">${icon('chat', 20)} People at ${esc(company)}</h3>
-    ${here.length ? `<p class="faint" style="margin-top:-4px">A quick note to someone inside, before or right after you apply, is one of the best things you can do.</p>
-      <div class="list">${here.map((c) => `<div class="search-row"><div class="avatar">${esc(initials(c.name))}</div><div class="grow"><div class="title">${esc(c.name)}</div><div class="sub">${esc(c.title || '')} · ${esc(O.CONTACT_LABEL[c.status || 'to-reach'])}</div></div>
-        <button class="small ${c.status === 'to-reach' || !c.status ? 'primary' : 'soft'}" data-msg="${c.id}" data-job="${a.id}">${icon('chat', 14)} Message</button></div>`).join('')}</div>`
-      : `<p class="muted" style="margin-top:-4px">You haven't added anyone here yet. Do you know someone at ${esc(company)}, even a little? Someone from your school or an old job counts.</p>`}
-    <div class="inline" style="margin-top:10px">
-      ${links.peopleInCommon ? `<button class="small soft" data-open-url="${esc(links.peopleInCommon)}">${icon('search', 14)} People you share something with</button>` : ''}
-      <button class="small ${links.peopleInCommon ? 'ghost' : 'soft'}" data-open-url="${esc(links.people)}">${icon('search', 14)} People in similar roles</button>
-      <button class="small ghost" data-add-person="${esc(company)}">+ Add someone</button>
-    </div></div>`;
+  const w = way(company);
+  const before = ['scored', 'resume-ready'].includes(a.status);
+  const shown = w.people.slice(0, 6);
+  return `<div class="card" style="margin-top:16px"><h3 class="with-icon">${icon('chat', 20)} Your way in at ${esc(company)} ${stageChip(w.stage)}</h3>
+    ${w.people.length ? `<p class="faint" style="margin-top:-4px">${before ? 'A referral, or even a quick chat with someone inside, before you apply is one of the best things you can do.' : 'A quick note to someone inside after you apply can get your application read.'} Warmest first.</p>
+      <div class="list">${shown.map((p) => wayPersonRow(p, a.id)).join('')}</div>
+      ${w.people.length > shown.length ? `<p class="faint"><a href="#" data-way-co="${esc(company)}">All ${w.people.length} people at ${esc(company)} →</a></p>` : ''}`
+      : `<p class="muted" style="margin-top:-4px">No one yet at ${esc(company)}. Someone from your school or an old job counts${(state.connections || []).length ? '' : ', and so do your LinkedIn connections: import them on People → Companies'}.</p>`}
+    <p class="note-box way-next">${icon('sparkle', 14)} ${esc(w.next.text)}</p>
+    ${insiderButtons(company)}
+  </div>`;
+}
+
+// ---------------- a way in at each company ----------------
+//
+// People → Companies: every company you're aiming at, where you stand there
+// (no one yet → found someone → reached out → talking → referred), who you
+// could ask (your people and your LinkedIn connections, warmest first) and
+// the one thing to do next.
+
+let openCo = ''; // the company whose people are shown
+let coFilter = 'all';
+const CO_FILTERS = [
+  ['all', 'All', () => true],
+  ['none', 'No one yet', (w) => w.stage === 'none'],
+  ['progress', 'In progress', (w) => ['found', 'reached', 'talking'].includes(w.stage)],
+  ['referred', 'Referred', (w) => w.stage === 'referred'],
+];
+
+const way = (company) => O.wayIn(company, { contacts: state.contacts, connections: state.connections || [], profile: state.profile, applications: state.applications });
+const targets = () => O.targetCompanies({ companies: state.companies, contacts: state.contacts, applications: state.applications });
+
+const STAGE_CLS = { none: 'due', found: '', reached: 'lav', talking: 'good', referred: 'good' };
+const stageChip = (stage) => `<span class="chip tiny stage ${STAGE_CLS[stage]}" title="Where you stand at this company">${stage === 'referred' ? '✓ ' : ''}${esc(O.STAGE_LABEL[stage])}</span>`;
+const WARM_CLS = { know: 'good', first: 'good', coworker: 'lav', alumni: 'lav', mutual: 'due', common: 'lav', cold: '' };
+const warmChip = (p) => `<span class="chip tiny ${WARM_CLS[p.warmth]}">${esc(O.warmthLabel(p.warmth, p.contact || {}))}</span>`;
+const roleChip = (p) => (p.role ? `<span class="chip tiny">${esc(O.ROLE_KINDS[p.role])}</span>` : '');
+
+// How many people you could ask at a company (for the job board and company cards).
+let knownIdx = null;
+let knownFor = null;
+function knownAt(company) {
+  if (knownFor !== state) {
+    knownFor = state;
+    knownIdx = new Map();
+    const bump = (name) => {
+      const k = O.companyKey(name);
+      if (k) knownIdx.set(k, (knownIdx.get(k) || 0) + 1);
+    };
+    state.contacts.forEach((c) => bump(c.company));
+    (state.connections || []).filter((x) => !O.findContact(state.contacts, x)).forEach((x) => bump(x.company));
+  }
+  return knownIdx.get(O.companyKey(company)) || 0;
+}
+const knownChip = (company) => {
+  const n = knownAt(company);
+  return n ? `<a href="#" class="chip lav tiny" data-way-co="${esc(company)}" title="People you could ask at ${esc(company)}">${icon('user', 12)} ${n} you could ask</a>` : '';
+};
+
+function showWayIn(company) {
+  openCo = company;
+  coFilter = 'all';
+  peopleTab = 'companies';
+  try {
+    localStorage.setItem('sprout.peopleTab', 'companies');
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  if (location.hash === '#people') route();
+  else location.hash = '#people';
+  setTimeout(() => {
+    const el = document.querySelector(`[data-way="${CSS.escape(O.companyKey(company))}"]`);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, 60);
+}
+
+async function addConnection(id) {
+  try {
+    const c = await S.addConnection(id);
+    await refreshState();
+    route();
+    toast(`${c.name.split(' ')[0]} is in your people. Here's a draft to say hi.`, 'good');
+    openComposeModal(c.id);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function insiderButtons(company) {
+  const found = O.insiderSearches({ company }, state.profile);
+  const label = (s) => ({ alumni: `${s.common} alumni`, coworkers: `Ex-${s.common}`, role: 'Anyone there', recruiters: 'Recruiters' })[s.kind];
+  return `<div class="inline way-search"><span class="faint">${icon('search', 14)} Find on LinkedIn:</span>${found
+    .map((s) => `<button class="small ${s.kind === 'alumni' || s.kind === 'coworkers' ? 'soft' : 'ghost'}" data-open-url="${esc(s.linkedin)}" title="${esc(s.label)}">${esc(label(s))}</button>`)
+    .join('')}<button class="small ghost" data-add-person="${esc(company)}">+ Add someone</button></div>`;
+}
+
+// One person at a company: on your list (with where things stand), or a
+// LinkedIn connection you can add.
+function wayPersonRow(p, appId) {
+  const c = p.contact;
+  const status = c ? `<span class="chip tiny ${['replied', 'talked', 'referred'].includes(c.status) ? 'good' : ''}">${esc(O.CONTACT_LABEL[c.status || 'to-reach'])}</span>` : '<span class="chip tiny">Not on your list</span>';
+  const act = c
+    ? `<button class="small ${c.status === 'to-reach' || !c.status || O.contactFollowUpDue(c) ? 'primary' : 'soft'}" data-msg="${c.id}"${appId ? ` data-job="${appId}"` : ''}>${icon('chat', 14)} ${O.contactFollowUpDue(c) ? 'Nudge' : 'Message'}</button>`
+    : `<button class="small soft" data-add-conn="${p.connection.id}" title="Add to your people and write to them">+ Add & message</button>`;
+  const link = p.linkedinUrl || c ? `<button class="small ghost icon-btn" data-open-url="${esc(c ? O.profileUrl(c) : O.profileUrl({ linkedinUrl: p.linkedinUrl, name: p.name }))}" title="LinkedIn profile">${icon('link', 14)}</button>` : '';
+  return `<div class="search-row way-person"><div class="avatar warm-${p.warmth}">${esc(initials(p.name))}</div>
+    <div class="grow"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.title || 'Title not known')}</div>
+      <div class="way-chips">${warmChip(p)}${roleChip(p)}${status}</div></div>
+    ${act}${link}${c ? `<button class="small ghost icon-btn" data-edit-contact="${c.id}" title="Edit">${icon('pencil', 14)}</button>` : ''}</div>`;
+}
+
+function nextButton(w) {
+  const n = w.next;
+  const p = n.person;
+  if (n.kind === 'add') return `<button class="small primary" data-add-conn="${p.connection.id}">+ Add ${esc(p.name.split(' ')[0])}</button>`;
+  if (p && p.contact) {
+    const label = { nudge: 'Nudge', referral: 'Ask for a referral', thank: 'Say thanks', apply: 'Message' }[n.kind] || 'Message';
+    return `<button class="small primary" data-msg="${p.contact.id}"${w.roles[0] ? ` data-job="${w.roles[0].id}"` : ''}>${icon('chat', 14)} ${label}</button>`;
+  }
+  return `<button class="small soft" data-way-toggle="${esc(w.company)}">${icon('search', 14)} Find people</button>`;
+}
+
+function wayRow(t, w) {
+  const key = O.companyKey(t.name);
+  const open = O.companyKey(openCo) === key;
+  const co = state.companies.find((c) => c.id === t.companyId) || { name: t.name };
+  const faces = w.people.slice(0, 4);
+  const watchedCo = t.companyId && state.companies.find((c) => c.id === t.companyId);
+  const openJobs = watchedCo ? (watchedCo.jobs || []).filter((j) => !isHidden(watchedCo, j)).length : 0;
+  const why = [
+    w.roles.length ? `${w.roles.length} role${w.roles.length === 1 ? '' : 's'} you're going for` : '',
+    w.people.length ? `${w.people.length} you could ask${w.warm < w.people.length ? `, ${w.warm} warm` : ''}` : '',
+  ].filter(Boolean);
+  // The Find jobs side: its matching roles on the board, or watch it so its careers site gets read.
+  const jobsSide = watchedCo
+    ? openJobs
+      ? `<button class="chip tiny good" data-board-open="${watchedCo.id}" title="See them on the job board">${icon('news', 12)} ${openJobs} open on their careers site</button>`
+      : `<span class="chip tiny" title="From their careers site">${watchedCo.lastCheckedAt ? 'No matching openings right now' : 'Reading their careers site…'}</span>`
+    : `<button class="chip tiny" data-watch-co="${esc(t.name)}" title="Add to Find jobs → Companies, so I read their careers site for roles like yours">+ Watch for openings</button>`;
+  return `<div class="way ${open ? 'open' : ''}" data-way="${esc(key)}">
+    <div class="way-head" data-way-toggle="${esc(t.name)}" role="button" tabindex="0" aria-expanded="${open}">
+      ${coLogo(co, 44)}
+      <div class="grow"><div class="title">${esc(t.name)} ${stageChip(w.stage)}</div>
+        <div class="sub">${why.length ? `${esc(why.join(' · '))} ` : ''}${jobsSide}</div>
+        <div class="way-next">${icon('sparkle', 13)} ${esc(w.next.text)}</div></div>
+      <div class="faces">${faces.map((p) => `<span class="avatar warm-${p.warmth}" title="${esc(`${p.name} · ${O.warmthLabel(p.warmth, p.contact || {})}`)}">${esc(initials(p.name))}</span>`).join('')}${w.people.length > faces.length ? `<span class="more">+${w.people.length - faces.length}</span>` : ''}</div>
+      ${nextButton(w)}
+      <span class="chev">${icon('chevron', 16) || '›'}</span>
+    </div>
+    ${open ? `<div class="way-body">
+      ${w.roles.length ? `<div class="way-roles">${w.roles.map((a) => `<a class="chip tiny good" href="#application/${a.id}">${icon('target', 12)} ${esc(a.job.title)} · ${esc(STATUS_LABEL_SHORT[a.status] || a.status)}</a>`).join('')}</div>` : ''}
+      ${w.people.length ? `<div class="list">${w.people.slice(0, coShowAll ? 999 : 8).map((p) => wayPersonRow(p, w.roles[0] && w.roles[0].id)).join('')}</div>
+        ${w.people.length > 8 && !coShowAll ? `<button class="ghost small" id="coShowAll" style="margin-top:6px">Show all ${w.people.length}</button>` : ''}` : `<p class="muted" style="margin:0 0 8px">Nobody here yet. Alumni and old coworkers are the likeliest to say yes${(state.connections || []).length ? '' : '; importing your LinkedIn connections shows who you already know'}.</p>`}
+      ${insiderButtons(t.name)}
+    </div>` : ''}
+  </div>`;
+}
+let coShowAll = false;
+const STATUS_LABEL_SHORT = { scored: 'checked', 'resume-ready': 'resume ready', applied: 'applied', interviewing: 'interviewing' };
+
+// Your LinkedIn network, from its Connections.csv export.
+function connectionsHow(summary) {
+  return `<details class="net-how"><summary>${summary}</summary><ol>
+      <li>On LinkedIn, click <b>Me</b> (your photo, top right) → <b>Settings & Privacy</b> → <b>Data privacy</b> → <b>Get a copy of your data</b>. Or use the button below.</li>
+      <li>Choose <b>Want something in particular?</b>, tick only <b>Connections</b>, and click <b>Request archive</b>. LinkedIn may ask for your password.</li>
+      <li>LinkedIn emails you when it's ready, usually within 10 minutes (the full archive can take a day, which is why you only tick Connections). Download it from the email or the same page.</li>
+      <li>Unzip the download (double-click it) and choose <b>Connections.csv</b> from the folder here.</li></ol>
+      <p class="faint" style="margin:0 0 8px">Emails are usually blank: LinkedIn only includes them for people who allow it. Nothing leaves your computer. To refresh later, request a new copy and re-import; it replaces the old list.</p>
+      <button class="small ghost" data-open-url="https://www.linkedin.com/mypreferences/d/download-my-data">Open LinkedIn's data page</button></details>`;
+}
+
+function networkCard() {
+  const n = (state.connections || []).length;
+  const input = '<input type="file" id="connFile" accept=".csv,text/csv" hidden>';
+  if (n)
+    return `<div class="net-line">${icon('user', 15)} <span><b>${n.toLocaleString()}</b> LinkedIn connections${state.settings.connectionsImportedAt ? `, imported ${fmtDate(state.settings.connectionsImportedAt)}` : ''}. They show up at their companies below.</span>
+      <button class="small ghost" id="connPick">Re-import</button><button class="small ghost danger" id="connClear">Remove</button>${input}
+      ${connectionsHow('How to get a fresh Connections.csv')}</div>`;
+  return `<div class="card net-card">
+    <div class="grow"><h3 class="with-icon" style="margin-bottom:4px">${icon('user', 20)} See who you already know at every company</h3>
+      <p class="muted" style="margin:0">Import your LinkedIn connections and I'll match them to the companies you're aiming at, and point out companies where you already know people. It stays on your computer.</p>
+      ${connectionsHow("How to get the file (2 minutes, plus LinkedIn's wait)")}</div>
+    <button class="primary" id="connPick">${icon('clipboard', 15)} Choose Connections.csv</button>${input}
+  </div>`;
+}
+
+function wayInTab() {
+  const ts = targets();
+  const ways = ts.map((t) => ({ t, w: way(t.name) }));
+  const f = (CO_FILTERS.find(([k]) => k === coFilter) || CO_FILTERS[0])[2];
+  const prio = ({ t, w }) => (w.roles.length ? 100 : 0) + (t.why.includes('watching') ? 20 : 0) + (w.next.kind !== 'search' ? 15 : 0) + w.warm * 2 - (w.stage === 'referred' ? 60 : 0);
+  const shown = ways.filter(({ w }) => f(w)).sort((a, b) => prio(b) - prio(a) || a.t.name.localeCompare(b.t.name));
+  const withSomeone = ways.filter(({ w }) => w.people.length).length;
+  const talking = ways.filter(({ w }) => w.stage === 'talking').length;
+  const referred = ways.filter(({ w }) => w.stage === 'referred').length;
+  const network = O.networkCompanies(state.connections || [], ts, 8);
+  if (!ts.length)
+    return `${networkCard()}<div class="card empty">${mascotSvg('curious', 72)}<h3>Which companies are you aiming for?</h3>
+      <p>Add companies you'd love to work at on Find jobs, or check a job there. Each one shows up here with who you could ask and what to do next.</p>
+      <a class="btn primary" href="#find">Add companies</a></div>${networkSuggestions(network)}`;
+  return `${networkCard()}
+    <div class="grid three" style="margin-bottom:16px">
+      <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('user', 26)}</div><div><b>${withSomeone} of ${ts.length}</b><span>companies where you have someone to ask</span></div></div>
+      <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('chat', 26)}</div><div><b>${talking}</b><span>companies where you're talking to someone</span></div></div>
+      <div class="card stat"><div class="stat-icon" style="background:var(--butter-soft);color:#a07a1c">${icon('star', 26)}</div><div><b>${referred}</b><span>referral${referred === 1 ? '' : 's'}</span></div></div>
+    </div>
+    <div class="tabs compact">${CO_FILTERS.map(([k, label, fn]) => `<button class="${coFilter === k ? 'on' : ''}" data-cofilter="${k}">${label} <span class="faint">${ways.filter(({ w }) => fn(w)).length}</span></button>`).join('')}</div>
+    ${shown.length ? `<div class="ways">${shown.map(({ t, w }) => wayRow(t, w)).join('')}</div>` : '<p class="muted">No companies here.</p>'}
+    ${networkSuggestions(network)}`;
+}
+
+// Companies where you already know people, that you aren't aiming at yet.
+function networkSuggestions(list) {
+  if (!list.length) return '';
+  return `<div class="card" style="margin-top:16px"><h3 class="with-icon">${icon('sparkle', 20)} Where your network already is</h3>
+    <p class="faint" style="margin-top:-4px">Companies with the most of your LinkedIn connections that aren't on your list. A company where you know people is easier to get into.</p>
+    ${list.map((c) => `<div class="search-row">${coLogo({ name: c.name }, 32)}<div class="grow"><div class="title">${esc(c.name)}</div><div class="sub">${c.count} connection${c.count === 1 ? '' : 's'}</div></div>
+      <button class="small soft" data-watch-co="${esc(c.name)}">+ Watch</button></div>`).join('')}</div>`;
+}
+
+function bindCompanies() {
+  $$('[data-cofilter]').forEach((b) => b.addEventListener('click', () => ((coFilter = b.dataset.cofilter), route())));
+  $$('[data-way-toggle]').forEach((el) => {
+    const toggle = (e) => {
+      if (e.target.closest('button:not([data-way-toggle]), a, select')) return;
+      const name = el.dataset.wayToggle;
+      openCo = O.sameCompany(openCo, name) ? '' : name;
+      coShowAll = false;
+      route();
+    };
+    el.addEventListener('click', toggle);
+    if (el.tagName !== 'BUTTON') el.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle(e)));
+  });
+  const all = $('#coShowAll');
+  if (all) all.addEventListener('click', () => ((coShowAll = true), route()));
+  $$('[data-watch-co]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      await S.saveItem('companies', { name: b.dataset.watchCo, status: 'watching', why: 'You know people there' }).catch((err) => toast(err.message, 'error'));
+      toast(`Watching ${b.dataset.watchCo}. I'll look at their careers site too.`, 'good');
+      netRefresh();
+    })
+  );
+  const file = $('#connFile');
+  const pick = $('#connPick');
+  if (pick) pick.addEventListener('click', () => file.click());
+  if (file)
+    file.addEventListener('change', async () => {
+      const f = file.files[0];
+      if (!f) return;
+      try {
+        const res = await S.importConnections(await f.text());
+        toast(`Imported ${res.count.toLocaleString()} connections at ${res.companies.toLocaleString()} companies.`, 'good', 5000);
+        netRefresh();
+      } catch (err) {
+        toast(err.message, 'error', 6000);
+      }
+    });
+  const clear = $('#connClear');
+  if (clear)
+    clear.addEventListener('click', async () => {
+      if (!(await askConfirm('Remove your imported LinkedIn connections? People you added from them stay.', 'Remove'))) return;
+      await S.clearConnections();
+      netRefresh();
+    });
 }
 
 function outreachHomeCard() {
@@ -546,14 +1023,14 @@ function outreachHomeCard() {
 //   Searches   one-click searches (saved, suggested, build your own).
 //   Companies  the companies you watch and their careers sites.
 
-const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday' };
+const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday', recruitee: 'Recruitee', bamboohr: 'BambooHR', oracle: 'Oracle', phenom: 'Phenom', breezy: 'Breezy', pinpoint: 'Pinpoint', rippling: 'Rippling', gem: 'Gem', teamtailor: 'Teamtailor', personio: 'Personio' };
 const FEED_WINDOWS = [
   ['week', 'Past week', 7],
   ['month', 'Past month', 30],
   ['all', 'All open', Infinity],
 ];
 const PAGE_SIZE = 30;
-const FIND_TABS = ['jobs', 'searches', 'companies'];
+const FIND_TABS = ['jobs', 'searches', 'companies', 'discover'];
 const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, sort: 'new', minPay: 0, limit: PAGE_SIZE };
 const BOARD_SORTS = [
   ['new', 'Newest first'],
@@ -610,6 +1087,45 @@ function inWindow(job, days) {
   return days === Infinity || (d ? Date.now() - Date.parse(d) <= days * 86400000 : !!job.firstSeenAt);
 }
 
+// Strong fits that just turned up at companies you watch and aren't in your
+// list yet (see standoutJobs in src/shared/outreach.js). Home and sidebar Sprout call them out.
+function standoutJobs() {
+  return O.standoutJobs(state.companies).filter(({ co, job }) => !inMyList(co, job));
+}
+
+// What Sprout says about them, or '' when there are none.
+function standoutLine(list = standoutJobs()) {
+  if (!list.length) return '';
+  const [{ co, job, justAdded }] = list;
+  const what = `${job.title} (${job.fit.score}/100)`;
+  if (list.length === 1)
+    return justAdded ? `You just added ${co.name}, and it already has a role that fits you really well: ${what}. Take a look?` : `A new role at ${co.name} looks like a strong fit for you: ${what}. Want to check it?`;
+  const oneCo = list.every((x) => x.co.id === co.id);
+  if (oneCo && list.every((x) => x.justAdded)) return `${co.name}, which you just added, has ${list.length} roles that fit you well, led by ${what}.`;
+  return `${list.length} roles that just turned up look like a strong fit for you, led by ${what}${oneCo ? '' : ` at ${co.name}`}.`;
+}
+
+// The job board with the best fits on top.
+function showStandouts() {
+  Object.assign(board, { company: '', q: '', window: 'all', sort: 'fit', showHidden: false, limit: PAGE_SIZE });
+  findTab = 'jobs';
+  try {
+    localStorage.setItem('sprout.findTab', 'jobs');
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  if (location.hash === '#find') route();
+  else location.hash = '#find';
+}
+
+// Find jobs → Jobs, newest first with no filters: where roles that just turned up are.
+function showNewJobs() {
+  if (standoutJobs().length) return showStandouts();
+  Object.assign(board, { company: '', q: '', remote: false, minPay: 0, window: 'week', sort: 'new', showHidden: false, limit: PAGE_SIZE });
+  setFindTab('jobs');
+  if (location.hash !== '#find') location.hash = '#find';
+}
+
 function inMyList(co, job) {
   const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   return [...state.applications, ...(state.checked || [])].find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
@@ -634,23 +1150,53 @@ function daySection(job) {
   return days < 1 ? 'Today' : days < 7 ? 'This week' : days < 30 ? 'This month' : 'Earlier';
 }
 
+// A company's logo (found by the app from its own website, see
+// src/main/logos.js), or its initial on a colour picked from its name.
+function coLogo(co, size = 32) {
+  const name = String(co.name || '?').trim();
+  const hue = [...name.toLowerCase()].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  const initial = esc((name.match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase());
+  const src = co.logo && co.logo.src;
+  const tip = co.logo && co.logo.domain ? ` title="Logo from ${esc(co.logo.domain)}"` : '';
+  return `<span class="co-logo ${src ? '' : 'mono'}" style="--size:${size}px;--hue:${hue}" data-initial="${initial}"${tip} aria-hidden="true">${src && /^data:image\//.test(src) ? `<img src="${esc(src)}" alt="">` : initial}</span>`;
+}
+
+// A logo that won't draw falls back to the initial.
+document.addEventListener(
+  'error',
+  (e) => {
+    const box = e.target && e.target.tagName === 'IMG' && e.target.parentElement;
+    if (!box || !box.classList.contains('co-logo')) return;
+    box.classList.add('mono');
+    box.textContent = box.dataset.initial || '?';
+  },
+  true
+);
+
+// Logo on the left, what the job is in the middle, the fit preview and
+// what you can do with it on the right.
 function jobRow({ co, job }) {
   const mine = inMyList(co, job);
   const hidden = isHidden(co, job);
   const isNew = job.firstSeenAt && Date.now() - Date.parse(job.firstSeenAt) < 3 * 86400000;
   const f = job.fit;
-  const fitPill = f
-    ? `<div class="pill ${f.dealbreakers && f.dealbreakers.length ? 'lo' : pillClass(f.score)} fit-pill" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${f.dealbreakers && f.dealbreakers.length ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read.">${f.score}</div>`
-    : `<div class="pill fit-pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}">–</div>`;
-  const payChip = job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '';
+  const blocked = f && f.dealbreakers && f.dealbreakers.length;
+  const fit = f
+    ? `<div class="fit-score pill meter ${blocked ? 'lo blocked' : pillClass(f.score)}" style="--s:${f.score}" title="Fit preview: ${f.score}/100, ${esc(f.label || '')}${blocked ? ` · ${esc(f.dealbreakers.join('; '))}` : ''}. A free estimate from the posting; Check my fit gives the full read."><b>${f.score}</b><small>${blocked ? 'dealbreaker' : 'fit'}</small></div>`
+    : `<div class="fit-score pill none" title="${state.documents.length ? 'No fit preview for this one yet: Check my fit reads the posting' : 'Add your resume to My library for a fit preview on every job'}"><b>–</b><small>fit</small></div>`;
+  const chips = [isNew ? '<span class="chip good tiny">new</span>' : '', isRemote(job) ? '<span class="chip tiny">remote</span>' : '', job.pay ? `<span class="chip pay tiny" title="Pay range from the posting">${esc(payText(job.pay))}</span>` : '', knownChip(co.name)].join('');
   return `<div class="job-row ${hidden ? 'dim' : ''}">
-    ${fitPill}
+    ${coLogo(co, 56)}
     <div class="grow">
-      <a href="#" class="job-title" data-open-url="${esc(job.url)}" title="Open the posting">${esc(job.title)}</a>${isNew ? ' <span class="chip good tiny">new</span>' : ''}${isRemote(job) ? ' <span class="chip tiny">remote</span>' : ''}${payChip ? ` ${payChip}` : ''}
+      <a href="#" class="job-title" data-open-url="${esc(job.url)}" title="Open the posting">${esc(job.title)}</a>
       <div class="sub"><a href="#" class="job-co" data-board-co="${co.id}" title="Only ${esc(co.name)}'s roles">${esc(co.name)}</a>${job.location ? ` · ${esc(job.location)}` : ''} · ${ageText(job.postedAt)}</div>
+      ${chips ? `<div class="job-chips">${chips}</div>` : ''}
     </div>
-    ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">${mine.saved === false ? `Checked · ${mine.score}` : 'In your list'}</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
-    <button class="small ghost icon-btn hideJob" data-co="${co.id}" data-job="${esc(job.id)}" title="${hidden ? 'Show it again' : 'Not for me: hide it'}" aria-label="${hidden ? 'Unhide' : 'Hide'}">${hidden ? icon('eye', 15) : '✕'}</button>
+    ${fit}
+    <div class="job-actions">
+      ${mine ? `<a class="chip lav tiny" href="#application/${mine.id}">${mine.saved === false ? `Checked · ${mine.score}` : 'In your list'}</a>` : `<button class="small primary scoreJob" data-co="${co.id}" data-job="${esc(job.id)}">${icon('sparkle', 14)} Check my fit</button>`}
+      <button class="small ghost icon-btn hideJob" data-co="${co.id}" data-job="${esc(job.id)}" title="${hidden ? 'Show it again' : 'Not for me: hide it'}" aria-label="${hidden ? 'Unhide' : 'Hide'}">${hidden ? icon('eye', 15) : '✕'}</button>
+    </div>
   </div>`;
 }
 
@@ -685,7 +1231,7 @@ function jobsTab() {
 
   // Filters, then the list.
   const toolbar = `<div class="board-bar">
-      <input id="boardQ" type="search" placeholder="Filter by title, company or place" title="Shortcut: press /" value="${esc(board.q)}" autocomplete="off">
+      <input data-live id="boardQ" type="search" placeholder="Filter by title, company or place" title="Shortcut: press /" value="${esc(board.q)}" autocomplete="off">
       <select id="boardCo" class="small-select" aria-label="Company"><option value="">All companies</option>${withJobs
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((c) => `<option value="${c.id}" ${board.company === c.id ? 'selected' : ''}>${esc(c.name)} (${(c.jobs || []).length})</option>`)
@@ -696,7 +1242,7 @@ function jobsTab() {
       ${hiddenCount ? `<label class="check-label faint"><input type="checkbox" id="boardHidden" ${board.showHidden ? 'checked' : ''}> Hidden (${hiddenCount})</label>` : ''}
     </div>
     <div class="board-bar2"><div class="tabs compact" style="margin:0">${FEED_WINDOWS.map(([k, l, d]) => `<button class="${board.window === k ? 'on' : ''}" data-feed="${k}">${l} <span class="faint">${filtered.filter(({ job }) => inWindow(job, d)).length}</span></button>`).join('')}</div>
-      <span class="board-status"><span class="faint">${state.careersChecking ? '<span class="spinner"></span> checking…' : checked ? `checked ${timeAgo(checked)}` : ''}</span>
+      <span class="board-status"><span class="faint">${state.careersChecking ? (checked ? '<span class="spinner"></span> checking…' : '') : checked ? `checked ${timeAgo(checked)}` : ''}</span>
       <button class="small ghost" id="checkCareers" ${state.careersChecking ? 'disabled' : ''} title="Check their careers sites now">${icon('refresh', 14)} Check now</button></span></div>`;
 
   let list = '';
@@ -709,7 +1255,7 @@ function jobsTab() {
   const more = shown.length > board.limit ? `<button class="ghost" id="boardMore" style="width:100%;margin-top:8px">Show ${Math.min(PAGE_SIZE, shown.length - board.limit)} more of ${shown.length - board.limit}</button>` : '';
   const olderHint = board.window !== 'all' && filtered.length > shown.length ? ` <a href="#" data-feed="all">See all ${filtered.length} open</a>.` : '';
   const empty = state.careersChecking && !checked
-    ? `<p class="muted"><span class="spinner"></span> Reading their careers sites…</p>`
+    ? `<div class="empty board-reading">${mascotSvg('thinking', 64)}<h3>Reading their careers sites…</h3><p>New openings show up here as I find them.</p></div>`
     : filtersOn
       ? `<p class="muted">Nothing matches these filters.${olderHint} <a href="#" id="boardClear">Clear filters</a></p>`
       : `<p class="muted">Nothing matching ${esc(roles.slice(0, 3).join(', ') || 'your roles')} ${board.window === 'all' ? 'is open' : `was posted in the ${board.window === 'week' ? 'past week' : 'past month'}`} at ${readable === 1 ? 'the company' : `the ${readable} companies`} I can read.${olderHint}</p>`;
@@ -718,7 +1264,7 @@ function jobsTab() {
     ${!roles.length ? `<p class="note-box" style="margin-top:0">Add the roles you're aiming for in <a href="#profile">Profile</a>, so I only list the jobs meant for you. Until then you're seeing every open job.</p>` : ''}
     ${toolbar}
     ${shown.length ? `<div class="job-list">${list}</div>${more}` : empty}
-    <p class="faint board-foot">${all.length ? `The number on each job is a free fit preview from its posting${withFit < all.length ? ` (${withFit} of ${all.length} have one so far${state.documents.length ? '' : '; add your resume to My library for the rest'})` : ''}; <b>Check my fit</b> gives the full read. Pay shows where the posting lists it (${withPay} of ${all.length}). ` : ''}Read from each company's own careers site: roles matching ${roles.length ? `<b>${esc(roles.join(', '))}</b>` : 'anything'}${cos.some((c) => c.keywords) ? ' and each company\'s extra titles' : ''}. I check every 6 hours and let you know when something new goes up.${unreadable ? ` <a href="#" data-find-tab="companies">${unreadable} compan${unreadable === 1 ? 'y needs' : 'ies need'} a job board link</a>.` : ''}</p>
+    <p class="faint board-foot">${all.length ? `The fit score on the right of each job is a free preview from its posting${withFit < all.length ? ` (${withFit} of ${all.length} have one so far${state.documents.length ? '' : '; add your resume to My library for the rest'})` : ''}; <b>Check my fit</b> gives the full read. Pay shows where the posting lists it (${withPay} of ${all.length}). ` : ''}Read from each company's own careers site: roles matching ${roles.length ? `<b>${esc(roles.join(', '))}</b>` : 'anything'}${cos.some((c) => c.keywords) ? ' and each company\'s extra titles' : ''}. I check every 6 hours and let you know when something new goes up.${unreadable ? ` <a href="#" data-find-tab="companies">${unreadable} compan${unreadable === 1 ? 'y needs' : 'ies need'} a job board link</a>.` : ''}</p>
   </div>`;
 }
 
@@ -753,10 +1299,11 @@ function searchesTab() {
             <div><label>Work type</label><select id="fsWork">${Object.entries(O.WORK_TYPES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
             <div class="full"><label>Search</label><div class="choice-row">
               <label><input type="radio" name="fsSource" value="linkedin" checked> LinkedIn jobs</label>
+              <label><input type="radio" name="fsSource" value="indeed"> Indeed jobs</label>
               <label><input type="radio" name="fsSource" value="startups"> Startup job boards <span class="faint">(Ashby, Greenhouse, Lever, Workable, through Google)</span></label></div></div>
           </div>
           <div class="inline" style="margin-top:12px"><button class="primary" id="fsOpen">${icon('link')} Open</button><button class="soft" id="fsSave">Save search</button></div>
-          <details style="margin-top:14px"><summary class="faint">Or save any link (Indeed, a niche job board, a company's careers page…)</summary>
+          <details style="margin-top:14px"><summary class="faint">Or save any link (a niche job board, a company's careers page…)</summary>
             <div class="form-grid" style="margin-top:8px"><div><label>Name</label><input id="fsLinkName" placeholder="Climate jobs board"></div><div><label>Link</label><input id="fsLinkUrl" placeholder="https://…"></div></div>
             <button class="small soft" id="fsLinkSave" style="margin-top:8px">Save link</button></details>
         </div>
@@ -770,7 +1317,7 @@ function searchesTab() {
         <div class="card"><h3 class="with-icon">${icon('target', 20)} Cutting the noise</h3>
           <ul class="tidy">
             <li><b>Past week, newest first.</b> Older postings already have hundreds of applicants.</li>
-            <li><b>Titles in quotes.</b> Without them LinkedIn matches any word, which is how "chief of staff" turns into a nursing job.</li>
+            <li><b>Titles in quotes.</b> Without them LinkedIn and Indeed match any word, which is how "chief of staff" turns into a nursing job.</li>
             <li><b>A distance, not just a city.</b> Searches near you are capped at 25 miles.</li>
             <li><b>Found one?</b> Copy the posting and I'll score it. Then check <a href="#people">People</a> for anyone you know there.</li>
           </ul></div>
@@ -782,10 +1329,10 @@ function careersStatus(co) {
   if (co.status === 'pass') return `<div class="co-status faint">Not checking: you passed on this one.</div>`;
   if (!co.lastCheckedAt) return `<div class="co-status faint">${state.careersChecking ? '<span class="spinner"></span> Looking for its careers site…' : 'Not checked yet.'}</div>`;
   if (co.checkError === 'no-board')
-    return `<div class="co-status warn">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. <a href="#" class="coCareers" data-id="${co.id}">Paste its job board link</a> (Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Workday) and I'll check it.</div>`;
+    return `<div class="co-status warn">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. <a href="#" class="coCareers" data-id="${co.id}">Paste the link to the page that lists its jobs</a> (its own jobs page, or its board on Greenhouse, Lever, Ashby, Workday, BambooHR, Oracle and the like) and I'll check it.</div>`;
   if (co.checkError) return `<div class="co-status warn">${icon('warn', 13)} Last check didn't work: ${esc(co.checkError)}</div>`;
   const b = co.board;
-  return `<div class="co-status faint">${icon('check', 13)} Reading its <a href="#" data-open-url="${esc(b.url)}">${ATS_NAME[b.ats] || b.ats} job board</a> · ${co.openCount} open · checked ${timeAgo(co.lastCheckedAt)}
+  return `<div class="co-status faint">${icon('check', 13)} Reading its <a href="#" data-open-url="${esc(b.url)}">${b.ats === 'site' ? 'own careers page' : `${ATS_NAME[b.ats] || b.ats} job board`}</a> · ${co.openCount} open · checked ${timeAgo(co.lastCheckedAt)}
     ${b.guessed ? `<br>I found this board by its name. Is it really them? <a href="#" class="coNotThem" data-id="${co.id}">Not them</a>` : ''}</div>`;
 }
 
@@ -802,46 +1349,319 @@ function companiesTab() {
   </div>`;
 }
 
+// A company card's link to People → Companies: where you stand there and the next step.
+function coWayLine(co, people, roles) {
+  const w = way(co.name);
+  const faces = w.people.slice(0, 3);
+  return `<div class="co-way" data-way-co="${esc(co.name)}" role="link" tabindex="0" title="Your way in at ${esc(co.name)}">
+    ${stageChip(w.stage)}${faces.length ? `<span class="faces">${faces.map((p) => `<span class="avatar warm-${p.warmth}" title="${esc(`${p.name} · ${O.warmthLabel(p.warmth, p.contact || {})}`)}">${esc(initials(p.name))}</span>`).join('')}</span>` : ''}
+    <span class="co-way-text">${people ? `<b>${people} you could ask.</b> ` : ''}${esc(w.next.text)}</span>
+    ${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}
+    <span class="co-way-go">Your way in →</span></div>`;
+}
+
+// Find jobs → Jobs, showing just this company's roles.
+function showOnBoard(companyId) {
+  Object.assign(board, { company: companyId, window: 'all', limit: PAGE_SIZE });
+  findTab = 'jobs';
+  try {
+    localStorage.setItem('sprout.findTab', 'jobs');
+  } catch {
+    // remembering the tab is only a nicety
+  }
+  if (location.hash === '#find') route();
+  else location.hash = '#find';
+}
+
+// Employee rating and industry, once the company finder has looked it up.
+function employerLine(co) {
+  const e = co.employer;
+  if (!e) return '';
+  const src = (e.ratings || [])[0];
+  const rating = e.overall ? `<a href="#" class="chip tiny co-rating" ${src ? `data-open-url="${esc(src.url)}"` : ''} title="Employee rating${src ? ` from ${esc(src.source)}` : ''}, looked up ${esc(fmtDate(e.checkedAt))}"><span class="stars">★</span> ${e.overall.toFixed(1)}</a>` : '';
+  return rating || e.industry ? `<div class="co-chips">${rating}${e.industry ? `<span class="chip tiny lav">${esc(e.industry)}</span>` : ''}</div>` : '';
+}
+
 function companyRow(co) {
   const L = O.companyLinks(co, state.profile);
-  const people = O.contactsAt(state.contacts, co.name).length;
+  const people = knownAt(co.name);
   const roles = openRolesAt(co.name).length;
   const n = (co.jobs || []).filter((j) => !isHidden(co, j)).length;
-  return `<div class="company ${co.status === 'pass' ? 'dim' : ''}" data-co="${co.id}">
-    <div class="company-top"><div class="grow"><div class="title">${esc(co.name)}</div>${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
+  const passed = co.status === 'pass';
+  // Matching roles on the right, where the fit score sits on a job; it opens them on the board.
+  const rolesBadge = n && !passed
+    ? `<button class="co-count pill hi" data-board-co="${co.id}" title="See ${esc(co.name)}'s ${n} matching role${n === 1 ? '' : 's'} on the board"><b>${n}</b><small>role${n === 1 ? '' : 's'}</small></button>`
+    : `<div class="co-count pill none" title="${passed ? 'Not checking: you passed on this one' : 'No open roles matching yours right now'}"><b>${passed ? '–' : 0}</b><small>roles</small></div>`;
+  return `<div class="company ${passed ? 'dim' : ''}" data-co="${co.id}">
+    <div class="company-top">${coLogo(co, 64)}<div class="grow"><div class="title">${esc(co.name)}</div>${employerLine(co)}${co.why ? `<div class="sub">${esc(co.why)}</div>` : ''}
       ${careersStatus(co)}
       ${co.keywords ? `<div class="faint" style="font-size:12px">Also matching: ${esc(co.keywords)}</div>` : ''}
-      <div>${people ? `<a href="#people" class="chip lav tiny">${people} ${people === 1 ? 'person' : 'people'} you know</a>` : ''}${roles ? `<span class="chip good tiny">${roles} role${roles === 1 ? '' : 's'} in your list</span>` : ''}</div></div>
-      <select class="small-select coStatus" data-id="${co.id}" aria-label="Status">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <button class="small ghost danger coDel" data-id="${co.id}" title="Remove ${esc(co.name)}">✕</button></div>
+      ${!passed ? coWayLine(co, people, roles) : ''}</div>
+      ${rolesBadge}
+      <div class="co-actions"><select class="small-select coStatus" data-id="${co.id}" aria-label="Status">${O.COMPANY_STATUSES.map(([k, l]) => `<option value="${k}" ${k === (co.status || 'interested') ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="small ghost icon-btn danger coDel" data-id="${co.id}" title="Remove ${esc(co.name)}" aria-label="Remove ${esc(co.name)}">✕</button></div></div>
     <div class="inline company-links">
-      ${n && co.status !== 'pass' ? `<button class="small primary" data-board-co="${co.id}">See ${n} matching role${n === 1 ? '' : 's'}</button>` : ''}
       ${L.careers ? `<button class="small soft" data-open-url="${esc(L.careers)}">${icon('link', 14)} Careers page</button>` : `<button class="small soft coCareers" data-id="${co.id}">+ Careers link</button>`}
       <details class="more-menu"><summary class="small ghost">More ▾</summary><div class="more-list">
         <button class="ghost" data-open-url="${esc(L.jobs)}">${icon('link', 14)} Its jobs on LinkedIn this week</button>
+        <button class="ghost" data-open-url="${esc(L.indeedJobs)}">${icon('link', 14)} Its jobs on Indeed this week</button>
         ${L.peopleInCommon ? `<button class="ghost" data-open-url="${esc(L.peopleInCommon)}">${icon('link', 14)} People there you have something in common with</button>` : ''}
         <button class="ghost" data-open-url="${esc(L.people)}">${icon('link', 14)} People there in your field</button>
         <button class="ghost" data-add-person="${esc(co.name)}">+ Add a person there</button>
         <button class="ghost coKeywords" data-id="${co.id}">Match more titles here</button>
         ${L.careers ? `<button class="ghost coCareers" data-id="${co.id}">${icon('pencil', 13)} Change careers link</button>` : ''}
+        <button class="ghost coWebsite" data-id="${co.id}">${icon('pencil', 13)} ${co.website ? 'Change its website' : co.logo && co.logo.src ? 'Wrong logo? Set its website' : 'Set its website (for the logo)'}</button>
       </div></details>
     </div></div>`;
+}
+
+// ---------------- Find jobs → Discover (company finder) ----------------
+// Claude finds companies and their employee ratings with web search; the
+// match score is worked out on your computer (src/shared/finder.js), so
+// changing what you're looking for re-ranks the list for free.
+
+const F = window.SproutFinder;
+const finderView = { sort: 'match', hideLow: false, showDismissed: false };
+const MIN_RATINGS = [0, 3.5, 3.8, 4, 4.3];
+
+const finderPrefs = () => F.normalizePrefs(state.finder.prefs);
+const isDismissed = (name) => state.finder.dismissed.some((n) => O.sameCompany(n, name));
+const watchedCo = (name) => state.companies.find((c) => O.sameCompany(c.name, name));
+
+async function saveFinderPrefs(patch) {
+  try {
+    await S.saveFinderPrefs({ ...finderPrefs(), ...patch });
+    await netRefresh();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function finderResults() {
+  const prefs = finderPrefs();
+  const avoid = state.profile.avoidKeywords;
+  return state.finder.results.map((c) => ({ company: c, match: F.matchScore(c, prefs, { connections: knownAt(c.name), avoid }), dismissed: isDismissed(c.name), watched: watchedCo(c.name) }));
+}
+
+const stars = (v) => (v ? `<span class="stars" aria-hidden="true">★</span> ${v.toFixed(1)}` : '–');
+
+function ratingsBlock(c, prio) {
+  if (!c.ratings.length) return `<div class="fz-ratings faint">No employee ratings found. <span class="muted">Check the review sites below.</span></div>`;
+  const r = F.combinedRatings(c.ratings);
+  const subs = F.PRIORITIES.filter(([k]) => r[k]).map(([k, label]) => `<span class="fz-sub ${prio.includes(k) ? 'on' : ''}" title="${esc(label)}${prio.includes(k) ? ': matters most to you' : ''}"><small>${esc(label)}</small><b>${r[k].toFixed(1)}</b></span>`);
+  const srcs = c.ratings
+    .map((x) => `<a href="#" data-open-url="${esc(x.url)}" title="Open the page these ratings came from">${esc(x.source)}${x.reviewCount ? ` · ${x.reviewCount.toLocaleString()} reviews` : ''}${x.asOf ? ` · ${esc(x.asOf)}` : ''}</a>`)
+    .join(' · ');
+  return `<div class="fz-ratings"><span class="fz-overall" title="Overall employee rating out of 5">${stars(r.overall)}</span>${subs.length ? `<span class="fz-subs">${subs.join('')}</span>` : ''}</div>
+    <div class="fz-src faint">From ${srcs}</div>`;
+}
+
+function finderCard({ company: c, match: m, dismissed, watched }, prio) {
+  const sizeTxt = c.employees || (F.SIZES.find(([k]) => k === c.size) || [])[1] || '';
+  const where = [c.headquarters, c.remotePolicy === 'remote' ? 'Remote' : c.remotePolicy === 'hybrid' ? 'Hybrid' : c.remotePolicy === 'onsite' ? 'On-site' : ''].filter(Boolean);
+  const chips = [c.industry && `<span class="chip tiny lav">${esc(c.industry)}</span>`, sizeTxt && `<span class="chip tiny">${esc(sizeTxt)}</span>`, ...where.map((w) => `<span class="chip tiny">${esc(w)}</span>`), knownChip(c.name)].filter(Boolean).join('');
+  const breakdown = m.parts.map((p) => `<li><span class="grow">${esc(p.label)}</span><b>${p.pts}</b><span class="faint">/${p.max}</span></li>`).join('');
+  const links = F.reviewLinks(c.name).map(([n, u]) => `<a href="#" data-open-url="${esc(u)}" title="Search ${esc(n)} for ${esc(c.name)}">${esc(n)}</a>`).join(' · ');
+  return `<div class="company fz-co ${dismissed ? 'dim' : ''}">
+    <div class="company-top">${coLogo(c, 56)}<div class="grow">
+      <div class="title">${esc(c.name)}</div>
+      <div class="co-chips">${chips}</div>
+      ${c.summary ? `<div class="sub">${esc(c.summary)}</div>` : ''}
+      ${c.why ? `<div class="fz-why">${icon('sparkle', 13)} ${esc(c.why)}</div>` : ''}
+      ${ratingsBlock(c, prio)}
+      ${m.flags.map((f) => `<div class="co-status warn">${icon('warn', 13)} ${esc(f.text)}</div>`).join('')}
+      ${c.concerns.length ? `<div class="fz-concerns">${icon('eye', 13)} <b>Worth knowing:</b> ${c.concerns.map(esc).join(' · ')}</div>` : ''}
+    </div>
+    <details class="fz-score"><summary class="co-count pill meter ${pillClass(m.score)}" style="--s:${m.score}" title="${esc(F.matchLabel(m.score))}. Click for why."><b>${m.score}</b><small>match</small></summary>
+      <div class="fz-breakdown"><b>${esc(F.matchLabel(m.score))}</b><ul>${breakdown}</ul><p class="faint">Worked out on your computer from the ratings and what you're looking for.</p></div></details>
+    <div class="co-actions">${
+      watched
+        ? `<button class="small soft" data-find-tab="companies" title="On your Companies list">${icon('check', 14)} Watching</button>`
+        : dismissed
+          ? `<button class="small ghost fzUndismiss" data-name="${esc(c.name)}">Undo</button>`
+          : `<button class="small primary fzWatch" data-name="${esc(c.name)}" title="Add to Companies: I'll read its careers site for roles like yours">+ Watch</button><button class="small ghost icon-btn fzDismiss" data-name="${esc(c.name)}" title="Not for me" aria-label="Not for me: ${esc(c.name)}">✕</button>`
+    }</div></div>
+    <div class="inline company-links">
+      ${c.website ? `<button class="small soft" data-open-url="${esc(c.website)}">${icon('globe', 14)} Website</button>` : ''}
+      ${c.careersUrl ? `<button class="small soft" data-open-url="${esc(c.careersUrl)}">${icon('link', 14)} Careers</button>` : ''}
+      <span class="fz-read faint">Read the reviews: ${links}</span>
+    </div></div>`;
+}
+
+function finderForm() {
+  const p = finderPrefs();
+  const on = (b) => (b ? 'good' : '');
+  const custom = p.industries.filter((i) => !F.INDUSTRIES.some((x) => x.toLowerCase() === i.toLowerCase()));
+  return `<div class="card fz-form"><h3 class="with-icon">${icon('target', 20)} What you're looking for</h3>
+    <label>Industries</label>
+    <div class="fz-chips">${F.INDUSTRIES.map((i) => `<button class="chip ${on(p.industries.some((x) => x.toLowerCase() === i.toLowerCase()))} fzInd" data-v="${esc(i)}" aria-pressed="${p.industries.includes(i)}">${esc(i)}</button>`).join('')}</div>
+    <input id="fzIndOther" placeholder="Others, separated by commas" value="${esc(custom.join(', '))}">
+    <label>Company size</label>
+    <div class="fz-chips">${F.SIZES.map(([k, l]) => `<button class="chip ${on(p.sizes.includes(k))} fzSize" data-v="${k}" aria-pressed="${p.sizes.includes(k)}">${esc(l)}</button>`).join('')}</div>
+    <label>Where</label>
+    <input id="fzLoc" placeholder="${esc(state.profile.location || 'City, or leave empty for anywhere')}" value="${esc(p.location)}">
+    <label class="check-label fz-remote"><input type="checkbox" id="fzRemote" ${p.remote ? 'checked' : ''}> Remote-friendly</label>
+    <label>Lowest employee rating</label>
+    <select id="fzMin">${MIN_RATINGS.map((v) => `<option value="${v}" ${v === p.minRating ? 'selected' : ''}>${v ? `${v.toFixed(1)} stars or more` : 'Any rating'}</option>`).join('')}</select>
+    <label>What matters most <span class="faint">(up to ${F.MAX_PRIORITIES})</span></label>
+    <div class="fz-chips">${F.PRIORITIES.map(([k, l]) => `<button class="chip ${on(p.priorities.includes(k))} fzPrio" data-v="${k}" aria-pressed="${p.priorities.includes(k)}">${esc(l)}</button>`).join('')}</div>
+    <label>Anything else <span class="faint">(optional)</span></label>
+    <input id="fzNotes" placeholder="e.g. mission-driven, B Corp, no ad tech" value="${esc(p.notes)}">
+    <p class="faint" style="margin:10px 0 0">I also use the target roles and places to avoid from your <a href="#profile">Profile</a>.</p>
+  </div>`;
+}
+
+function finderStatus() {
+  const f = state.finder;
+  if (state.finderRunning) return `<p class="fz-status"><span class="spinner"></span> Searching the web for companies and their employee ratings. This takes a minute or two.</p>`;
+  const r = f.lastRun;
+  if (!r) return '';
+  const what = r.mode === 'find' ? `Found ${r.found} compan${r.found === 1 ? 'y' : 'ies'}` : `Looked up ${r.found} compan${r.found === 1 ? 'y' : 'ies'}`;
+  return `<p class="fz-status faint">${what} ${timeAgo(r.at)}${r.cost ? `, for about $${r.cost.toFixed(2)} of Claude use` : ''}.${r.unverified ? ` I left out ${r.unverified} rating${r.unverified === 1 ? '' : 's'} I couldn't check (not from a page the search returned, or not out of 5).` : ''}</p>`;
+}
+
+function discoverTab() {
+  const all = finderResults();
+  const p = finderPrefs();
+  let shown = all.filter((x) => finderView.showDismissed || !x.dismissed);
+  if (finderView.hideLow) shown = shown.filter((x) => !x.match.flags.length);
+  shown = F.sortResults(shown, finderView.sort);
+  const dismissedN = all.filter((x) => x.dismissed).length;
+  const watchedN = state.companies.filter((c) => c.status !== 'pass').length;
+  const busy = state.finderRunning ? 'disabled' : '';
+  const actions = `<div class="fz-actions">
+      <button class="primary" id="fzFind" ${busy}>${icon('search', 15)} ${all.length ? 'Find more companies' : 'Find companies'}</button>
+      <div class="fz-lookup"><input id="fzLookup" placeholder="Or look up companies: Stripe, Notion"><button class="soft" id="fzLookupGo" ${busy}>Look up</button></div>
+      ${watchedN ? `<button class="ghost small" id="fzWatched" ${busy} title="Put employee ratings on the companies you already watch">Rate the companies I watch</button>` : ''}
+    </div>
+    ${state.hasApiKey ? '' : `<p class="note-box">The company finder uses Claude with web search. Add your Claude API key in <a href="#settings">Settings</a> to use it.</p>`}
+    ${finderStatus()}`;
+  const list = !all.length
+    ? `<div class="card empty">${mascotSvg('curious', 72)}<h3>Find places you'd love to work</h3>
+        <p>Tell me what you're looking for on the right, and I'll search the web for companies that fit, with how their own employees rate them. Every rating links to the page it came from.</p>
+        ${actions}</div>`
+    : `<div class="card"><div class="fz-head">${actions}</div>
+        <div class="board-bar fz-controls">
+          <select id="fzSort" class="small-select" aria-label="Sort">${[['match', 'Best match first'], ['rating', 'Highest rated first'], ['name', 'By name']].map(([k, l]) => `<option value="${k}" ${finderView.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          ${p.minRating ? `<label class="check-label"><input type="checkbox" id="fzHideLow" ${finderView.hideLow ? 'checked' : ''}> Hide ones below ${p.minRating.toFixed(1)} or to avoid</label>` : ''}
+          ${dismissedN ? `<label class="check-label"><input type="checkbox" id="fzShowDis" ${finderView.showDismissed ? 'checked' : ''}> Not for me <span class="faint">${dismissedN}</span></label>` : ''}
+          <button class="ghost small" id="fzClear" style="margin-left:auto">Clear list</button>
+        </div>
+        ${shown.length ? `<div class="list">${shown.map((x) => finderCard(x, p.priorities)).join('')}</div>` : '<p class="muted">Nothing to show with these filters.</p>'}
+        <p class="faint board-foot">Ratings are what employees gave on review sites, found by Claude with web search when you asked. Each one links to its page; I drop any rating whose page wasn't among the search results. The match score is worked out here from those ratings and what you're looking for, so change it on the right and the list re-sorts for free.</p>
+      </div>`;
+  return `<div class="grid sidebar">${`<div>${list}</div>`}<div>${finderForm()}</div></div>`;
+}
+
+// A match score's breakdown closes when you click anywhere else.
+document.addEventListener('click', (e) => {
+  for (const d of document.querySelectorAll('.fz-score[open]')) if (!d.contains(e.target)) d.open = false;
+});
+
+function bindDiscoverTab() {
+  const p = () => finderPrefs();
+  const toggle = (list, v, max) => (list.includes(v) ? list.filter((x) => x !== v) : max && list.length >= max ? (toast(`Pick up to ${max}.`), list) : [...list, v]);
+  $$('.fzInd').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ industries: toggle(p().industries, b.dataset.v) })));
+  $$('.fzSize').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ sizes: toggle(p().sizes, b.dataset.v) })));
+  $$('.fzPrio').forEach((b) => b.addEventListener('click', () => saveFinderPrefs({ priorities: toggle(p().priorities, b.dataset.v, F.MAX_PRIORITIES) })));
+  // Enter saves too: it leaves the box, so the list re-sorts right away.
+  const enterLeaves = (el) => el.addEventListener('keydown', (e) => e.key === 'Enter' && el.blur());
+  const other = $('#fzIndOther');
+  if (other) enterLeaves(other);
+  if (other)
+    other.addEventListener('change', () => {
+      const chips = p().industries.filter((i) => F.INDUSTRIES.some((x) => x.toLowerCase() === i.toLowerCase()));
+      saveFinderPrefs({ industries: [...chips, ...O.splitList(other.value)] });
+    });
+  const text = (id, key) => {
+    const el = $(id);
+    if (el) el.addEventListener('change', () => saveFinderPrefs({ [key]: el.value }));
+    if (el) enterLeaves(el);
+  };
+  text('#fzLoc', 'location');
+  text('#fzNotes', 'notes');
+  const remote = $('#fzRemote');
+  if (remote) remote.addEventListener('change', () => saveFinderPrefs({ remote: remote.checked }));
+  const min = $('#fzMin');
+  if (min) min.addEventListener('change', () => saveFinderPrefs({ minRating: Number(min.value) }));
+
+  const go = (btn, opts, busy) =>
+    run(btn, async () => {
+      const r = await S.runFinder(opts);
+      toast(r.found ? `${r.mode === 'find' ? 'Found' : 'Looked up'} ${r.found} compan${r.found === 1 ? 'y' : 'ies'}.` : "I didn't find any this time. Try loosening what you're looking for.", r.found ? 'good' : 'info');
+      const box = $('#fzLookup'); // still holding just what you looked up: done with it
+      netRefresh({ from: box && opts.lookup && box.value.trim() === opts.lookup ? box : null });
+    }, busy);
+  const find = $('#fzFind');
+  if (find) find.addEventListener('click', (e) => go(e.currentTarget, {}, 'Searching…'));
+  const lookup = () => {
+    const v = $('#fzLookup').value.trim();
+    if (!v) return toast('Type a company name first.');
+    go($('#fzLookupGo'), { lookup: v }, 'Looking up…');
+  };
+  const lk = $('#fzLookupGo');
+  if (lk) lk.addEventListener('click', lookup);
+  const lkIn = $('#fzLookup');
+  if (lkIn) lkIn.addEventListener('keydown', (e) => e.key === 'Enter' && lookup());
+  const w = $('#fzWatched');
+  if (w) w.addEventListener('click', (e) => go(e.currentTarget, { watched: true }, 'Looking up…'));
+
+  const sort = $('#fzSort');
+  if (sort) sort.addEventListener('change', () => ((finderView.sort = sort.value), route()));
+  const low = $('#fzHideLow');
+  if (low) low.addEventListener('change', () => ((finderView.hideLow = low.checked), route()));
+  const dis = $('#fzShowDis');
+  if (dis) dis.addEventListener('change', () => ((finderView.showDismissed = dis.checked), route()));
+  const clear = $('#fzClear');
+  if (clear)
+    clear.addEventListener('click', async () => {
+      if (!(await askConfirm('Clear the companies found so far? Ones you watch stay on your Companies list.', 'Clear'))) return;
+      await S.clearFinder();
+      netRefresh();
+    });
+
+  $$('.fzWatch').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const c = state.finder.results.find((x) => O.sameCompany(x.name, b.dataset.name));
+      if (!c) return;
+      const r = F.combinedRatings(c.ratings);
+      try {
+        await S.saveItem('companies', {
+          name: c.name,
+          status: 'interested',
+          why: c.why || c.summary,
+          website: c.website,
+          careersUrl: c.careersUrl,
+          employer: { industry: c.industry, size: c.size, remotePolicy: c.remotePolicy, overall: r.overall, ratings: c.ratings, checkedAt: c.checkedAt },
+        });
+        toast(`Watching ${c.name}. I'll look for roles like yours on its careers site.`, 'good');
+        netRefresh();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    })
+  );
+  $$('.fzDismiss').forEach((b) => b.addEventListener('click', async () => (await S.dismissFinder(b.dataset.name), toast("Got it. I won't suggest it again.", 'info', 2600), netRefresh())));
+  $$('.fzUndismiss').forEach((b) => b.addEventListener('click', async () => (await S.dismissFinder(b.dataset.name, true), netRefresh())));
 }
 
 views.find = () => {
   const jobsN = careerJobs().filter(({ co, job }) => !isHidden(co, job) && inWindow(job, 7)).length;
   const searchesN = state.searches.filter((s) => s.kind !== 'people').length;
   const cosN = state.companies.length;
+  const discoverN = state.finder.results.filter((c) => !isDismissed(c.name) && !watchedCo(c.name)).length;
+  const standout = standoutLine();
   const line = {
-    jobs: 'Open roles at the companies you watch, newest first. Check your fit with one click.',
+    jobs: standout || 'Open roles at the companies you watch, newest first. Check your fit with one click.',
     searches: 'One-click searches for fresh postings on LinkedIn and the startup job boards.',
     companies: "The companies you're keeping an eye on. I read their careers sites for you.",
+    discover: 'Find companies you would like to work for, by how their employees rate them, their industry, size and where they are.',
   }[findTab];
   const tab = (k, label, n) => `<button class="${findTab === k ? 'on' : ''}" data-find-tab="${k}">${label}${n ? ` <span class="faint">${n}</span>` : ''}</button>`;
   return `<div class="page">
-    ${pageHead('Find jobs', 'curious', line)}
-    <div class="tabs find-tabs">${tab('jobs', `${icon('news', 17)} Jobs`, jobsN)}${tab('searches', `${icon('search', 17)} Searches`, searchesN)}${tab('companies', `${icon('home', 17)} Companies`, cosN)}</div>
-    ${findTab === 'jobs' ? `${quickSearchesRow()}${jobsTab()}` : findTab === 'searches' ? searchesTab() : companiesTab()}
+    ${pageHead('Find jobs', findTab === 'jobs' && standout ? 'thrilled' : 'curious', line)}
+    <div class="tabs find-tabs">${tab('jobs', `${icon('news', 17)} Jobs`, jobsN)}${tab('searches', `${icon('search', 17)} Searches`, searchesN)}${tab('companies', `${icon('home', 17)} Companies`, cosN)}${tab('discover', `${icon('sparkle', 17)} Discover`, discoverN)}</div>
+    ${findTab === 'jobs' ? `${quickSearchesRow()}${jobsTab()}` : findTab === 'searches' ? searchesTab() : findTab === 'discover' ? discoverTab() : companiesTab()}
   </div>`;
 };
 
@@ -859,6 +1679,7 @@ binders.find = () => {
   if (findTab === 'jobs') bindJobsTab();
   if (findTab === 'searches') bindSearchesTab();
   if (findTab === 'companies') bindCompaniesTab();
+  if (findTab === 'discover') bindDiscoverTab();
   bindCompanyModals();
 };
 
@@ -892,7 +1713,8 @@ function bindJobsTab() {
     check.addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const r = await S.checkCareers();
-        if (r) toast(r.fresh ? `${r.fresh} new matching role${r.fresh === 1 ? '' : 's'}!` : `Checked ${r.checked} compan${r.checked === 1 ? 'y' : 'ies'}. Nothing new since last time.`, r.fresh ? 'good' : 'info');
+        if (r && r.fresh) toast(`${r.fresh} new matching role${r.fresh === 1 ? '' : 's'}! Click to see ${r.fresh === 1 ? 'it' : 'them'}.`, 'good', 8000, null, showNewJobs);
+        else if (r) toast(`Checked ${r.checked} compan${r.checked === 1 ? 'y' : 'ies'}. Nothing new since last time.`, 'info');
         netRefresh();
       }, 'Checking…')
     );
@@ -941,7 +1763,7 @@ function bindSearchesTab() {
   $('#fsSave').addEventListener('click', async () => {
     const s = form();
     if (!filled(s)) return toast('Add a job title first.');
-    const name = [O.splitList(s.titles).join(' or ') || s.keywords, s.workType !== 'any' ? O.WORK_TYPES[s.workType].toLowerCase() : '', s.location && `near ${s.location}`, s.source === 'startups' && 'at startups'].filter(Boolean).join(', ');
+    const name = [O.splitList(s.titles).join(' or ') || s.keywords, s.workType !== 'any' ? O.WORK_TYPES[s.workType].toLowerCase() : '', s.location && `near ${s.location}`, s.source === 'startups' && 'at startups', s.source === 'indeed' && 'on Indeed'].filter(Boolean).join(', ');
     await S.saveItem('searches', { ...s, name });
     toast('Saved.', 'good');
     netRefresh();
@@ -963,9 +1785,10 @@ function bindCompaniesTab() {
   const addCo = async (name, extra = {}) => {
     if (!name) return toast('Add the company name first.');
     if (state.companies.some((c) => O.sameCompany(c.name, name))) return toast(`${name} is already on your list.`);
+    const from = document.activeElement; // the box you pressed Enter in, if you did
     await S.saveItem('companies', { name, status: 'interested', ...extra });
     toast(`Added ${name}. I'll look for its careers site now.`, 'good');
-    netRefresh();
+    netRefresh({ from });
   };
   const add = () => {
     const url = $('#coUrl').value.trim();
@@ -979,7 +1802,7 @@ function bindCompaniesTab() {
   $$('.coDel').forEach((b) =>
     b.addEventListener('click', async () => {
       const co = state.companies.find((c) => c.id === b.dataset.id);
-      if (co && !confirm(`Stop watching ${co.name}?`)) return;
+      if (co && !(await askConfirm(`Stop watching ${co.name}?`, 'Stop watching'))) return;
       await S.removeItem('companies', b.dataset.id);
       netRefresh();
     })
@@ -1014,12 +1837,34 @@ function bindCompanyModals() {
       $('#coKw', card).focus();
     })
   );
+  $$('.coWebsite').forEach((b) =>
+    b.addEventListener('click', () => {
+      const co = state.companies.find((c) => c.id === b.dataset.id);
+      const found = co.logo && co.logo.domain && !co.website ? ` I'm using ${esc(co.logo.domain)} now.` : '';
+      const card = openModal(`<h2 style="margin-top:0">${esc(co.name)} website</h2>
+        <p class="muted">Its home page, like acme.com. I take the logo from there.${found} Leave it empty and I'll work it out from its careers site.</p>
+        <input id="coSite" placeholder="acme.com" value="${esc(co.website || '')}"><div class="inline" style="margin-top:12px"><button class="primary" id="coSiteSave">Save</button><button class="ghost" id="coSiteCancel">Cancel</button></div>`);
+      $('#coSiteCancel', card).addEventListener('click', closeModal);
+      const save = async () => {
+        let url = $('#coSite', card).value.trim();
+        if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+        if (url && !/^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$|[?#:])/i.test(url)) return toast("That doesn't look like a website address.");
+        await S.saveItem('companies', { id: co.id, website: url });
+        closeModal();
+        if (url) toast(`Looking for ${co.name}'s logo…`, 'info');
+        netRefresh();
+      };
+      $('#coSiteSave', card).addEventListener('click', save);
+      $('#coSite', card).addEventListener('keydown', (e) => e.key === 'Enter' && save());
+      $('#coSite', card).focus();
+    })
+  );
   $$('.coCareers').forEach((b) =>
     b.addEventListener('click', (e) => {
       e.preventDefault();
       const co = state.companies.find((c) => c.id === b.dataset.id);
       const card = openModal(`<h2 style="margin-top:0">${esc(co.name)} careers page</h2>
-        <p class="muted">Their careers page, or better, the job board it uses (a link with greenhouse.io, lever.co, ashbyhq.com, workable.com, smartrecruiters.com or myworkdayjobs.com in it). Tip: click any job on their careers page and copy the address it opens.</p>
+        <p class="muted">Their careers page, or better, the job board it uses (a link with greenhouse.io, lever.co, ashbyhq.com, workable.com, smartrecruiters.com, myworkdayjobs.com, recruitee.com, bamboohr.com, breezy.hr, pinpointhq.com, rippling.com, gem.com, teamtailor.com, personio or oraclecloud.com in it; Phenom careers sites like careers.freddiemac.com work as they are). A company's own jobs page works too. Tip: click any job on their careers page and copy the address it opens.</p>
         <input id="coLink" placeholder="https://…" value="${esc(co.careersUrl || '')}"><div class="inline" style="margin-top:12px"><button class="primary" id="coLinkSave">Save</button><button class="ghost" id="coLinkCancel">Cancel</button></div>`);
       $('#coLinkCancel', card).addEventListener('click', closeModal);
       $('#coLinkSave', card).addEventListener('click', async () => {
@@ -1036,7 +1881,7 @@ function bindCompanyModals() {
 
 // "/" jumps to the job filter, like most job sites.
 document.addEventListener('keydown', (e) => {
-  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isEditing()) return;
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isTyping()) return;
   const q = document.getElementById('boardQ');
   if (!q) return;
   e.preventDefault();

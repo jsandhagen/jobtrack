@@ -3,7 +3,7 @@
   "name": "Sprout — Job Application Buddy",
   "short_name": "Sprout",
   "version": "0.1.0",
-  "description": "Pops up on job postings with your fit score, and adds the ones you want to your saved jobs in the Sprout desktop app.",
+  "description": "Pops up on job postings with your fit score, and adds the jobs you want to your saved jobs, and the people you want to reach out to, in the Sprout desktop app.",
   "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
   "action": { "default_popup": "popup.html", "default_title": "Sprout", "default_icon": { "16": "icons/16.png", "32": "icons/32.png" } },
   "background": { "service_worker": "background.js" },
@@ -16,8 +16,9 @@
     {
       "matches": ["http://*/*", "https://*/*"],
       "exclude_matches": ["http://127.0.0.1/*", "http://localhost/*"],
-      "js": ["vendor/buddyLines.js", "vendor/icons.js", "vendor/mascot.js", "vendor/scoreInfo.js", "extract.js", "card.js", "content.js"],
-      "run_at": "document_idle"
+      "js": ["vendor/buddyLines.js", "vendor/icons.js", "vendor/mascot.js", "vendor/scoreInfo.js", "extract.js", "person.js", "card.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }

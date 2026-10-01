@@ -6,6 +6,13 @@
 // Follows single-page sites like LinkedIn, where clicking another job swaps
 // the page without a reload: the card switches to the new job, and goes away
 // when you leave the posting.
+//
+// On someone's LinkedIn profile, the card offers to add them to your people
+// instead, with what you have in common (same school, same old employer).
+//
+// Inside a frame (a careers page that shows its postings in an iframe, as
+// iCIMS and embedded boards do), it only reads the posting and passes it to
+// the page around it, which shows the card.
 (() => {
   if (globalThis.__sproutContent) return;
   globalThis.__sproutContent = true;
@@ -25,6 +32,8 @@
     return [...document.querySelectorAll('script[type="application/ld+json"]')].some((s) => s.textContent.includes('JobPosting'));
   }
 
+  const isProfilePage = () => /(^|\.)linkedin\.com$/.test(location.hostname) && location.pathname.startsWith('/in/');
+
   // After the extension updates, this copy is cut off; the new one takes over on the next page load.
   const alive = () => !!(chrome.runtime && chrome.runtime.id);
   const ask = (msg) => {
@@ -35,6 +44,56 @@
     }
   };
   const contentKey = (p) => `${p.title}|${p.company}|${p.text.slice(0, 600)}`;
+
+  if (window !== window.top) return watchFrame();
+
+  // In a frame: read the posting when the frame settles, and report it when it changes.
+  function watchFrame() {
+    let last = '';
+    let timer = null;
+    let firstChange = 0;
+    const look = () => {
+      timer = null;
+      firstChange = 0;
+      if (!alive()) return frameObserver.disconnect();
+      if (!mayBeJobPage()) return;
+      let p = null;
+      try {
+        p = globalThis.sproutExtract();
+      } catch {
+        return;
+      }
+      const posting = p && p.isPosting ? p : null;
+      const key = posting ? contentKey(posting) : '';
+      if (key === last) return;
+      last = key;
+      ask({ type: 'framePosting', posting });
+    };
+    const frameObserver = new MutationObserver(() => {
+      const now = Date.now();
+      if (!firstChange) firstChange = now;
+      clearTimeout(timer);
+      timer = setTimeout(look, Math.max(0, Math.min(900, firstChange + 4000 - now)));
+    });
+    frameObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    setTimeout(look, 600);
+  }
+
+  // The posting on the page, or failing that, one a frame inside it found.
+  // The address stays the page's: it's the one you can come back to.
+  async function extractHere() {
+    let p = null;
+    try {
+      p = globalThis.sproutExtract();
+    } catch {
+      p = null;
+    }
+    if (p && p.isPosting) return p;
+    const r = await ask({ type: 'framePostings' });
+    const best = (r.ok ? r.value || [] : []).filter((x) => x && x.isPosting).sort((a, b) => b.text.length - a.text.length)[0];
+    return best ? { ...best, url: location.href, frameUrl: best.url } : p || { isPosting: false, url: location.href };
+  }
+  let framesHavePosting = false;
 
   // ---------- the card ----------
   let host = null; // <sprout-card>, holding a closed shadow root
@@ -79,12 +138,13 @@
   function layout() {
     if (!shadow || !card) return; // (mount draws once before `card` is set)
     const r = card.result;
-    const q = r && (r.saved ? r.app.analysis || r.app.quick : r.preview && r.preview.quick);
-    const tuck = collapsed && !!q;
+    const q = r && !r.person && (r.saved ? r.app && (r.app.analysis || r.app.quick) : r.preview && r.preview.quick);
+    const tuck = collapsed && (!!q || !!(r && r.person));
     shadow.querySelector('.dock').hidden = !showing || tuck;
     const bubble = shadow.querySelector('.bubble');
     bubble.hidden = !showing || !tuck;
-    if (tuck) {
+    if (tuck && r.person) bubble.innerHTML = `${window.SproutMascot.mascotSvg('wave', 34)}<b class="hi">${r.saved ? '✓' : '+'}</b>`;
+    else if (tuck) {
       const cls = q.score >= 65 ? 'hi' : q.score >= 45 ? 'mid' : 'lo';
       bubble.innerHTML = `${window.SproutMascot.mascotSvg(window.SproutMascot.moodForScore(q.score), 34)}<b class="${cls}">${q.score}</b>`;
     }
@@ -117,12 +177,14 @@
     firstChange = 0;
     if (!alive()) return stop();
     if (busy) return schedule(400);
-    if (!force && !mayBeJobPage()) return leave();
+    if (isProfilePage()) return runPerson({ force });
+    if (!force && !mayBeJobPage() && !framesHavePosting) return leave();
     let p;
+    busy = true; // asking about frames takes a moment
     try {
-      p = globalThis.sproutExtract();
-    } catch {
-      return;
+      p = await extractHere();
+    } finally {
+      busy = false;
     }
     if (!p || !p.isPosting) {
       misses++;
@@ -161,6 +223,48 @@
         return hide();
       }
       await showCard(key, result);
+    } finally {
+      busy = false;
+    }
+  }
+
+  // Someone's LinkedIn profile: are they in your people, and what do you share?
+  async function runPerson({ force = false } = {}) {
+    let p;
+    try {
+      p = globalThis.sproutPerson();
+    } catch {
+      return;
+    }
+    if (!p || !p.isProfile) {
+      misses++;
+      return leave();
+    }
+    misses = 0;
+    // Sections load in as you scroll; a new school or job is worth a new look.
+    const key = ['person', p.url, p.name, p.company, (p.schools || []).join(','), (p.employers || []).join(',')].join('|');
+    if (!force && current && current.key === key) return;
+    current = { url: p.url, key };
+    const dkey = `person|${p.url}`;
+    if (!force && dismissed.has(dkey)) return hide();
+    busy = true;
+    try {
+      if (force) await showCard(dkey, { loading: 'Reading this profile…' });
+      const r = await ask({ type: 'personDetected', person: p, force });
+      if (!current || current.key !== key) return;
+      if (!r.ok) {
+        if (force) await showCard(dkey, { error: r.error });
+        else hide();
+        return;
+      }
+      const { result, skipped, dismissed: wasDismissed } = r.value;
+      if (skipped || (wasDismissed && !force)) {
+        if (wasDismissed) dismissed.add(dkey);
+        return hide();
+      }
+      // Don't undo "Added!" just because another section loaded.
+      if (showing === dkey && card.result && card.result.justAdded && result.saved) return;
+      await showCard(dkey, result);
     } finally {
       busy = false;
     }
@@ -218,8 +322,17 @@
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg.type === 'ping') return reply(true);
     if (msg.type === 'extract') {
+      extractHere().then(reply, () => reply(null));
+      return true; // async reply
+    }
+    if (msg.type === 'framePosting') {
+      framesHavePosting = true;
+      schedule(300);
+      return reply(true);
+    }
+    if (msg.type === 'extractPerson') {
       try {
-        reply(globalThis.sproutExtract());
+        reply(globalThis.sproutPerson());
       } catch {
         reply(null);
       }
@@ -227,7 +340,7 @@
     }
     if (msg.type === 'showCard') {
       // Alt+Shift+J: show it even if you said "No thanks", on any site.
-      if (current) dismissed.delete(current.key);
+      if (current) dismissed.delete(current.key), dismissed.delete(`person|${current.url}`);
       run({ force: true });
       return reply(true);
     }

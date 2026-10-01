@@ -18,13 +18,15 @@ const $ = (sel, root = view) => root.querySelector(sel);
 const $$ = (sel, root = view) => Array.from(root.querySelectorAll(sel));
 
 // Sprout pops up with every toast; its mood follows the kind unless given.
-function toast(text, kind = 'info', ms = 3800, mood) {
-  const el = document.createElement('div');
-  el.className = `toast ${kind}`;
+// onClick: the toast is a shortcut too (e.g. "3 new roles!" opens them).
+function toast(text, kind = 'info', ms = 3800, mood, onClick) {
+  const el = document.createElement(onClick ? 'button' : 'div');
+  el.className = `toast ${kind}${onClick ? ' clickable' : ''}`;
   el.innerHTML = mascotSvg(mood || { good: 'happy', error: 'worried' }[kind] || 'curious', 34, { variant: 'random' });
   const span = document.createElement('span');
   span.textContent = text;
   el.appendChild(span);
+  if (onClick) el.addEventListener('click', () => (el.remove(), onClick()));
   document.getElementById('toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
 }
@@ -127,11 +129,85 @@ function greeting() {
   return `Good evening${name}!`;
 }
 
+// ---------------- home page pieces ----------------
+
+// The hero's sky follows the clock: dawn, day, sunset, night.
+function timeOfDay(h = new Date().getHours()) {
+  if (h >= 5 && h < 10) return 'dawn';
+  if (h >= 10 && h < 17) return 'day';
+  if (h >= 17 && h < 21) return 'dusk';
+  return 'night';
+}
+
+function heroScene(time) {
+  // Laid out for the usual ~960px-wide hero: text on the left, buttons on the
+  // right, and the sun or moon in the open sky between them.
+  const sky = time === 'night'
+    ? `<g class="stars">${[[330, 30, 1.4], [400, 62, 1], [470, 22, 1.2], [560, 48, 1.6], [620, 16, 1], [660, 70, 1.2], [760, 24, 1.4], [240, 56, 1], [880, 60, 1.1]].map(([x, y, r], i) => `<circle cx="${x}" cy="${y}" r="${r}" style="animation-delay:${i * 0.4}s"/>`).join('')}</g>
+      <g class="moon"><circle cx="700" cy="50" r="18"/><circle cx="709" cy="43" r="16" class="moon-cut"/></g>`
+    : `<circle class="sun" cx="${time === 'dawn' ? 660 : time === 'dusk' ? 720 : 700}" cy="${time === 'day' ? 50 : 88}" r="${time === 'day' ? 20 : 24}"/>
+      <g class="clouds"><path class="cloud c1" d="M470 46a12 12 0 0 1 22-6 10 10 0 0 1 17 8h-39a7 7 0 0 1 0-2z"/><path class="cloud c2" d="M580 30a10 10 0 0 1 18-5 8 8 0 0 1 14 7h-32a6 6 0 0 1 0-2z"/></g>`;
+  return `<svg class="hero-scene" viewBox="0 0 960 150" preserveAspectRatio="xMidYMax slice" aria-hidden="true">${sky}
+    <path class="hill back" d="M0 128C140 104 280 120 420 110S740 92 960 114V150H0Z"/>
+    <path class="hill front" d="M0 116C50 100 130 98 180 116S300 138 400 134 700 140 960 130V150H0Z"/>
+    <g class="grass">${[36, 64, 124, 206, 262, 560, 820, 900].map((x, i) => `<path d="M${x} ${i < 4 ? 118 + (i % 2) * 6 : 136}q1-6 -2-10M${x + 3} ${i < 4 ? 118 + (i % 2) * 6 : 136}q1-8 4-11"/>`).join('')}</g></svg>`;
+}
+
+// Five growth stages for the whole search: checked → saved → applied → interviewing → offer.
+function stageArt(kind) {
+  const soil = '<path d="M4 34h24" stroke="var(--stage-soil)" stroke-width="3" stroke-linecap="round"/>';
+  if (kind === 'seed') return `<svg viewBox="0 0 32 36" width="40" height="44" aria-hidden="true">${soil}<ellipse cx="16" cy="29" rx="5" ry="3.6" fill="#c9a27a" stroke="#9a7450" stroke-width="1.2"/><path d="M14 28.5q2-1.6 4 0" stroke="#9a7450" stroke-width="1" fill="none"/></svg>`;
+  if (kind === 'sprout') return `<svg viewBox="0 0 32 36" width="40" height="44" aria-hidden="true">${soil}<path d="M16 33q-1-8 0-14" stroke="var(--stem)" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M16 22q-8-1-9-7 7-1 9 7z" fill="var(--leaf)" stroke="var(--stem)" stroke-width="1.2"/><path d="M16 20q7-2 9-8-7-1-9 8z" fill="var(--leaf-2)" stroke="var(--stem)" stroke-width="1.2"/></svg>`;
+  return bedPlantSvg(kind).replace('width="32" height="36"', 'width="40" height="44"').replace('aria-hidden="true">', `aria-hidden="true">${soil}`); // garden.js
+}
+
+function growthCard(apps) {
+  const reached = (a, ...st) => st.includes(a.status) || (a.statusHistory || []).some((h) => st.includes(h.status));
+  const applied = apps.filter((a) => a.appliedAt || reached(a, 'applied', 'interviewing', 'offer'));
+  const talking = apps.filter((a) => reached(a, 'interviewing', 'offer'));
+  const stages = [
+    ['seed', apps.length + (state.checked || []).length, 'checked', 'check'],
+    ['sprout', apps.length, 'saved', 'applications'],
+    ['bud', applied.length, 'applied', 'applications'],
+    ['bloom', talking.length, 'interviewing', 'applications'],
+    ['golden', apps.filter((a) => reached(a, 'offer')).length, apps.filter((a) => reached(a, 'offer')).length === 1 ? 'offer' : 'offers', 'applications'],
+  ];
+  const rate = applied.length ? `${Math.round((talking.length / applied.length) * 100)}% of applications got an interview` : 'Apply to a role and watch it grow';
+  return `<div class="card growth"><div class="growth-head"><h3 class="with-icon">${icon('seedling', 20)} Your search, growing</h3><span class="faint">${rate}</span></div>
+    <div class="stages">${stages.map(([kind, n, label, go], i) => `${i ? '<i class="stage-vine" aria-hidden="true"></i>' : ''}<button class="stage ${n ? '' : 'none'}" data-go="${go}" title="${n} ${label}">${stageArt(kind)}<b>${n}</b><span>${label}</span></button>`).join('')}</div></div>`;
+}
+
+// The last seven days, one plant per day, sized by what you did.
+function weekCard(apps) {
+  const all = [...apps, ...(state.checked || [])];
+  const day = (t) => new Date(t).toDateString();
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(Date.now() - (6 - i) * 86400000);
+    const key = d.toDateString();
+    return { d, checked: all.filter((a) => day(a.createdAt) === key).length, applied: apps.filter((a) => a.appliedAt && day(a.appliedAt) === key).length };
+  });
+  const checked = days.reduce((n, x) => n + x.checked, 0);
+  const applied = days.reduce((n, x) => n + x.applied, 0);
+  const plant = ({ checked: c, applied: a }) => {
+    if (!c && !a) return '<svg viewBox="0 0 40 72" width="40" height="72" aria-hidden="true"><ellipse cx="20" cy="67" rx="3.2" ry="2.4" fill="var(--stage-soil)"/></svg>';
+    const top = 70 - Math.min(58, 18 + (c + a * 2) * 7); // taller the busier the day
+    const leaves = [];
+    for (let y = 60; y > top + 12; y -= 14) leaves.push(`<path d="M20 ${y}q${y % 28 ? -9 : 9}-1 ${y % 28 ? -10 : 10}-7 ${y % 28 ? 8 : -8}-1 ${y % 28 ? 10 : -10} 7z" fill="var(--leaf)" stroke="var(--stem)" stroke-width="1.1"/>`);
+    return `<svg viewBox="0 0 40 72" width="40" height="72" aria-hidden="true"><path d="M20 70V${top + 6}" stroke="var(--stem)" stroke-width="2.2" stroke-linecap="round"/>${leaves.join('')}
+      <path d="M20 ${top + 9}q-8-1-9-7 7-1 9 7z" fill="var(--leaf)" stroke="var(--stem)" stroke-width="1.1"/><path d="M20 ${top + 7}q7-2 9-8-7-1-9 8z" fill="var(--leaf-2)" stroke="var(--stem)" stroke-width="1.1"/>
+      ${a ? `<path d="M20 ${top + 6}q-5.5-4-0.5-11 5.5 6.5 0.5 11z" fill="var(--lavender)" stroke="#6b5aa8" stroke-width="1.1"/>${a > 1 ? `<text x="30" y="${top + 4}" class="wcount">×${a}</text>` : ''}` : ''}</svg>`;
+  };
+  return `<div class="card week"><div class="growth-head"><h3 class="with-icon">${icon('clock', 20)} This week</h3><span class="faint">${checked} checked · ${applied} applied</span></div>
+    <div class="week-bed">${days.map((x, i) => `<div class="wday ${i === 6 ? 'today' : ''}" title="${x.d.toLocaleDateString(undefined, { weekday: 'long' })}: ${x.checked} checked, ${x.applied} applied">${plant(x)}<span>${i === 6 ? 'Today' : x.d.toLocaleDateString(undefined, { weekday: 'short' })}</span></div>`).join('')}</div>
+    <div class="week-key faint"><span>${icon('seedling', 13)} checked a role</span><span><i class="bud-dot"></i> applied</span></div></div>`;
+}
+
 // What Sprout says on the home page, from how the search is going.
-function homeMood({ apps, appliedWeek, due, allDone }) {
+function homeMood({ apps, appliedWeek, due, allDone, standout }) {
   const offers = apps.filter((a) => a.status === 'offer').length;
   const interviews = apps.filter((a) => a.status === 'interviewing').length;
   if (offers) return ['thrilled', `You have ${offers === 1 ? 'an offer' : `${offers} offers`} on the table. That's huge.`];
+  if (standout) return ['thrilled', standout];
   if (due.length) return ['curious', `${due.length === 1 ? 'One follow-up is' : `${due.length} follow-ups are`} due. A quick, friendly note can make a big difference.`];
   if (interviews) return ['cheer', `${interviews === 1 ? 'An interview' : `${interviews} interviews`} in progress. Want to jot some prep notes?`];
   if (appliedWeek >= 3) return ['proud', `${appliedWeek} applications this week. That's a real week's work.`];
@@ -212,6 +288,38 @@ function closeModal() {
 document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') closeModal();
 });
+
+// Yes/no questions in the page, never window.confirm(): in Electron a native
+// dialog can leave text boxes unable to take typing until the window is
+// refocused. Its own layer, so it can sit over an open modal. Resolves true/false.
+function askConfirm(message, okLabel = 'OK') {
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'modal confirm-modal';
+    back.innerHTML = `<div class="modal-card card" role="alertdialog" aria-modal="true"><p style="margin:0 0 16px;font-weight:600">${esc(message)}</p>
+      <div class="inline" style="justify-content:flex-end"><button class="ghost" data-ans="no">Cancel</button><button class="primary" data-ans="yes">${esc(okLabel)}</button></div></div>`;
+    const was = document.activeElement;
+    const done = (yes) => {
+      document.removeEventListener('keydown', onKey, true);
+      back.remove();
+      if (was && was.isConnected) was.focus();
+      resolve(yes);
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Escape' && e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      done(e.key === 'Enter');
+    };
+    back.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-ans]');
+      if (b || e.target === back) done(!!b && b.dataset.ans === 'yes');
+    });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(back);
+    back.querySelector('[data-ans="yes"]').focus();
+  });
+}
 
 // ---------------- your own resumes ----------------
 
@@ -297,7 +405,7 @@ async function renderResumePage(id) {
     }),
   );
   $('#rsDel', page).addEventListener('click', async () => {
-    if (!confirm(`Delete “${r.name}”? This can't be undone.`)) return;
+    if (!(await askConfirm(`Delete “${r.name}”? This can't be undone.`, 'Delete'))) return;
     await S.removeResume(id);
     location.hash = '#resumes';
   });
@@ -320,10 +428,7 @@ const views = {
   home() {
     const apps = state.applications;
     const weekAgo = Date.now() - 7 * 86400000;
-    const thisWeek = [...apps, ...(state.checked || [])].filter((a) => new Date(a.createdAt).getTime() > weekAgo).length;
     const appliedWeek = apps.filter((a) => a.appliedAt && Date.parse(a.appliedAt) > weekAgo).length;
-    const appliedAll = apps.filter((a) => a.appliedAt).length;
-    const responses = apps.filter((a) => a.appliedAt && ['interviewing', 'offer'].includes(a.status)).length;
     const due = apps.filter(followUpDue);
     const steps = [
       [state.documents.length > 0, 'Add your resume & documents to your library', 'library'],
@@ -332,40 +437,37 @@ const views = {
       [apps.length > 0 || (state.checked || []).length > 0, 'Check your first job posting', 'check'],
     ];
     const allDone = steps.every(([d]) => d);
-    const [mood, line] = homeMood({ apps, appliedWeek, due, allDone });
+    const standout = standoutLine(); // network.js
+    const [mood, line] = homeMood({ apps, appliedWeek, due, allDone, standout });
+    const time = timeOfDay();
     return `<div class="page">
-      <div class="hero">${mascotSvg(mood, 104, { cls: 'pettable', label: 'Sprout — click to say hi' })}
+      <div class="hero" data-time="${time}">${heroScene(time)}${mascotSvg(mood, 104, { cls: 'pettable', label: 'Sprout — click to say hi' })}
         <div><h1>${greeting()}</h1><p class="sprout-line">${esc(line)}</p></div>
         <div class="actions">
-          <button class="primary" data-go="check">${icon('search')} Check a job</button>
+          ${standout ? `<button class="primary" id="standoutBtn">${icon('sparkle')} See the strong fits</button>` : ''}
+          <button class="${standout ? 'soft' : 'primary'}" data-go="check">${icon('search')} Check a job</button>
           <button class="soft" id="scanBtn">${icon('camera')} Scan my screen</button>
         </div>
       </div>
+      ${allDone ? '' : `<div class="card setup"><div class="setup-top"><h3 style="margin:0">Getting set up</h3><div class="setup-bar"><i style="width:${(steps.filter(([d]) => d).length / steps.length) * 100}%"></i></div><span class="faint">${steps.filter(([d]) => d).length} of ${steps.length}</span></div>
+        <div class="setup-next">${steps.filter(([d]) => !d).map(([, what, go]) => `<button class="small soft" data-go="${go}">${esc(what)} →</button>`).join('')}</div></div>`}
       ${spireHomeCard() || gardenHomeCard()}
       ${outreachHomeCard()}
-      <div class="grid three" style="margin-bottom:16px">
-        <div class="card stat"><div class="stat-icon" style="background:var(--sage-soft);color:var(--sage-deep)">${icon('seedling', 26)}</div><div><b>${thisWeek}</b><span>roles checked this week</span></div></div>
-        <div class="card stat"><div class="stat-icon" style="background:var(--lavender-soft);color:#6b5aa8">${icon('send', 26)}</div><div><b>${appliedWeek}</b><span>applied in the last 7 days · ${appliedAll} total</span></div></div>
-        <div class="card stat"><div class="stat-icon" style="background:var(--peach-soft);color:#b8653e">${icon('chat', 26)}</div><div><b>${appliedAll ? Math.round((responses / appliedAll) * 100) + '%' : '–'}</b><span>got an interview or offer</span></div></div>
-      </div>
+      ${growthCard(apps)}
       ${due.length ? `<div class="card" style="margin-bottom:16px;background:var(--butter-soft);border:0"><h3 class="with-icon">${icon('clock', 20)} Follow-ups due</h3><div class="list">${due.map(appRow).join('')}</div></div>` : ''}
-      <div class="grid two">
-        <div class="card"><h2>${allDone ? 'All set up!' : 'Getting started'}</h2>
-          <ul class="checklist">${steps
-            .map(([done, what, go]) => `<li class="${done ? 'done' : ''}"><span class="tick">${done ? '✓' : ''}</span><span class="what">${what}</span>${done ? '' : `<button class="small soft" data-go="${go}">Go</button>`}</li>`)
-            .join('')}</ul>
-        </div>
-        <div class="card"><h2>Recent roles</h2>
+      <div class="grid home-split">
+        ${weekCard(apps)}
+        <div class="card"><h3>Recent roles</h3>
           ${(state.checked || []).length ? `<p class="faint" style="margin-top:-4px">Plus ${state.checked.length} job${state.checked.length === 1 ? '' : 's'} you checked but didn't save. <a href="#check">See them</a>.</p>` : ''}
-          ${apps.length ? `<div class="list">${apps.slice(0, 4).map(appRow).join('')}</div>` : `<div class="empty">${mascotSvg('curious', 64)}<p>No roles yet. Copy a job posting's text, press <b>${esc(prettyHotkey())}</b> while one's on screen, or paste one in <a href="#check">Check a job</a>.</p></div>`}
+          ${apps.length ? `<div class="list">${apps.slice(0, 3).map(appRow).join('')}</div>` : `<div class="empty">${mascotSvg('curious', 64)}<p>No roles yet. Copy a job posting's text, press <b>${esc(prettyHotkey())}</b> while one's on screen, or paste one in <a href="#check">Check a job</a>.</p></div>`}
         </div>
       </div>
-      <div class="card" style="margin-top:16px"><h3>How I spot jobs for you</h3>
+      ${apps.length < 3 ? `<div class="card" style="margin-top:16px"><h3>How I spot jobs for you</h3>
         <div class="spot-ways">
           <div>${icon('clipboard', 28)}<p><b>Copy</b> a job description anywhere and I'll pop up with a free score — no Claude usage.</p></div>
           <div>${icon('keyboard', 28)}<p>Press <b>${esc(prettyHotkey())}</b> and I'll read the posting on your screen (free, on your computer).</p></div>
           <div>${icon('eye', 28)}<p>Or turn on <b>screen watching</b> in Settings and I'll notice postings as you browse.</p></div>
-        </div></div>
+        </div></div>` : ''}
     </div>`;
   },
 
@@ -425,7 +527,7 @@ const views = {
     return `<div class="page">
       ${pageHead('Applications', applicationsMood(all), applicationsLine(all), `<button class="soft" id="csvBtn">${icon('download')} Export CSV</button><button class="primary" data-go="check">+ Check a job</button>`)}
       <div class="tabs">${FILTERS.map(([k, label, fn]) => `<button class="${appFilter === k ? 'on' : ''}" data-filter="${k}">${label} <span class="faint">${all.filter(fn).length}</span></button>`).join('')}</div>
-      <div class="inline" style="margin-bottom:12px"><input id="appSearch" placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
+      <div class="inline" style="margin-bottom:12px"><input id="appSearch" data-live placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
         <select id="appSort" style="width:190px"><option value="recent">Newest first</option><option value="fit" ${appSort === 'fit' ? 'selected' : ''}>Best fit first</option><option value="applied" ${appSort === 'applied' ? 'selected' : ''}>Recently applied</option></select></div>
       ${apps.length ? `<div class="list">${apps.map(appRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>${all.length ? 'No roles match this filter.' : 'Your checked roles will show up here.'}</p></div>`}
     </div>`;
@@ -607,7 +709,7 @@ function usageSummary() {
 
 function appRow(a) {
   const meta = [a.job.company, a.appliedAt ? `applied ${fmtDate(a.appliedAt)}` : `found ${timeAgo(a.createdAt)}`].filter(Boolean).join(' · ');
-  return `<div class="row-item" data-app="${a.id}"><div class="pill ${a.dealbreaker ? 'lo' : pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
+  return `<div class="row-item" data-app="${a.id}"><div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}" style="--s:${a.score}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     ${followUpDue(a) ? `<span class="chip due">${icon('clock', 14)} follow up</span>` : ''}
     ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
@@ -618,7 +720,7 @@ function appRow(a) {
 // A job you checked but haven't saved: open it, or keep it.
 function checkedRow(a) {
   const meta = [a.job.company, `checked ${timeAgo(a.lastSeenAt || a.createdAt)}`].filter(Boolean).join(' · ');
-  return `<div class="row-item" data-app="${a.id}"><div class="pill ${a.dealbreaker ? 'lo' : pillClass(a.score)}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
+  return `<div class="row-item" data-app="${a.id}"><div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}" style="--s:${a.score}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     <button class="small soft saveChecked" data-id="${a.id}">Save</button></div>`;
 }
@@ -646,7 +748,7 @@ const COMPONENT_LABELS = [
 ];
 
 function barColor(v) {
-  return v >= 75 ? 'var(--sage)' : v >= 50 ? 'var(--butter)' : 'var(--peach)';
+  return v >= 75 ? 'var(--band-hi)' : v >= 50 ? 'var(--band-mid)' : 'var(--band-lo)';
 }
 
 function atsPanel(ats) {
@@ -661,17 +763,20 @@ function atsPanel(ats) {
         <div class="inline" style="gap:6px;margin-top:4px"><span class="grade big g-${r.grade}" title="Workday HiredScore-style grade">${r.grade}</span>
         <div class="faint" style="line-height:1.35">basic quals ${r.basic.met}/${r.basic.total}<br>preferred ${r.preferred.met}/${r.preferred.total}</div></div></div></div>`
       : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Generate the tailored resume to see its ATS score here.</div></div>`;
-  const stat = (label, value, hint) => `<div class="ats-stat" title="${esc(hint)}"><b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
+  const stat = (label, value, hint, glyph = '') => `<div class="ats-stat" title="${esc(hint)}">${glyph}<b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
+  const pctRing = (v) => (v === null || v === undefined ? '' : window.SproutMascot.miniRing(v, { color: barColor(v) }));
+  const skillSteps = { Low: 1, Fair: 2, Good: 3, Strong: 4 }[main.skillsMatch];
+  const kos = main.knockouts.length;
   return `<div class="card ats-card" id="atsCard">
     <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('chart', 22)} ATS check ${infoBtn('ats')}</h2>
       <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Aim for 75–80%+.</p></div>
       ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
     <div class="ats-stats">
-      ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more')}
-      ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search")}
-      ${stat('Smart keywords', main.normalizedKeywordRate === null ? null : main.normalizedKeywordRate + '%', 'Synonym-aware matches (AWS = Amazon Web Services), like iCIMS / SuccessFactors semantic matching')}
-      ${stat('Knockouts', main.knockouts.length, 'Required qualifications not found. Systems like Taleo can auto-filter on these')}
+      ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more', skillSteps ? window.SproutMascot.miniRing(skillSteps * 25, { segments: 4, color: barColor(skillSteps * 25) }) : '')}
+      ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search", pctRing(main.strictKeywordRate))}
+      ${stat('Smart keywords', main.normalizedKeywordRate === null ? null : main.normalizedKeywordRate + '%', 'Synonym-aware matches (AWS = Amazon Web Services), like iCIMS / SuccessFactors semantic matching', pctRing(main.normalizedKeywordRate))}
+      ${stat('Knockouts', kos, 'Required qualifications not found. Systems like Taleo can auto-filter on these', `<i class="ko ${kos ? 'warn' : 'ok'}">${icon(kos ? 'warn' : 'check', 15)}</i>`)}
     </div>
     <div class="ats-bars">${COMPONENT_LABELS.filter(([k]) => main.components[k] !== null)
       .map(([k, label, hint]) => {
@@ -773,8 +878,8 @@ async function renderApplication(id) {
       <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
         <div class="muted" style="font-weight:700">${esc([a.job.company, a.job.location].filter(Boolean).join(' · '))}</div>
-        <div style="margin-top:6px"><span class="chip ${score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${infoBtn('fit')}${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}
-        <span class="faint">${esc(encouragement(score, a.id.charCodeAt(1)))}</span></div>
+        <div class="app-chips"><span class="chip ${label === 'Dealbreaker' ? 'warn' : score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${infoBtn('fit')}${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}</div>
+        <div class="app-cheer">${esc(encouragement(score, a.id.charCodeAt(1)))}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:170px">
         ${
@@ -857,7 +962,7 @@ async function renderApplication(id) {
   const link = $('#jobLink', page);
   if (link) link.addEventListener('click', (e) => (e.preventDefault(), S.openExternal(a.job.url)));
   $('#delApp', page).addEventListener('click', async () => {
-    if (!confirm(unsaved ? 'Forget this job?' : 'Delete this application?')) return;
+    if (!(await askConfirm(unsaved ? 'Forget this job?' : 'Delete this application?', unsaved ? 'Forget' : 'Delete'))) return;
     await S.removeApplication(id);
     location.hash = unsaved ? '#check' : '#applications';
   });
@@ -870,7 +975,7 @@ async function renderApplication(id) {
   const gl = $('#genLetter', page);
   if (gl) gl.addEventListener('click', genLetter);
   const rl = $('#regenLetter', page);
-  if (rl) rl.addEventListener('click', () => confirm('Rewrite the cover letter? Your edits will be replaced.') && genLetter());
+  if (rl) rl.addEventListener('click', async () => (await askConfirm('Rewrite the cover letter? Your edits will be replaced.', 'Rewrite')) && genLetter());
   $$('.exp', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
@@ -1074,6 +1179,8 @@ const binders = {
   home() {
     const scan = $('#scanBtn');
     if (scan) scan.addEventListener('click', scanFromApp);
+    const standouts = $('#standoutBtn');
+    if (standouts) standouts.addEventListener('click', showStandouts);
   },
   check() {
     $('#analyzeBtn').addEventListener('click', (e) =>
@@ -1150,9 +1257,9 @@ const binders = {
       sel.addEventListener('change', () => S.updateDocument(sel.dataset.id, { kind: sel.value }));
     });
     $$('.delDoc').forEach((b) =>
-      b.addEventListener('click', (e) => {
+      b.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Remove this document from your library?')) S.removeDocument(b.dataset.id);
+        if (await askConfirm('Remove this document from your library?', 'Remove')) S.removeDocument(b.dataset.id);
       })
     );
     $$('[data-doc]').forEach((row) =>
@@ -1258,19 +1365,26 @@ let buddyKey = '';
 function renderBuddy() {
   const watching = state.settings.clipboardWatch || state.settings.screenWatch;
   const due = state.applications.filter(followUpDue).length;
+  const strong = standoutJobs().length; // network.js
   const [mood, line] = !state.documents.length
     ? ['wave', "Hi! Add your resume to My library and I'll get to work."]
     : !watching
       ? ['sleepy', 'Detection is paused… zzz. Wake me in Settings.']
       : due
         ? ['curious', `${due} follow-up${due === 1 ? '' : 's'} due. Want to check in?`]
-        : ['happy', "I'm keeping an eye out for job postings."];
+        : strong
+          ? ['thrilled', `${strong === 1 ? 'A strong fit' : `${strong} strong fits`} just turned up at companies you watch. See Find jobs!`]
+          : ['happy', "I'm keeping an eye out for job postings."];
   const key = mood + line;
   if (key === buddyKey) return;
   buddyKey = key;
   buddyChatty = mood === 'happy' && !due;
-  document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(line)}</div>`;
+  // Strong fits: the bubble takes you to them.
+  const go = strong && mood === 'thrilled' ? ' role="button" tabindex="0" data-standouts title="See them in Find jobs"' : '';
+  document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble"${go}>${esc(line)}</div>`;
 }
+document.getElementById('buddy').addEventListener('click', (e) => e.target.closest('[data-standouts]') && showStandouts()); // network.js
+document.getElementById('buddy').addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-standouts]') && (e.preventDefault(), showStandouts()));
 
 // While all is calm, sidebar Sprout says something new every couple of
 // minutes (a tip, a kind word), with a fresh face. Never mid-pet.
@@ -1283,7 +1397,17 @@ setInterval(() => {
   box.innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', variant: 'random', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(say('buddy'))}</div>`;
 }, 150000);
 
+// Pages fade in when you go to them, not each time they redraw in place.
+let lastRouted = null;
+
 function route() {
+  refreshHeld = false;
+  // A search box redraws from its own value, so it keeps focus and caret through
+  // a redraw; so does a checkbox or menu you just used.
+  const act = document.activeElement;
+  const live = act && act.id && view.contains(act) && (act.dataset.live !== undefined || !isTextField(act)) ? { id: act.id, at: act.dataset.live !== undefined ? act.selectionStart : null, end: act.selectionEnd } : null;
+  view.classList.toggle('settled', location.hash === lastRouted);
+  lastRouted = location.hash;
   const [name, id] = (location.hash.slice(1) || 'home').split('/');
   const v = views[name] ? name : 'home';
   $$('.side a', document).forEach((a) => a.classList.toggle('active', a.dataset.view === v || (v === 'application' && a.dataset.view === 'applications') || (v === 'resume' && a.dataset.view === 'resumes')));
@@ -1297,6 +1421,7 @@ function route() {
   }
   view.innerHTML = views[v]();
   binders[v]();
+  animateRings(view); // score and goal rings grow in (the application page does its own)
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => (location.hash = '#' + b.dataset.go)));
   $$('[data-app]').forEach((row) => row.addEventListener('click', () => (location.hash = `#application/${row.dataset.app}`)));
   $$('.saveChecked').forEach((b) =>
@@ -1310,31 +1435,81 @@ function route() {
   );
   if (v === 'application') renderApplication(id);
   if (v === 'resume') renderResumePage(id);
+  const again = live && document.getElementById(live.id);
+  if (again && again !== document.activeElement) {
+    again.focus();
+    if (live.at != null) again.setSelectionRange(live.at, live.end);
+  }
 }
 
+// A box you type into (not a checkbox, button or the like).
+const NOT_TEXT = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'file', 'color', 'image']);
+function isTextField(el) {
+  return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'IFRAME' || el.isContentEditable || (el.tagName === 'INPUT' && !NOT_TEXT.has(el.type)));
+}
+
+// Typing in the page, where a redraw would wipe what you typed. Search boxes
+// marked data-live redraw from their own value, so they don't count.
 function isEditing() {
   const el = document.activeElement;
-  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'IFRAME') && view.contains(el);
+  return isTextField(el) && el.dataset.live === undefined && view.contains(el);
+}
+
+// Typing anywhere (a search box or a modal too): keyboard shortcuts stay out of the way.
+function isTyping() {
+  return isTextField(document.activeElement);
+}
+
+// Redraw now, or, while you're typing, once you leave the box. Until then
+// the update waits instead of getting lost.
+let refreshHeld = false;
+function routeWhenFree() {
+  if (isEditing()) refreshHeld = true;
+  else route();
+}
+
+// Leaving the box: catch up on what changed meanwhile. Wait for a click in
+// progress to land first (a redraw under it would swallow it), and keep
+// anything typed into other boxes that isn't saved yet.
+let pointerDown = false;
+document.addEventListener('pointerdown', () => (pointerDown = true), true);
+document.addEventListener('pointerup', () => ((pointerDown = false), setTimeout(catchUp)), true);
+view.addEventListener('focusout', () => setTimeout(catchUp));
+function catchUp() {
+  if (!refreshHeld || pointerDown || isEditing() || currentAppId || currentResumeId) return;
+  const typed = $$('input[id], textarea[id]').filter((el) => isTextField(el) && el.value !== el.defaultValue).map((el) => [el.id, el.value]);
+  route();
+  for (const [id, value] of typed) {
+    const el = document.getElementById(id);
+    if (el && view.contains(el) && isTextField(el)) el.value = value;
+  }
 }
 
 window.addEventListener('hashchange', route);
 S.onStateChanged(async () => {
   await refreshState();
   // Don't wipe a form the user is typing in.
-  if (!isEditing() && !currentAppId && !currentResumeId) route();
+  if (!currentAppId && !currentResumeId) routeWhenFree();
 });
 S.onAppUpdated(async (app) => {
   await refreshState();
   if (currentAppId && app && app.id === currentAppId) renderApplication(currentAppId);
-  else if (!isEditing() && !currentAppId && !currentResumeId) route();
+  else if (!currentAppId && !currentResumeId) routeWhenFree();
 });
 S.onToast(({ text, kind }) => toast(text, kind));
-S.onNavigate(({ view: v, id, tab }) => {
+S.onNavigate(({ view: v, id, tab, standouts }) => {
+  if (v === 'find' && standouts) return showStandouts(); // network.js
   // Opening a role at a given tab (e.g. its new cover letter).
   const target = v === 'application' ? `#application/${id}` : `#${v}`;
   if (tab) (openTab = tab), (currentAppId = null);
   if (location.hash === target) route(); // no hashchange when already there
   else location.hash = target;
+  // A person from the browser extension: show them (they may be brand new).
+  if (v === 'people' && id)
+    refreshState().then(() => {
+      const c = state.contacts.find((x) => x.id === id);
+      if (c) openContactModal(c);
+    });
 });
 
 document.getElementById('brandMark').innerHTML = icon('seedling', 30);
