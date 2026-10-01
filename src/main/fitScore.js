@@ -58,6 +58,10 @@ const SKILLS = {
   // Not the verb: "you'll excel in a fast-paced role".
   Excel: [/\bexcel\b(?!\s+(?:in|at|as|under|within|when)\b)/, /\bspreadsheets?\b/],
   Statistics: [/\bstatistic(?:s|al)\b/, /\ba\/b test/],
+  Econometrics: [/\beconometric(?:s)?\b/],
+  Regression: [/\b(?:linear |logistic |multiple |multivariate |ols )?regressions?(?: analysis| models?)?\b/, /\bglms?\b/],
+  'Time Series': [/\btime[- ]series\b/],
+  Forecasting: [/\bforecast(?:ing|s)?\b/],
   'ETL / Pipelines': [/\betl\b/, /\bdata pipelines?\b/, /\bairflow\b/, /\bdbt\b/],
   // Not the verb: "ideas that spark innovation".
   Spark: [/\b(?:apache |py)spark\b/, /\bspark(?=\s*(?:[,/;).]|$)|\s+(?:sql|streaming|jobs?|clusters?|ecosystem|pipelines?|mllib)\b|\s+(?:and|or)\s+(?:hadoop|kafka|hive|scala|databricks|python|sql|flink)\b)/, /\bdatabricks\b/],
@@ -77,7 +81,7 @@ const SKILLS = {
   Sales: [/\bsales\b(?!\s+tax)/, /\bquota\b/, /\bpipeline generation\b/],
   CRM: [/\bcrm\b/, /\bsalesforce\b/, /\bhubspot\b/],
   'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
-  Finance: [/\bfinancial (?:analysis|modeling|reporting)\b/, /\bbudget(?:s|ing)?\b/, /\bforecasting\b/],
+  Finance: [/\bfinancial (?:analysis|modeling|reporting)\b/, /\bbudget(?:s|ing)?\b/],
   Accounting: [/\baccounting\b(?!\s+for\b)/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
   Operations: [/\boperations\b/, /\bprocess improvement\b/, /\blean (?:manufacturing|principles|methodolog\w*|management|practices|production)\b/, /\bsix sigma\b/],
   'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, /\bprocurement\b/, /\binventory\b(?!\s+of\b)/],
@@ -110,6 +114,8 @@ const RELATED_PAIRS = [
   ['Java', 'C#', 0.5], ['Java', 'Kotlin', 0.6], ['Java', 'Scala', 0.5], ['C#', 'C++', 0.4],
   ['Python', 'R', 0.4], ['R', 'SAS', 0.5], ['R', 'Stata / SPSS', 0.5], ['SAS', 'Stata / SPSS', 0.5], ['Python', 'MATLAB', 0.4], ['R', 'MATLAB', 0.4],
   ['Machine Learning', 'Deep Learning', 0.8], ['Machine Learning', 'Statistics', 0.4], ['Deep Learning', 'LLMs / GenAI', 0.5],
+  ['Econometrics', 'Regression', 0.8], ['Econometrics', 'Statistics', 0.6], ['Regression', 'Statistics', 0.6], ['Regression', 'Machine Learning', 0.5],
+  ['Time Series', 'Forecasting', 0.7], ['Econometrics', 'Time Series', 0.5], ['Forecasting', 'Statistics', 0.4], ['Forecasting', 'Econometrics', 0.5],
   ['Spark', 'ETL / Pipelines', 0.4], ['Snowflake', 'SQL', 0.5], ['Spark', 'Snowflake', 0.3],
   ['Docker', 'Kubernetes', 0.5], ['Terraform', 'AWS', 0.3], ['CI/CD', 'Git', 0.3],
   ['Django', 'Flask', 0.6], ['Node.js', 'JavaScript', 0.4],
@@ -267,7 +273,8 @@ function alternativeRuns(line, items) {
     const prev = run[run.length - 1];
     if (prev) {
       const gap = line.slice(prev.end, it.index);
-      if (it.index >= prev.end && LIST_GAP.test(gap)) {
+      // "Python or SAS, and SQL": once a list has had its "or", an "and" starts a new requirement.
+      if (it.index >= prev.end && LIST_GAP.test(gap) && !(hasOr && /\band\b/.test(gap) && !/\band\s*\/\s*or\b/.test(gap))) {
         hasOr = hasOr || OR_GAP.test(gap);
         run.push(it);
         continue;

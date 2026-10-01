@@ -21,7 +21,7 @@ const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 4;
+const SCORER_VERSION = 5;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -429,9 +429,15 @@ const GENERIC = new Set(
     'including include includes new current currently every each all any both more most many must should will would can could may might ' +
     'candidate candidates applicant applicants employee employees employer apply hire hiring recruit benefit benefits salary pay range ' +
     'offer offers support supports create creating improve improving identify identifying perform performing review reviewing respond ' +
-    'responding understand partner partnering facilitate facilitating own owning other others like etc per via plus preferred required')
+    'responding understand partner partnering facilitate facilitating own owning other others like etc per via plus preferred required ' +
+    'million millions billion thousands implement implementation internal external decision decisions professional professionals track ' +
+    'tracking performance product products launch manage managing managed provide provided collaborate collaborative evaluate change ' +
+    'changes make makes made type types effective effectively utilize utilizing variety primary part large enhance enhancement online ' +
+    'clear clearly complex expert expertise delightful exciting innovative modern dynamic diverse world-class leading excellence ' +
+    'customer customers client clients service services operations organization office location remote hybrid onsite')
     .split(' ')
 );
+const GENERIC_STEMS = new Set([...GENERIC].map(stem));
 const DOMAIN_SKIP_HEADING = /^(?:about (?:us|the company)|who we are|our (?:mission|culture|values|team|company|story)|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|equal (?:opportunity|employment))\b/i;
 
 // Distinctive words from what the job does and needs, weighted by how often
@@ -444,7 +450,7 @@ function domainTerms(job, ignoreWords) {
   const add = (k, w) => counts.set(k, { n: ((counts.get(k) || {}).n || 0) + 1, w: Math.max((counts.get(k) || {}).w || 0, w) });
   let skip = false;
   let inSections = false;
-  const content = (w) => w.length >= 4 && !STOPWORDS.has(w) && !NOT_TERMS.has(w) && !GENERIC.has(w) && !ignoreWords.has(w);
+  const content = (w) => w.length >= 4 && !STOPWORDS.has(w) && !NOT_TERMS.has(w) && !GENERIC.has(w) && !GENERIC_STEMS.has(stem(w)) && !ignoreWords.has(w);
   for (const l of classifyLines(job.text)) {
     if (l.isHeading && l.line.length < 60) {
       // "About the job" opens the whole page, not a section.
@@ -472,7 +478,8 @@ function domainTerms(job, ignoreWords) {
 
 function domainScore(job, lib, ignoreWords) {
   const terms = domainTerms(job, ignoreWords);
-  if (terms.size < 5) return null;
+  // A short posting has too few distinctive words to judge the field by.
+  if (terms.size < 20) return null;
   const words = (lib.match(/[a-z][a-z+#-]{2,}/g) || []).map(stem);
   const uni = new Set(words);
   const bi = new Set(words.slice(1).map((w, i) => `${words[i]} ${w}`));
@@ -482,8 +489,10 @@ function domainScore(job, lib, ignoreWords) {
     total += w;
     if (term.includes(' ') ? bi.has(term) : uni.has(term)) got += w;
   }
-  // Even a perfect candidate shares well under all of a posting's wording.
-  return Math.max(0, Math.min(1, (got / total - 0.1) / 0.55));
+  // Calibrated on real resumes against full-length postings: unrelated
+  // fields share 0-6% of a posting's distinctive wording, neighbouring fields
+  // ~15%, and the same field ~28-30% (nobody repeats a posting word for word).
+  return Math.max(0, Math.min(1, (got / total - 0.04) / 0.24));
 }
 
 // ---------- the score ----------
@@ -493,10 +502,14 @@ function localFitScore(job, documents, profile = {}) {
   const lib = lower(libText);
   const { units, ignoreWords } = requirementUnits(job);
   const { segs, titles } = evidenceSegments(documents);
+  // "Coursework or work experience": the posting accepts what school shows.
+  if (/\bcoursework\b/i.test(job.text)) for (const s of segs) if (s.weight < 0.9) s.weight = 0.9;
   const all = units.map((u) => ({ label: u.label, kind: u.kind, met: evidenceFor(u, segs, lib, libText) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
-  const neutral = all.filter((u) => u.kind === 'neutral');
+  // Communication, collaboration, problem solving: can't be judged from
+  // wording, so they're listed but don't move the score.
+  const neutral = all.filter((u) => u.kind === 'neutral' && !INTERPERSONAL.has(u.label));
   const mean = (list) => (list.length ? list.reduce((s, u) => s + u.met, 0) / list.length : null);
 
   // 1. Must-haves (with responsibilities' skills counting a little).
