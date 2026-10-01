@@ -8,7 +8,7 @@
 // Defined on globalThis so the content script and the toolbar popup
 // (chrome.scripting.executeScript) can both call it.
 (() => {
-  const PROFILE = /^https:\/\/([a-z]{2,3}\.|www\.)?linkedin\.com\/in\/[^/?#]+\/?(\?.*)?(#.*)?$/i;
+  const PROFILE = /^https:\/\/([a-z]{1,3}\.|www\.)?linkedin\.com\/in\/[^/?#]+\/?(\?.*)?(#.*)?$/i;
   const clean = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   const uniq = (list) => [...new Set(list.map(clean).filter(Boolean))];
 
@@ -28,7 +28,8 @@
       if (!n || typeof n !== 'object' || person) return;
       if (Array.isArray(n)) return n.forEach(visit);
       if ([].concat(n['@type'] || []).includes('Person') && n.name) person = n;
-      if (n['@graph']) visit(n['@graph']);
+      // Under @graph, mainEntity and the like.
+      else for (const v of Object.values(n)) if (v && typeof v === 'object') visit(v);
     };
     document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
       try {
