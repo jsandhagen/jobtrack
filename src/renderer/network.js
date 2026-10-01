@@ -1020,7 +1020,7 @@ function outreachHomeCard() {
 //   Searches   one-click searches (saved, suggested, build your own).
 //   Companies  the companies you watch and their careers sites.
 
-const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday' };
+const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday', recruitee: 'Recruitee', bamboohr: 'BambooHR', oracle: 'Oracle', phenom: 'Phenom' };
 const FEED_WINDOWS = [
   ['week', 'Past week', 7],
   ['month', 'Past month', 30],
@@ -1317,7 +1317,7 @@ function careersStatus(co) {
   if (co.status === 'pass') return `<div class="co-status faint">Not checking: you passed on this one.</div>`;
   if (!co.lastCheckedAt) return `<div class="co-status faint">${state.careersChecking ? '<span class="spinner"></span> Looking for its careers site…' : 'Not checked yet.'}</div>`;
   if (co.checkError === 'no-board')
-    return `<div class="co-status warn">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. <a href="#" class="coCareers" data-id="${co.id}">Paste its job board link</a> (Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Workday) and I'll check it.</div>`;
+    return `<div class="co-status warn">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. <a href="#" class="coCareers" data-id="${co.id}">Paste its job board link</a> (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday, Recruitee, BambooHR or Oracle) and I'll check it.</div>`;
   if (co.checkError) return `<div class="co-status warn">${icon('warn', 13)} Last check didn't work: ${esc(co.checkError)}</div>`;
   const b = co.board;
   return `<div class="co-status faint">${icon('check', 13)} Reading its <a href="#" data-open-url="${esc(b.url)}">${ATS_NAME[b.ats] || b.ats} job board</a> · ${co.openCount} open · checked ${timeAgo(co.lastCheckedAt)}
@@ -1844,7 +1844,7 @@ function bindCompanyModals() {
       e.preventDefault();
       const co = state.companies.find((c) => c.id === b.dataset.id);
       const card = openModal(`<h2 style="margin-top:0">${esc(co.name)} careers page</h2>
-        <p class="muted">Their careers page, or better, the job board it uses (a link with greenhouse.io, lever.co, ashbyhq.com, workable.com, smartrecruiters.com or myworkdayjobs.com in it). Tip: click any job on their careers page and copy the address it opens.</p>
+        <p class="muted">Their careers page, or better, the job board it uses (a link with greenhouse.io, lever.co, ashbyhq.com, workable.com, smartrecruiters.com, myworkdayjobs.com, recruitee.com, bamboohr.com or oraclecloud.com in it; Phenom careers sites like careers.freddiemac.com work as they are). Tip: click any job on their careers page and copy the address it opens.</p>
         <input id="coLink" placeholder="https://…" value="${esc(co.careersUrl || '')}"><div class="inline" style="margin-top:12px"><button class="primary" id="coLinkSave">Save</button><button class="ghost" id="coLinkCancel">Cancel</button></div>`);
       $('#coLinkCancel', card).addEventListener('click', closeModal);
       $('#coLinkSave', card).addEventListener('click', async () => {
