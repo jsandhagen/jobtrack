@@ -2,7 +2,7 @@
 // under the role it belongs to, so resumes can be assembled from the ones
 // that fit a posting best. Everything here is offline and free.
 const crypto = require('crypto');
-const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL } = require('./fitScore');
+const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 
@@ -512,7 +512,8 @@ function roleLimit(exp, index) {
 // Years from the first role's start to the last one's end.
 function careerYears(bank) {
   const starts = bank.experiences.filter((e) => !e.isProject).map((e) => yearOf(e.start)).filter(Boolean);
-  const ends = bank.experiences.filter((e) => !e.isProject).map((e) => yearOf(e.end) || yearOf(e.start)).filter(Boolean);
+  // A current role ("Present") runs to this year.
+  const ends = bank.experiences.filter((e) => !e.isProject).map((e) => yearOf(e.end) || (/present|current|now|today/i.test(e.end || '') ? new Date().getFullYear() : yearOf(e.start))).filter(Boolean);
   return starts.length && ends.length ? Math.max(...ends) - Math.min(...starts) : 0;
 }
 
@@ -678,11 +679,74 @@ function docRoles(roles, expById) {
 }
 
 // Everything on the page except the roles.
+// A summary for the free resume when you haven't written one, made only of
+// what your resume already shows, in the posting's words where they mean the
+// same thing: your current title and employer, your years, the kind of
+// experience the posting asks for that you have, and the skills it names that
+// your bullets prove. Recruiters skim it first; an ATS search reads it like
+// any other line. Edit it like any other part of the page.
+function atsSummary(job, bank) {
+  const text = String((job && job.text) || '');
+  const current = orderedExperiences(bank).find((e) => !e.isProject && e.title);
+  if (!text.trim() || !current) return '';
+  const { postingPhrases } = require('./atsScore');
+  const bankText = lower([...(bank.skills || []), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n'));
+  const years = Math.floor(careerYears(bank));
+  // The phrase itself, other word forms allowed ("technology strategies"), not its words scattered about.
+  const has = (phrase) => new RegExp(`\\b${phrase.split(' ').map((w) => escapeRe(w.replace(/(?:ies|s)$/, ''))).join('[a-z]*\\s+')}`).test(bankText);
+  // The kinds of experience asked for ("strategy, management consulting or technology strategy roles") you show.
+  const kinds = [];
+  for (const u of requirementUnits(job).units.filter((x) => x.key.startsWith('x:'))) {
+    for (const a of u.label.replace(/^experience in /, '').split(' or ')) if (has(a) && !kinds.includes(a)) kinds.push(a);
+  }
+  // "technology strategy" says "strategy" already.
+  kinds.splice(0, kinds.length, ...kinds.filter((a) => !kinds.some((k) => k !== a && ` ${k} `.includes(` ${a} `))));
+  const field = kinds.sort((a, b) => b.split(' ').length - a.split(' ').length).slice(0, 2);
+  // As the posting writes it, but a word it also writes in lower case is a
+  // common word, not a name: "Forrester", "Excel", "OKRs", "AI" keep their
+  // capitals; "Strategy" in a title doesn't.
+  const wording = (term) => {
+    const m = text.match(new RegExp(`(?<![A-Za-z0-9])${escapeRe(term)}(?![A-Za-z0-9])`, 'i'));
+    const w = m ? m[0] : term;
+    return w.replace(/[A-Za-z][A-Za-z0-9'+#-]*/g, (word) => (/^[A-Z]?[a-z'+#-]+$/.test(word) && new RegExp(`(?<![A-Za-z0-9])${escapeRe(lower(word))}(?![A-Za-z0-9])`).test(text) ? lower(word) : word));
+  };
+  // Skills the posting names that your resume shows in the same words (not
+  // just the same dictionary skill: "budget" isn't "financial modeling"); required first.
+  const items = [];
+  const add = (name, rank) => {
+    const n = lower(name);
+    if (items.some((x) => lower(x.name) === n) || field.some((f) => n.includes(f) || f.includes(n))) return;
+    items.push({ name, rank });
+  };
+  const textLower = lower(text);
+  for (const [skill, { kind, mentions = 1 }] of classifyJobSkills(text)) {
+    if (NOT_IN_GRID.has(skill)) continue;
+    // A wording of the skill that both the posting and your resume use ("generative AI").
+    const p = SKILLS[skill].find((re) => re.test(textLower) && re.test(bankText));
+    if (!p) continue;
+    const term = textLower.match(p)[0].trim().replace(/^[^a-z0-9]+|[^a-z0-9+#]+$/g, "");
+    add(wording(term), (KIND_RANK[kind] || 2) * 10 + mentions - (term.length <= 3 ? 5 : 0));
+  }
+  // And the posting's phrases your bullets already say ("executive presentations").
+  for (const ph of postingPhrases(text, job.company).slice(0, 15)) if (bankText.includes(ph)) add(wording(ph), 15);
+  // "AI" adds nothing next to "AI initiatives".
+  const sing = (x) => ` ${lower(x).replace(/(\w)s\b/g, '$1')} `;
+  const ranked = items.sort((a, b) => b.rank - a.rank).filter((x, i, all) => !all.some((y) => y !== x && sing(y.name).includes(sing(x.name)) && (sing(y.name) !== sing(x.name) || all.indexOf(y) < i)));
+  const top = ranked.slice(0, 5).map((x) => x.name);
+  const list = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  // Working at a software vendor is the enterprise software experience a posting
+  // asks for, but a keyword search won't find it in the employer's name: say it.
+  const jobSkills = classifyJobSkills(text);
+  const industry = Object.entries(EMPLOYER_EVIDENCE).find(([skill, re]) => jobSkills.has(skill) && !SKILLS[skill].some((p) => p.test(bankText)) && bank.experiences.some((e) => e.id === current.id && re.test(lower(`${e.organization}, ${e.dates || e.start || ''}`))));
+  const lead = `${current.title}${current.organization ? ` at ${current.organization}${industry ? ` (${wording(jobSkills.get(industry[0]).term)})` : ''}` : ''}${years >= 2 ? `, with ${years} years${field.length ? ` in ${list(field.map((f) => wording(f).replace(/\b[A-Z][a-z]+\b/g, (w) => lower(w))))}` : ' of experience'}` : ''}.`;
+  return top.length >= 2 ? `${lead} Experience includes ${list(top)}.` : lead;
+}
+
 function docShell({ profile = {}, bank, job, header }) {
   const ResumeDoc = require('../shared/resumeDoc');
   return {
     header: header || ResumeDoc.headerFromProfile(profile),
-    summary: bank.summary || '',
+    summary: bank.summary || atsSummary(job, bank),
     titles: {},
     roles: [],
     skills: pickSkills(job, bank).all,
@@ -947,5 +1011,6 @@ module.exports = {
   skillTags,
   orderedExperiences,
   splitHeader,
+  atsSummary,
   isTeamName: (s) => TEAM.test(String(s || '').trim()),
 };

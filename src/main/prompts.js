@@ -18,7 +18,7 @@
 const { voiceProfile } = require('./voice');
 
 // Both branches changed prompts (degree rule + main's edits): a new version.
-const PROMPT_VERSION = '2026-10-01.2';
+const PROMPT_VERSION = '2026-10-01.3';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -339,8 +339,9 @@ function pickedBlock(picked) {
 function atsBlock(job, ats) {
   if (!ats) return '';
   const terms = [...new Set([...(ats.missingSkills || []).flatMap((m) => m.anyOf || [m.term]), ...(ats.wordingTerms || [])])];
+  const phrases = (ats.missingKeywords || []).filter((k) => k.includes(' ') && !terms.includes(k)).slice(0, 6);
   return `<ats_notes>
-The candidate's current resume scores ${ats.score}% on Sprout's ATS check for this posting.${terms.length ? ` Posting terms it lacks or words differently: ${terms.join(', ')}. Use the posting's exact wording for any of these the documents support; leave the rest out.` : ''}${job.title ? ` If the candidate has held the title "${job.title}" or its equivalent, use that wording in the summary.` : ''}
+The candidate's current resume scores ${ats.score}% on Sprout's ATS check for this posting.${terms.length ? ` Posting terms it lacks or words differently: ${terms.join(', ')}. Use the posting's exact wording for any of these the documents support; leave the rest out.` : ''}${phrases.length ? ` Phrases from the posting a recruiter might search for: ${phrases.join(', ')}. Use one only where a document shows that work; an exact phrase matters to strict systems ("program-managed" doesn't match "program management").` : ''}${job.title ? ` If the candidate has held the title "${job.title}" or its equivalent, use that wording in the summary.` : ''}
 </ats_notes>`;
 }
 

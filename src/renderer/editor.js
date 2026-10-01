@@ -658,14 +658,28 @@ function jobPane() {
   const bars = ATS_PARTS.filter(([k]) => parts[k] != null)
     .map(([k, label, w]) => `<div class="jm-bar"><span>${label} <i class="faint">${w}%</i></span><div><div style="width:${parts[k]}%;background:${barColor(parts[k])}"></div></div><b>${parts[k]}</b></div>`)
     .join('');
-  return `<div class="tray-card">
+  // The posting's words the page doesn't say yet, each with the bullet closest to it.
+  const gaps = (info.ats.gaps || []).filter((g) => g.type !== 'search').concat((info.ats.gaps || []).filter((g) => g.type === 'search').slice(0, 4));
+  const GAP_LABEL = { knockout: 'required', wording: "posting's words", search: 'searched' };
+  const gapRow = (g, i) => `<div class="jm-req gap ats-gap">
+      <span class="m">${g.type === 'knockout' ? '!' : '○'}</span><b>“${esc(g.phrase)}”</b><span class="faint">${GAP_LABEL[g.type]}</span>
+      <span class="src">${esc(g.why)}</span>
+      ${g.closest ? `<span class="src">Closest: “${quote(g.closest.text, 80)}”</span><span class="src"><button class="small ghost" data-gap-edit="${i}">Edit this bullet</button> <span class="faint">copies “${esc(g.phrase)}”</span></span>` : '<span class="src">No bullet on the page is close. If you have done this, add a bullet that says so.</span>'}
+    </div>`;
+  const skillTip = /^(?:Required skill not found|Required: any one of|Use the posting's exact wording|Nice-to-have)/;
+  const otherTips = info.ats.tips.filter((t) => !skillTip.test(t)).slice(0, 5);
+  ed.gaps = gaps;
+  return `${gaps.length ? `<div class="tray-card"><h4><span>Words the screen looks for</span></h4>
+      <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. Recruiters search an ATS for them, and a required one can screen you out. Use each only where it's true of you: the closest bullet is a place to start.</p>
+      ${gaps.map(gapRow).join('')}</div>` : ''}
+    <div class="tray-card">
       <h4>What the posting asks for</h4>
       ${info.coverage.length ? `<div class="jm-legend"><span>✓ a bullet shows it</span><span>½ skills list only</span><span>○ not shown</span></div>${reqs.map(row).join('')}${prefs.map(row).join('')}<p class="faint" style="margin:8px 0 0">Tap one to highlight its bullets on the page, or to see bullets from your bank that would show it.</p>` : '<p class="muted" style="margin:0">Sprout couldn\'t find specific requirements in this posting.</p>'}
     </div>
     <div class="tray-card"><h4><span>How the ATS match adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4>
       ${bars || '<p class="muted" style="margin:0">No breakdown for this posting.</p>'}
       ${bars ? '<p class="faint" style="margin:6px 0 0">Parts that don\'t apply to this posting are left out and the rest re-weighted.</p>' : ''}
-      ${info.ats.tips.length ? `<div class="tray-role" style="margin-top:12px">To raise it</div><ul class="tidy" style="margin:4px 0 0">${info.ats.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+      ${otherTips.length ? `<div class="tray-role" style="margin-top:12px">Also</div><ul class="tidy" style="margin:4px 0 0">${otherTips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
       <p class="honest">Applicant tracking systems mostly rank and search; few reject on a match score alone. Use this to make sure the posting's words for skills you really have are on the page. <a href="#" data-guide>More →</a></p>
     </div>
     ${defaults}`;
@@ -760,6 +774,19 @@ function wireTray() {
     })
   );
   $$('[data-guide]', tray).forEach((a) => a.addEventListener('click', (e) => (e.preventDefault(), openGuide())));
+  // Go to the closest bullet with the posting's words on the clipboard; you decide the wording.
+  $$('[data-gap-edit]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const g = (ed.gaps || [])[+btn.dataset.gapEdit];
+      if (!g || !g.closest) return;
+      try {
+        navigator.clipboard.writeText(g.phrase);
+      } catch {
+        // the bullet still opens
+      }
+      gotoBullet(g.closest.r, g.closest.b);
+    })
+  );
   $$('[data-goto]', tray).forEach((btn) =>
     btn.addEventListener('click', () => {
       const [r, b] = btn.dataset.goto.split(':').map(Number);

@@ -158,3 +158,89 @@ test('the free resume: every bullet when the page has room, and a skills grid of
     assert.ok(roadmaps.length <= 1, `${p.title}: ${roadmaps.join(', ')}`);
   }
 });
+
+// ---------- Optimize for ATS, for the Office-of-the-CTO role ----------
+// The fit score says whether a job suits you; the ATS check says whether this
+// page will be found and pass the screen. For this role the page scored 67 (C)
+// with a knockout (program management), and optimizing only re-ordered bullets
+// it already had, so the score couldn't move. What moves it is the posting's
+// own words, which only the applicant can say are true of them.
+
+test('ATS keywords are phrases a recruiter would search, not words from the company pitch', () => {
+  const { postingPhrases, atsScore } = require('../src/main/atsScore');
+  const phrases = postingPhrases(F.POSTINGS.octoStrategyOps.text, F.POSTINGS.octoStrategyOps.company);
+  for (const want of ['executive presentations', 'quarterly business reviews', 'board materials']) assert.ok(phrases.includes(want), `${want}: ${phrases.join(', ')}`);
+  const missing = atsScore(F.POSTINGS.octoStrategyOps, F.RESUMES.ctoOfficeStrategist, {}).missingKeywords;
+  for (const junk of ['comfort', 'excellence', 'definition', 'bring', 'special', 'materials']) assert.ok(!missing.includes(junk), `${junk} in ${missing.join(', ')}`);
+  const W = require('./fixtures/realWorld');
+  assert.ok(postingPhrases(W.POSTINGS.seniorAccountant.text).includes('month-end close'));
+});
+
+test('the free resume gets a summary made only of what the resume shows', () => {
+  const B = require('../src/main/bullets');
+  const bank = B.mergeIntoBank(B.emptyBank(), parseResume(F.RESUMES.ctoOfficeStrategist), { id: 'r', name: 'Resume' }).bank;
+  const s = B.atsSummary(F.POSTINGS.octoStrategyOps, bank);
+  assert.match(s, new RegExp(`^Technology Strategy Consultant, Office of the CTO at Appian, with ${new Date().getFullYear() - 2019} years in technology strategy\\. Experience includes `));
+  assert.ok(!/management consulting|program management/i.test(s), s);
+  // Every item it lists is on the resume already (in the same words, other forms allowed).
+  const items = s.replace(/^.*Experience includes /, '').replace(/\.$/, '').split(/, | and /);
+  const resume = F.RESUMES.ctoOfficeStrategist.toLowerCase();
+  for (const it of items) assert.ok(resume.includes(it.toLowerCase().replace(/s$/, '')), `${it} isn't on the resume`);
+  // "Budget" is not "financial modeling", whatever the dictionary files them under.
+  assert.ok(!/budget/i.test(B.atsSummary(F.POSTINGS.chiefOfStaffCTO, bank)));
+  // A summary you wrote stays yours.
+  assert.equal(B.buildDoc({ profile: {}, bank: { ...bank, summary: 'Mine.' }, job: F.POSTINGS.octoStrategyOps, roles: [] }).doc.summary, 'Mine.');
+});
+
+test('ATS gaps point to the closest bullet, and using the exact words (if true) clears the knockout', () => {
+  const { atsGaps, atsScore } = require('../src/main/atsScore');
+  const p = F.POSTINGS.octoStrategyOps;
+  const bullets = parseResume(F.RESUMES.ctoOfficeStrategist).experiences.flatMap((e, r) => e.bullets.map((x, b) => ({ r, b, text: x.text })));
+  const { gaps } = atsGaps(p, F.RESUMES.ctoOfficeStrategist, bullets);
+  const g = (phrase) => gaps.find((x) => x.phrase === phrase);
+  assert.equal(g('program management').type, 'knockout');
+  assert.match(g('program management').closest.text, /^Ran the annual technology planning cycle/);
+  assert.equal(g('ai adoption').type, 'wording');
+  assert.match(g('ai adoption').closest.text, /AI strategy/);
+  assert.match(g('board materials').closest.text, /^Prepared board and executive presentations/);
+  const before = atsScore(p, F.RESUMES.ctoOfficeStrategist, {});
+  const edit = (planning) =>
+    F.RESUMES.ctoOfficeStrategist
+      .replace('- Ran the annual technology planning cycle for the CTO organization', planning)
+      .replace('- Prepared board and executive presentations on AI strategy', '- Prepared board materials and executive presentations on AI strategy and AI adoption')
+      .replace('with product and engineering', 'with product and engineering leaders');
+  const nearly = atsScore(p, edit('- Program-managed the annual technology planning cycle and quarterly business reviews for the CTO organization'), {});
+  const exact = atsScore(p, edit('- Led program management for the annual technology planning cycle and quarterly business reviews of the CTO organization'), {});
+  assert.equal(before.knockouts.length, 1);
+  assert.equal(nearly.knockouts.length, 1, '"program-managed" is not the words a strict system matches');
+  assert.equal(exact.knockouts.length, 0);
+  assert.ok(exact.score >= before.score + 10 && exact.basic.met === exact.basic.total, `${before.score} ${before.grade} -> ${exact.score} ${exact.grade}`);
+});
+
+test('a career that runs to "Present" counts to this year', () => {
+  const B = require('../src/main/bullets');
+  const bank = B.mergeIntoBank(B.emptyBank(), parseResume(F.RESUMES.ctoOfficeStrategist), { id: 'r', name: 'Resume' }).bank;
+  assert.match(B.atsSummary(F.POSTINGS.octoStrategyOps, bank), new RegExp(`with ${new Date().getFullYear() - 2019} years`));
+});
+
+test('optimizing never reads worse to an ATS than the resume you started with', () => {
+  const B = require('../src/main/bullets');
+  const ResumeDoc = require('../src/shared/resumeDoc');
+  const { htmlToText } = require('../src/main/resumeRender');
+  const { atsScore } = require('../src/main/atsScore');
+  const bank = B.mergeIntoBank(B.emptyBank(), parseResume(F.RESUMES.ctoOfficeStrategist), { id: 'r', name: 'Resume' }).bank;
+  const profile = { name: 'Jordan Avery', email: 'jordan.avery@example.com', location: 'Washington, DC' };
+  const rows = [];
+  for (const p of [F.POSTINGS.octoStrategyOps, F.POSTINGS.productStrategyAI, F.POSTINGS.competitiveIntel, F.POSTINGS.chiefOfStaffCTO, F.POSTINGS.corpStrategyVendor, H.POSTINGS.appliedAIStrategyOps, H.POSTINGS.soOctoSecurity]) {
+    const sel = B.selectBullets(p, bank, { profile });
+    const { doc } = B.buildDoc({ profile, bank, job: p, roles: sel.roles });
+    const page = htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(doc)));
+    const before = atsScore(p, F.RESUMES.ctoOfficeStrategist, {}).score;
+    const after = atsScore(p, page, {}).score;
+    rows.push(`${p.title}: ${before} -> ${after}`);
+    assert.ok(after >= before - 1, rows.join('; '));
+  }
+  // Working at Appian is enterprise software experience; the summary says so where a posting asks.
+  assert.match(B.atsSummary(F.POSTINGS.productStrategyAI, bank), /at Appian \(enterprise software\)/);
+  assert.doesNotMatch(B.atsSummary(F.POSTINGS.octoStrategyOps, bank), /enterprise software/);
+});

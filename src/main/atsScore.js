@@ -17,7 +17,7 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, SOFT_SKILLS, INTERPERSONAL, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience } = require('./fitScore');
+const { SKILLS, SOFT_SKILLS, INTERPERSONAL, RELATED, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
 
@@ -198,7 +198,80 @@ function wordStem(w) {
   return w.replace(/(?:ations?|ments?|ings?|ers?|ed|es|s)$/, '').replace(/(?:e|y|i)$/, '');
 }
 
+// The phrases a recruiter types into an ATS search: noun phrases from what the
+// job does and asks for ("executive presentations", "quarterly business
+// reviews", "month-end close"), not single words from the company pitch
+// ("comfort", "excellence"). Skills from the dictionary are scored on their own.
+const PHRASE_EDGE = new Set(
+  ('ability able work working team teams environment provide support ensure develop build maintain manage strong excellent skill skills knowledge understanding ' +
+    'related relevant various multiple key role roles position opportunity responsible company organization within also well using use based high level best help ' +
+    'make take part join looking seeking ideal great good other time people person world partner partners partnering collaborate communication written verbal detail ' +
+    'oriented fast paced growth success impact deliver drive driven passion proactive ideas approach unique user users quality process tool tools system systems ' +
+    'solution solutions project projects need needs result results experience year years day including include new current every each all any both more most many ' +
+    'must should will would can could may candidate employee hire offer create improve identify perform review understand like etc plus preferred required implement ' +
+    'decision decisions professional track performance launch evaluate change variety primary large enhance clear complex expert expertise dynamic diverse leading ' +
+    'excellence customer customers client clients service services office remote hybrid onsite comfort comfortable bring special sets definition through problem ' +
+    'problems proven exceptional crafting senior recommendations insights priorities run lead such similar active accredited top-tier end detailed core cto ceo cio ' +
+    'cfo coo ideally preferably plus demonstrated deep solid hands-on excellent outstanding superb minimum least').split(' ')
+);
+const PHRASE_VERBS = new Set(
+  ('prepare prepares analyze analyzing monitor maintain brief surface size continuously evaluate define develop lead manage run drive track build partner own report ' +
+    'present facilitate support provide identify deliver translate synthesize coordinate shape set align communicate act sign negotiate design write ship work serve ' +
+    'help structure complete formulate generate mentor educate administer conduct perform create establish oversee ensure assist operate execute bring').split(' ')
+);
+const phraseWords = (s) => lower(s).replace(/&/g, ' and ').replace(/['’]s\b/g, '').match(/[a-z][a-z0-9+#'-]*/g) || [];
+function postingPhrases(jobText, company = '') {
+  const companyWords = new Set(phraseWords(company));
+  const counts = new Map();
+  let started = false;
+  for (const l of classifyLines(jobText)) {
+    if (l.isHeading || BOILERPLATE_LINE.test(l.line)) continue;
+    // The company pitch before the first list isn't what the job asks for.
+    if (/^[-•*▪●◦]/.test(l.original)) started = true;
+    if (!started && l.kind === 'neutral') continue;
+    if (degreeLevels(l.original, true).length) continue;
+    const segments = l.original.replace(/^[-•*▪●◦]\s*/, '').split(/[,;:()/.]|\s[-–—]\s|\b(?:and|or|with|for|to|in|of|on|across|such as|from|through|by|at)\b/i);
+    for (const seg of segments) {
+      let run = [];
+      const flush = () => {
+        while (run.length && (PHRASE_EDGE.has(run[0]) || PHRASE_VERBS.has(run[0]))) run.shift();
+        while (run.length && PHRASE_EDGE.has(run[run.length - 1])) run.pop();
+        const key = run.join(' ');
+        if (run.length >= 2 && run.length <= 4 && !run.some((w) => companyWords.has(w))) counts.set(key, (counts.get(key) || 0) + (l.kind === 'required' ? 1.5 : 1));
+        run = [];
+      };
+      for (const w of phraseWords(seg)) {
+        if (w.length < 3 || STOPWORDS.has(w) || /^\d/.test(w)) flush();
+        else run.push(w);
+      }
+      flush();
+    }
+  }
+  // A shorter phrase inside a longer one asked for is the same ask.
+  const list = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t);
+  return list.filter((t) => !list.some((u) => u !== t && ` ${u} `.includes(` ${t} `)));
+}
+
 function scoreKeywords(jobText, resumeLower, company) {
+  jobText = jobText.split('\n').filter((l) => !BOILERPLATE_LINE.test(l)).join('\n');
+  const skillWords = Object.values(SKILLS).flat();
+  // Dictionary skills have their own component.
+  const terms = postingPhrases(jobText, company).filter((t) => !skillWords.some((re) => re.test(t))).slice(0, 15);
+  if (terms.length < 3) return scoreKeywordWords(jobText, resumeLower, company);
+  // Like Taleo's "related terms" search: other forms of the words count too
+  // ("executive presentation" finds "executive presentations"), in order and close together.
+  const resumeWords = (resumeLower.match(/[a-z][a-z0-9+#'-]*/g) || []).map(wordStem);
+  const found = (t) => {
+    if (containsTerm(resumeLower, t)) return true;
+    const ws = t.split(' ').map(wordStem);
+    return resumeWords.some((w, i) => w === ws[0] && ws.every((x, j) => resumeWords.slice(i + j, i + j + 2).includes(x)));
+  };
+  const missing = terms.filter((t) => !found(t));
+  return { score: (terms.length - missing.length) / terms.length, missing: missing.slice(0, 10), terms };
+}
+
+// Short postings without enough phrases: distinctive single words.
+function scoreKeywordWords(jobText, resumeLower, company) {
   const companyWords = new Set(lower(company).split(/\W+/));
   // Degree lines are scored by education (where a master's meets a bachelor's
   // requirement), so "bachelor", "degree" and the field aren't keywords here.
@@ -217,7 +290,7 @@ function scoreKeywords(jobText, resumeLower, company) {
   // ("managed" finds "management"), but not synonyms.
   const resumeStems = new Set((resumeLower.match(/[a-z][a-z+#]{3,}/g) || []).map(wordStem));
   const missing = terms.filter(([t]) => !resumeLower.includes(t) && !resumeStems.has(wordStem(t))).map(([t]) => t);
-  return { score: (terms.length - missing.length) / terms.length, missing: missing.slice(0, 10) };
+  return { score: (terms.length - missing.length) / terms.length, missing: missing.slice(0, 10), terms: terms.map(([t]) => t) };
 }
 
 // What a parser needs to fill a candidate profile cleanly.
@@ -402,10 +475,57 @@ function atsScore(job, resumeText, opts = {}) {
     matchedSkills: [...skills.hard.matched, ...skills.soft.matched].map((m) => m.skill),
     missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),
     wordingTerms: skills.wordingTips.map((w) => w.term),
+    wordingTips: skills.wordingTips,
     missingKeywords: keywords ? keywords.missing : [],
     formatChecks: parse ? parse.checks.map(({ id, ok }) => ({ id, ok })) : null,
     tips: tips.slice(0, 10),
   };
+}
+
+// What would get this resume found in an ATS search and past its knockouts,
+// that the page doesn't say yet, each with the bullet on the page closest to
+// it: required skills it doesn't show (knockouts), skills it shows in other
+// words than the posting's, and phrases a recruiter would search for. Only
+// you know whether each is true of you, so this points; it never writes.
+// `bullets`: [{ r, b, text }] as on the page.
+function atsGaps(job, resumeText, bullets = []) {
+  const r = atsScore(job, resumeText, { checkFormatting: false });
+  const resumeLower = lower(resumeText);
+  const jobLines = String(job.text || '').split('\n');
+  const content = (t) => new Set((lower(t).match(/[a-z][a-z0-9+#-]{2,}/g) || []).filter((w) => !STOPWORDS.has(w) && !PHRASE_EDGE.has(w)).map(wordStem));
+  const lineOf = (term) => jobLines.find((l) => lower(l).includes(lower(term))) || term;
+  // The bullet closest to what's asked: one that shows the skill in other
+  // words, a related skill, or the most words in common with the posting's line.
+  const closest = (term, skill) => {
+    const want = content(lineOf(term));
+    let best = null;
+    for (const bl of bullets) {
+      const t = lower(bl.text);
+      let score = 0;
+      if (skill && SKILLS[skill] && SKILLS[skill].some((p) => p.test(t))) score = 1;
+      else if (skill && RELATED.get(skill)) score = Math.max(0, ...RELATED.get(skill).filter(([o]) => SKILLS[o].some((p) => p.test(t))).map(([, c]) => c * 0.8));
+      const have = content(bl.text);
+      const shared = [...want].filter((w) => have.has(w)).length;
+      score = Math.max(score, want.size ? shared / Math.min(want.size, 6) : 0);
+      if (score > (best ? best.score : 0.15)) best = { r: bl.r, b: bl.b, text: bl.text, score: Math.round(score * 100) / 100 };
+    }
+    return best;
+  };
+  const gaps = [];
+  const skillByLabel = (label) => Object.keys(SKILLS).find((k) => k === label) || null;
+  for (const m of r.missingSkills) {
+    if (m.kind !== 'required' || INTERPERSONAL.has(m.skill) || SOFT_SKILLS.has(m.skill)) continue;
+    const phrase = m.anyOf ? m.anyOf.join(' or ') : m.term;
+    gaps.push({ type: 'knockout', phrase, why: 'Required, and not on the page. Screens and recruiter searches look for these exact words: another form ("program-managed" for "program management") may not match.', closest: closest(m.anyOf ? m.anyOf[0] : m.term, skillByLabel(m.skill)) });
+  }
+  // Industries ("bank" for financial services) are where you worked, not words to add.
+  const INDUSTRIES = new Set(['Financial Services', 'Public Sector', 'Healthcare', 'Enterprise Software']);
+  for (const w of r.wordingTips) {
+    if (INTERPERSONAL.has(w.skill) || SOFT_SKILLS.has(w.skill) || INDUSTRIES.has(w.skill) || containsTerm(resumeLower, w.term)) continue;
+    gaps.push({ type: 'wording', phrase: w.term, why: 'You show this in other words. Strict systems match the posting\'s words literally.', closest: closest(w.term, w.skill) });
+  }
+  for (const k of r.missingKeywords.slice(0, 6)) gaps.push({ type: 'search', phrase: k, why: 'A phrase from the posting a recruiter might search for.', closest: closest(k, null) });
+  return { score: r.score, grade: r.grade, gaps };
 }
 
 // Score the user's existing library the way an ATS would see what they'd
@@ -424,4 +544,4 @@ function libraryAtsScore(job, documents, profile) {
   return { ...atsScore(job, documents.map((d) => d.text).join('\n\n'), { checkFormatting: false, profile }), basis: 'your whole library (add a resume for formatting checks)' };
 }
 
-module.exports = { atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };
+module.exports = { atsGaps, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };
