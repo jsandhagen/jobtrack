@@ -290,5 +290,114 @@
     return d;
   }
 
-  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, normalize, compact, labelLines, esc };
+  // ---------- length ----------
+  //
+  // How tall the printed page will be, without a browser: the template's own
+  // measurements (CSS above) and Times New Roman's glyph widths, wrapped word
+  // by word the way Chromium does. Lets the free optimizer fill exactly one
+  // page (or two) instead of guessing with a bullet count.
+
+  // Advance widths in 1/1000 em for ASCII 32–126 (Times New Roman and its
+  // metric twins Tinos / Liberation Serif).
+  const W_REG = [250,333,408,500,500,833,778,180,333,333,500,564,250,333,250,278,500,500,500,500,500,500,500,500,500,500,278,278,564,564,564,444,921,722,667,667,722,611,556,722,722,333,389,722,611,889,722,722,556,722,667,556,611,722,722,944,722,722,611,333,278,333,469,500,333,444,500,444,500,444,333,500,500,278,278,500,278,778,500,500,500,500,333,389,278,500,500,722,500,500,444,480,200,480,541];
+  const W_BOLD = [250,333,555,500,500,1000,833,278,333,333,500,570,250,333,250,278,500,500,500,500,500,500,500,500,500,500,333,333,570,570,570,500,930,722,667,722,722,667,611,778,778,389,500,778,667,944,722,778,611,778,722,556,667,722,722,1000,722,722,667,333,278,333,581,500,333,500,556,444,556,444,333,500,556,278,333,556,278,833,556,500,556,556,444,389,333,556,500,722,500,500,444,394,220,394,520];
+  const W_OTHER = { '–': 500, '—': 1000, '’': 333, '‘': 333, '“': 444, '”': 444, '•': 350, '·': 250 };
+
+  const PT = 11; // body size
+  const LINE = PT * 1.2; // line-height
+  const CONTENT_W = (8.5 - MARGINS.left - MARGINS.right) * 72; // 468pt
+  const PAGE_H = (11 - MARGINS.top - MARGINS.bottom) * 72; // 712.8pt
+  const INDENT = 18; // ● hanging indent
+  const SKILL_COL = (CONTENT_W - 2 * 12) / 3 - INDENT;
+
+  function textWidth(s, size = PT, bold = false) {
+    const table = bold ? W_BOLD : W_REG;
+    let w = 0;
+    for (const ch of String(s)) {
+      const c = ch.charCodeAt(0);
+      w += c >= 32 && c < 127 ? table[c - 32] : W_OTHER[ch] || 500;
+    }
+    return (w / 1000) * size;
+  }
+
+  // Lines a paragraph takes at a given width: breaks at spaces, and after
+  // hyphens inside long words, like the browser.
+  function lineCount(text, width, size = PT, bold = false) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!t) return 0;
+    const space = textWidth(' ', size, bold);
+    const pieces = t.split(' ').flatMap((w) => (textWidth(w, size, bold) > width * 0.6 ? w.split(/(?<=-)/) : [w]));
+    let lines = 1;
+    let x = 0;
+    for (let i = 0; i < pieces.length; i++) {
+      const p = pieces[i];
+      const w = textWidth(p, size, bold);
+      const gap = x && !/-$/.test(pieces[i - 1]) ? space : 0;
+      if (x && x + gap + w > width) {
+        lines++;
+        x = w;
+      } else x += gap + w;
+      // A single word wider than the line breaks anywhere.
+      while (x > width) {
+        lines++;
+        x -= width;
+      }
+    }
+    return lines;
+  }
+
+  // A "Left … Right" row: one line unless the two collide.
+  function rowLines(left, right, leftBold, rightBold) {
+    if (!left && !right) return 0;
+    const rw = right ? textWidth(right, PT, rightBold) : 0;
+    const avail = CONTENT_W - (right ? rw + 18 : 0);
+    return Math.max(1, left ? lineCount(left, Math.max(60, avail), PT, leftBold) : 1);
+  }
+
+  /**
+   * Estimated printed height of a doc, in points, section by section.
+   * @returns {{height:number, pages:number, lastPageFill:number, pageHeight:number, lineHeight:number}}
+   */
+  function measure(doc) {
+    const d = compact(doc);
+    const has = (s) => String(s || '').trim();
+    const h = d.header || {};
+    let y = 0;
+    if (has(h.name)) y += lineCount(h.name, CONTENT_W, 20, true) * 20 * 1.15;
+    for (const l of [h.line1, h.line2]) if (has(l)) y += lineCount(l, CONTENT_W) * LINE;
+    const SECTION = 14 + PT * 1.25 + 2.25 + 1;
+    const sec = (inner) => (inner > 0 ? SECTION + inner : 0);
+
+    y += sec(d.summary ? lineCount(d.summary, CONTENT_W) * LINE : 0);
+    const roleH = (r) => {
+      const head = r.isProject
+        ? rowLines(r.title, r.dates, true, false) + (r.organization ? rowLines(r.organization, '', false, false) : 0)
+        : rowLines(r.organization, r.location, true, true) + rowLines(r.title, r.dates, true, false);
+      return (head + r.bullets.reduce((s, b) => s + lineCount(b.text, CONTENT_W - INDENT), 0)) * LINE;
+    };
+    const stack = (blocks) => (blocks.length ? blocks.reduce((s, x) => s + x, 0) + 7 * (blocks.length - 1) : 0);
+    y += sec(stack(d.roles.filter((r) => !r.isProject).map(roleH)));
+    y += sec(stack(d.roles.filter((r) => r.isProject && r.bullets.length).map(roleH)));
+    if (d.skills.length) {
+      let grid = 3;
+      for (let i = 0; i < d.skills.length; i += 3) grid += Math.max(...d.skills.slice(i, i + 3).map((s) => lineCount(s, SKILL_COL))) * LINE + (i ? 9 : 0);
+      y += sec(grid);
+    }
+    y += sec(
+      stack(
+        d.education.map(
+          (e) =>
+            (rowLines(e.school, e.location, true, true) +
+              rowLines(e.degree, e.dates, false, false) +
+              e.lines.reduce((s, l) => s + lineCount(`${l.label ? `${l.label}: ` : ''}${l.text}`, CONTENT_W), 0)) *
+            LINE
+        )
+      )
+    );
+    y += sec(d.certifications.length ? 1 + d.certifications.reduce((s, c) => s + lineCount(c, CONTENT_W - INDENT), 0) * LINE : 0);
+    const pages = Math.max(1, Math.ceil((y - 2) / PAGE_H));
+    return { height: y, pages, lastPageFill: (y - (pages - 1) * PAGE_H) / PAGE_H, pageHeight: PAGE_H, lineHeight: LINE };
+  }
+
+  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, normalize, compact, labelLines, esc, measure, lineCount, textWidth };
 });

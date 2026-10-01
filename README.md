@@ -231,7 +231,9 @@ The editor, PDF export, Markdown export and ATS check all render from this same 
 - Click anywhere on the page to type: name, contact lines, summary, employers, titles, dates, bullets, skills, education. Headings are editable too.
 - **Enter** starts a new bullet (or skill). **Backspace** on an empty one removes it.
 - Tools in the left margin (⋮⋮ drag · ▲▼ · ⇄ other wordings · ✕) sit next to the bullet you're editing. Hover a role for ✕ / ▲ in the right margin.
-- Dashed page-break guides and a "Fits on 1 page" indicator show the length.
+- Dashed page-break guides and a page counter show the length exactly as it will print (the editor's "+ add" rows don't count).
+- **Length** (next to the page counter): *Auto* (one page; two only when that shows more of what the posting asks for), *1 page*, or *Up to 2 pages*. It sets how long *Optimize for ATS* makes the resume.
+- **Trim to 1 page / Trim to 2 pages** appears when the resume runs over your length, or when a second page holds only a few lines. It takes off what shows the least for this posting: first skills the posting doesn't mention (keeping at least 9), then bullets, weakest first. Every role keeps a bullet, and a bullet that's the only proof of a requirement stays. Your wording isn't touched, the bullets stay in your bank, and **Undo** puts everything back.
 
 **Side panel:**
 - **Requirement checklist:** ✓ shown on the page, ½ only in your skills grid, ○ missing. Tap one to highlight the bullets that prove it, or to list bank bullets that would.
@@ -265,12 +267,20 @@ A resume is really a selection from everything you've done. The bank keeps all o
 - Each bullet is scored against the posting's requirements, using the same requirement detection as the fit score:
   - required skills count most, then nice-to-haves;
   - plus shared vocabulary, a bonus for numbers, and how recent the role is.
-- Picks are greedy for **coverage**: each next bullet is the one that proves the most *not-yet-covered* requirements, so the resume shows breadth instead of five bullets about the same skill.
-- Every role gets a sensible minimum (recent roles 3, older ones 1–2).
+- Picks are greedy for **coverage**: each next bullet is the one that proves the most *not-yet-covered* requirements (per line of page it takes), so the resume shows breadth instead of five bullets about the same skill.
+- **Sized to the page, not a bullet count.** The template is measured as bullets go in (Times New Roman's real glyph widths and the template's spacing, checked against Chromium's PDF output), so the page is filled to the bottom without spilling over. Leftover room goes to your strongest remaining bullets, so a page never looks half-empty.
+- **One page unless two earn it** (the default *Auto* length): a second page only when it shows a required qualification one page has no room for, your roles need it, or a long career (10+ years) has plenty of relevant bullets to fill a good part of page two. Before going to two pages it also tries building long and trimming back, which can fit a requirement the first pass ran out of room for. When even one bullet per role won't fit, the oldest roles are left off (you can add them back). The mode banner says which length it chose and why.
+- Every role gets a sensible minimum (recent roles 3, older ones 1–2), room allowing; the two most recent roles are filled first, and older roles get theirs after the bullets that prove requirements.
+- **Skills grid:**
+  - the posting's skills you can back up come first, required ones first, then the ones it mentions most;
+  - each is written the way the posting writes it (*PostgreSQL*, *REST APIs*) when your own documents use that wording, so literal keyword searches find it;
+  - then your own skills the posting names outside the built-in skill list (*Storybook*, *HIPAA*);
+  - then the rest of your list, to complete the last row of three (9 to 15 skills);
+  - never a skill your documents don't show, and no near-duplicates (*Postgres* next to *PostgreSQL*).
 - A live checklist shows which requirements your chosen bullets cover.
 - Reword a bullet for this one job, then keep it *just here*, *save as another wording*, or *replace the original*. Any new bullet you write is saved to the bank too.
 - **Build resume — free** assembles it:
-  - relevant skills first;
+  - relevant skills first, in the posting's wording;
   - your summary and education from the bank;
   - notes on any requirement no bullet shows.
 - *Polish wording* (optional, one Claude call) suggests light rewordings that mirror the posting without changing any facts. You accept each one.
@@ -283,8 +293,11 @@ A resume is really a selection from everything you've done. The bank keeps all o
 The extension in `browser-extension/` reads the job straight from the web page, so it gets the full description without scrolling and without OCR errors. It tries, in order:
 
 1. **The site's own job data** (schema.org `JobPosting`). Most job sites embed this for Google's job search, and it gives an exact title, company, location, pay and description.
-2. **Known layouts** for LinkedIn, Indeed, Greenhouse, Lever, Workday and Glassdoor. On sites where the page changes without reloading (LinkedIn, Indeed, Glassdoor) these are checked first, because the embedded data can be left over from the previous job. Clicking through LinkedIn's job list is followed live.
-3. **A general finder** for any other site. It starts at a heading like "Responsibilities" or "Qualifications" and widens to the smallest part of the page that reads like a whole posting, stopping before menus, sidebars ("Other openings") and footers.
+2. **The careers site's own data.** Phenom, which runs many large employers' careers sites (`careers.freddiemac.com/us/en/job/…`), builds the posting from data inside the page (`phApp.ddo`). The extension reads that data directly, and only when its title matches the job the page shows.
+3. **Known layouts** for LinkedIn, Indeed, Greenhouse, Lever, Workday and Glassdoor, plus the careers systems big companies use: Oracle Cloud, iCIMS, SuccessFactors, Taleo, Jobvite, Eightfold and Phenom. On sites where the page changes without reloading (LinkedIn, Indeed, Glassdoor, Oracle, Eightfold) these are checked first, because the embedded data can be left over from the previous job. Clicking through LinkedIn's job list is followed live.
+4. **A general finder** for any other site. It starts at a heading like "Responsibilities", "Qualifications" or "Position Overview" and widens to the smallest part of the page that reads like a whole posting, stopping before menus, sidebars ("Other openings") and footers.
+
+**Postings inside a frame.** Many company careers pages show the posting in a frame from their careers system (iCIMS and embedded boards do this). The extension also reads inside frames and passes the posting to the page around it. The card shows once, on the page, and the job is saved with the page's address, the one you can come back to.
 
 **The card.** When you open a job posting, Sprout pops up in the corner of the page with the same card the app shows: your fit score, the ATS match for your current resume, and the skills you match. It asks **"Add this job to your saved jobs?"** and nothing is saved until you press **Save job**. After that, the card offers everything the app's popup does: an ATS resume (free), a Claude resume, a cover letter, a deeper read from Claude, and **Open in Sprout**. Press **–** to tuck it into a small bubble with the score, or **✕** / **No thanks** to put it away for that job. The toolbar button shows the same card for the tab you're on, read fresh each time you open it.
 
