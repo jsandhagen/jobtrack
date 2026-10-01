@@ -30,6 +30,9 @@ const DEFAULT_SETTINGS = {
   // 'spire' (Slay the Spire style card battles) or 'garden' (just the garden).
   gameStyle: 'spire',
   weeklyGoal: 7,
+  // Look of the app: 'light', 'green' (light, tinted sage), 'dark', or
+  // 'system' (light or dark with the computer's setting).
+  theme: 'light',
   // Badges and level already celebrated, so each is celebrated once.
   gardenSeen: null,
 };
