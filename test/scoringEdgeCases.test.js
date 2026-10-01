@@ -2,7 +2,7 @@
 // posting and resume phrasings.
 const test = require('node:test');
 const assert = require('node:assert');
-const { findSkills, requiredYears, yearsOfExperience, classifyLines } = require('../src/main/fitScore');
+const { findSkills, requiredYears, yearsOfExperience, classifyLines, guessJobTitle, isGenericTitle } = require('../src/main/fitScore');
 const { degreeRequirements, degreeLevel, atsScore, hiredScoreStyleGrade } = require('../src/main/atsScore');
 const { localFitScore, titleLevel, workMode, postingSalaryMax } = require('../src/main/localFit');
 
@@ -175,4 +175,29 @@ test("Claude's prompts say a higher degree meets a lower degree requirement", ()
   const all = JSON.stringify(P);
   assert.match(all, /higher degree meets a lower degree requirement/);
   assert.match(all, /higher degree evidences a lower degree requirement/);
+});
+
+test('job titles from pasted postings skip page headings like "About the job"', () => {
+  const cases = [
+    ['About the job\nAt Acme our mission is big.\nPosition Overview:\nAcme is currently seeking a Quantitative Analytics Senior to be responsible for models.', 'Quantitative Analytics Senior'],
+    ['Senior Data Analyst\nAcme · Remote\nAbout the job', 'Senior Data Analyst'],
+    ['About the job\nJob title: Credit Risk Modeler\nWe build models.', 'Credit Risk Modeler'],
+    ['Job Description\nWe are hiring a Senior Frontend Engineer to lead our design system.', 'Senior Frontend Engineer'],
+    ['Frontend Engineer — Acme Co.\nRequirements', 'Frontend Engineer — Acme Co.'],
+    ['Acme Corp\nSenior Accountant\nLocation: Austin', 'Senior Accountant'],
+    ['About the job\nOur team builds things that matter to people.\nResponsibilities:', 'Untitled role'],
+  ];
+  for (const [text, want] of cases) assert.equal(guessJobTitle(text), want, text.split('\n')[0]);
+  assert.ok(isGenericTitle('About the job') && isGenericTitle('Untitled role') && isGenericTitle('Position Overview:'));
+  assert.ok(!isGenericTitle('Data Analyst'));
+});
+
+test('an unknown title leaves role match out instead of scoring it zero', () => {
+  const text = 'Requirements\n- SQL and Python\n- 3+ years of experience';
+  const docs = [{ kind: 'resume', text: 'Data Analyst Jan 2020 – Present\nSQL, Python' }];
+  const generic = localFitScore({ title: 'About the job', company: 'Acme', text }, docs);
+  assert.equal(generic.components.role, null);
+  const real = localFitScore({ title: 'Data Analyst', company: 'Acme', text }, docs);
+  assert.ok(Math.abs(generic.score - real.score) <= 5, `${generic.score} vs ${real.score}`);
+  assert.equal(atsScore({ title: 'About the job', text }, docs[0].text).components.jobTitle, null);
 });

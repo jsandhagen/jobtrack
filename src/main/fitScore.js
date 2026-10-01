@@ -380,6 +380,36 @@ function fitLabel(score) {
   return 'Stretch role';
 }
 
+// ---------- job title ----------
+
+// Page and section headings that come first in pasted postings ("About the
+// job" on LinkedIn), never a job title.
+const GENERIC_TITLE = /^(?:about (?:the|this) (?:job|role|position|opportunity|company|team)|about us|job (?:description|details|summary|overview|posting|information)|full job description|description|overview|position (?:overview|summary|description)|role (?:overview|summary|description)|the role|the opportunity|summary|responsibilities|requirements|qualifications|company (?:description|overview)|who we are|untitled role|easy apply|apply(?: now)?|save|share|show more)\s*:?$/i;
+function isGenericTitle(title) {
+  return !title || GENERIC_TITLE.test(String(title).trim());
+}
+
+const ROLE_NOUN = /\b(?:analyst|engineer|developer|programmer|manager|scientist|specialist|associate|director|lead|consultant|designer|nurse|accountant|auditor|coordinator|administrator|officer|architect|intern|representative|technician|assistant|advisor|adviser|strategist|researcher|economist|statistician|actuary|underwriter|modeler|quant|recruiter|editor|writer|teacher|therapist|pharmacist|attorney|paralegal|controller|planner|producer|agent|supervisor|head|vp|president|partner|fellow|senior|principal|staff)\b/i;
+
+// The posting's job title from its text: an explicit "Job title:" field, else
+// the first short line that names a role, else the role the text says it's
+// "seeking"/"hiring"/"looking for".
+function guessJobTitle(text) {
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  for (const l of lines.slice(0, 40)) {
+    const m = l.match(/^(?:job title|position title|title|position|role)\s*:\s*(.{3,80})$/i);
+    if (m && !isGenericTitle(m[1])) return m[1].trim();
+  }
+  const words = (l) => l.split(/\s+/).length;
+  // Short, not a sentence ("Acme Co." may end in a period; a sentence has more words).
+  const titleLike = (l) => l.length > 3 && l.length < 90 && words(l) <= 10 && !(/[.!?]$/.test(l) && words(l) >= 6) && !isGenericTitle(l);
+  const named = lines.slice(0, 12).find((l) => titleLike(l) && ROLE_NOUN.test(l) && !/:$/.test(l));
+  if (named) return named;
+  const said = String(text || '').match(/\b(?:seeking|hiring|looking for|recruiting)\s+(?:an?\s+|our next\s+|a talented\s+)?((?:[A-Z][\w&/+-]*\s*){1,6}?)(?=\s+(?:to|who|for|with|that|in|at|on)\b|[,.(])/);
+  if (said && ROLE_NOUN.test(said[1])) return said[1].trim();
+  return lines.find(titleLike) || 'Untitled role';
+}
+
 const POSTING_SIGNALS = [
   /\bresponsibilities\b/,
   /\bqualifications\b/,
@@ -419,6 +449,8 @@ module.exports = {
   BOILERPLATE_LINE,
   significantTerms,
   looksLikeJobPosting,
+  guessJobTitle,
+  isGenericTitle,
   findSkills,
   weightedJobSkills,
   yearsOfExperience,

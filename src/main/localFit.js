@@ -10,9 +10,12 @@
 //   years of experience           15%
 // Dealbreakers from your profile (work mode, minimum salary, words to avoid)
 // cap the score so those roles never pop up as good matches.
-const { SKILLS, INTERPERSONAL, STOPWORDS, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
+
+// Bump when scoring changes, so saved scores are recomputed at startup.
+const SCORER_VERSION = 2;
 
 const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
 
@@ -293,7 +296,8 @@ function localFitScore(job, documents, profile = {}) {
     .split(/\W+/)
     .filter((w) => w.length > 1);
   let role = null;
-  if (coreTitle.length) {
+  // No real title ("About the job" from a paste): don't judge the role at all.
+  if (coreTitle.length && !isGenericTitle(job.title)) {
     const targets = lower(profile.targetRoles || '');
     const inTargets = coreTitle.filter((w) => targets.includes(stem(w))).length / coreTitle.length;
     const inLib = coreTitle.filter((w) => hasTerm(lib, w) || lib.includes(stem(w))).length / coreTitle.length;
@@ -360,6 +364,7 @@ function localFitScore(job, documents, profile = {}) {
 
   return {
     score,
+    version: SCORER_VERSION,
     label: breakers.length ? 'Dealbreaker' : fitLabel(score),
     confidence,
     components: Object.fromEntries(Object.entries(components).map(([k, v]) => [k, v === null ? null : Math.round(v * 100)])),
@@ -378,4 +383,4 @@ function localFitScore(job, documents, profile = {}) {
   };
 }
 
-module.exports = { localFitScore, requirementUnits, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };
+module.exports = { localFitScore, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };

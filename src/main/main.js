@@ -20,7 +20,8 @@ const {
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
 const { analyzeLayout } = require('./layout');
-const { localFitScore } = require('./localFit');
+const { localFitScore, SCORER_VERSION } = require('./localFit');
+const { guessJobTitle, isGenericTitle } = require('./fitScore');
 const claude = require('./claude');
 const draft = require('./draft');
 const { voiceProfile } = require('./voice');
@@ -406,7 +407,7 @@ function wantsAutoAnalysis(local) {
 // is for when you've already said to keep it (the browser card asks).
 async function handlePosting(posting, { fromDashboard = false, waitForAnalysis = true, quietDuplicate = false, silent = false, save = false } = {}) {
   const docs = store.allDocuments();
-  const job = { title: posting.title || guessTitle(posting.text), company: posting.company || '', location: posting.location || '', text: posting.text, url: posting.url || '' };
+  const job = { title: isGenericTitle(posting.title) ? guessTitle(posting.text) : posting.title, company: posting.company || '', location: posting.location || '', text: posting.text, url: posting.url || '' };
   const fp = fingerprint(posting.text);
   const s = store.getSettings();
 
@@ -477,8 +478,23 @@ function withAts(rec) {
 }
 
 function guessTitle(text) {
-  const first = text.split('\n').map((l) => l.trim()).find((l) => l.length > 3 && l.length < 90);
-  return first || 'Untitled role';
+  return guessJobTitle(text);
+}
+
+// Saved fit scores are snapshots. Recompute the ones an older scorer made
+// (offline and free), and give jobs saved under a page heading like "About
+// the job" their real title when the text names one.
+function refreshLocalScores() {
+  for (const rec of store.listApplications()) {
+    if (!rec.job || !rec.job.text) continue;
+    let job = rec.job;
+    if (isGenericTitle(job.title)) {
+      const title = guessJobTitle(job.text);
+      if (!isGenericTitle(title)) job = { ...job, title };
+    }
+    if (job === rec.job && rec.quick && rec.quick.version === SCORER_VERSION) continue;
+    store.updateApplication(rec.id, { job, quick: scoreLocally(job) });
+  }
 }
 
 // The resume editor works on an application's resume or on one of your own
@@ -873,7 +889,7 @@ async function startBridge() {
       return {
         saved: false,
         preview: {
-          job: { title: job.title || guessTitle(job.text), company: job.company, location: job.location, url: job.url },
+          job: { title: isGenericTitle(job.title) ? guessTitle(job.text) : job.title, company: job.company, location: job.location, url: job.url },
           quick: pickQuick(quick),
           ats: { before: pickAts(libraryAtsScore(job, evidenceDocs(), store.getProfile())) },
         },
@@ -1682,6 +1698,7 @@ if (process.argv.includes('--smoke-test')) {
     // First run with the bullet bank: fill it from the resumes already in the library.
     if (!store.getBank().bullets.length && store.allDocuments().length) importBullets(store.allDocuments());
     backfillLayouts().catch(() => {});
+    refreshLocalScores();
     createDashboard();
     createOverlay();
     try {

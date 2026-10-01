@@ -17,7 +17,7 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, SOFT_SKILLS, INTERPERSONAL, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience } = require('./fitScore');
+const { SKILLS, SOFT_SKILLS, INTERPERSONAL, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
 
@@ -161,7 +161,7 @@ function scoreSkills(jobSkills, resumeLower, resumeSkills) {
 
 function scoreJobTitle(title, resumeLower) {
   const t = lower(title).replace(/[()[\],|–—-]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!t || t === 'untitled role') return null;
+  if (!t || isGenericTitle(title)) return null;
   if (resumeLower.includes(t)) return { score: 1, exact: true };
   const core = t.replace(SENIORITY, ' ').split(/\s+/).filter((w) => w.length > 1);
   if (!core.length) return null;
