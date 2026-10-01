@@ -970,3 +970,22 @@ p.way-next { display: flex; }
 .row-menu .more-list button.danger { color: var(--rose); }
 .row-menu-status { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 10px; font-size: 13px; font-weight: 600; color: var(--ink); }
 .row-menu-status select { flex: 1; width: auto; }
+
+/* Theme: swatches in the sidebar and in Settings → Appearance. */
+.swatch { display: inline-block; width: 16px; height: 16px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14); }
+.swatch.light { background: linear-gradient(135deg, #ffffff 50%, #faf2e6 50%); }
+.swatch.green { background: linear-gradient(135deg, #e2f2e7 50%, #62a77f 50%); }
+.swatch.dark { background: linear-gradient(135deg, #232a26 50%, #8fd0a6 50%); }
+.swatch.system { background: linear-gradient(135deg, #ffffff 50%, #232a26 50%); }
+.theme-switch { display: flex; align-items: center; gap: 2px; margin-top: 8px; padding: 4px 6px; font-size: 12px; font-weight: 700; color: var(--ink-faint); }
+.theme-switch button { min-height: 0; padding: 5px; border-radius: 50%; box-shadow: none; background: none; }
+.theme-switch button.on { box-shadow: 0 0 0 2px var(--sage); }
+.theme-switch span { margin-left: 6px; }
+.theme-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.theme-pick { display: flex; align-items: center; gap: 10px; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; background: var(--surface); }
+.theme-pick:hover { border-color: var(--line-strong); }
+.theme-pick.on { border-color: var(--sage); background: var(--sage-soft); }
+.theme-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.theme-pick .swatch { width: 22px; height: 22px; }
+.theme-pick b { display: block; font-size: 13.5px; color: var(--ink); }
+.theme-pick small { display: block; font-size: 12px; color: var(--ink-soft); font-weight: 600; line-height: 1.3; }

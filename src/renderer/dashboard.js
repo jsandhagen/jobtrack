@@ -644,6 +644,9 @@ const views = {
         </div>
         <div class="card" id="updCard"><h2 class="with-icon">${icon('sparkle', 22)} Updates</h2><p class="muted"><span class="spinner"></span></p></div>
         <div class="card" id="extCard"><h2 class="with-icon">${icon('globe', 22)} Browser extension</h2><p class="muted"><span class="spinner"></span></p></div>
+        <div class="card"><h2>Appearance</h2>
+          <div class="theme-picks">${THEMES.map(([k, label, what]) => `<label class="theme-pick${themeOf() === k ? ' on' : ''}"><input type="radio" name="theme" value="${k}" ${themeOf() === k ? 'checked' : ''}><i class="swatch ${k}"></i><span><b>${label}</b><small>${what}</small></span></label>`).join('')}</div>
+        </div>
         <div class="card"><h2>Tracking</h2>
           <label>Remind me to follow up after (days)</label>
           <input id="followUpDays" type="number" min="1" max="60" value="${s.followUpDays}" style="max-width:160px">
@@ -1464,6 +1467,7 @@ const binders = {
     }));
   },
   settings() {
+    $$('input[name="theme"]').forEach((r) => r.addEventListener('change', () => setTheme(r.value).then(route)));
     renderExtensionCard();
     renderUpdateCard();
     $('#saveKey').addEventListener('click', (e) =>
@@ -1525,8 +1529,39 @@ window.SproutInfo.wire();
 
 // ---------------- router ----------------
 
+// Light, Green and Dark, and following the computer's light/dark.
+const THEMES = [
+  ['light', 'Light', 'White and warm'],
+  ['green', 'Green', 'Light, washed in sage'],
+  ['dark', 'Dark', 'Easy on the eyes at night'],
+  ['system', 'Match my computer', "Light or dark, with your computer's setting"],
+];
+const themeOf = () => (THEMES.some(([k]) => k === state.settings.theme) ? state.settings.theme : 'light');
+function applyThemeAttr() {
+  document.documentElement.dataset.theme = themeOf();
+}
+async function setTheme(theme) {
+  if (theme === themeOf()) return;
+  state.settings.theme = theme;
+  applyThemeAttr(); // right away; the window's light/dark follows from the app
+  renderThemeSwitch();
+  await S.updateSettings({ theme });
+}
+// In the sidebar: one click between Light, Green and Dark.
+function renderThemeSwitch() {
+  const el = document.getElementById('themeSwitch');
+  if (!el) return;
+  const t = themeOf();
+  el.innerHTML = THEMES.slice(0, 3)
+    .map(([k, label]) => `<button class="ghost${t === k ? ' on' : ''}" data-theme-pick="${k}" title="${label} theme" aria-label="${label} theme" aria-pressed="${t === k}"><i class="swatch ${k}"></i></button>`)
+    .join('') + `<span>${t === 'system' ? 'Auto' : esc(THEMES.find(([k]) => k === t)[1])}</span>`;
+  $$('[data-theme-pick]', el).forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.themePick)));
+}
+
 async function refreshState() {
   state = await S.getState();
+  applyThemeAttr();
+  renderThemeSwitch();
   document.getElementById('sideFoot').innerHTML = `<div><span class="dot ${state.hasApiKey ? 'on' : ''}"></span>${state.hasApiKey ? 'Claude connected' : 'Claude not connected'}</div>
     <div style="margin-top:4px"><span class="dot ${state.settings.clipboardWatch || state.settings.screenWatch ? 'on' : ''}"></span>${
       state.settings.screenWatch ? 'Watching screen & clipboard' : state.settings.clipboardWatch ? 'Watching clipboard' : 'Detection paused'

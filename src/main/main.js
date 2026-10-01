@@ -17,6 +17,7 @@ const {
   shell,
   net,
   powerMonitor,
+  nativeTheme,
 } = require('electron');
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
@@ -103,6 +104,16 @@ function noteBudget() {
 
 // ---------------- windows ----------------
 
+// The theme setting drives every window's light/dark (the CSS follows
+// prefers-color-scheme, which follows nativeTheme); Green is a light theme
+// the pages tint themselves (data-theme on <html>).
+const THEMES = ['light', 'green', 'dark', 'system'];
+function applyTheme(theme) {
+  const t = THEMES.includes(theme) ? theme : 'light';
+  nativeTheme.themeSource = t === 'dark' ? 'dark' : t === 'system' ? 'system' : 'light';
+}
+const windowBg = () => (nativeTheme.shouldUseDarkColors ? '#1a201d' : store && store.getSettings().theme === 'green' ? '#eef5ef' : '#fbf8f3');
+
 function createDashboard() {
   if (dashboard && !dashboard.isDestroyed()) {
     dashboard.show();
@@ -115,7 +126,7 @@ function createDashboard() {
     minWidth: 960,
     minHeight: 600,
     title: 'Sprout — Job Application Buddy',
-    backgroundColor: '#fbf8f3',
+    backgroundColor: windowBg(),
     icon: appIcon(64),
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
   });
@@ -311,8 +322,13 @@ function registerHotkey(accel) {
 
 function applySettings(patch) {
   const before = store.getSettings();
+  if (patch.theme !== undefined && !THEMES.includes(patch.theme)) delete patch.theme;
   const s = store.updateSettings(patch);
   if (s.hotkey !== before.hotkey) registerHotkey(s.hotkey);
+  if (s.theme !== before.theme) {
+    applyTheme(s.theme);
+    if (dashboard && !dashboard.isDestroyed()) dashboard.setBackgroundColor(windowBg());
+  }
   applyWatchSettings(s);
   if (tray) tray.setContextMenu(buildTrayMenu());
   broadcast('state-changed');
@@ -2121,6 +2137,7 @@ if (process.argv.includes('--smoke-test')) {
     if (!store.getBank().bullets.length && store.allDocuments().length) importBullets(store.allDocuments());
     backfillLayouts().catch(() => {});
     refreshLocalScores();
+    applyTheme(store.getSettings().theme);
     createDashboard();
     createOverlay();
     try {
