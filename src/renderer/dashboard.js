@@ -18,13 +18,15 @@ const $ = (sel, root = view) => root.querySelector(sel);
 const $$ = (sel, root = view) => Array.from(root.querySelectorAll(sel));
 
 // Sprout pops up with every toast; its mood follows the kind unless given.
-function toast(text, kind = 'info', ms = 3800, mood) {
-  const el = document.createElement('div');
-  el.className = `toast ${kind}`;
+// onClick: the toast is a shortcut too (e.g. "3 new roles!" opens them).
+function toast(text, kind = 'info', ms = 3800, mood, onClick) {
+  const el = document.createElement(onClick ? 'button' : 'div');
+  el.className = `toast ${kind}${onClick ? ' clickable' : ''}`;
   el.innerHTML = mascotSvg(mood || { good: 'happy', error: 'worried' }[kind] || 'curious', 34, { variant: 'random' });
   const span = document.createElement('span');
   span.textContent = text;
   el.appendChild(span);
+  if (onClick) el.addEventListener('click', () => (el.remove(), onClick()));
   document.getElementById('toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
 }
@@ -1376,8 +1378,12 @@ function renderBuddy() {
   if (key === buddyKey) return;
   buddyKey = key;
   buddyChatty = mood === 'happy' && !due;
-  document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble">${esc(line)}</div>`;
+  // Strong fits: the bubble takes you to them.
+  const go = strong && mood === 'thrilled' ? ' role="button" tabindex="0" data-standouts title="See them in Find jobs"' : '';
+  document.getElementById('buddy').innerHTML = `${mascotSvg(mood, 64, { cls: 'pettable', label: 'Sprout — click for a pep talk' })}<div class="bubble"${go}>${esc(line)}</div>`;
 }
+document.getElementById('buddy').addEventListener('click', (e) => e.target.closest('[data-standouts]') && showStandouts()); // network.js
+document.getElementById('buddy').addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-standouts]') && (e.preventDefault(), showStandouts()));
 
 // While all is calm, sidebar Sprout says something new every couple of
 // minutes (a tip, a kind word), with a fresh face. Never mid-pet.

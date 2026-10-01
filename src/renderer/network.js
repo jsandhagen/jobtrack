@@ -27,8 +27,11 @@ async function copyText(text) {
   }
 }
 
-async function netRefresh() {
+// Redraws unless you're typing somewhere. `from`: the box you just submitted
+// with Enter. It still has focus but is done, so it doesn't hold the redraw back.
+async function netRefresh({ from } = {}) {
   await refreshState();
+  if (from && document.activeElement === from) from.blur();
   if (!isEditing()) route();
 }
 
@@ -1115,6 +1118,14 @@ function showStandouts() {
   else location.hash = '#find';
 }
 
+// Find jobs → Jobs, newest first with no filters: where roles that just turned up are.
+function showNewJobs() {
+  if (standoutJobs().length) return showStandouts();
+  Object.assign(board, { company: '', q: '', remote: false, minPay: 0, window: 'week', sort: 'new', showHidden: false, limit: PAGE_SIZE });
+  setFindTab('jobs');
+  if (location.hash !== '#find') location.hash = '#find';
+}
+
 function inMyList(co, job) {
   const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   return [...state.applications, ...(state.checked || [])].find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
@@ -1574,7 +1585,8 @@ function bindDiscoverTab() {
     run(btn, async () => {
       const r = await S.runFinder(opts);
       toast(r.found ? `${r.mode === 'find' ? 'Found' : 'Looked up'} ${r.found} compan${r.found === 1 ? 'y' : 'ies'}.` : "I didn't find any this time. Try loosening what you're looking for.", r.found ? 'good' : 'info');
-      netRefresh();
+      const box = $('#fzLookup'); // still holding just what you looked up: done with it
+      netRefresh({ from: box && opts.lookup && box.value.trim() === opts.lookup ? box : null });
     }, busy);
   const find = $('#fzFind');
   if (find) find.addEventListener('click', (e) => go(e.currentTarget, {}, 'Searching…'));
@@ -1697,7 +1709,8 @@ function bindJobsTab() {
     check.addEventListener('click', (e) =>
       run(e.currentTarget, async () => {
         const r = await S.checkCareers();
-        if (r) toast(r.fresh ? `${r.fresh} new matching role${r.fresh === 1 ? '' : 's'}!` : `Checked ${r.checked} compan${r.checked === 1 ? 'y' : 'ies'}. Nothing new since last time.`, r.fresh ? 'good' : 'info');
+        if (r && r.fresh) toast(`${r.fresh} new matching role${r.fresh === 1 ? '' : 's'}! Click to see ${r.fresh === 1 ? 'it' : 'them'}.`, 'good', 8000, null, showNewJobs);
+        else if (r) toast(`Checked ${r.checked} compan${r.checked === 1 ? 'y' : 'ies'}. Nothing new since last time.`, 'info');
         netRefresh();
       }, 'Checking…')
     );
@@ -1768,9 +1781,10 @@ function bindCompaniesTab() {
   const addCo = async (name, extra = {}) => {
     if (!name) return toast('Add the company name first.');
     if (state.companies.some((c) => O.sameCompany(c.name, name))) return toast(`${name} is already on your list.`);
+    const from = document.activeElement; // the box you pressed Enter in, if you did
     await S.saveItem('companies', { name, status: 'interested', ...extra });
     toast(`Added ${name}. I'll look for its careers site now.`, 'good');
-    netRefresh();
+    netRefresh({ from });
   };
   const add = () => {
     const url = $('#coUrl').value.trim();
