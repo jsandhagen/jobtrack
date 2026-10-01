@@ -175,7 +175,7 @@ const SKILLS = {
   'Data Strategy': [/\bdata strateg(?:y|ies)\b/, /\bdata governance\b/, /\bdata platform maturity\b/],
   'Data Quality': [/\bdata quality\b/, /\bdata validation\b/, /\bdata lineage\b/],
   // General business strategy (growth, corporate, strategic planning); technology strategy is its own skill.
-  Strategy: [/\b(?:business|corporate|growth|go-to-market|competitive) strateg(?:y|ies)\b/, /\bstrategic (?:planning|insights|recommendations|initiatives|projects|direction|plans?)\b/, /\bstrategy and operations\b/, /\bstrategy & operations\b/, /\bmarket entry\b/],
+  Strategy: [/\b(?:business|corporate|growth|go-to-market|competitive) strateg(?:y|ies)\b/, /\bstrategic (?:planning|insights|recommendations|initiatives|projects|direction|plans?)\b/, /\bstrategy (?:and |& )?operations\b/, /\bmarket entry\b/],
   'AI Strategy': [/\bai strateg(?:y|ies)\b/, /\bai (?:initiatives|adoption|use cases)\b/],
   'Competitive Analysis': [/\bcompetitive (?:analysis|analyses|landscape|intelligence|positioning)\b/, /\bcompetitor (?:analysis|research|benchmarking)\b/, /\bbattle ?cards?\b/, /\bwin\/loss\b/],
   'Low-Code / BPM': [/\blow[- ]code\b/, /\bno[- ]code\b/, /\bbusiness process management\b/, /\bbpm\b/, /\bworkflow (?:automation|platforms?)\b/, /\bprocess automation\b/, /\brpa\b/, /\brobotic process automation\b/],
@@ -421,25 +421,30 @@ function alternativeRuns(line, items) {
   const close = () => {
     // "IT strategy, portfolio management, consulting or business analysis":
     // the "or" may come after the last item we recognised.
-    if (run.length >= 2 && !hasOr) hasOr = /^[\s,]*(?:or|and\s*\/\s*or)\b/.test(line.slice(run[run.length - 1].end, run[run.length - 1].end + 20));
+    // So may a few more items we didn't ("…, Consulting, Chief of Staff, or similar roles").
+    if (run.length >= 2 && !hasOr) hasOr = /^(?:\s*,\s*[a-z&/' -]{2,30}?){0,3}[\s,]*(?:or|and\s*\/\s*or)\b/.test(line.slice(run[run.length - 1].end, run[run.length - 1].end + 90));
     if (run.length >= 2 && (hasOr || optional)) runs.push(run);
     run = [];
     hasOr = false;
   };
-  for (const it of sorted) {
+  sorted.forEach((it, i) => {
     const prev = run[run.length - 1];
     if (prev) {
       const gap = line.slice(prev.end, it.index);
+      const plainAnd = /\band\b/.test(gap) && !/\band\s*\/\s*or\b/.test(gap);
+      // "SQL and Tableau or Power BI": an "and" before an "or" list starts that list.
+      const next = sorted[i + 1];
+      const orNext = !!next && next.index >= it.end && LIST_GAP.test(line.slice(it.end, next.index)) && OR_GAP.test(line.slice(it.end, next.index));
       // "Python or SAS, and SQL": once a list has had its "or", an "and" starts a new requirement.
-      if (it.index >= prev.end && LIST_GAP.test(gap) && !(hasOr && /\band\b/.test(gap) && !/\band\s*\/\s*or\b/.test(gap))) {
+      if (it.index >= prev.end && LIST_GAP.test(gap) && !(plainAnd && (hasOr || orNext))) {
         hasOr = hasOr || OR_GAP.test(gap);
         run.push(it);
-        continue;
+        return;
       }
       close();
     }
     run.push(it);
-  }
+  });
   close();
   return runs;
 }
@@ -469,8 +474,17 @@ function classifyJobSkills(jobText) {
         break;
       }
     }
+    // "Operations" inside "strategy & operations" is the same mention.
+    const own = found.filter((f) => !found.some((g) => g !== f && g.index <= f.index && g.end >= f.end && g.end - g.index > f.end - f.index));
+    found.splice(0, found.length, ...own);
+    // "5+ years of experience in strategy & operations, account management,
+    // program management, consulting, or similar roles": the kinds of
+    // experience listed are alternatives, however long the list.
+    const years = line.match(/\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?['’]?\s+(?:of\s+)?(?:[a-z-]+\s+){0,2}?(?:experience\s+)?(?:in|as|within|across)\s+/);
+    const kindList = years && /\bor\b/.test(line.slice(years.index)) ? found.filter((f) => f.index >= years.index + years[0].length) : [];
+    const runs = kindList.length >= 2 ? [kindList, ...alternativeRuns(line, found.filter((f) => !kindList.includes(f)))] : alternativeRuns(line, found);
     const groupOf = new Map();
-    for (const run of alternativeRuns(line, found)) {
+    for (const run of runs) {
       const id = groups.push(run.map((f) => f.skill)) - 1;
       for (const f of run) groupOf.set(f.skill, id);
     }

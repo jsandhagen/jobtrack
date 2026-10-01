@@ -1735,7 +1735,7 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
     const scoreJob = docs.length
       ? (job) => {
           const q = localFitScore(cleanPosting(job), docs, profile);
-          return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2) };
+          return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
         }
       : null;
     const settings = store.getSettings();
@@ -1799,7 +1799,7 @@ async function checkCareers(ids, { manual = false } = {}) {
   const scoreJob = docs.length
     ? (job) => {
         const q = localFitScore(job, docs, profile);
-        return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2) };
+        return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
       }
     : null;
   const fresh = [];

@@ -78,3 +78,83 @@ test('working at a software vendor is enterprise software experience; using its 
   assert.ok(!vendor.missingSkills.some((s) => /enterprise software/i.test(s)), JSON.stringify(vendor.missingSkills));
   assert.ok(user.missingSkills.some((s) => /enterprise software/i.test(s)), JSON.stringify(user.missingSkills));
 });
+
+// ---------- held out (fixtures/ctoOfficeHoldout.js) ----------
+// First pass, before the fixes they prompted: 10 of 16 bands, 5 of 7
+// orderings; a sales-analytics manager role read as a strong fit (74, "you
+// meet all 3 must-haves") while an applied-AI strategy role read 56; the
+// LinkedIn PDF export lost the employer and the current role's description.
+const H = require('./fixtures/ctoOfficeHoldout');
+const hfit = (p, text = F.RESUMES.ctoOfficeStrategist) => localFitScore(H.POSTINGS[p], [{ kind: 'resume', text }], F.PROFILE);
+
+test('held out: nearly every band met, none far off, and the order holds', () => {
+  const wrong = [];
+  for (const [p, lo, hi, why] of H.BANDS) {
+    const v = hfit(p).score;
+    if (v < lo - 15 || v > hi + 15) assert.fail(`${p}: ${v} far outside [${lo}, ${hi}] (${why})`);
+    if (v < lo || v > hi) wrong.push(`${p}: ${v}`);
+  }
+  assert.ok(wrong.length <= 4, wrong.join('; '));
+  const order = H.ORDER.filter(([a, b]) => !(hfit(a).score > hfit(b).score));
+  assert.ok(order.length <= 1, order.map((x) => x.join(' ')).join('; '));
+});
+
+test('held out: "analytics" experience is data work, and "SQL and Tableau or Power BI" is two requirements', () => {
+  const f = hfit('salesIntelAIStrategy');
+  assert.ok(f.score < 50, `${f.score} ${f.headline}`);
+  assert.ok(f.missingSkills.some((s) => /analytics/.test(s)), JSON.stringify(f.missingSkills));
+  const { requirementUnits } = require('../src/main/localFit');
+  const labels = (line) => requirementUnits({ title: 'Analyst', text: `Requirements\n- ${line}` }).units.map((u) => u.label);
+  assert.deepEqual(labels('Expert SQL and Tableau or Power BI').sort(), ['SQL', 'one of Tableau, Power BI']);
+  assert.deepEqual(labels('Python or SAS, and SQL').sort(), ['SQL', 'one of Python, SAS']);
+  assert.deepEqual(labels('Python, R and SAS or similar tools'), ['one of Python, R, SAS']);
+  // A large language model is generative AI; "technology roles" is the kind of experience again.
+  const ai = hfit('appliedAIStrategyOps');
+  assert.ok(ai.score >= 70 && !ai.missingSkills.some((s) => /language models|technology roles/.test(s)), `${ai.score} ${JSON.stringify(ai.missingSkills)}`);
+});
+
+test('held out: the same person as a LinkedIn PDF export or a two-line layout parses to the same roles', () => {
+  const roles = (text) => parseResume(text).experiences.map((e) => [e.title, e.organization.replace(/ Corporation| Consulting LLP| Consulting$/, ''), e.bullets.length > 0]);
+  const want = [
+    ['Technology Strategy Consultant, Office of the CTO', 'Appian', true],
+    ['Technology Strategy Engineer, Office of the CTO', 'Appian', true],
+    ['Analyst, Technology Strategy & Transformation', 'Deloitte', true],
+  ];
+  assert.deepEqual(roles(H.RESUMES.ctoOfficeLinkedInPdf), want);
+  assert.deepEqual(roles(H.RESUMES.ctoOfficeTwoLine), want);
+  const li = parseResume(H.RESUMES.ctoOfficeLinkedInPdf);
+  assert.equal(li.experiences[0].location, 'McLean, Virginia, United States');
+  assert.ok(li.experiences[0].bullets.length >= 5, 'a LinkedIn description becomes one bullet per sentence');
+  assert.deepEqual(li.skills, ['Technology Strategy', 'Competitive Analysis', 'Generative AI']);
+  assert.deepEqual(parseResume(H.RESUMES.ctoOfficeTwoLine).education.map((e) => [e.school, e.degree]), [['University of Virginia', 'B.S. Systems Engineering']]);
+  for (const [p, tol] of H.FORMAT) {
+    const main = hfit(p).score;
+    // The LinkedIn export has no full skills list, so a role that asks for listed skills may read lower.
+    assert.ok(Math.abs(hfit(p, H.RESUMES.ctoOfficeTwoLine).score - main) <= tol, `two-line ${p}`);
+    assert.ok(Math.abs(hfit(p, H.RESUMES.ctoOfficeLinkedInPdf).score - main) <= (p === 'bizOpsEngineering' ? 15 : tol), `LinkedIn ${p}`);
+  }
+});
+
+// ---------- the application itself ----------
+
+test('ATS: "N+ years in A, B, C, or similar roles" lists alternatives, not one knockout per item', () => {
+  const { atsScore } = require('../src/main/atsScore');
+  const r = atsScore(H.POSTINGS.soOctoSecurity, F.RESUMES.ctoOfficeStrategist, {});
+  assert.deepEqual(r.knockouts, []);
+  assert.ok(!r.tips.some((t) => /account management|strategy & operations/.test(t)), r.tips.join(' / '));
+  assert.ok(r.score >= 60, `${r.score} ${r.grade}`);
+});
+
+test('the free resume: every bullet when the page has room, and a skills grid of your words', () => {
+  const B = require('../src/main/bullets');
+  const bank = B.mergeIntoBank(B.emptyBank(), parseResume(F.RESUMES.ctoOfficeStrategist), { id: 'r', name: 'Resume' }).bank;
+  for (const p of [F.POSTINGS.chiefOfStaffCTO, F.POSTINGS.emergingTechStrategist, H.POSTINGS.appliedAIStrategyOps]) {
+    const sel = B.selectBullets(p, bank, { profile: { name: 'Jordan Avery' } });
+    const n = sel.roles.reduce((s, r) => s + r.bullets.length, 0);
+    assert.equal(n, bank.bullets.length, `${p.title}: a one-page resume with room keeps all ${bank.bullets.length} bullets (got ${n})`);
+    const skills = B.pickSkills(p, bank).all;
+    assert.ok(!skills.some((s) => /^(Communication|Collaboration|Problem Solving|Leadership|Financial Services|Public Sector|IT Portfolio Management)$/.test(s)), `${p.title}: ${skills.join(', ')}`);
+    const roadmaps = skills.filter((s) => /roadmap/i.test(s));
+    assert.ok(roadmaps.length <= 1, `${p.title}: ${roadmaps.join(', ')}`);
+  }
+});

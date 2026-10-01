@@ -47,11 +47,12 @@ risk skills. Still open:
       than the labels for career changers (business analyst → strategy
       consulting, PM → advisory): 15 of 38 "possible" pairs land under 45.
       Check against real outcomes before loosening it.
-- [ ] **Search links match titles word for word.** Suggested LinkedIn and
-      Indeed searches quote the whole role ("Technology Strategy Manager"),
-      which misses "Manager, Technology Strategy" and "Senior Manager,
-      Technology Strategy". Check how each site treats `"technology strategy"
-      manager` before changing it.
+- [ ] **Indeed's `title:` operator.** Indeed documents `title:(…)` for
+      title-only searches, which would drop postings that only mention the
+      role in passing. Check it works in the `q` parameter before using it.
+- [ ] **A summary without Claude.** The free resume has no summary; the
+      editor shows a placeholder. A factual one built from your own bullets
+      (years, field, two strongest proofs for the posting) would help.
 - [ ] **Free job boards are mostly remote.** Without an Adzuna key, By role
       only searches remote-only boards and Europe. Prompt for the free key on
       first use for someone with a location and hybrid/on-site in Profile.

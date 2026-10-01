@@ -78,9 +78,28 @@
 
   // Titles in quotes, so "chief of staff" doesn't match every "staff" job, and
   // OR between several.
+  // The same job is posted under other word orders: "Technology Strategy
+  // Manager" is also "Manager, Technology Strategy" and "Technology Strategy
+  // Senior Manager". A quoted phrase only finds its own order, so the search
+  // asks for each (LinkedIn and Indeed take OR between quoted phrases). Only
+  // for titles with a field of two words or more, and a handful in all, since
+  // LinkedIn caps how many operators a search can use.
+  const ROLE_NOUNS = /^(manager|consultant|director|lead|analyst|strategist|specialist|architect|associate|advisor|principal)$/i;
+  const SENIOR_FORM = /^(manager|consultant|analyst|associate|director)$/i;
+  function titleForms(title) {
+    const words = clean(title).split(/\s+/);
+    const noun = words[words.length - 1];
+    const field = words.slice(0, -1);
+    if (!ROLE_NOUNS.test(noun) || field.length < 2 || field.some((w) => /^(senior|sr\.?|junior|jr\.?|lead|principal|staff|head|chief)$/i.test(w))) return [clean(title)];
+    return [clean(title), `${noun}, ${field.join(' ')}`, ...(SENIOR_FORM.test(noun) ? [`${field.join(' ')} Senior ${noun}`] : [])];
+  }
+  const MAX_PHRASES = 8;
   function jobKeywords(titles, keywords) {
     const t = splitList(titles);
-    return [t.length > 1 ? t.map(quote).join(' OR ') : quote(t[0]), clean(keywords)].filter(Boolean).join(' ');
+    const forms = t.map(titleForms);
+    let phrases = forms.flat();
+    if (phrases.length > MAX_PHRASES) phrases = t;
+    return [phrases.length > 1 ? phrases.map(quote).join(' OR ') : quote(phrases[0]), clean(keywords)].filter(Boolean).join(' ');
   }
 
   // Newest first; distance keeps "near me" near.
@@ -114,7 +133,8 @@
   function startupBoardsUrl({ titles, keywords, location, within = 'week', workType = 'any' } = {}) {
     const sites = `(${STARTUP_BOARDS.map((s) => `site:${s}`).join(' OR ')})`;
     const loc = workType === 'remote' ? 'remote' : clean(location);
-    const q = [sites, anyOf(splitList(titles)), clean(keywords), loc && !isRemote(loc) ? quote(loc) : workType === 'remote' ? '"remote"' : ''].filter(Boolean).join(' ');
+    const forms = splitList(titles).flatMap(titleForms);
+    const q = [sites, anyOf(forms.length <= MAX_PHRASES ? forms : splitList(titles)), clean(keywords), loc && !isRemote(loc) ? quote(loc) : workType === 'remote' ? '"remote"' : ''].filter(Boolean).join(' ');
     return googleUrl(q, { within });
   }
 
@@ -414,7 +434,8 @@
     if (!t) return '';
     if (RECRUITER.test(t)) return 'recruiter';
     if (splitList(profile.targetRoles).some((r) => sameOrg(r, t) || norm(t).includes(norm(r)))) return 'peer';
-    return LEADER.test(t) ? 'leader' : '';
+    // Product, program and account managers usually manage the work, not people.
+    return LEADER.test(t.replace(/\b(?:product|project|program|account|customer success|community|social media|office|case|property|key account) manager\b/gi, ' ')) ? 'leader' : '';
   }
 
   // How warm a connection is, warmest first.
@@ -621,6 +642,13 @@
       body: "Hi {first},\n\nI've applied for the {job} role at {company}[[ ({jobUrl})]] and wanted to say hello directly.[[ Since we both {common}, I thought I'd reach out.]] I think my background[[ at {myEmployer}]] lines up well, and I'd love to be considered.\n\nIs there anything else I can send to help?\n\nThanks,\n{myName}",
     },
     {
+      id: 'tpl-recruiter-intro',
+      name: 'Recruiter: roles like yours',
+      channel: 'note',
+      when: 'recruiter-intro',
+      body: "Hi {first}, I'm looking for {role} roles[[ after my time at {myEmployer}]][[ and saw we both {common}]]. If {company} is hiring for anything like that, I'd love to be on your radar. Happy to send my resume.\n\n{me}",
+    },
+    {
       id: 'tpl-follow',
       name: 'Friendly follow-up',
       channel: 'message',
@@ -726,8 +754,11 @@
         return !!job && status !== 'referred';
       case 'recruiter':
         return !!job && RECRUITER.test(contact.title || '') && !['talked', 'referred'].includes(status);
+      case 'recruiter-intro':
+        return !job && RECRUITER.test(contact.title || '') && !['talked', 'referred'].includes(status);
+      // Asking a recruiter what their job is like misses why you'd write to one.
       case 'common':
-        return !!clean(contact.connection) && !['reached', 'talked', 'referred'].includes(status);
+        return !!clean(contact.connection) && !RECRUITER.test(contact.title || '') && !['reached', 'talked', 'referred'].includes(status);
       case 'know':
         return KNOW.test(contact.connection || '') && !['reached', 'talked', 'referred'].includes(status);
       case 'waiting':
@@ -735,12 +766,12 @@
       case 'talked':
         return ['replied', 'talked', 'referred'].includes(status);
       case 'any':
-        return !['talked', 'referred'].includes(status);
+        return !RECRUITER.test(contact.title || '') && !['talked', 'referred'].includes(status);
       default:
         return true; // your own templates always show
     }
   }
-  const FIRST = { waiting: 60, talked: 60, recruiter: 50, job: 40, know: 30, common: 20, any: 0 };
+  const FIRST = { waiting: 60, talked: 60, recruiter: 50, 'recruiter-intro': 50, job: 40, know: 30, common: 20, any: 0 };
 
   // Several ready-to-send messages for this person, best first: the ones
   // that suit where things stand, with their details filled in.

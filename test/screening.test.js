@@ -69,3 +69,20 @@ test('a conflict caps the fit score as a dealbreaker and is an ATS knockout', ()
   const ats = atsScore(posting, docs[0].text, { checkFormatting: false, profile: { workAuth: 'needs-sponsorship' } });
   assert.ok(ats.knockouts.includes('Screening question: Requires U.S. citizenship'));
 });
+
+test('a job you would go into away from where you live: a move to confirm, or a dealbreaker if you won\'t relocate', () => {
+  const { nearby, screeningCheck } = require('../src/main/screening');
+  assert.equal(nearby('McLean, VA', 'Washington, DC'), true);
+  assert.equal(nearby('Arlington, VA (Hybrid)', 'Washington, DC'), true);
+  assert.equal(nearby('New York, NY', 'Washington, DC'), false);
+  assert.equal(nearby('Seattle, Washington', 'Washington, DC'), false, '"Washington" alone is not D.C.');
+  assert.equal(nearby('Santa Clara, CA', 'San Francisco, CA'), true);
+  const home = { location: 'Washington, DC' };
+  const nyc = { location: 'New York, NY (Hybrid)', text: 'Three days a week in the office.' };
+  assert.match(screeningCheck(nyc, home).unanswered.join(), /Hybrid in New York, NY \(Hybrid\), away from Washington, DC/);
+  assert.deepEqual(screeningCheck(nyc, { ...home, relocate: 'no' }).conflicts, ['Hybrid in New York, NY (Hybrid), away from Washington, DC']);
+  assert.deepEqual(screeningCheck(nyc, { ...home, relocate: 'yes' }), { conflicts: [], unanswered: [] });
+  for (const job of [{ location: 'New York, NY or Remote (US)', text: '' }, { location: 'New York, NY', text: 'This is a fully remote role.' }, { location: 'Reston, VA', text: '' }, { location: 'Hartford, CT', text: '' }].slice(0, 3))
+    assert.deepEqual(screeningCheck(job, { ...home, relocate: 'no' }).conflicts, [], job.location);
+  assert.deepEqual(screeningCheck({ location: 'New York, NY', text: '' }, {}).unanswered, [], 'no home location, nothing to compare');
+});

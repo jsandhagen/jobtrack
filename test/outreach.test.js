@@ -495,3 +495,28 @@ test('strong fits you have seen or dismissed are not called out again', () => {
   assert.deepEqual(Object.keys(O.remember(seen, [], now + 31 * 86400000)), []);
   assert.equal(Object.keys(O.remember(seen, ['x'], now + 86400000)).length, 2);
 });
+
+test('job searches ask for the other word orders a title is posted under', () => {
+  const kw = (titles) => params(O.linkedinJobsUrl({ titles })).keywords;
+  assert.equal(kw('Technology Strategy Manager'), '"Technology Strategy Manager" OR "Manager, Technology Strategy" OR "Technology Strategy Senior Manager"');
+  assert.equal(params(O.indeedJobsUrl({ titles: 'Corporate Strategy Manager' })).q, '"Corporate Strategy Manager" OR "Manager, Corporate Strategy" OR "Corporate Strategy Senior Manager"');
+  // Short titles and titles that already carry a level stay as written.
+  assert.equal(kw('Chief of Staff'), '"Chief of Staff"');
+  assert.equal(kw('Operations Manager'), '"Operations Manager"');
+  assert.equal(kw('Senior Technology Strategy Manager'), '"Senior Technology Strategy Manager"');
+  // Too many phrases for one LinkedIn search: just the titles.
+  assert.equal(kw('Technology Strategy Manager, Corporate Strategy Manager, Product Strategy Manager'), '"Technology Strategy Manager" OR "Corporate Strategy Manager" OR "Product Strategy Manager"');
+  assert.match(params(O.startupBoardsUrl({ titles: 'Technology Strategy Manager' })).q, /"Manager, Technology Strategy"/);
+});
+
+test('a recruiter hears what you are looking for, not "what is your job like"', () => {
+  const profile = { name: 'Jordan Avery', targetRoles: 'Technology Strategy Manager', pastEmployers: 'Appian' };
+  const recruiter = { name: 'Morgan Diaz', company: 'Northwind', title: 'Technical Recruiter', connection: 'UVA alum' };
+  const ms = O.suggestMessages(recruiter, O.DEFAULT_TEMPLATES, { profile });
+  assert.equal(ms[0].template.id, 'tpl-recruiter-intro');
+  assert.ok(ms.every((m) => !['tpl-role', 'tpl-email', 'tpl-common'].includes(m.template.id)), ms.map((m) => m.template.id).join());
+  assert.match(ms[0].text, /technology strategy manager roles after my time at Appian and saw we both went to UVA\. If Northwind is hiring/);
+  assert.ok(ms[0].text.length <= O.NOTE_LIMIT);
+  // With a role open there, the message is about that role.
+  assert.equal(O.suggestMessages(recruiter, O.DEFAULT_TEMPLATES, { profile, job: { title: 'Strategy Manager', company: 'Northwind' } })[0].template.id, 'tpl-recruiter');
+});
