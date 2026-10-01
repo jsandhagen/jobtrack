@@ -1288,10 +1288,11 @@ function searchesTab() {
             <div><label>Work type</label><select id="fsWork">${Object.entries(O.WORK_TYPES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
             <div class="full"><label>Search</label><div class="choice-row">
               <label><input type="radio" name="fsSource" value="linkedin" checked> LinkedIn jobs</label>
+              <label><input type="radio" name="fsSource" value="indeed"> Indeed jobs</label>
               <label><input type="radio" name="fsSource" value="startups"> Startup job boards <span class="faint">(Ashby, Greenhouse, Lever, Workable, through Google)</span></label></div></div>
           </div>
           <div class="inline" style="margin-top:12px"><button class="primary" id="fsOpen">${icon('link')} Open</button><button class="soft" id="fsSave">Save search</button></div>
-          <details style="margin-top:14px"><summary class="faint">Or save any link (Indeed, a niche job board, a company's careers page…)</summary>
+          <details style="margin-top:14px"><summary class="faint">Or save any link (a niche job board, a company's careers page…)</summary>
             <div class="form-grid" style="margin-top:8px"><div><label>Name</label><input id="fsLinkName" placeholder="Climate jobs board"></div><div><label>Link</label><input id="fsLinkUrl" placeholder="https://…"></div></div>
             <button class="small soft" id="fsLinkSave" style="margin-top:8px">Save link</button></details>
         </div>
@@ -1305,7 +1306,7 @@ function searchesTab() {
         <div class="card"><h3 class="with-icon">${icon('target', 20)} Cutting the noise</h3>
           <ul class="tidy">
             <li><b>Past week, newest first.</b> Older postings already have hundreds of applicants.</li>
-            <li><b>Titles in quotes.</b> Without them LinkedIn matches any word, which is how "chief of staff" turns into a nursing job.</li>
+            <li><b>Titles in quotes.</b> Without them LinkedIn and Indeed match any word, which is how "chief of staff" turns into a nursing job.</li>
             <li><b>A distance, not just a city.</b> Searches near you are capped at 25 miles.</li>
             <li><b>Found one?</b> Copy the posting and I'll score it. Then check <a href="#people">People</a> for anyone you know there.</li>
           </ul></div>
@@ -1392,6 +1393,7 @@ function companyRow(co) {
       ${L.careers ? `<button class="small soft" data-open-url="${esc(L.careers)}">${icon('link', 14)} Careers page</button>` : `<button class="small soft coCareers" data-id="${co.id}">+ Careers link</button>`}
       <details class="more-menu"><summary class="small ghost">More ▾</summary><div class="more-list">
         <button class="ghost" data-open-url="${esc(L.jobs)}">${icon('link', 14)} Its jobs on LinkedIn this week</button>
+        <button class="ghost" data-open-url="${esc(L.indeedJobs)}">${icon('link', 14)} Its jobs on Indeed this week</button>
         ${L.peopleInCommon ? `<button class="ghost" data-open-url="${esc(L.peopleInCommon)}">${icon('link', 14)} People there you have something in common with</button>` : ''}
         <button class="ghost" data-open-url="${esc(L.people)}">${icon('link', 14)} People there in your field</button>
         <button class="ghost" data-add-person="${esc(co.name)}">+ Add a person there</button>
@@ -1744,7 +1746,7 @@ function bindSearchesTab() {
   $('#fsSave').addEventListener('click', async () => {
     const s = form();
     if (!filled(s)) return toast('Add a job title first.');
-    const name = [O.splitList(s.titles).join(' or ') || s.keywords, s.workType !== 'any' ? O.WORK_TYPES[s.workType].toLowerCase() : '', s.location && `near ${s.location}`, s.source === 'startups' && 'at startups'].filter(Boolean).join(', ');
+    const name = [O.splitList(s.titles).join(' or ') || s.keywords, s.workType !== 'any' ? O.WORK_TYPES[s.workType].toLowerCase() : '', s.location && `near ${s.location}`, s.source === 'startups' && 'at startups', s.source === 'indeed' && 'on Indeed'].filter(Boolean).join(', ');
     await S.saveItem('searches', { ...s, name });
     toast('Saved.', 'good');
     netRefresh();

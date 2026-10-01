@@ -131,7 +131,7 @@ Every Claude button uses a prompt written for consistent, checkable results. The
 
 ### Find jobs and People
 
-Nothing here scrapes LinkedIn: every search is a link that opens in your browser.
+Nothing here scrapes LinkedIn or Indeed: every search is a link that opens in your browser.
 
 **Find jobs** (`#find`) has four tabs, and remembers the one you used last:
 - **Jobs**, the job board: open roles at the companies you watch, newest first, grouped into *Today*, *This week*, *This month* and *Earlier*.
@@ -142,13 +142,14 @@ Nothing here scrapes LinkedIn: every search is a link that opens in your browser
   - Click a title to open the posting, or a company name to see only its roles. **Check my fit** scores the full posting. Jobs already in your list say so instead.
   - **✕ hides** a job that's not for you. Tick **Hidden** to see or restore them.
   - Your saved searches sit in one row above the board, one click each.
-- **Searches**: one-click searches for fresh postings, all opening in your browser (nothing here scrapes LinkedIn).
-  - **Suggested searches** come from your Profile's target roles and location: each role near you, remote, and at startups. Save the ones you like. Each shows when you last opened it.
+- **Searches**: one-click searches for fresh postings, all opening in your browser (nothing here scrapes LinkedIn or Indeed).
+  - **Suggested searches** come from your Profile's target roles and location: each role near you and remote (on LinkedIn and on Indeed), and at startups. Save the ones you like. Each shows when you last opened it.
   - LinkedIn searches are limited to **the past week, newest first**, with titles in quotes (so "chief of staff" doesn't match every "staff" job) and a 25-mile distance.
+  - **Indeed searches** work the same way: titles in quotes, newest first, a 25-mile radius, and Indeed's own remote and hybrid filters. Indeed's longest date filter is 14 days, so *Past month* there means the past 14 days.
   - **Startup job boards**: a Google search of Ashby, Greenhouse, Lever and Workable boards for the past week, which finds the smaller companies LinkedIn buries.
-  - **Build a search** (titles, keywords, location, posted within, remote / hybrid / on-site), or save any other link.
+  - **Build a search** (titles, keywords, location, posted within, remote / hybrid / on-site) on LinkedIn, Indeed or the startup job boards, or save any other link.
 - **Companies**: the companies you watch. Add one by name (press Enter), with why it caught your eye and its careers link if you have it. Companies from your applications and people are suggested.
-  - Each shows its logo on the left and, on the right, how many open roles match yours (click it to see them on the Jobs tab), then how Sprout reads its careers site and a link to its careers page. **More** holds its LinkedIn jobs this week, people you share a school or employer with there, people in your field there, adding a person, extra titles to match, and changing the careers link.
+  - Each shows its logo on the left and, on the right, how many open roles match yours (click it to see them on the Jobs tab), then how Sprout reads its careers site and a link to its careers page. **More** holds its LinkedIn and Indeed jobs this week, people you share a school or employer with there, people in your field there, adding a person, extra titles to match, and changing the careers link.
 - **How the board gets its jobs:** Sprout reads each watched company's own careers site and lists the open roles whose titles match your target roles (plus any extra titles you add for that company). It checks a minute after starting and every 6 hours after that, and sends a desktop notification when a new matching role goes up.
   - **Strong fits get called out.** When a new role scores 65 or more on the free fit preview (a *Strong* or *Excellent match*, with no dealbreakers), Sprout names it and its score in the notification instead of just counting new roles. The same goes for a company you just added: its first check has nothing "new" yet, but every open role is new to you, so strong fits among them are called out too ("You just added Brio, and it already has a role that fits you really well"). For three days Sprout also mentions them on Home (with **See the strong fits**, which opens the board best fit first), in the sidebar and on the Jobs tab. Roles you've hidden or already have in your list are left out.
   - Works with careers sites hosted on **Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Workday**, which is most startups and many larger companies. Sprout finds the board from the careers link, from links on the careers page, or (with no link) by trying the company's name on Greenhouse, Lever and Ashby. A board found by name is marked so you can say **Not them**.
