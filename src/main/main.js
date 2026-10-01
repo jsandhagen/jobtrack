@@ -836,6 +836,10 @@ const pickQuick = (q) => ({
   confidence: q.confidence,
   matchedSkills: (q.matchedSkills || []).slice(0, 8),
   dealbreakers: q.dealbreakers || [],
+  // For the card's breakdown.
+  components: q.components || null,
+  partialSkills: (q.partialSkills || []).slice(0, 8),
+  missingSkills: (q.missingSkills || []).slice(0, 8),
 });
 const pickAts = (a) => (a ? { score: a.score, grade: a.grade, skillsMatch: a.skillsMatch || '' } : null);
 const cardEnv = () => ({ hasDocs: evidenceDocs().length > 0, hasKey: !!getApiKey() });

@@ -110,3 +110,17 @@ test('"X, Y, or Z" is one requirement that any one of them meets; "X and Y" stay
   assert.ok(r.matchedSkills.includes('one of Python, R, Java'));
   assert.deepEqual(r.missingSkills, ['Excel']);
 });
+
+test('working at a low-code vendor is low-code experience; a skill you say you have counts', () => {
+  const job = { title: 'Solutions Engineer', company: 'Acme', text: 'Solutions Engineer\nRequirements:\n- 3+ years of experience with low-code platforms\n- Experience with SQL\n- Experience with Kubernetes\n' };
+  const resume = { kind: 'resume', text: 'Jordan Rivera\nEXPERIENCE\nSolutions Consultant\nAppian, 2019 - Present\n- Built case management apps for federal clients\n- Wrote SQL reports for 40 stakeholders\nSKILLS\nSQL, Java' };
+  const plain = localFitScore(job, [resume], {});
+  assert.ok(plain.matchedSkills.includes('Low-Code / BPM'), 'Appian as an employer shows low-code');
+  assert.ok(plain.missingSkills.includes('Kubernetes'));
+  const claimed = localFitScore(job, [resume], { haveSkills: 'Kubernetes' });
+  assert.ok(claimed.matchedSkills.includes('Kubernetes'), 'a Profile skill counts');
+  assert.ok(claimed.score > plain.score);
+  // Using a vendor's product isn't working there.
+  const user = { kind: 'resume', text: 'Jordan Rivera\nEXPERIENCE\nAnalyst\nAcme Bank, 2019 - Present\n- Reviewed vendor demos including Appian and Pega\n- Wrote SQL reports' };
+  assert.ok(!localFitScore(job, [user], {}).matchedSkills.includes('Low-Code / BPM'));
+});

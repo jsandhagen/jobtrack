@@ -48,6 +48,8 @@ const DEFAULT_PROFILE = {
   workModes: '',
   minSalary: '',
   avoidKeywords: '',
+  // skills you have that your documents don't show; the fit score counts them
+  haveSkills: '',
   // employers you won't work for ("Accenture, Deloitte"): never suggested, never a match
   skipEmployers: '',
   // answers to common application screening (knockout) questions

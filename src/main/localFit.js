@@ -663,7 +663,7 @@ function recencyWeight(end, now) {
   const ago = now - year;
   return ago <= 2 ? 1 : ago <= 5 ? 0.9 : ago <= 10 ? 0.75 : 0.6;
 }
-const DOC_WEIGHT = { bank: 0.85, project: 0.85, recommendation: 0.8, certification: 0.9, transcript: 0.7, 'cover-letter': 0.7 };
+const DOC_WEIGHT = { bank: 0.85, claimed: 0.85, project: 0.85, recommendation: 0.8, certification: 0.9, transcript: 0.7, 'cover-letter': 0.7 };
 
 function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
   const { parseResume } = require('./bullets'); // lazy: bullets.js requires this module
@@ -1007,6 +1007,10 @@ function fitHeadline(f) {
 // ---------- the score ----------
 
 function localFitScore(job, documents, profile = {}) {
+  // Skills you have that your documents don't show (Profile, or "I have this"
+  // on a missing skill) count as nearly as much as a resume that says so.
+  const claimed = String(profile.haveSkills || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+  if (claimed.length) documents = [...documents, { kind: 'claimed', text: claimed.join(', ') }];
   const libText = documents.map((d) => d.text).join('\n\n');
   const lib = lower(libText);
   const { units, ignoreWords } = requirementUnits(job);

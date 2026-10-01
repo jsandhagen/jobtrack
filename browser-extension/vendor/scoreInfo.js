@@ -108,5 +108,38 @@
     el.style.top = `${below + h <= window.innerHeight - 12 ? below : Math.max(12, r.top - h - 8)}px`;
   }
 
-  window.SproutInfo = { infoBtn, wire, close, panelHtml, TOPICS };
+  // The free fit score's parts as bars, and the skills behind them. `quick` is
+  // the free score (components, matched, partial and missing skills).
+  const PARTS = [
+    ['required', 'Required quals'],
+    ['preferred', 'Preferred'],
+    ['role', 'Role match'],
+    ['experience', 'Experience'],
+    ['seniority', 'Seniority'],
+    ['domain', 'Domain'],
+  ];
+  const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const band = (v) => (v >= 75 ? 'var(--band-hi)' : v >= 50 ? 'var(--band-mid)' : 'var(--band-lo)');
+  function fitBars(components) {
+    const rows = PARTS.filter(([k]) => components && components[k] !== null && components[k] !== undefined);
+    if (!rows.length) return '';
+    return `<div class="fit-bars">${rows
+      .map(([k, l]) => `<div class="fit-bar"><span>${l}</span><div class="track"><i style="width:${components[k]}%;background:${band(components[k])}"></i></div><b>${components[k]}</b></div>`)
+      .join('')}</div>`;
+  }
+  // For the popup and the browser card: folded away until you open it.
+  function fitDetails(quick) {
+    if (!quick) return '';
+    const bars = fitBars(quick.components);
+    const chip = (s, cls, mark, title = '') => `<span class="chip ${cls}"${title ? ` title="${title}"` : ''}>${mark} ${escHtml(s)}</span>`;
+    const skills = [
+      ...(quick.matchedSkills || []).map((s) => chip(s, 'good', '✓')),
+      ...(quick.partialSkills || []).map((s) => chip(s, '', '~', 'Partly shown')),
+      ...(quick.missingSkills || []).map((s) => chip(s, 'grow', '＋', 'Not found in your documents')),
+    ];
+    if (!bars && !skills.length) return '';
+    return `<details class="fit-details"><summary>How the free score adds up</summary>${bars}${skills.length ? `<div class="fit-skills">${skills.join('')}</div>` : ''}</details>`;
+  }
+
+  window.SproutInfo = { infoBtn, wire, close, panelHtml, TOPICS, fitBars, fitDetails };
 })();

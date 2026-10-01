@@ -586,6 +586,7 @@ const views = {
           'Your target roles shape the fit score. Postings that hit a dealbreaker are capped at 30 and labelled "Dealbreaker", so they don\'t pop up as good matches.',
           `<div class="full"><label>Roles you are aiming for</label><textarea data-k="targetRoles" rows="2" style="min-height:0" placeholder="Frontend engineer, design engineer">${esc(p.targetRoles)}</textarea><small class="faint">Separate with commas. List every title you'd take: the same job goes by many names (Technology Strategy Manager, Strategy &amp; Operations Manager, Chief of Staff), and Find jobs looks for each one.</small></div>
           ${f('workModes', 'Work arrangements', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
+          <div class="full"><label>Skills you have that your resume doesn't show</label><textarea data-k="haveSkills" rows="2" style="min-height:0" placeholder="Low-code, Kubernetes, Spanish">${esc(p.haveSkills || '')}</textarea><small class="faint">Separate with commas. They count toward the fit score as if a resume said so. They aren't added to your resumes. On a job's <i>Fit &amp; ATS</i> tab, <b>I have this</b> on a missing skill adds it here.</small></div>
           ${f('avoidKeywords', 'Skip postings that mention', 'commission only, night shift', true)}
           <div class="full"><label>Employers to skip</label><textarea data-k="skipEmployers" rows="2" style="min-height:0" placeholder="Accenture, Deloitte, KPMG, PwC, EY, McKinsey, BCG, Booz Allen">${esc(p.skipEmployers)}</textarea><small class="faint">Separate with commas. Their postings read as a dealbreaker, Find jobs leaves them out, and the company finder won't suggest them. "Deloitte" also covers Deloitte Consulting. Use this rather than "consulting" above: in-house roles often ask for consulting experience.</small></div>`
         )}
@@ -979,16 +980,14 @@ async function renderApplication(id) {
         .map((q) => `<li class="q-${q.status}" title="${esc(q.evidence)}"><span class="qi">${q.status === 'met' ? '✓' : q.status === 'partial' ? '½' : '·'}</span><span>${esc(q.requirement)}${q.type === 'preferred' ? ' <em class="faint">(preferred)</em>' : ''}${q.verified === false ? ' <em class="faint" title="Claude quoted something that isn\'t in your documents, so this was marked down">(unverified)</em>' : ''}</span></li>`)
         .join('')}</ul>` : ''}
       <div class="section-title">Talking points</div><ul class="tidy">${an.talking_points.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
-      <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>`
+      <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>
+      ${q.components ? `<div class="section-title">Free score breakdown <span class="faint" style="font-weight:600">(${q.score}/100)</span></div>${window.SproutInfo.fitBars(q.components)}` : ''}`
     : `<h3 style="margin-top:4px">Free fit score ${infoBtn('fit')} <span class="chip" title="How much of the posting the free scorer recognised">confidence: ${esc(q.confidence || 'medium')}</span></h3>
       ${q.headline ? `<p style="font-weight:700">${esc(q.headline)}</p>` : ''}
       ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Dealbreaker:</b> ${q.dealbreakers.map(esc).join('; ')}</div>` : ''}
       ${q.reasons && q.reasons.length ? `<ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
       ${q.concerns && q.concerns.length ? `<ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${q.components ? `<div class="mini-bars">${[['required', 'Required quals'], ['preferred', 'Preferred'], ['role', 'Role match'], ['experience', 'Experience'], ['seniority', 'Seniority'], ['domain', 'Domain']]
-        .filter(([k]) => q.components[k] !== null && q.components[k] !== undefined)
-        .map(([k, l]) => `<div class="ats-bar"><span>${l}</span><div class="track"><i style="width:${q.components[k]}%;background:${barColor(q.components[k])}"></i></div><b>${q.components[k]}</b></div>`)
-        .join('')}</div>` : ''}
+      ${window.SproutInfo.fitBars(q.components)}
       <div style="margin-top:12px">${
         analyzing
           ? '<p class="muted"><span class="spinner"></span> Claude is reading the posting closely…</p>'
@@ -1002,7 +1001,7 @@ async function renderApplication(id) {
   const skills = `<div class="section-title">Skills from the posting</div><div>
     ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
     ${(q.partialSkills || []).map((s) => `<span class="chip" title="Partly shown: a related skill, an older role or only a skills-list mention">~ ${esc(s)}</span>`).join('')}
-    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)}</span>`).join('')}
+    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Count it toward the fit score (adds it to your Profile)">I have this</button></span>`).join('')}
     ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Preferred">✓ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
@@ -1103,6 +1102,16 @@ async function renderApplication(id) {
   const ma = $('#markApplied', page);
   if (ma) ma.addEventListener('click', () => openApplyModal(a));
   $('#editJob', page).addEventListener('click', () => openEditJobModal(a));
+  $$('[data-have]', page).forEach((b) =>
+    b.addEventListener('click', () =>
+      run(b, async () => {
+        const have = String(state.profile.haveSkills || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+        if (!have.some((x) => x.toLowerCase() === b.dataset.have.toLowerCase())) await S.updateProfile({ haveSkills: [...have, b.dataset.have].join(', ') });
+        await S.rescoreLocal(id);
+        toast(`Counting ${b.dataset.have} as a skill you have. Change it any time in Profile.`, 'good');
+      }, '…')
+    )
+  );
   const ask = $('#askClaude', page);
   if (ask) ask.addEventListener('click', () => run(ask, () => S.analyzeApplication(id), 'Asking Claude…'));
   const fu = $('#followUp', page);

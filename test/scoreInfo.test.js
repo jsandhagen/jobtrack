@@ -23,3 +23,13 @@ test('ATS explanation matches the ATS score weights', () => {
   const said = { hardSkills: 'Hard skills', parseability: 'parse-ready format', jobTitle: 'Job title', experience: 'years', education: 'education', keywords: 'other keywords', softSkills: 'Soft skills' };
   for (const [k, w] of Object.entries(ATS)) assert.match(TOPICS.ats.body, new RegExp(`${said[k]} ${pct(w)}`), k);
 });
+
+test('fit details: bars for the parts that apply, and the skills behind them', () => {
+  const html = window.SproutInfo.fitDetails({ components: { required: 52, preferred: null, role: 33 }, matchedSkills: ['SQL'], partialSkills: [], missingSkills: ['<K8s>'] });
+  assert.match(html, /<details class="fit-details">/);
+  assert.match(html, /Required quals/);
+  assert.match(html, /Role match/);
+  assert.doesNotMatch(html, /Preferred/);
+  assert.match(html, /&lt;K8s&gt;/);
+  assert.strictEqual(window.SproutInfo.fitDetails({ components: null, matchedSkills: [] }), '');
+});

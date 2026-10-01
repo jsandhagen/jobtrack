@@ -375,7 +375,9 @@ Under the score is **one line that says what decides it**, most decisive first: 
 
 **1. What the posting asks for.** Each line is classified as required, preferred or a duty (by its section heading and its own wording: "a plus", "must"). Requirements come from a skill dictionary with a related-skill graph (Power BI is partial credit for Tableau; validating PD models for credit risk modeling), plus terms it has never seen: codes and products (FRTB, SR 11-7, Epic, Hyperion) and phrases ("ventilator management"). "N years of X" is a requirement of its own (the *kind* of experience), lists of alternatives ("Python or R") are one requirement, and a degree counts for its level and its field ("Master's in statistics, physics or another quantitative field").
 
-**2. Evidence.** Each requirement is scored by its best evidence, as Textkernel does: recent work in full, older roles, a skills list, coursework or a degree a little less; a few skills are inferred from titles you've held (partial credit only, like LinkedIn's and Eightfold's title-to-skill inference).
+**2. Evidence.** Each requirement is scored by its best evidence, as Textkernel does: recent work in full, older roles, a skills list, coursework or a degree a little less; a few skills are inferred from titles you've held (partial credit only, like LinkedIn's and Eightfold's title-to-skill inference). Working at a software vendor counts as enterprise software experience, and at a low-code or process-automation vendor (Appian, Pega, OutSystems, Mendix…) as low-code experience, though few resumes say so. Skills you have that your documents don't show can go in Profile (*Skills you have that your resume doesn't show*), or click **I have this** on a missing skill on a job's *Fit & ATS* tab. They count nearly as much as a resume that says so, but they aren't added to your resumes.
+
+**Seeing the breakdown.** The *Fit & ATS* tab shows the parts of the free score as bars, also after Claude has read the posting. The app's popup and the browser card have **How the free score adds up**, which opens to show the same bars and the skills found, partly found and missing.
 
 **3. The score.**
 

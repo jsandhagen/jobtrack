@@ -58,6 +58,7 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     ${atsLine(app)}
     ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
     <div class="chips">${chips}</div>
+    ${window.SproutInfo.fitDetails(app.quick)}
     ${footer}`;
 }
 
@@ -150,6 +151,8 @@ function render(payload) {
 }
 
 window.SproutInfo.wire({ inline: true, onToggle: fit });
+// Opening the score breakdown changes the card's height (toggle doesn't bubble).
+content.addEventListener('toggle', fit, true);
 
 content.addEventListener('click', (e) => {
   // Poke Sprout and it says something nice.

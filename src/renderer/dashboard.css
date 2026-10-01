@@ -207,8 +207,7 @@ details[open] > summary::before { transform: rotate(90deg); }
 .timeline li { position: relative; display: flex; justify-content: space-between; font-size: 12.5px; padding: 3px 0 3px 8px; }
 .timeline li::before { content: ""; position: absolute; left: -19px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--sage); box-shadow: 0 0 0 3px var(--surface); }
 .timeline li span { color: var(--ink-faint); }
-.mini-bars { display: grid; gap: 5px; margin: 10px 0 2px; }
-.mini-bars .ats-bar { grid-template-columns: 118px 1fr 28px; }
+.chip .have-skill { margin-left: 4px; padding: 0 7px; min-height: 0; font-size: 11.5px; font-weight: 800; border-radius: 99px; background: var(--surface); color: var(--sage-deep); border: 1px solid var(--line-strong); box-shadow: none; }
 .center { text-align: center; }
 .center .sprout { margin: 0 auto; display: block; }
 .status.rejected { background: var(--peach-soft); color: #b8653e; }
