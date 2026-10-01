@@ -17,8 +17,9 @@
 
 const { voiceProfile } = require('./voice');
 
-// Both branches changed prompts (degree rule + main's edits): a new version.
-const PROMPT_VERSION = '2026-10-01.3';
+// Resume: the role list leaves out internships and roles the candidate hid;
+// bullets carry their result in one or two lines rather than many one-liners.
+const PROMPT_VERSION = '2026-10-02.1';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -159,13 +160,14 @@ Write the resume content for this posting. The app lays it out in the candidate'
 The goal is one page that makes the candidate's fit for this specific posting obvious in a ten-second skim and parses cleanly for an applicant tracking system. Choose and order content by how directly it proves the posting's basic requirements, then its preferred ones.
 
 Roles (<role_list>):
-- Every role in the list is real and comes from the candidate's documents. Refer to roles only by their role_id. Include every job-type role so the work history has no unexplained gaps, in the order given (most recent first); include a project only when it shows something the posting asks for.
+- Every role in the list is real and comes from the candidate's documents. Refer to roles only by their role_id. Include every job-type role in the list so the work history has no unexplained gaps, in the order given (most recent first); include a project only when it shows something the posting asks for. The list already leaves out roles the candidate doesn't want on a resume, such as internships once they have two years of other work; don't bring those back from the documents.
 - Give recent and relevant roles 3 to 6 bullets and older or less relevant roles 1 to 3, keeping the whole resume to one page — about 12 to 16 bullets in total across all roles.
 
 Bullets:
 - Start from the bullets in <picked_bullets>: the candidate chose these for this job. Keep them unless a bullet from the same role in <role_list> is clearly stronger for this posting. Keep a picked or bank bullet's wording except for small edits that use the posting's term for the same thing, move the most relevant element forward, or remove filler; when you use one, set from_bullet to its id.
 - Check the other documents for stronger evidence than the bank holds — a project write-up, a review or a cover letter often describes an accomplishment that proves a requirement the bank bullets don't. You may write a new bullet from them, filed under the role it belongs to, but only from facts in the candidate documents. For a new bullet set from_bullet to "" and set source_quote to the shortest exact excerpt from the documents that supports its key fact. The app verifies every quote and number and flags anything it cannot trace.
 - Order bullets within a role by relevance to the posting, strongest first.
+- Each bullet is one or two lines (roughly 15 to 30 words): what the candidate did and what came of it. A page of one-line tasks ("Ran weekly reports") is hard to read and proves little, so prefer fewer bullets that each carry a result over more bullets, and don't pad a role with filler to reach a count.
 
 Voice: follow the house style above, using the candidate's own verbs and bullet punctuation from <voice_profile>; the summary may sound a little more like them.
 

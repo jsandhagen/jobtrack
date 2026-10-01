@@ -298,12 +298,13 @@ document.addEventListener('keydown', (e) => {
 // Yes/no questions in the page, never window.confirm(): in Electron a native
 // dialog can leave text boxes unable to take typing until the window is
 // refocused. Its own layer, so it can sit over an open modal. Resolves true/false.
-function askConfirm(message, okLabel = 'OK') {
+// Resolves true (OK), false (Cancel), or 'alt' for the optional third choice.
+function askConfirm(message, okLabel = 'OK', { alt } = {}) {
   return new Promise((resolve) => {
     const back = document.createElement('div');
     back.className = 'modal confirm-modal';
     back.innerHTML = `<div class="modal-card card" role="alertdialog" aria-modal="true"><p style="margin:0 0 16px;font-weight:600">${esc(message)}</p>
-      <div class="inline" style="justify-content:flex-end"><button class="ghost" data-ans="no">Cancel</button><button class="primary" data-ans="yes">${esc(okLabel)}</button></div></div>`;
+      <div class="inline" style="justify-content:flex-end"><button class="ghost" data-ans="no">Cancel</button>${alt ? `<button class="soft" data-ans="alt">${esc(alt)}</button>` : ''}<button class="primary" data-ans="yes">${esc(okLabel)}</button></div></div>`;
     const was = document.activeElement;
     const done = (yes) => {
       document.removeEventListener('keydown', onKey, true);
@@ -319,7 +320,7 @@ function askConfirm(message, okLabel = 'OK') {
     };
     back.addEventListener('click', (e) => {
       const b = e.target.closest('[data-ans]');
-      if (b || e.target === back) done(!!b && b.dataset.ans === 'yes');
+      if (b || e.target === back) done(b && b.dataset.ans === 'alt' ? 'alt' : !!b && b.dataset.ans === 'yes');
     });
     document.addEventListener('keydown', onKey, true);
     document.body.appendChild(back);

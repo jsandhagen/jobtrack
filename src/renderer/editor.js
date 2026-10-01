@@ -530,7 +530,7 @@ function bulletsPane(pc) {
     <div class="tray-card">
       <h4>Slot in a bullet</h4>
       ${cand || (info.bankSize ? sproutSays('proud', 'Every relevant bullet in your bank is already on the page.', 40, { cls: 'tight' }) : sproutSays('curious', 'Your bullet bank is empty — add a resume to <a href="#library">My library</a>.', 40, { cls: 'tight' }))}
-      ${info.otherRoles.length ? `<div class="tray-role" style="margin-top:10px">Roles not on this resume</div>${info.otherRoles.map((o) => `<div class="cand slim"><span>${esc([o.title, o.organization].filter(Boolean).join(' · '))} <span class="faint">(${o.count})</span></span><button class="small soft" data-add-role-id="${o.id}">+ Add</button></div>`).join('')}` : ''}
+      ${info.otherRoles.length ? `<div class="tray-role" style="margin-top:10px">Roles not on this resume</div>${info.otherRoles.map((o) => `<div class="cand slim"><span>${esc([o.title, o.organization].filter(Boolean).join(' · '))} <span class="faint">(${o.count})${o.hidden ? ' · left off resumes' : ''}</span></span><button class="small soft" data-add-role-id="${o.id}">+ Add</button></div>`).join('')}` : ''}
     </div>`;
 }
 
@@ -1098,8 +1098,14 @@ function wirePaper() {
     if (roleTool) {
       const r = +roleTool.dataset.r;
       if (roleTool.dataset.roleTool === 'remove')
-        askConfirm('Take this role off this resume? (It stays in your bullet bank.)', 'Take it off').then((yes) => {
+        askConfirm('Take this role off just this resume, or leave it off every resume from now on? Its bullets stay in your bullet bank either way.', 'Just this resume', { alt: 'Every resume' }).then(async (yes) => {
           if (!yes || ed.doc.roles[r] === undefined) return;
+          const role = ed.doc.roles[r];
+          // Every resume: the bank remembers to leave it off from now on.
+          if (yes === 'alt' && role.experienceId) {
+            await S.saveRole({ id: role.experienceId, hidden: true });
+            toast(`${role.title || role.organization || 'That role'} stays off your resumes from now on. Bullet bank → Use on resumes brings it back.`, 'good', 5200);
+          }
           ed.doc.roles.splice(r, 1);
           ed.polish = new Map();
           ed.held = [];
@@ -1125,7 +1131,22 @@ function wirePaper() {
     const li = e.target.closest('li.rs-bullet');
     if (li) showGrip(li);
     else if (!e.target.closest('.rs-bullets')) hideGrip();
-    const block = e.target.closest('[data-role-block]');
+  });
+  // The role's ✕ / ▲ sit in the margin, so the margin beside a role counts as
+  // that role: moving out to them mustn't make them go away.
+  const roleAt = (e) => {
+    const inside = e.target.closest('[data-role-block]');
+    if (inside) return inside;
+    // In the right margin, level with a role.
+    return [...page.querySelectorAll('[data-role-block]')].find((b) => {
+      const r = b.getBoundingClientRect();
+      return e.clientX > r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    });
+  };
+  page.addEventListener('mousemove', (e) => {
+    if (document.body.classList.contains('dragging')) return;
+    if (e.target.closest('.ed-grip, .ed-float')) return;
+    const block = roleAt(e);
     const have = page.querySelector('.role-tools');
     if (have && block && have.dataset.r === block.dataset.roleBlock) return;
     if (have) have.remove();

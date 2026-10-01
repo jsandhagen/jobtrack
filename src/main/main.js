@@ -797,7 +797,7 @@ function builderState(rec) {
     otherRoles: bulletBank
       .orderedExperiences(bank)
       .filter((e) => !inDoc.has(e.id))
-      .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
+      .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, hidden: !!e.hidden, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
     coverage,
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 10), components: ats.components, gaps },
@@ -1223,7 +1223,7 @@ function registerIpc() {
   handle('bank:saveRole', (role) => {
     let saved;
     store.updateBank((b) => {
-      const fields = pick(role, ['title', 'organization', 'location', 'dates', 'isProject']);
+      const fields = pick(role, ['title', 'organization', 'location', 'dates', 'isProject', 'hidden']);
       if (fields.dates !== undefined) {
         const [start, end] = String(fields.dates).split(/\s*(?:-|–|—|to)\s*/);
         Object.assign(fields, { start: start || '', end: end || '' });

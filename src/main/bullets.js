@@ -74,6 +74,9 @@ function skillTags(text) {
     .map(([name]) => name);
 }
 
+// Bullets on one page of resume (Claude is asked for 12 to 16 too).
+const BULLETS_PER_PAGE = 16;
+
 function isQuantified(text) {
   return /\d|%|\$/.test(text);
 }
@@ -555,6 +558,9 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
 
   function fill(n) {
     const room = n * pageHeight - lineHeight; // a line spare for page-break slack
+    // A page holds about 12-16 bullets a reader will take in; past that each
+    // one dilutes the rest, so white space beats another line of filler.
+    const cap = Math.min(total, BULLETS_PER_PAGE * n);
     const extra = n > 1 ? 2 : 0;
     const limits = new Map(exps.map((e, i) => [e.id, roleLimit(e, i) + extra]));
     // Room to spare (or a second page) lets each role run a little longer.
@@ -606,9 +612,11 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     // Then the bullets that prove the most new requirements per line of page.
     const gainOf = (r) => r.covers.reduce((s, c) => s + KIND_WEIGHT[c.kind] * Math.max(0, c.m - (covered.get(c.key) || 0)), 0) * 1.5 + r.score * 0.5;
     let left = []; // relevant bullets that didn't fit
-    while (count < total && pool.length) {
+    while (count < cap && pool.length) {
       const open = pool.filter((r) => picked.get(r.experienceId).length < limits.get(r.experienceId)).map((r) => ({ r, gain: gainOf(r) }));
-      const worth = open.filter((x) => x.gain >= 0.9).sort((a, b) => b.gain / (1 + 0.2 * (lines.get(b.r.id) - 1)) - a.gain / (1 + 0.2 * (lines.get(a.r.id) - 1)));
+      // Per line of page, but a second line is free: a bullet with room for its result reads better than a one-line task.
+      const cost = (r) => 1 + 0.2 * Math.max(0, lines.get(r.id) - 2);
+      const worth = open.filter((x) => x.gain >= 0.9).sort((a, b) => b.gain / cost(b.r) - a.gain / cost(a.r));
       const next = worth.find((x) => fits(x.r));
       if (!next) {
         // What a second page could add: relevant bullets out of room, or over this page's per-role limit.
@@ -617,21 +625,30 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
       }
       take(next.r);
     }
+    // A full page of bullets: what's still relevant is what a second page could add.
+    if (count >= cap && !left.length) left = pool.filter((r) => picked.get(r.experienceId).length < roleLimits2.get(r.experienceId) && gainOf(r) >= 0.9);
     // Older roles get their minimum next, so each reads as a real job.
     exps.forEach((e, i) => topUp(e, i));
     // A half-empty page reads as thin: top it up with your strongest remaining bullets.
     const target = (n - 1 + 0.92) * pageHeight;
+    // Once the page has a solid dozen bullets, padding stays within each
+    // role's limit and takes only bullets with a result: more one-line tasks
+    // make the page harder to read, not stronger. A short library keeps all
+    // it has.
+    const SOLID = 12 * n;
+    const padLimit = (id) => (count >= SOLID ? limits.get(id) : roleLimits2.get(id));
     for (const r of [...pool].sort((a, b) => b.score - a.score)) {
-      if (count >= total || height(picked, shown) >= target) break;
-      if (r.score < 0.8 || picked.get(r.experienceId).length >= roleLimits2.get(r.experienceId)) continue;
+      if (count >= cap || height(picked, shown) >= target) break;
+      if (r.score < 0.8 || picked.get(r.experienceId).length >= padLimit(r.experienceId)) continue;
       if (fits(r)) take(r);
     }
     // Still thin (a short library): an accomplishment that proves nothing in
     // this posting reads better than empty page, so the rest of your bullets
-    // from the roles shown go in, strongest first.
+    // from the roles shown go in, strongest first (past a dozen, only ones
+    // with a result: a one-line task like "Ran weekly reports" is filler).
     for (const r of [...pool].sort((a, b) => b.score - a.score)) {
-      if (count >= total || height(picked, shown) >= target) break;
-      if (!shown.has(r.experienceId) || picked.get(r.experienceId).length >= roleLimits2.get(r.experienceId)) continue;
+      if (count >= cap || height(picked, shown) >= target) break;
+      if (!shown.has(r.experienceId) || (count >= SOLID && !isQuantified(r.text)) || picked.get(r.experienceId).length >= padLimit(r.experienceId)) continue;
       if (fits(r)) take(r);
     }
     const roles = asRoles(picked, shown);
@@ -661,8 +678,8 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     if (one.short) (pick = two), (why = 'Two pages: your roles need more room than one page.');
     else if (gained.length) (pick = two), (why = `Two pages, to also show ${gained.map((k) => units.find((u) => u.key === k).label).join(', ')}.`);
     else if (want === 2) (pick = two), (why = 'Two pages: more of your relevant bullets fit.');
-    // A second page should look intended, not like spill-over.
-    else if (careerYears(bank) >= 10 && one.leftLines >= perPage / 3 && two.fill >= 0.4) (pick = two), (why = 'Two pages: a long career with plenty of relevant bullets.');
+    // A second page should look intended, not like spill-over (under 30% full, as the editor says).
+    else if (careerYears(bank) >= 10 && one.leftLines >= perPage / 3 && two.fill >= 0.3) (pick = two), (why = 'Two pages: a long career with plenty of relevant bullets.');
     else why = 'Fits on one page; the bullets left out add nothing new for this posting.';
   }
   if (pick.pages === 1 && pick !== one) why = 'Fits on one page.';
@@ -882,10 +899,11 @@ const isInternship = (e) => !e.isProject && INTERNSHIP.test(e.title || '');
  * The roles a resume for this job draws from, most recent first. Once you
  * have two years of other work, internships are left off (recruiters read
  * them as filler by then), unless the job is itself an internship. You can
- * still add one back in the editor.
+ * still add one back in the editor. Roles you've said to leave off
+ * (`hidden`) never come back on their own.
  */
 function resumeExperiences(bank, job) {
-  const all = orderedExperiences(bank);
+  const all = orderedExperiences(bank).filter((e) => !e.hidden);
   if (job && INTERNSHIP.test(job.title || '')) return all;
   const work = all.filter((e) => !e.isProject && !isInternship(e));
   if (careerYears({ experiences: work }) < 2) return all;
@@ -948,11 +966,11 @@ function buildDoc({ profile, bank, job, roles, header }) {
 
 /**
  * The baseline resume: your bank as it stands, before any tailoring. Every
- * role, newest first, with its bullets in their original order and wording
+ * role (but ones you said to leave off), newest first, with its bullets in their original order and wording
  * (bullets you hid are left out), and your skills in your own order.
  */
 function baselineDoc({ profile, bank, job }) {
-  const roles = orderedExperiences(bank).map((e) => ({
+  const roles = orderedExperiences(bank).filter((e) => !e.hidden).map((e) => ({
     experienceId: e.id,
     bullets: bank.bullets.filter((b) => b.experienceId === e.id && !b.hidden).map((b) => ({ bulletId: b.id, text: b.text })),
   }));

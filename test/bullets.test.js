@@ -267,7 +267,7 @@ test('one page is a hard limit when asked for, and two pages is never exceeded',
   // A long career with lots of relevant bullets earns the second page on its own...
   const long = selectBullets(job, bigBank({ years: 20, strongRoles: 8, perRole: 6, roles: 8 }), { profile: PROFILE });
   assert.equal(long.pages, 2, long.why);
-  assert.ok(long.fill >= 0.4);
+  assert.ok(long.fill >= 0.3);
   // ...but not when the second page would be a few lines of spill-over.
   const thin = selectBullets(job, bank, { profile: PROFILE });
   assert.ok(thin.pages === 1 || thin.fill >= 0.4, thin.why);
@@ -379,4 +379,19 @@ test('the free optimizer leaves an internship off an experienced resume', () => 
   bank.bullets.push({ id: 'ib', experienceId: 'intern', text: 'Built React and TypeScript components with Storybook and GraphQL for the intern project', variants: [] });
   const sel = selectBullets(POSTINGS.seniorFrontend, bank, { profile: PROFILE, pages: 2 });
   assert.ok(!sel.roles.some((r) => r.experienceId === 'intern'));
+});
+
+test('a role you leave off stays off; a page holds at most 16 bullets', () => {
+  const { resumeExperiences } = require('../src/main/bullets');
+  const bank = bigBank({ years: 14, strongRoles: 6, perRole: 6 });
+  bank.experiences[1].hidden = true;
+  assert.ok(!resumeExperiences(bank, POSTINGS.seniorFrontend).some((e) => e.id === bank.experiences[1].id));
+  const sel = selectBullets(POSTINGS.seniorFrontend, bank, { profile: PROFILE, pages: 1 });
+  assert.ok(!sel.roles.some((r) => r.experienceId === bank.experiences[1].id));
+  assert.ok(!baselineDoc({ profile: PROFILE, bank, job: POSTINGS.seniorFrontend }).roles.some((r) => r.experienceId === bank.experiences[1].id));
+  // Lots of short bullets: no more than 16 on the page.
+  const many = bigBank({ years: 6, strongRoles: 6, perRole: 6 });
+  for (const b of many.bullets) b.text = b.text.split(' ').slice(0, 6).join(' ');
+  const s = selectBullets(POSTINGS.seniorFrontend, many, { profile: PROFILE, pages: 1 });
+  assert.ok(s.roles.reduce((n, r) => n + r.bullets.length, 0) <= 16);
 });
