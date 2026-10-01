@@ -535,8 +535,11 @@ function coreCovered(units, roles, bank) {
  */
 function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = {}, header, scale = 1 } = {}) {
   const ResumeDoc = require('../shared/resumeDoc');
-  const { ranked, units } = rankBullets(job, bank);
-  const exps = orderedExperiences(bank);
+  const exps = resumeExperiences(bank, job);
+  const onResume = new Set(exps.map((e) => e.id));
+  const rank = rankBullets(job, bank);
+  const { units } = rank;
+  const ranked = rank.ranked.filter((r) => onResume.has(r.experienceId));
   const shell = docShell({ profile, bank, job, header });
   const expById = new Map(exps.map((e) => [e.id, e]));
   const lines = new Map(ranked.map((r) => [r.id, ResumeDoc.lineCount(r.text, 450)]));
@@ -871,6 +874,24 @@ function orderedExperiences(bank) {
   return [...bank.experiences].sort((a, b) => (yearOf(b.end) || 0) - (yearOf(a.end) || 0) || (yearOf(b.start) || 0) - (yearOf(a.start) || 0));
 }
 
+// Internships, co-ops, apprenticeships and banks' "summer analyst" roles.
+const INTERNSHIP = /\b(?:intern(?:ship)?s?|co-?op|apprentice(?:ship)?|summer (?:analyst|associate|intern))\b/i;
+const isInternship = (e) => !e.isProject && INTERNSHIP.test(e.title || '');
+
+/**
+ * The roles a resume for this job draws from, most recent first. Once you
+ * have two years of other work, internships are left off (recruiters read
+ * them as filler by then), unless the job is itself an internship. You can
+ * still add one back in the editor.
+ */
+function resumeExperiences(bank, job) {
+  const all = orderedExperiences(bank);
+  if (job && INTERNSHIP.test(job.title || '')) return all;
+  const work = all.filter((e) => !e.isProject && !isInternship(e));
+  if (careerYears({ experiences: work }) < 2) return all;
+  return all.filter((e) => !isInternship(e));
+}
+
 // ---------- assembling a resume ----------
 
 /**
@@ -1035,6 +1056,8 @@ module.exports = {
   similarity,
   skillTags,
   orderedExperiences,
+  resumeExperiences,
+  isInternship,
   splitHeader,
   atsSummary,
   isTeamName: (s) => TEAM.test(String(s || '').trim()),

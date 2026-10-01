@@ -355,3 +355,28 @@ test('trimming leaves half a line to spare, and sizes to how this computer draws
   const sel = selectBullets(job, bank, { profile: PROFILE, pages: 1, scale: 1.06 });
   assert.ok(ResumeDoc.fits(buildDoc({ profile: PROFILE, bank, job, roles: sel.roles }).doc, 1, { scale: 1.06 }));
 });
+
+test('internships stay off a resume once there are two years of other work', () => {
+  const { resumeExperiences, isInternship } = require('../src/main/bullets');
+  const y = new Date().getFullYear();
+  const exp = (id, title, start, end) => ({ id, title, organization: `Org ${id}`, start: String(start), end: String(end), dates: `${start} – ${end}` });
+  const bank = { ...emptyBank(), experiences: [exp('a', 'Data Analyst', y - 4, 'Present'), exp('b', 'Data Science Intern', y - 5, y - 5), exp('c', 'Summer Analyst', y - 6, y - 6)] };
+  assert.ok(isInternship(bank.experiences[1]) && isInternship(bank.experiences[2]) && !isInternship(bank.experiences[0]));
+  assert.deepEqual(resumeExperiences(bank, { title: 'Senior Data Analyst' }).map((e) => e.id), ['a']);
+  // Applying for an internship: they count.
+  assert.equal(resumeExperiences(bank, { title: 'Data Science Intern' }).length, 3);
+  // Early career: still what there is to show.
+  const early = { ...bank, experiences: [exp('a', 'Data Analyst', y - 1, 'Present'), bank.experiences[1]] };
+  assert.equal(resumeExperiences(early, { title: 'Data Analyst' }).length, 2);
+  // "International" isn't an internship.
+  assert.ok(!isInternship({ title: 'International Sales Manager' }));
+});
+
+test('the free optimizer leaves an internship off an experienced resume', () => {
+  const bank = bigBank({ years: 8 });
+  const y = new Date().getFullYear();
+  bank.experiences.push({ id: 'intern', title: 'Software Engineering Intern', organization: 'Initech', start: String(y - 12), end: String(y - 12), dates: `Summer ${y - 12}` });
+  bank.bullets.push({ id: 'ib', experienceId: 'intern', text: 'Built React and TypeScript components with Storybook and GraphQL for the intern project', variants: [] });
+  const sel = selectBullets(POSTINGS.seniorFrontend, bank, { profile: PROFILE, pages: 2 });
+  assert.ok(!sel.roles.some((r) => r.experienceId === 'intern'));
+});

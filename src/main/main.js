@@ -554,7 +554,8 @@ async function makeResume(appId) {
     if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add them on the Bullet bank page first.");
     const profile = store.getProfile();
     const documents = docsForPrompt();
-    const ids = draft.promptIds(bank, currentDoc(rec).roles);
+    // Internships stay off once there's real work to show (see resumeExperiences).
+    const ids = draft.promptIds(bank, currentDoc(rec).roles, bulletBank.resumeExperiences(bank, rec.job));
     const job = jobForClaude(rec);
     const out = await claude.generateResume(claudeClient(), {
       job,
