@@ -356,7 +356,7 @@
   function parseLinkedInConnections(text) {
     const src = String(text || '').replace(/^\uFEFF/, '');
     const at = src.search(/^"?first name"?\s*,/im);
-    if (at < 0) return { connections: [], error: "That doesn't look like LinkedIn's Connections.csv. It should have a First Name, Last Name, URL, Company and Position header." };
+    if (at < 0) return { connections: [], error: "That doesn't look like LinkedIn's Connections.csv. It should have a First Name, Last Name, URL, Company and Position header. Unzip LinkedIn's download and choose Connections.csv from inside it." };
     const rows = parseTable(src.slice(at));
     const head = rows[0].map((h) => h.toLowerCase());
     const col = (re) => head.findIndex((h) => re.test(h));
