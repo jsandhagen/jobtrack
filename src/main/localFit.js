@@ -525,6 +525,8 @@ const TITLE_NEAR = [['engineer', 'architect'], ['analy', 'scien'], ['analy', 'mo
 // staff often come from strategy consulting.
 // Big-4 ladders call consultants "Associate" / "Senior Associate".
 const near = (a, b) => TITLE_NEAR.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
+// TODO(TODO.md): words that change the function ("Sales Engineer" vs "Software
+// Engineer") are ignored, so the shared role noun alone gives a high match.
 function titleMatch(posting, held) {
   const want = titleWords(posting);
   const have = [...new Set(titleWords(held))];
