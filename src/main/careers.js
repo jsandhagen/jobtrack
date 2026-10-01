@@ -1277,6 +1277,13 @@ const splitKeywords = (s) => [
 // companies' own sites), up to DETAIL_BUDGET new jobs per check are
 // read one by one, and earlier previews are kept. Descriptions aren't saved.
 const DETAIL_BUDGET = 8;
+// Titles for the same work vary most in strategy and operations ("Technology
+// Strategist", "Strategy Manager, Office of the CTO", "Head of Strategy"), so a
+// neighbouring title is kept too when the free fit preview says it's a strong
+// match with no dealbreaker, as on By role. Up to SIMILAR_DETAIL_BUDGET of
+// them are read per check on boards that don't list descriptions.
+const SIMILAR_MIN_FIT = 70;
+const SIMILAR_DETAIL_BUDGET = 4;
 
 async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), scoreJob = null } = {}) {
   const at = new Date(now).toISOString();
@@ -1338,6 +1345,36 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
     }
     if (fit) job.fit = fit;
     jobs.push(job);
+  }
+  // Neighbouring titles with a strong fit. One kept before stays without being re-read.
+  if (scoreJob && roles.length) {
+    const matched = new Set(matching.map((j) => j.id));
+    let similarBudget = SIMILAR_DETAIL_BUDGET;
+    for (const j of all) {
+      if (jobs.length >= KEEP) break;
+      if (matched.has(j.id) || !roles.some((r) => (classifyTitle(j.title, r) || {}).match === 'similar')) continue;
+      const { text: listed, ...job } = j;
+      const prev = before.get(j.id) || {};
+      let fit = prev.similarTitle ? prev.fit : null;
+      if (!fit) {
+        let text = listed;
+        if (!text && !seen.has(j.id) && similarBudget > 0) {
+          similarBudget--;
+          text = await jobDetail(b, j, fetchImpl).catch(() => '');
+        }
+        if (!text || text.length < 80) continue;
+        if (!job.pay) job.pay = payFromText(text);
+        try {
+          fit = scoreJob({ title: job.title, company: company.name, location: job.location, text }) || null;
+        } catch {
+          fit = null;
+        }
+      }
+      if (!fit || fit.score < SIMILAR_MIN_FIT || (fit.dealbreakers || []).length) continue;
+      if (!job.pay && prev.pay) job.pay = prev.pay;
+      if (!job.pay) delete job.pay;
+      jobs.push({ ...job, fit, similarTitle: true, firstSeenAt: prev.firstSeenAt || (seen.has(j.id) || firstCheck ? null : at) });
+    }
   }
   const fresh = firstCheck ? [] : jobs.filter((j) => !seen.has(j.id));
   const ids = [...new Set([...all.map((j) => j.id), ...seen])].slice(0, SEEN);

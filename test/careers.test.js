@@ -440,6 +440,25 @@ test('fit preview: scored from listed descriptions, read one by one where the li
   assert.ok(again.patch.jobs.every((j) => j.fit && j.pay));
 });
 
+test('the board keeps neighbouring titles only when the fit preview is strong, and says so', async () => {
+  const text = (extra) => `Strategy role in the Office of the CTO. Requirements: 5+ years of technology strategy. ${extra}`;
+  const scoreJob = (job) => ({ score: job.text.includes('STRONG') ? 82 : job.text.includes('BREAKER') ? 85 : 50, label: 'x', dealbreakers: job.text.includes('BREAKER') ? ['On-site only'] : [] });
+  const f = fakeFetch([
+    ['https://boards-api.greenhouse.io/v1/boards/gh/jobs?content=true', { jobs: [
+      { id: 1, title: 'Technology Strategy Manager', absolute_url: 'https://x/1', content: text('') },
+      { id: 2, title: 'Technology Strategist', absolute_url: 'https://x/2', content: text('STRONG') },
+      { id: 3, title: 'Strategy Manager, Office of the CTO', absolute_url: 'https://x/3', content: text('weak') },
+      { id: 4, title: 'Senior Technology Strategist', absolute_url: 'https://x/4', content: text('BREAKER') },
+      { id: 5, title: 'Staff Software Engineer', absolute_url: 'https://x/5', content: text('STRONG') },
+    ] }],
+  ]);
+  const r = await C.checkCompany({ name: 'GH', board: C.detectBoard('https://boards.greenhouse.io/gh') }, { fetchImpl: f, roles: ['Technology Strategy Manager'], now: NOW, scoreJob });
+  assert.deepEqual(r.patch.jobs.map((j) => [j.title, !!j.similarTitle]), [['Technology Strategy Manager', false], ['Technology Strategist', true]]);
+  // Without a library to score against, only matching titles show.
+  const plain = await C.checkCompany({ name: 'GH', board: C.detectBoard('https://boards.greenhouse.io/gh') }, { fetchImpl: f, roles: ['Technology Strategy Manager'], now: NOW });
+  assert.deepEqual(plain.patch.jobs.map((j) => j.title), ['Technology Strategy Manager']);
+});
+
 test('recognises Recruitee, BambooHR and Oracle Cloud boards from their links', () => {
   const cases = [
     ['https://acme.recruitee.com/o/ops-manager', 'recruitee', 'acme'],

@@ -24,7 +24,7 @@ const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 14;
+const SCORER_VERSION = 15;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -196,7 +196,8 @@ const LEVELS = [
 ];
 // Words that look like levels but aren't here: "Staff Accountant", "Lead
 // Generation", and individual-contributor "Product/Project/Account Manager".
-const NOT_LEVEL = /\bchief of staff(?: to (?:the )?\w+)?\b|\bstaff (?=accountant|nurse|writer|auditor|attorney|pharmacist|assistant|engineer i\b)|\blead (?=gen(?:eration)?\b)|\b(?:product|project|program|account|case|property|community|office|success|relationship|territory|key account) (?=manager\b)manager\b/g;
+// "Office of the CTO" and "to the CEO" name who the team serves, not the job's level.
+const NOT_LEVEL = /\bchief of staff(?: to (?:the )?\w+)?\b|\b(?:office of|(?:reporting )?to|for) the (?:chief [a-z]+(?: [a-z]+)? officer|cto|cio|ceo|cfo|coo|cdo|ciso|cpo|president)\b|\bstaff (?=accountant|nurse|writer|auditor|attorney|pharmacist|assistant|engineer i\b)|\blead (?=gen(?:eration)?\b)|\b(?:product|project|program|account|case|property|community|office|success|relationship|territory|key account) (?=manager\b)manager\b/g;
 // Bank and asset-manager ranks: Analyst → Associate → (Assistant) Vice
 // President → Director / Executive Director → Managing Director. "Vice
 // President, FX Options Strats" is a senior individual role there; "VP of
@@ -584,7 +585,8 @@ function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
         const body = [ex.title, ex.organization, ...ex.bullets.map((b) => b.text)].join('\n');
         segs.push({ text: body, weight: w });
         // "Senior Consultant, Technology Strategy, Firm" parses the practice as the organization.
-        if (!ex.isProject && ex.title) titles.push({ title: ex.title, org: ex.organization || '', weight: w });
+        // "Consultant, Office of the CTO, Appian" keeps the team with the title, so the organization is the employer.
+        if (!ex.isProject && ex.title) titles.push({ title: ex.title, org: ex.organization || '', employer: ex.title.includes(','), weight: w });
       }
       if (r.skills.length) segs.push({ text: r.skills.join(', '), weight: 0.75 });
       // A listed certification or license is the evidence itself.
@@ -729,7 +731,7 @@ function titleMatch(posting, held) {
   // Bank") next to the title. A practice is part of the title; an employer's
   // name counts half.
   const orgParts = typeof held === 'string' ? [] : String(held.org || '').split(',').map((x) => x.trim()).filter(Boolean);
-  const isEmployer = (x) => COMPANY_NAME.test(x);
+  const isEmployer = (x) => (typeof held !== 'string' && held.employer) || COMPANY_NAME.test(x);
   const have = [...new Set([...titleWords(heldTitle), ...orgParts.filter((x) => !isEmployer(x)).flatMap(titleWords)])];
   const org = [...new Set(orgParts.filter(isEmployer).flatMap(titleWords))];
   if (!want.length || !have.length) return 0;
@@ -847,7 +849,9 @@ function domainScore(job, lib, ignoreWords) {
 const FUNCTIONS = [
   {
     name: 'sales',
-    signals: [/\bquotas?\b/, /\bclos(?:e|ing) (?:new )?(?:deals|business|revenue)\b/, /\bsales (?:targets|goals|quota)\b/, /\b(?:ote|on-target earnings)\b/, /\bterritory\b/, /\bcommission\b/, /\bnew logos\b/, /\bprospect(?:ing)? (?:new )?(?:clients|customers|accounts)\b/, /\bpipeline (?:generation|of (?:new )?(?:business|deals))\b/, /\bown a pipeline\b/],
+    signals: [/\bquotas?\b/, /\bclos(?:e|ing) (?:new )?(?:deals|business|revenue)\b/, /\bsales (?:targets|goals|quota)\b/, /\b(?:ote|on-target earnings)\b/, /\bterritory\b/, /\bcommission\b/, /\bnew logos\b/, /\bprospect(?:ing)? (?:new )?(?:clients|customers|accounts)\b/, /\bpipeline (?:generation|of (?:new )?(?:business|deals))\b/, /\bown a pipeline\b/,
+      // Pre-sales: solutions consultants and engineers work the same deals.
+      /\bbookings (?:targets|goals)\b/, /\bpre-?sales\b/, /\b(?:with|for) prospects\b/, /\baccount executives? to (?:win|close)\b/],
     shown: /\bquota\b|\b(?:sales|account) (?:executive|manager|representative|engineer)\b|\bpresales\b|\bsolutions? consult|\bclosed? (?:\$|\d|deals|new business)|\bsold\b|\bselling\b|\bbusiness development\b|\bgrew (?:a )?(?:client )?accounts?\b/,
   },
   {
@@ -960,7 +964,13 @@ function localFitScore(job, documents, profile = {}) {
   // A bare "Consultant" is a rank at consulting firms (Analyst, Consultant,
   // Senior Consultant, Manager); the years asked say which ("SAP Consultant, 10+ years").
   const consultantRank = /\bconsultant\b/i.test(job.title || '') ? Math.max(2, levelFromYears(needYears) ?? 2) : null;
-  const postingLevel = titleLevel(job.title) ?? (ENTRY_TEXT.test(job.text || '') ? 1 : consultantRank);
+  // "Manager" and "Senior Manager" are ranks for individual strategists and
+  // analysts as often as for people managers, so the years asked decide how
+  // senior they are: a "Senior Manager, Product Strategy" asking for 6+ years
+  // is one step up from a 7-year strategist, not two. Director and above stand.
+  const managerRank = /\bmanager\b/.test(lower(job.title || '').replace(NOT_LEVEL, ' ')) && !/\b(?:director|head of|vp|vice president|chief|principal|staff|lead|architect)\b/.test(lower(job.title || '').replace(NOT_LEVEL, ' '));
+  const titled = titleLevel(job.title);
+  const postingLevel = (titled !== null && managerRank && needYears !== null ? Math.min(titled, levelFromYears(needYears) + 1) : titled) ?? (ENTRY_TEXT.test(job.text || '') ? 1 : consultantRank);
   const docLevels = documents.filter((d) => d.kind === 'resume' || !d.kind).map((d) => d.text.split('\n').map(titleLevel).filter((l) => l !== null && l < 6)).flat();
   const yearLevel = levelFromYears(haveYears);
   const userLevel = yearLevel !== null ? Math.max(yearLevel, docLevels.length ? Math.min(Math.max(...docLevels), yearLevel + 1) : yearLevel) : null;
@@ -970,6 +980,8 @@ function localFitScore(job, documents, profile = {}) {
     // Penalise big stretches; a step down is common, but a role two or more
     // levels below where you are isn't a good fit either.
     seniority = gap > 1 ? 0.25 : gap === 1 ? 0.65 : gap === -2 ? 0.45 : gap < -2 ? 0.2 : 1;
+    // A level below, with well over twice the years asked: a step back, if a small one.
+    if (gap === -1 && needYears >= 3 && haveYears >= needYears * 2.5) seniority = 0.8;
   }
   // Overqualified, in your own line of work: an entry-level version of what you
   // already do can match every requirement, but it isn't a strong fit for you.

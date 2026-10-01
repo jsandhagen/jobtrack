@@ -662,6 +662,19 @@ function safeFileName(s) {
 
 // Read bullets out of documents into the bank (free, no AI). Safe to repeat:
 // duplicates merge into existing bullets as alternative wordings.
+// Where you've worked and studied, from your resume, for Profile fields you
+// haven't filled in yet. Outreach uses them ("we both worked at Appian"), and
+// most people never get round to typing them. Fields you've filled are left alone.
+function fillProfileFromResume(parsed) {
+  const profile = store.getProfile();
+  const list = (xs) => [...new Map(xs.map((x) => String(x || '').trim()).filter((x) => x && x.length <= 60).map((x) => [x.toLowerCase(), x])).values()].slice(0, 6).join(', ');
+  const patch = {};
+  if (!String(profile.pastEmployers || '').trim()) patch.pastEmployers = list(parsed.experiences.filter((e) => !e.isProject && !bulletBank.isTeamName(e.organization)).map((e) => e.organization));
+  if (!String(profile.schools || '').trim()) patch.schools = list((parsed.education || []).map((e) => e.school));
+  for (const k of Object.keys(patch)) if (!patch[k]) delete patch[k];
+  if (Object.keys(patch).length) store.updateProfile(patch);
+}
+
 function importBullets(docs) {
   let added = 0;
   let merged = 0;
@@ -672,6 +685,7 @@ function importBullets(docs) {
       if (!d || d.kind === 'writing-sample') continue;
       const parsed = bulletBank.parseResume(d.text);
       if (!parsed.experiences.some((e) => e.bullets.length)) continue;
+      fillProfileFromResume(parsed);
       const r = bulletBank.mergeIntoBank(b, parsed, { id: d.id, name: d.name });
       b = r.bank;
       added += r.added;

@@ -47,6 +47,18 @@ risk skills. Still open:
       than the labels for career changers (business analyst → strategy
       consulting, PM → advisory): 15 of 38 "possible" pairs land under 45.
       Check against real outcomes before loosening it.
+- [ ] **Search links match titles word for word.** Suggested LinkedIn and
+      Indeed searches quote the whole role ("Technology Strategy Manager"),
+      which misses "Manager, Technology Strategy" and "Senior Manager,
+      Technology Strategy". Check how each site treats `"technology strategy"
+      manager` before changing it.
+- [ ] **Free job boards are mostly remote.** Without an Adzuna key, By role
+      only searches remote-only boards and Europe. Prompt for the free key on
+      first use for someone with a location and hybrid/on-site in Profile.
+- [ ] **Employer as industry.** Working at a known software vendor counts as
+      enterprise software experience (`Enterprise Software` in
+      `fitScore.js`, only on a role line with dates). Other industries
+      (banks, health systems, agencies) could work the same way.
 - [ ] **Title-implied skills.** `TITLE_IMPLIES` covers a handful of titles
       with partial credit. Extend carefully: each entry should be something
       everyone in that job does every day.
