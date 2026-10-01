@@ -25,6 +25,23 @@ test('LinkedIn job searches near a city keep a distance; "any time" drops the da
   assert.equal(p.f_WT, undefined);
 });
 
+test('Indeed job searches: quoted titles, newest first, radius near a city, remote filter', () => {
+  const near = params(O.indeedJobsUrl({ titles: 'Chief of Staff, Operations Manager', location: 'Arlington, VA' }));
+  assert.equal(near.q, '"Chief of Staff" OR "Operations Manager"');
+  assert.equal(near.l, 'Arlington, VA');
+  assert.equal(near.radius, '25');
+  assert.equal(near.fromage, '7');
+  assert.equal(near.sort, 'date');
+  assert.equal(near.sc, undefined);
+  const remote = params(O.indeedJobsUrl({ titles: 'Chief of Staff', workType: 'remote', within: 'any' }));
+  assert.equal(remote.l, 'Remote');
+  assert.equal(remote.radius, undefined);
+  assert.equal(remote.fromage, undefined);
+  assert.equal(remote.sc, '0kf:attr(DSQF7);');
+  assert.match(O.searchUrl({ kind: 'jobs', source: 'indeed', titles: 'Chief of Staff' }), /^https:\/\/www\.indeed\.com\/jobs\?/);
+  assert.match(O.describeSearch({ kind: 'jobs', source: 'indeed', within: 'month' }), /^Indeed jobs · past 14 days/);
+});
+
 test('startup board searches go through Google, limited to the past week', () => {
   const url = O.startupBoardsUrl({ titles: 'chief of staff', workType: 'remote' });
   const p = params(url);
@@ -54,6 +71,8 @@ test('suggested searches follow the profile: each role near you, remote, at star
   const names = s.map((x) => x.name);
   assert.ok(names.includes('Chief of Staff near Arlington, VA'));
   assert.ok(names.includes('Chief of Staff, remote'));
+  assert.ok(names.includes('Chief of Staff near Arlington, VA on Indeed'));
+  assert.ok(names.includes('Chief of Staff, remote on Indeed'));
   assert.ok(names.includes('BizOps at startups'));
   assert.deepEqual(s.filter((x) => x.kind === 'people').map((x) => x.common), ['UVA', 'Appian']);
   assert.equal(new Set(s.map((x) => x.key)).size, s.length);
@@ -214,6 +233,8 @@ test('company links and suggestions', () => {
   assert.equal(L.careers, '');
   assert.equal(params(L.jobs).keywords, '"Ramp"');
   assert.equal(params(L.jobs).f_TPR, 'r604800');
+  assert.equal(params(L.indeedJobs).q, 'company:(Ramp)');
+  assert.equal(params(L.indeedJobs).fromage, '7');
   assert.equal(params(L.peopleInCommon).keywords, '"Ramp" "UVA"');
   assert.equal(O.companyLinks({ name: 'Ramp' }, {}).peopleInCommon, '');
   const sugg = O.companySuggestions([{ name: 'Ramp' }], [{ name: 'Fred Lee', company: 'OCTA' }], [

@@ -3,12 +3,17 @@
 // Most companies' careers pages are hosted by an applicant tracking system
 // that also publishes the jobs as data, meant for exactly this: Greenhouse,
 // Lever, Ashby, Workable, SmartRecruiters, Workday, Recruitee, BambooHR,
-// Oracle Cloud and Phenom (the careers.company.com/us/en/search-results sites
-// many large companies run). So Sprout works out
+// Breezy, Pinpoint, Rippling, Gem, Teamtailor, Personio, Oracle Cloud and
+// Phenom (the careers.company.com/us/en/search-results sites many large
+// companies run). So Sprout works out
 // which one a company uses (from its careers link, from the careers page's
 // HTML, or by trying the company's name on the common ones), lists the open
 // jobs, keeps the ones whose titles match the roles you want, and notices
 // new ones on each check.
+//
+// A company that runs its own careers site gets read straight from that
+// site: the jobs it describes for search engines (schema.org JobPosting),
+// or failing that, the links to its postings.
 //
 // Every network call goes through the fetch passed in (Electron's net.fetch
 // in the app, a fake in tests).
@@ -24,6 +29,13 @@ const ATS_LABEL = {
   bamboohr: 'BambooHR',
   oracle: 'Oracle',
   phenom: 'Phenom',
+  breezy: 'Breezy',
+  pinpoint: 'Pinpoint',
+  rippling: 'Rippling',
+  gem: 'Gem',
+  teamtailor: 'Teamtailor',
+  personio: 'Personio',
+  site: 'careers page',
 };
 
 const DAY = 86400000;
@@ -70,6 +82,21 @@ function detectBoard(url) {
   if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.bamboohr\.com/i)) && !/^(www|api|app|help|partners|marketplace)$/i.test(m[1])) return board('bamboohr', m[1].toLowerCase());
   // Oracle Cloud: host.fa.region.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/...
   if ((m = u.match(/\/\/(([A-Za-z0-9-]+)\.fa(?:\.[A-Za-z0-9-]+)*\.oraclecloud\.com)\/hcmUI\/CandidateExperience\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?sites\/([A-Za-z0-9_-]+)/i))) return board('oracle', m[2].toLowerCase(), { host: m[1].toLowerCase(), site: m[3] });
+  // Boards on the company's own subdomain of the ATS: acme.recruitee.com and the like.
+  // The ATS's own sites (www, app, help…) aren't anyone's board.
+  const sub = (domain, not = /^(www|app|api|help|support|docs|status|blog|marketplace|developers?|careers?)$/i) => {
+    const x = u.match(new RegExp(`//([A-Za-z0-9-]+)\\.${domain.replace(/\./g, '\\.')}(?=[/:?#]|$)`, 'i'));
+    return x && !not.test(x[1]) ? x[1] : null;
+  };
+  let t;
+  if ((t = sub('breezy.hr'))) return board('breezy', t);
+  if ((t = sub('pinpointhq.com'))) return board('pinpoint', t);
+  if ((t = sub('teamtailor.com'))) return board('teamtailor', t);
+  if ((m = u.match(/\/\/([A-Za-z0-9-]+)\.jobs\.personio\.(de|com)(?=[/:?#]|$)/i))) return board('personio', m[1], { tld: m[2].toLowerCase() });
+  if ((m = u.match(/api\.rippling\.com\/platform\/api\/ats\/v1\/board\/([A-Za-z0-9_-]+)/i))) return board('rippling', m[1]);
+  if ((m = u.match(/ats\.rippling\.com\/(?:[a-z]{2}-[A-Za-z]{2}\/)?([A-Za-z0-9_-]+)(?:\/jobs|\/?$)/i)) && !/^(api|jobs)$/i.test(m[1])) return board('rippling', m[1]);
+  if ((m = u.match(/api\.gem\.com\/job_board\/v0\/([A-Za-z0-9_-]+)/i))) return board('gem', m[1]);
+  if ((m = u.match(/jobs\.gem\.com\/([A-Za-z0-9_-]+)/i)) && !/^(api|embed)$/i.test(m[1])) return board('gem', m[1]);
   return null;
 }
 
@@ -112,10 +139,27 @@ function boardUrl(b) {
       return `https://${b.host}/hcmUI/CandidateExperience/en/sites/${b.site}/requisitions`;
     case 'phenom':
       return `https://${b.host}/${b.site}/search-results`;
+    case 'breezy':
+      return `https://${b.token}.breezy.hr/`;
+    case 'pinpoint':
+      return `https://${b.token}.pinpointhq.com/`;
+    case 'rippling':
+      return `https://ats.rippling.com/${b.token}/jobs`;
+    case 'gem':
+      return `https://jobs.gem.com/${b.token}`;
+    case 'teamtailor':
+      return `https://${teamtailorHost(b)}/jobs`;
+    case 'personio':
+      return `https://${b.token}.jobs.personio.${b.tld || 'de'}/`;
+    case 'site':
+      return b.token;
     default:
       return '';
   }
 }
+
+// Teamtailor sites live on acme.teamtailor.com or on the company's own domain.
+const teamtailorHost = (b) => (String(b.token).includes('.') ? b.token : `${b.token}.teamtailor.com`);
 
 // ---------------- Phenom ----------------
 //
@@ -330,8 +374,8 @@ async function getJson(fetchImpl, url, init = {}) {
   }
 }
 
-async function getText(fetchImpl, url) {
-  const res = await request(fetchImpl, url, { headers: { Accept: 'text/html' } }, 'the careers page');
+async function getText(fetchImpl, url, accept = 'text/html') {
+  const res = await request(fetchImpl, url, { headers: { Accept: accept } }, 'the careers page');
   return { text: await res.text(), url: res.url || url };
 }
 
@@ -473,7 +517,7 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
         }));
     }
     case 'bamboohr': {
-      const d = await getJson(fetchImpl, `https://${b.token}.bamboohr.com/careers/list`);
+      const d = await getJson(fetchImpl, `https://${b.token}.bamboohr.com/careers/list`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
       return (d.result || []).map((j) => {
         const l = j.location || j.atsLocation || {};
         return { id: String(j.id), title: j.jobOpeningName, location: [joinLoc(l.city, l.state), j.isRemote || /remote/i.test(j.locationType || '') ? 'Remote' : ''].filter(Boolean).join(' · '), url: `https://${b.token}.bamboohr.com/careers/${j.id}`, department: j.departmentLabel || '' };
@@ -515,9 +559,253 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
       });
       return [...seen.values()];
     }
+    case 'breezy': {
+      const d = await getJson(fetchImpl, `https://${b.token}.breezy.hr/json`);
+      return (Array.isArray(d) ? d : []).map((j) => {
+        const locs = [j.location, ...(j.locations || [])].filter(Boolean);
+        return {
+          id: String(j.id),
+          title: j.name,
+          location: [...new Set(locs.map((l) => l.name).filter(Boolean))].join(' · ') + (locs.some((l) => l.is_remote) ? ' · Remote' : ''),
+          url: j.url,
+          postedAt: iso(j.published_date),
+          department: j.department || '',
+          pay: typeof j.salary === 'string' ? payFromText(j.salary) : undefined,
+        };
+      });
+    }
+    case 'pinpoint': {
+      const d = await getJson(fetchImpl, `https://${b.token}.pinpointhq.com/postings.json`);
+      return (d.data || []).map((j) => {
+        const l = j.location || {};
+        return {
+          id: String(j.id),
+          title: j.title,
+          location: (l.name || joinLoc(l.city, l.province)) + (j.workplace_type === 'remote' ? ' · Remote' : ''),
+          url: j.url,
+          department: (j.job && j.job.department && j.job.department.name) || '',
+          text: j.description ? htmlToPlain([j.description, j.key_responsibilities, j.skills_knowledge_expertise].filter(Boolean).join('\n')) : undefined,
+        };
+      });
+    }
+    case 'rippling': {
+      const d = await getJson(fetchImpl, `https://api.rippling.com/platform/api/ats/v1/board/${encodeURIComponent(b.token)}/jobs`);
+      return (Array.isArray(d) ? d : []).map((j) => ({ id: String(j.uuid || j.id), title: j.name, location: (j.workLocation && j.workLocation.label) || '', url: j.url, department: (j.department && j.department.label) || '' }));
+    }
+    case 'gem': {
+      const d = await getJson(fetchImpl, `https://api.gem.com/job_board/v0/${encodeURIComponent(b.token)}/job_posts/`);
+      return (Array.isArray(d) ? d : []).map((j) => ({
+        id: String(j.id),
+        title: j.title,
+        location: [...new Set([j.location && j.location.name, ...(j.offices || []).map((o) => o.location && o.location.name)].filter(Boolean))].join(' · ') + (j.location_type === 'remote' ? ' · Remote' : ''),
+        url: j.absolute_url,
+        postedAt: iso(j.first_published_at),
+        department: ((j.departments || [])[0] || {}).name || '',
+        text: j.content ? htmlToPlain(j.content) : undefined,
+      }));
+    }
+    case 'teamtailor': {
+      const { text } = await getText(fetchImpl, `https://${teamtailorHost(b)}/jobs.rss`, 'application/rss+xml');
+      return xmlBlocks(text, 'item').map((it) => {
+        const locs = xmlBlocks(it, 'location').map((l) => joinLoc(xmlText(l, 'city'), xmlText(l, 'country')) || xmlText(l, 'name'));
+        const remote = /^(fully|remote)$/i.test(xmlText(it, 'remoteStatus'));
+        return {
+          id: xmlText(it, 'guid') || xmlText(it, 'link'),
+          title: xmlText(it, 'title'),
+          location: [...new Set(locs.filter(Boolean))].join(' · ') + (remote ? ' · Remote' : ''),
+          url: xmlText(it, 'link'),
+          postedAt: iso(xmlText(it, 'pubDate')),
+          department: xmlText(it, 'department'),
+          text: xmlText(it, 'description') ? htmlToPlain(xmlText(it, 'description')) : undefined,
+        };
+      });
+    }
+    case 'personio': {
+      const host = `${b.token}.jobs.personio.${b.tld || 'de'}`;
+      const { text } = await getText(fetchImpl, `https://${host}/xml?language=en`, 'application/xml');
+      return xmlBlocks(text, 'position').map((p) => {
+        const offices = [xmlText(p, 'office'), ...xmlBlocks(xmlBlocks(p, 'additionalOffices')[0] || '', 'office').map((o) => xmlText(o, 'office') || htmlToPlain(o))];
+        const sections = xmlBlocks(p, 'jobDescription').map((d) => `${xmlText(d, 'name')}\n${htmlToPlain(xmlText(d, 'value'))}`);
+        const id = xmlText(p, 'id');
+        return {
+          id,
+          title: xmlText(p, 'name'),
+          location: [...new Set(offices.filter(Boolean))].join(' · '),
+          url: `https://${host}/job/${id}`,
+          postedAt: iso(xmlText(p, 'createdAt')),
+          department: xmlText(p, 'department'),
+          text: sections.length ? sections.join('\n\n') : undefined,
+        };
+      });
+    }
+    case 'site': {
+      const page = await getText(fetchImpl, b.token);
+      const jobs = siteJobs(page.text, page.url);
+      // Nothing there anymore (the site moved its jobs, or now draws them
+      // with JavaScript): look for its jobs again.
+      if (!jobs.length) throw failure('not found', { notFound: true });
+      return jobs;
+    }
     default:
       throw new Error(`Unknown careers site: ${b.ats}`);
   }
+}
+
+// ---------------- feeds (RSS, XML) ----------------
+
+// Just enough XML for job feeds: the blocks of one tag (with or without a
+// namespace prefix like tt:), and one tag's text with CDATA unwrapped.
+function xmlBlocks(xml, tag) {
+  const re = new RegExp(`<(?:[A-Za-z0-9_-]+:)?${tag}\\b[^>]*>([\\s\\S]*?)</(?:[A-Za-z0-9_-]+:)?${tag}>`, 'g');
+  return [...String(xml || '').matchAll(re)].map((m) => m[1]);
+}
+function xmlText(xml, tag) {
+  const block = xmlBlocks(xml, tag)[0];
+  if (block === undefined) return '';
+  const cdata = block.match(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/);
+  return (cdata ? cdata[1] : decodeEntities(block)).trim();
+}
+
+// ---------------- the company's own careers site ----------------
+
+// The site a page belongs to: careers.acme.com and jobs.acme.com are acme.com's.
+function siteOf(host) {
+  const parts = String(host || '').toLowerCase().replace(/^www\./, '').split('.');
+  const n = parts.length > 2 && parts[parts.length - 1].length === 2 && parts[parts.length - 2].length <= 3 ? 3 : 2; // acme.co.uk
+  return parts.slice(-n).join('.');
+}
+
+function absolute(href, base) {
+  try {
+    const u = new URL(decodeEntities(href), base);
+    u.hash = '';
+    return /^https?:$/.test(u.protocol) ? u : null;
+  } catch {
+    return null;
+  }
+}
+
+// Jobs a page describes for search engines (schema.org JobPosting, the data
+// behind Google's job listings), on a list page or a posting's own page.
+function ldJobs(html, pageUrl) {
+  const out = [];
+  for (const m of String(html || '').matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    let data;
+    try {
+      data = JSON.parse(m[1].trim());
+    } catch {
+      continue;
+    }
+    // In page order, so the list reads as the site shows it.
+    const queue = [data];
+    while (queue.length) {
+      const x = queue.shift();
+      if (!x || typeof x !== 'object') continue;
+      if (Array.isArray(x)) {
+        queue.unshift(...x);
+        continue;
+      }
+      if ([].concat(x['@type'] || []).includes('JobPosting')) {
+        const job = ldJob(x, pageUrl);
+        if (job) out.push(job);
+      }
+      queue.unshift(...['@graph', 'itemListElement', 'item', 'mainEntity'].map((k) => x[k]).filter(Boolean));
+    }
+  }
+  return out;
+}
+
+function ldJob(x, pageUrl) {
+  const url = absolute(x.url || x.sameAs || '', pageUrl);
+  const title = x.title || x.name;
+  if (!title) return null;
+  const places = [].concat(x.jobLocation || []).map((l) => {
+    const a = (l && l.address) || {};
+    const country = typeof a.addressCountry === 'object' ? a.addressCountry && a.addressCountry.name : a.addressCountry;
+    return typeof a === 'string' ? a : joinLoc(a.addressLocality, a.addressRegion, country);
+  });
+  const remote = /telecommute/i.test([].concat(x.jobLocationType || []).join(' '));
+  const ident = x.identifier && typeof x.identifier === 'object' ? x.identifier.value : x.identifier;
+  const s = x.baseSalary && x.baseSalary.value ? x.baseSalary : null;
+  const unit = s ? String(s.value.unitText || s.unitText || '') : '';
+  return {
+    id: String((url && url.href) || ident || title),
+    title,
+    location: [...new Set(places.filter(Boolean))].join(' · ') + (remote ? (places.some(Boolean) ? ' · Remote' : 'Remote') : ''),
+    url: url ? url.href : pageUrl,
+    postedAt: iso(x.datePosted),
+    pay: s ? pay(s.value.minValue || s.value.value, s.value.maxValue || s.value.value, s.currency, /hour/i.test(unit) ? 'hour' : /month/i.test(unit) ? 'month' : 'year') : undefined,
+    text: x.description ? htmlToPlain(x.description) : undefined,
+  };
+}
+
+// A link to one posting: on the company's site, under a jobs-like path with
+// something after it (/careers/chief-of-staff-4471, /jobs/chief-of-staff),
+// and with text that reads like a job title rather than "Benefits" or
+// "Apply". Under a general path like /careers/ it needs an id, since
+// /careers/students-and-graduates is a section, not a job.
+const JOB_PATH = /^.*\/(jobs?|careers?|positions?|openings?|vacanc(?:y|ies)|roles?|opportunit(?:y|ies)|requisitions?|postings?|join-us|work-with-us)\/(.+)$/i;
+const JOBS_ONLY = /^(jobs?|positions?|openings?|vacanc(?:y|ies)|requisitions?|postings?)$/i;
+const NOT_A_TITLE = /^(apply( now)?|learn more|read more|see (all|more)|view (all|more|details|job|role|position|opening)s?|more( info)?|details|benefits|perks|culture|our (values|culture|team|story)|life at\b.*|teams?|locations?|students?|university|early careers?|internships?|faq|events?|blog|news|about( us)?|careers?|jobs?|open (roles|positions|jobs)|all (jobs|roles|positions|openings)|search( jobs)?|back|next|previous|home|contact( us)?|privacy.*|cookies?.*|terms.*|sign (in|up)|log ?in|español|english|deutsch|français)$/i;
+
+function linkJobs(html, pageUrl) {
+  const base = absolute(pageUrl, pageUrl);
+  if (!base) return [];
+  const out = new Map();
+  for (const m of String(html || '').matchAll(/<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const u = absolute(m[1], base.href);
+    if (!u || siteOf(u.hostname) !== siteOf(base.hostname)) continue;
+    const path = u.pathname.replace(/\/+$/, '');
+    const pm = path.match(JOB_PATH);
+    if (!pm || u.href.replace(/\/+$/, '') === base.href.replace(/\/+$/, '')) continue;
+    // One posting, not a section: an id, or a title-like slug.
+    const rest = pm[2];
+    if (!/\d{3,}/.test(rest + u.search) && !(JOBS_ONLY.test(pm[1]) && /[a-z]+-[a-z0-9]+/i.test(rest))) continue;
+    // The first piece of text in the link is the title; cards add the place and team after it.
+    const pieces = m[2]
+      .replace(/<\s*(script|style|svg)[\s\S]*?<\/\s*\1\s*>/gi, '')
+      .split(/<[^>]+>/)
+      .map((t) => decodeEntities(t).replace(/\s+/g, ' ').trim())
+      .filter((t) => /[A-Za-z]/.test(t));
+    const title = pieces[0] || '';
+    const words = title.split(' ').length;
+    if (title.length < 3 || title.length > 120 || words > 14 || NOT_A_TITLE.test(title)) continue;
+    if (!out.has(u.href)) out.set(u.href, { id: u.href, title, location: pieces.slice(1).find((t) => t.length < 60 && /,|remote|hybrid|\b[A-Z]{2}\b/i.test(t)) || '', url: u.href });
+  }
+  return [...out.values()];
+}
+
+// The jobs on a careers page: what it describes for search engines, or else
+// the links to its postings. A couple of links at least, so a page with a
+// stray link to one blog post isn't mistaken for a job list.
+function siteJobs(html, pageUrl) {
+  const ld = ldJobs(html, pageUrl);
+  if (ld.length) return ld;
+  const links = linkJobs(html, pageUrl);
+  return links.length >= 2 ? links : [];
+}
+
+// Links from a careers page to the page that lists its jobs ("See open
+// roles", "/careers/jobs"), on the company's own site.
+const LISTING_TEXT = /\b(open (roles|positions|jobs|opportunities)|(see|view|browse|search|explore|find) (all |our |open |current )*(roles|jobs|positions|openings|opportunities)|current (openings|opportunities|vacancies)|job (openings|board|search|listings)|all jobs|join (us|the team|our team)|we'?re hiring|work (with|at) us)\b/i;
+function listingLinks(html, pageUrl) {
+  const base = absolute(pageUrl, pageUrl);
+  if (!base) return [];
+  const out = [];
+  for (const m of String(html || '').matchAll(/<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const u = absolute(m[1], base.href);
+    if (!u || siteOf(u.hostname) !== siteOf(base.hostname) || u.href === base.href) continue;
+    const text = decodeEntities(m[2].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+    if (LISTING_TEXT.test(text) || /\/(jobs|openings|positions|open-roles|search)\/?$/i.test(u.pathname)) out.push(u.href);
+  }
+  return [...new Set(out)];
+}
+
+// A careers site on the company's own domain that's really Teamtailor's.
+function teamtailorOnOwnDomain(page) {
+  if (!/teamtailor-cdn|cdn\.teamtailor|teamtailor\.com\/(?:assets|packs)/i.test(page.text)) return null;
+  const u = absolute(page.url, page.url);
+  return u ? board('teamtailor', u.hostname.toLowerCase()) : null;
 }
 
 // ---------------- pay ----------------
@@ -731,7 +1019,7 @@ async function apiDetail(b, job, fetchImpl) {
       return j ? htmlToPlain([j.description, j.requirements].filter(Boolean).join('\n')) : '';
     }
     case 'bamboohr': {
-      const d = await getJson(fetchImpl, `https://${b.token}.bamboohr.com/careers/${encodeURIComponent(job.id)}/detail`);
+      const d = await getJson(fetchImpl, `https://${b.token}.bamboohr.com/careers/${encodeURIComponent(job.id)}/detail`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
       const j = (d.result && d.result.jobOpening) || {};
       return htmlToPlain(j.description);
     }
@@ -876,8 +1164,22 @@ async function findBoard(company, fetchImpl) {
   let unreachable = null;
   if (/^https?:\/\//i.test(link)) {
     try {
-      const b = await boardOnPage(link, fetchImpl);
+      const page = await getText(fetchImpl, link);
+      const b = atsOnPage(page);
       if (b) return { ...b, via: 'page' };
+      // Its jobs may be a click away ("See open roles"), on an ATS or on the site itself.
+      const pages = [page];
+      for (const next of listingLinks(page.text, page.url).slice(0, 2)) {
+        try {
+          const p = await getText(fetchImpl, next);
+          const nb = atsOnPage(p);
+          if (nb) return { ...nb, via: 'page' };
+          pages.push(p);
+        } catch {
+          // try the next one
+        }
+      }
+      for (const p of pages) if (siteJobs(p.text, p.url).length) return { ...board('site', p.url), via: 'page' };
     } catch (err) {
       if (err.transient) unreachable = err;
       // fall through to guessing
@@ -909,7 +1211,7 @@ async function findBoard(company, fetchImpl) {
       try {
         const page = await getText(fetchImpl, url);
         if (guessed && !namesCompany(page.text, company.name)) continue;
-        const b = detectBoard(page.url) || boardFromHtml(page.text) || phenomFromPage(page.text, page.url);
+        const b = atsOnPage(page);
         if (b) return guessed ? { ...b, guessed: true } : { ...b, via: 'page' };
       } catch {
         // no such site, or nothing there: try the next
@@ -919,9 +1221,9 @@ async function findBoard(company, fetchImpl) {
   return null;
 }
 
-async function boardOnPage(url, fetchImpl) {
-  const page = await getText(fetchImpl, url);
-  return detectBoard(page.url) || boardFromHtml(page.text) || phenomFromPage(page.text, page.url);
+// The board a careers page is on, embeds or links to.
+function atsOnPage(page) {
+  return detectBoard(page.url) || boardFromHtml(page.text) || phenomFromPage(page.text, page.url) || teamtailorOnOwnDomain(page);
 }
 
 // acme.com from "https://www.acme.com/about", or null.
@@ -969,7 +1271,8 @@ const splitKeywords = (s) => [
 //
 // With `scoreJob` (the free local fit score), each matching job also gets a
 // fit preview. Most boards list descriptions with the jobs; for the ones that
-// don't (SmartRecruiters, Workday, BambooHR, Oracle, Phenom), up to DETAIL_BUDGET new jobs per check are
+// don't (SmartRecruiters, Workday, BambooHR, Breezy, Rippling, Oracle, Phenom,
+// companies' own sites), up to DETAIL_BUDGET new jobs per check are
 // read one by one, and earlier previews are kept. Descriptions aren't saved.
 const DETAIL_BUDGET = 8;
 
@@ -1043,4 +1346,4 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
   return { patch, fresh, firstLook: !company.seen };
 }
 
-module.exports = { ATS_LABEL, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, phenomFromPage, scriptObject, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };
+module.exports = { ATS_LABEL, siteJobs, listingLinks, http, payFromText, formatPay, yearlyPay, normalizeLink, detectBoard, descriptionFromPage, decodeEntities, boardUrl, boardFromHtml, phenomFromPage, scriptObject, slugsFor, listJobs, jobDetail, htmlToPlain, workdayPosted, titleMatches, findBoard, checkCompany };
