@@ -24,7 +24,7 @@ const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 12;
+const SCORER_VERSION = 13;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -79,7 +79,9 @@ const NOT_TERMS = new Set(
     'testing development management engineering operations implementation support delivery planning ' +
     // verbs left over from "a track record of exceeding quota"
     'exceeding meeting achieving hitting delivering ' +
-    'theory theories fundamentals basics evaluation evaluations assessment assessments review reviews'
+    'meaningful recent relevant significant substantial theory theories fundamentals basics evaluation evaluations assessment assessments review reviews strategic ' +
+    // imperatives that open a duty ("Write product requirements")
+    'write build own run lead drive deliver design develop create conduct analyze analyse prepare support maintain manage define shape assess partner work ensure identify perform help use apply'
   ).split(' ')
 );
 
@@ -87,6 +89,7 @@ const EDGE_WORDS = new Set(
   'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity advanced basic intermediate expert proficient proficiency excellent good polished crisp clear concise comfort comfortable techniques technique methods methodologies concepts principles tools skills practices foundation foundations grounding rigorous rigor sound thorough robust including includes include is are be at for to from by into via per such exposure track record'.split(' ')
 );
 
+const US_STATES = new Set('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(' '));
 const GENERIC_HEAD = /\b(?:expectations|requirements|standards|guidelines|principles|best practices|concepts|topics|issues|areas|needs|goals|objectives|environments?)$/;
 // Work habits a resume can't show by wording: not requirements to score.
 const WORK_STYLE = /\battention to detail\b|\bdetail[- ]oriented\b|\bself[- ]starter\b|\bwork ethic\b|\bintellectual(?:ly)? curio|\bfast learner\b|\bsense of ownership\b|\blong hours\b/i;
@@ -104,6 +107,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     const clean = words0.join(' ').replace(/\s*\([^)]*$/, '').replace(/[,.;:)]+$/, '');
     const words = lower(clean).split(/\s+/).filter(Boolean);
     if (!clean || clean.length < 2 || words.length > 4 || !/[a-z]/i.test(clean)) return;
+    if (US_STATES.has(clean)) return; // "New York, NY"
     if (/\d\s*\+?\s*(?:years?|yrs)\b/i.test(clean)) return; // "4+ years leading teams" is a years requirement
     // "regulatory expectations", "industry standards": what about them is the requirement, not the phrase.
     if (GENERIC_HEAD.test(lower(clean))) return;
@@ -167,7 +171,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     for (const part of m[1].split(/,|\band\b|\bor\b|\//i)) {
       const ws = part.trim().split(/\s+/);
       while (ws.length && (EDGE_WORDS.has(lower(ws[0])) || STOPWORDS.has(lower(ws[0])))) ws.shift();
-      const t = ws.slice(0, 3).join(' ');
+      const t = ws.slice(0, 3).join(' ').split(/\s+to\s+/)[0];
       if (t && !/^(a|an|the)$/i.test(t)) addPart(t.replace(/^(a|an|the)\s+/i, ''));
     }
   }
@@ -188,7 +192,7 @@ const LEVELS = [
 ];
 // Words that look like levels but aren't here: "Staff Accountant", "Lead
 // Generation", and individual-contributor "Product/Project/Account Manager".
-const NOT_LEVEL = /\bchief of staff(?: to (?:the )?\w+)?\b|\bstaff (?=accountant|nurse|writer|auditor|attorney|pharmacist|assistant|engineer i\b)|\blead (?=gen(?:eration)?\b)|\b(?:product|project|program|account|case|property|community|office) (?=manager\b)manager\b/g;
+const NOT_LEVEL = /\bchief of staff(?: to (?:the )?\w+)?\b|\bstaff (?=accountant|nurse|writer|auditor|attorney|pharmacist|assistant|engineer i\b)|\blead (?=gen(?:eration)?\b)|\b(?:product|project|program|account|case|property|community|office|success|relationship|territory|key account) (?=manager\b)manager\b/g;
 // Bank and asset-manager ranks: Analyst → Associate → (Assistant) Vice
 // President → Director / Executive Director → Managing Director. "Vice
 // President, FX Options Strats" is a senior individual role there; "VP of
@@ -293,9 +297,9 @@ function requirementLines(text) {
 // "3+ years in technology consulting or IT strategy roles": the kind of
 // experience asked for, not just how long. Each alternative is met when one
 // role in the documents shows its words (later ones count more).
-const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?years?['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:in|as|within|across)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
+const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?years?['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:working\s+)?(?:in|as|within|across|on)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
 const KIND_CUT = /\s+(?:for|with|at|in an?|in the|where|that|who|which|on|using|ideally|preferably|including|within|across)\b.*$|,\s*(?:ideally|preferably|including|especially|with|in)\b.*$/;
-const KIND_FILLER = new Set('a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
+const KIND_FILLER = new Set('projects initiatives programs efforts firm firms company companies organization organizations focused based enterprise a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
 // "7+ years of hands-on Oracle ERP configuration": no "experience", but the same ask.
 const YEARS_OF_PLAIN = /^(?:[-•*▪●◦]\s*)?\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?['’]?\s+of\s+(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*([a-z][^.;:()]+)/;
 function experienceKind(line) {
@@ -309,7 +313,8 @@ function experienceKind(line) {
       (a.match(/[a-z0-9][a-z0-9+#&-]*/g) || [])
         .filter((w) => !STOPWORDS.has(w) && !KIND_FILLER.has(w))
     )
-    .filter((ws) => ws.length && ws.length <= 4 && !(ws.length === 1 && (ws[0].length < 3 || NOT_TERMS.has(ws[0]))));
+    // One generic word isn't a kind of experience, unless it's a skill ("analytics").
+    .filter((ws) => ws.length && ws.length <= 5 && !(ws.length === 1 && (ws[0].length < 3 || (NOT_TERMS.has(ws[0]) && !isDictionarySkill(ws[0])))));
   if (!alts.length) return null;
   return { alts, label: `experience in ${alts.map((ws) => ws.join(' ')).join(' or ')}` };
 }
@@ -322,6 +327,8 @@ function kindStem(w) {
 // by technology advisory, "ICU experience" by critical care.
 const KIND_SYNONYMS = [
   [/\badvisory\b/g, 'consulting'],
+  // Technology, strategy and management consulting are all consulting experience.
+  [/\b(?:management|strategy|technology|it|business) consulting\b/g, 'consulting'],
   [/\bicu\b|\bintensive care\b/g, 'critical care'],
   [/\btalent acquisition\b/g, 'recruiting'],
   [/\bquant\b/g, 'quantitative'],
@@ -360,7 +367,7 @@ function requirementUnits(job) {
     (job.title || '')
       .split(/[^A-Za-z0-9]+/)
       .filter((w) => /^[A-Z]/.test(w) && (/[a-z]/.test(w) || PRODUCT_ACRONYMS.has(w)) && !companyWords.has(lower(w)) && !NOT_TERMS.has(lower(w)) && !STOPWORDS.has(lower(w)))
-      .filter((w) => ![...ROLE_WORDS].some((r) => stem(lower(w)).startsWith(r)) && !new RegExp(TITLE_DROP.source).test(lower(w)))
+      .filter((w) => ![...ROLE_WORDS].some((r) => stem(lower(w)).startsWith(r)) && !new RegExp(TITLE_DROP.source).test(lower(w)) && titleLevel(w) === null)
       .filter((w) => PRODUCT_ACRONYMS.has(w) || (new RegExp(`[a-z,]\\s+${escapeRe(w)}\\b`).test(text) && !new RegExp(`\\b${escapeRe(lower(w))}\\b`).test(text)))
       .map(lower)
   );
@@ -368,7 +375,7 @@ function requirementUnits(job) {
   const termIgnoreText = `${lower(job.title)
     .split(/(\W+)/)
     .map((w) => (named.has(w) ? ' ' : w))
-    .join('')} | ${lower(job.company)}`;
+    .join('')} | ${lower(job.company)} | ${lower(job.location)}`;
   const units = new Map(); // key -> {key, label, kind, match}
   // A qualifications line outranks a duty that mentions the same thing: "C++
   // is a plus" makes C++ preferred even though the duties mention it.
@@ -448,12 +455,15 @@ function requirementUnits(job) {
     // the skills are alternatives of the experience asked for, not must-haves of their own.
     else if (xk && xk.alts.length > 1) found.splice(0, found.length, ...found.filter((f) => !sameAsKind.includes(f)));
     if (xk) {
-      const inKind = (f) => f.key.startsWith('t:') && xk.alts.some((ws) => lower(f.label).split(/\s+/).every((w) => ws.includes(w)));
+      const inKind = (f) => f.key.startsWith('t:') && xk.alts.some((ws) => lower(f.label).split(/\s+/).filter((w) => !KIND_FILLER.has(w)).every((w) => ws.includes(w)));
       found.splice(0, found.length, ...found.filter((f) => !inKind(f)));
     }
     const head = line.split(/,\s*(?:ideally|preferably|especially)\b/)[0];
     const xkKind = /\b(?:preferred|plus|bonus|ideally|preferably|desired|nice to have|a big plus)\b/.test(head) || section === 'preferred' ? 'preferred' : section === 'required' || lineKind === 'required' || !hasRequiredSection ? 'required' : effKind;
-    if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindMatch(xk.alts), { gate: true, weight: kindIsSkills ? 0.5 : 1 });
+    // The kind of experience the title is named for ("4+ years of accounting" for a Senior Accountant).
+    const titleStems = new Set(lower(job.title).split(/[^a-z0-9+#]+/).filter((w) => w.length > 3 && !STOPWORDS.has(w) && titleLevel(w) === null).map(kindStem));
+    const functionKind = !!xk && xk.alts.some((ws) => ws.some((w) => titleStems.has(kindStem(w))));
+    if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindMatch(xk.alts), { gate: true, weight: kindIsSkills ? 0.5 : 1, functionKind });
     // "Dashboards in Tableau" is one requirement (Tableau), not two.
     for (const [parent, children] of Object.entries(PARENT_OF)) {
       if (found.some((f) => children.includes(f.skill))) found.splice(0, found.length, ...found.filter((f) => f.skill !== parent));
@@ -468,7 +478,16 @@ function requirementUnits(job) {
         weight: Math.max(...run.map((f) => f.weight ?? 1)),
       });
     }
-      for (const f of found) {
+    // "Knowledge of business cases, IT strategy, roadmaps, operating models,
+    // change management and vendor strategy": a list that long asks for range,
+    // not each item. One requirement, met by about half of it.
+    const loose = found.filter((f) => !grouped.has(f) && !INTERPERSONAL.has(f.label));
+    if (loose.length >= 5 && /^(?:[-•*▪●◦]\s*)?(?:(?:strong|solid|deep|broad|working)\s+)?(?:knowledge|familiarity|understanding|experience|exposure|expertise)\b/i.test(original.trim())) {
+      loose.forEach((f) => grouped.add(f));
+      const need = Math.ceil(loose.length / 2);
+      addUnit('range:' + loose.map((f) => f.key).join('|'), `several of ${loose.slice(0, 4).map((f) => f.label).join(', ')}…`, effKind, (t) => Math.min(1, loose.reduce((s, f) => s + f.match(t), 0) / need), { anywhere: true, weight: 1.5 });
+    }
+    for (const f of found) {
       // Soft skills can't be judged from wording, so they only nudge the score.
       if (!grouped.has(f)) addUnit(f.key, f.label, INTERPERSONAL.has(f.label) && effKind === 'required' ? 'neutral' : effKind, f.match, f.skill ? { related: relatedOf([f.skill]), weight: f.weight, skills: [f.skill] } : { weight: f.weight });
     }
@@ -582,7 +601,9 @@ const TITLE_IMPLIES = [
   [/\b(?:data|business intelligence|bi) analyst\b/i, { 'Data Analysis': 0.7 }],
   [/\bmodel (?:risk|validation)\b/i, { 'Model Validation': 0.7, Statistics: 0.5 }],
   [/\b(?:financial analyst|fp&a)\b/i, { Excel: 0.6, 'Financial Modeling': 0.5 }],
-  [/\b(?:management|strategy|technology|it) consultant\b|\bconsultant, (?:technology|strategy)/i, { PowerPoint: 0.5, 'Stakeholder Management': 0.5 }],
+  [/\b(?:management|strategy|technology|it) consultant\b|\bconsultant, (?:technology|strategy|it|digital|advisory|transformation|modernization)/i, { PowerPoint: 0.5, 'Stakeholder Management': 0.5 }],
+  // A consultant (or manager) in a strategy, technology or advisory practice, or at a consulting firm, has consulting experience.
+  [/\b(?:consultant|manager|associate|analyst|director|principal)\b.*\b(?:strategy|technology|advisory|transformation|modernization|operations|consulting|digital|it)\b.*$|\bconsultant\b.*\b(?:consulting|advisory|partners|group)\b/i, { Consulting: 0.8 }],
 ];
 function impliedSkills(titles) {
   const out = new Map();
@@ -666,7 +687,7 @@ function titleWords(title) {
 // last word: "analyst", "engineer") counts double.
 // Neighbouring roles: half credit (a frontend engineer is half way to a
 // frontend architect; frontend and full-stack engineers overlap).
-const TITLE_NEAR = [['quant', 'trad'], ['quant', 'research'], ['research', 'scien'], ['research', 'analy'], ['engineer', 'architect'], ['analy', 'scien'], ['analy', 'model'], ['analy', 'quant'], ['frontend', 'fullstack'], ['backend', 'fullstack'], ['manag', 'lead'], ['account', 'audit'], ['design', 'ux'], ['consult', 'advis'], ['consult', 'strateg'], ['consult', 'analy'], ['strateg', 'transform'], ['technolog', 'digital'], ['consult', 'associ'], ['consult', 'manag'], ['chiefofstaff', 'consult'], ['chiefofstaff', 'strateg'], ['chiefofstaff', 'manag']];
+const TITLE_NEAR = [['transform', 'modern'], ['quant', 'trad'], ['quant', 'research'], ['research', 'scien'], ['research', 'analy'], ['engineer', 'architect'], ['analy', 'scien'], ['analy', 'model'], ['analy', 'quant'], ['frontend', 'fullstack'], ['backend', 'fullstack'], ['manag', 'lead'], ['account', 'audit'], ['design', 'ux'], ['consult', 'advis'], ['consult', 'strateg'], ['consult', 'analy'], ['strateg', 'transform'], ['technolog', 'digital'], ['consult', 'associ'], ['consult', 'manag'], ['chiefofstaff', 'consult'], ['chiefofstaff', 'strateg'], ['chiefofstaff', 'manag']];
 // Consulting ladders: an in-house manager is a consultant's next step; chiefs of
 // staff often come from strategy consulting.
 // Big-4 ladders call consultants "Associate" / "Senior Associate".
@@ -683,6 +704,7 @@ const FUNCTION_WORDS = new Set(titleWords('sales recruiter recruiting talent sup
 // names the practice; "Analyst, Ashcroft Bank" doesn't make you a banker).
 // Words only an employer's name ends in; "Trading Systems" or "Technology
 // Strategy" next to a title is the team or practice.
+const WEAK_ROLES = new Set(['strateg', 'advis']);
 const COMPANY_NAME = /\b(?:inc|llc|llp|ltd|corp|corporation|co|company|group|partners|bank|bancorp|capital|securities|holdings|associates|university|college|hospital|health system|mortgage|credit union|insurance|mutual|asset management|federal|county|city)\b\.?$/i;
 function titleMatch(posting, held) {
   const [main, ...rest] = String(posting || '').split(/,|\s[-–—|]\s|\(/);
@@ -698,8 +720,12 @@ function titleMatch(posting, held) {
   const org = [...new Set(orgParts.filter(isEmployer).flatMap(titleWords))];
   if (!want.length || !have.length) return 0;
   // The role word counts double; with none recognised, the last word of the main part is the role.
-  const roleAt = want.some((w) => ROLE_WORDS.has(w)) ? (w) => ROLE_WORDS.has(w) : (w, i) => i === Math.max(0, mainWords.length - 1);
-  const weights = want.map((w, i) => (roleAt(w, i) ? 2 : i >= mainWords.length && !FUNCTION_WORDS.has(w) ? 0.5 : 1));
+  // "Strategy" and "advisory" name the work when there's another role noun
+  // ("IT Strategy & Transformation, Senior Consultant"), the role only on their own ("Strategist").
+  const roles = new Set(want.filter((w) => ROLE_WORDS.has(w)));
+  if ([...roles].some((w) => !WEAK_ROLES.has(w))) for (const w of WEAK_ROLES) roles.delete(w);
+  const roleAt = roles.size ? (w) => roles.has(w) : (w, i) => i === Math.max(0, mainWords.length - 1);
+  const weights = want.map((w, i) => (roleAt(w, i) ? 2 : i >= mainWords.length && !FUNCTION_WORDS.has(w) && !WEAK_ROLES.has(w) ? 0.5 : 1));
   const total = weights.reduce((a, b) => a + b, 0);
   // A neighbouring word counts half, but the held role noun doesn't stand in
   // for a posting's qualifier ("Data Analyst" isn't half a "Quantitative Analyst").
@@ -839,6 +865,7 @@ function fitHeadline(f) {
   if (f.breakers.length) return `Dealbreaker: ${f.breakers[0].replace(/^./, (c) => c.toLowerCase())}.`;
   if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, and that's not work your documents show.`;
   if (f.missingCore.length) return `The title names ${listOf(f.missingCore)}, which your documents don't show — that's the job's core.`;
+  if (f.missingFunction) return `A different line of work: it asks for ${plain(f.missingFunction.label)}, which your documents don't show.`;
   const years = f.needYears !== null && f.haveYears !== null ? `it asks for ${f.needYears}+ years; you have about ${Math.round(f.haveYears)}.` : '';
   if (f.stretch) return `A stretch: this is ${/^[aeio]/.test(LEVEL_NAMES[f.postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[f.postingLevel]}-level role and your experience reads as ${LEVEL_NAMES[f.userLevel]}.${years ? ` It${years.slice(2)}` : ''}`;
   if (f.shortYears) return `A stretch on experience: ${years}`;
@@ -873,7 +900,7 @@ function localFitScore(job, documents, profile = {}) {
   // "Coursework or work experience": the posting accepts what school shows.
   if (/\bcoursework\b/i.test(job.text)) for (const s of segs) if (s.weight < 0.9) s.weight = 0.9;
   const implied = impliedSkills(titles);
-  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, gate: !!u.gate, weight: u.weight ?? 1, met: evidenceFor(u, segs, lib, libText, implied) }));
+  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, gate: !!u.gate, functionKind: !!u.functionKind, weight: u.weight ?? 1, met: evidenceFor(u, segs, lib, libText, implied) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
   // Communication, collaboration, problem solving: can't be judged from
@@ -912,7 +939,10 @@ function localFitScore(job, documents, profile = {}) {
   const experience = needYears !== null && haveYears !== null ? Math.min(1, Math.pow(haveYears / Math.max(1, needYears), 1.2)) : needYears !== null ? 0.4 : null;
   // Most titles carry no level; only judge seniority when the posting states
   // one (in the title, or plainly as an entry-level / new-grad role).
-  const postingLevel = titleLevel(job.title) ?? (ENTRY_TEXT.test(job.text || '') ? 1 : null);
+  // A bare "Consultant" is a rank at consulting firms (Analyst, Consultant,
+  // Senior Consultant, Manager); the years asked say which ("SAP Consultant, 10+ years").
+  const consultantRank = /\bconsultant\b/i.test(job.title || '') ? Math.max(2, levelFromYears(needYears) ?? 2) : null;
+  const postingLevel = titleLevel(job.title) ?? (ENTRY_TEXT.test(job.text || '') ? 1 : consultantRank);
   const docLevels = documents.filter((d) => d.kind === 'resume' || !d.kind).map((d) => d.text.split('\n').map(titleLevel).filter((l) => l !== null && l < 6)).flat();
   const yearLevel = levelFromYears(haveYears);
   const userLevel = yearLevel !== null ? Math.max(yearLevel, docLevels.length ? Math.min(Math.max(...docLevels), yearLevel + 1) : yearLevel) : null;
@@ -927,11 +957,11 @@ function localFitScore(job, documents, profile = {}) {
   // already do can match every requirement, but it isn't a strong fit for you.
   // (A career change into a junior role is a different story: role match is low there.)
   const levelsBelow = seniority !== null ? userLevel - postingLevel : 0;
-  const overqualified = levelsBelow >= 2 && (role === null || role >= 0.5);
+  const overqualified = levelsBelow >= 2 && (role === null || role >= 0.5 || (required !== null && required >= 0.7));
   // Under-qualified: recruiters screen out well short of the years asked
   // (half or less) or two levels up, whatever else matches.
   const yearsRatio = needYears >= 3 && haveYears !== null ? haveYears / needYears : null;
-  const shortYears = yearsRatio === null ? null : yearsRatio < 0.3 ? 30 : yearsRatio < 0.5 ? 45 : yearsRatio < 0.8 ? 64 : null;
+  const shortYears = yearsRatio === null ? null : yearsRatio < 0.25 ? 20 : yearsRatio < 0.4 ? 30 : yearsRatio < 0.6 ? 45 : yearsRatio < 0.8 ? 64 : null;
   const stretch = seniority !== null && -levelsBelow >= 2;
 
   const components = { required, preferred: mean(pref), role, domain, experience, seniority };
@@ -960,6 +990,13 @@ function localFitScore(job, documents, profile = {}) {
   if (missingCore.length) score = Math.min(score, 40);
   if (overqualified) score = Math.min(score, levelsBelow >= 3 ? 50 : 60);
   if (shortYears) score = Math.min(score, shortYears);
+  // Neither the title nor the kind of work the role is named for: a different job.
+  // (Adjacent fields that share most of the must-haves are a stretch, not a different job.)
+  const missingFunction = role !== null && role < 0.5 && required !== null && required < 0.6 && (domain === null || domain < 0.5) ? all.find((u) => u.functionKind && u.kind === 'required' && u.met < 0.25) : null;
+  if (missingFunction) score = Math.min(score, 35);
+  // One or two recognisable must-haves aren't enough to call it excellent.
+  const thinEvidence = req.filter((u) => !/degree|^PhD/.test(u.label)).length <= 1;
+  if (thinEvidence) score = Math.min(score, 79);
   // A sales or recruiting job you haven't done: a different job, however the rest reads.
   const otherFunction = functionGap(job, lib);
   if (otherFunction) score = Math.min(score, 40);
@@ -967,9 +1004,9 @@ function localFitScore(job, documents, profile = {}) {
   // most of what the duties name isn't in your documents, it's strong at most.
   const dutyGap = neutral.length >= 4 && mean(neutral) < 0.5;
   if (dutyGap) score = Math.min(score, 79);
-  if (stretch) score = Math.min(score, -levelsBelow >= 3 ? 30 : 44); // "Stretch role"
+  if (stretch) score = Math.min(score, -levelsBelow >= 3 ? 25 : 44); // "Stretch role"
   // A step up can be a strong fit, but not an excellent one: that's a role at your level.
-  else if (seniority !== null && -levelsBelow === 1) score = Math.min(score, 79);
+  else if (seniority !== null && -levelsBelow === 1) score = Math.min(score, req.some((u) => u.met < 0.5) ? 64 : 79);
 
   // How much should you trust this number?
   const recognized = all.length;
@@ -989,12 +1026,13 @@ function localFitScore(job, documents, profile = {}) {
   concerns.unshift(...(job.warnings || []));
   if (otherFunction) concerns.unshift(`This is a ${otherFunction} role (${otherFunction === 'sales' ? 'a quota, closing deals' : 'filling requisitions, sourcing candidates'}), and your documents don't show ${otherFunction} work`);
   if (dutyGap) concerns.push(`${req.every((u) => u.met >= 0.5) ? 'You meet what it asks for, but much' : 'Much'} of the day-to-day work (${neutral.filter((u) => u.met < 0.5).slice(0, 3).map((u) => u.label).join(', ')}) isn't in your documents yet`);
-  if (missingCore.length) concerns.push(`The title names ${missingCore.join(', ')}, which your documents don't show`);
+  const missingProducts = all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label);
+  if (missingCore.length) concerns.push(`The title names ${(missingProducts.length ? missingProducts : missingCore).join(', ')}, which your documents don't show`);
   const missingReq = req.filter((u) => u.met < 0.5).map((u) => u.label);
 
   // One sentence to decide by, most decisive fact first.
   const headline = documents.length
-    ? fitHeadline({ breakers, otherFunction, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
+    ? fitHeadline({ breakers, otherFunction, missingFunction, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
     : '';
   if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
 
@@ -1020,9 +1058,10 @@ function localFitScore(job, documents, profile = {}) {
     // checklist doesn't see: Claude's score is held to them too.
     screens: [
       overqualified && { max: levelsBelow >= 3 ? 50 : 60, reason: 'You would likely be overqualified for this role' },
-      stretch && { max: -levelsBelow >= 3 ? 30 : 44, reason: `This is ${/^[aeio]/.test(LEVEL_NAMES[postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}` },
+      stretch && { max: -levelsBelow >= 3 ? 25 : 44, reason: `This is ${/^[aeio]/.test(LEVEL_NAMES[postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}` },
       shortYears && { max: shortYears, reason: `It asks for ${needYears}+ years; your documents show about ${Math.round(haveYears)}` },
       otherFunction && { max: 40, reason: `This is a ${otherFunction} role, and your documents don't show ${otherFunction} work` },
+      missingFunction && { max: 35, reason: `It asks for ${missingFunction.label}, which your documents don't show` },
     ].filter(Boolean),
     reasons,
     concerns,

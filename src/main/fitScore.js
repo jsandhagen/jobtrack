@@ -77,7 +77,7 @@ const SKILLS = {
   'Derivatives Pricing': [/\b(?:derivatives?|options?) pricing\b/, /\bpricing (?:models?|librar(?:y|ies)|theory)\b/, /\bpric(?:e|ed|ing|er) (?:\w+ ){0,3}(?:options|swaptions|derivatives|exotics)\b/, /\bblack[- ]scholes\b/, /\bheston\b/, /\bsabr\b/, /\bhull[- ]white\b/, /\blocal vol(?:atility)?\b/, /\bvolatility surfaces?\b/],
   Derivatives: [/\bderivatives\b/, /\bswaptions?\b/, /\b(?:interest rate|equity|fx|credit|commodity|variance) swaps?\b/, /\b(?:equity|index|vanilla|exotic|listed) options\b/, /\boptions and futures\b/, /\bfutures and options\b/, /\bexotics\b/],
   'Monte Carlo': [/\bmonte carlo\b/],
-  'Numerical Methods': [/\bnumerical (?:methods|analysis|pdes?|solvers?)\b/, /\bfinite[- ]difference\b/, /\bpdes?\b/, /\blattice methods\b/, /\bbinomial trees?\b/],
+  'Numerical Methods': [/\bnumerical (?:methods|analysis|pdes?|solvers?)\b/, /\bpartial differential equations?\b/, /\bfinite[- ]difference\b/, /\bpdes?\b/, /\blattice methods\b/, /\bbinomial trees?\b/],
   'Fixed Income': [/\bfixed income\b/, /\binterest rate (?:models?|risk|derivatives)\b/, /\byield curves?\b/, /\bcurve construction\b/],
   'Risk Sensitivities': [/\bgreeks\b/, /\brisk sensitivit(?:y|ies)\b/, /\bdelta[- ]hedg/, /\bp&l (?:attribution|explain)\b/],
   'Market Risk': [/\bmarket risk\b/, /\bvalue[- ]at[- ]risk\b/, /\b(?:stressed )?var (?:models?|calculations?|back-?testing|limits)\b/, /\bexpected shortfall\b/],
@@ -121,7 +121,9 @@ const SKILLS = {
   // A product roadmap, not a technology roadmap (that's Roadmapping).
   'Product Management': [/\bproduct management\b/, /\bproduct manager\b/, /\bproduct roadmaps?\b/, /\bprds?\b/, /\bproduct requirements\b/],
   Agile: [/\bagile\b/, /\bscrum\b/, /\bkanban\b/, /\bsprints?\b/, /\bsafe (?:certification|agilist|framework)\b/, /\bscaled agile\b/],
-  'Project Management': [/\bproject management\b/, /\bproject manager\b/, /\bpmp\b/, /\bproject plans?\b/, /\bled (?:the )?(?:project|program|implementation|rollout|launch)\b/, /\btechnical program\b/],
+  // A PMP is a certification recruiters screen on; managing projects without one is related, not the same.
+  PMP: [/\bpmp\b/, /\bproject management professional\b/],
+  'Project Management': [/\bproject management\b/, /\bproject manager\b/, /\bproject plans?\b/, /\bled (?:the )?(?:project|program|implementation|rollout|launch)\b/, /\btechnical program\b/],
   'UX Design': [/\bux\b/, /\buser experience\b/, /\buser research\b/, /\busability\b/],
   'UI Design': [/\bui design\b/, /\bvisual design\b/, /\bdesign systems?\b/],
   Figma: [/\bfigma\b/],
@@ -153,7 +155,7 @@ const SKILLS = {
   'IT Portfolio Management': [/\b(?:it |project |technology )portfolio (?:management|planning|status|reviews?|metrics)\b/, /\bit project portfolio\b/, /\b(?:technology|annual|quarterly) planning\b/, /\bokrs?\b/, /\binvestment (?:planning|requests|priorities)\b/, /\binitiative portfolios?\b/],
   'Vendor Selection': [/\bvendor (?:selection|evaluation|management|assessment|consolidation|onboarding|due diligence)\b/, /\bvendor evaluations?\b/, /\brfps?\b/, /\bsourcing strateg(?:y|ies)\b/, /\bcontract reviews?\b/, /\b(?:onboard(?:ing)?|evaluat\w*|assess\w*|select\w*) (?:new |third-party )?(?:data )?(?:vendors|providers|suppliers)\b/],
   'IT Governance': [/\b(?:it|technology|data|transformation|cloud) governance\b/, /\bgovernance guardrails\b/, /\bgovernance (?:structures?|frameworks?|model)\b/, /\bcobit\b/],
-  ITSM: [/\bitil\b/, /\bitsm\b/, /\bit service management\b/],
+  ITSM: [/\bitil\b/, /\bitsm\b/, /\bit service management\b/, /\binfrastructure library\b/],
   ServiceNow: [/\bservicenow\b/],
   ERP: [/\berp\b/, /\bsap\b/, /\bs\/4\s?hana\b/, /\boracle (?:cloud|ebs|e-business|fusion|erp)\b/, /\bnetsuite\b/, /\bworkday (?:hcm|financials)\b/],
   PMO: [/\bpmo\b/, /\bprogram management(?: office)?\b/, /\braid logs?\b/],
@@ -161,7 +163,7 @@ const SKILLS = {
   'Business Analysis': [/\bbusiness analy(?:sis|sts?)\b/, /\bsystems analy(?:sis|sts?)\b/],
   'Requirements Gathering': [/\brequirements (?:gathering|elicitation|analysis)\b/, /\bgathered requirements\b/, /\bbusiness requirements\b/, /\buser stories\b/],
   'Process Mapping': [/\bprocess (?:mapping|maps|redesign|re-?engineering)\b/, /\b(?:current|future)[- ]state process(?:es)?\b/],
-  'Stakeholder Management': [/\bstakeholder (?:management|engagement|advising)\b/, /\bc-suite\b/, /\bsteering committees?\b/, /\bexecutive stakeholders?\b/, /\badvis(?:e|ed|ing) (?:senior|executive|leadership|stakeholders|clients|the cio|ctos?|cios?)\b/, /\b(?:recommendations|insights|briefings?) to (?:senior |executive )?(?:management|leadership|executives|stakeholders)\b/, /\b(?:key|primary|main) point of contact\b/, /\b(?:internal|external|cross-functional|business|key|technology and compliance) stakeholders\b/, /\bthought partner\b/],
+  'Stakeholder Management': [/\bstakeholder (?:management|engagement|advising)\b/, /\bclients and stakeholders\b/, /\bfor (?:\w+ ){0,3}(?:cios|ctos|cfos|ceos|c-suite|executives|agency leaders)\b/, /\b(?:work|working|worked) directly with (?:clients|stakeholders|executives|customers)\b/, /\bc-suite\b/, /\bsteering committees?\b/, /\bexecutive stakeholders?\b/, /\badvis(?:e|ed|ing) (?:senior|executive|leadership|stakeholders|clients|the cio|ctos?|cios?)\b/, /\b(?:recommendations|insights|briefings?) to (?:senior |executive )?(?:management|leadership|executives|stakeholders)\b/, /\b(?:key|primary|main) point of contact\b/, /\b(?:internal|external|cross-functional|business|key|technology and compliance) stakeholders\b/, /\bthought partner\b/],
   'Workshop Facilitation': [/\b(?:executive |discovery |client )?workshops?\b/],
   PowerPoint: [/\bpowerpoint\b/, /\bslide decks?\b/],
   'IT Financial Management': [/\bit (?:spend|costs?|budgets?|financial|finance)\b/, /\b(?:spend|cost) benchmarks?\b/, /\bbenefits (?:realization|tracking)\b/, /\btechnology business management\b/, /\btbm\b/, /\bit cost optimi[sz]ation\b/, /\btechnology spend\b/, /\bfinops\b/, /\bcloud costs?\b/],
@@ -188,11 +190,11 @@ const SKILLS = {
   'Legal / Compliance': [/\blegal research\b/, /\bcompliance\b/, /\bcontracts? (?:law|review|negotiation|drafting|management)\b/, /\bregulatory (?:compliance|affairs|filings?|submissions?|reporting|requirements|exams?|examinations)\b/],
   // A clearance is a credential (and a knockout), not a security skill.
   'Security Clearance': [/\bsecurity clearance\b/, /\bts\s*\/\s*sci\b/, /\b(?:top secret|secret|public trust) clearance\b/, /\bactive clearance\b/],
-  Security: [/(?<!social )\bsecurity\b(?!\s+clearance)/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
+  Security: [/(?<!social )\bsecurity\b(?!\s+(?:clearance|investigation|eligibility|requirements? for access))/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
   Testing: [/\bunit test(?:s|ing)?\b/, /\bautomated test(?:s|ing)?\b/, /\btest coverage\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
   // human skills
-  Leadership: [/\bleadership\b/, /\bmentor(?:ed|ing|ship|s)?\b/, /\bled (?:a |the )?(?:team|group|squad)/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
-  Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|written|oral|interpersonal) communication\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/, /\b(?:executive|written|client) communications?\b/, /\bstorytelling\b/, /\bbriefings?\b/, /\bexecutive (?:presence|narratives?|updates)\b/, /\bclient[- ]facing\b/, /\bclient conversations\b/, /\bpresenting to executives\b/],
+  Leadership: [/\bleadership\b/, /\bmentor(?:ed|ing|ship|s)?\b/, /\bled (?:a |the )?(?:team|group|squad)/, /\bmanag(?:ed|ing|es?) (?:a )?teams?\b/, /\bpeople manage/, /\b(?:led|managed|leading|managing) (?:\w+ ){0,2}teams? of (?:up to )?\d+/],
+  Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|written|oral|interpersonal) communication\b/, /\binterpersonal skills\b/, /\bcommunication and interpersonal\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/, /\b(?:executive|written|client) communications?\b/, /\bstorytelling\b/, /\bbriefings?\b/, /\bexecutive (?:presence|narratives?|updates)\b/, /\bclient[- ]facing\b/, /\bclient conversations\b/, /\bpresenting to executives\b/],
   Collaboration: [/\bcross[-\s]functional\b/, /\bcollaborat(?:e|ed|es|ing|ion|ive(?:ly)?)\b/, /\bteamwork\b/, /\bteam player\b/],
   'Problem Solving': [/\bproblem[-\s]solv(?:ing|er)\b/, /\banalytical (?:skills|thinking|mindset|abilities)\b/, /\bcritical thinking\b/, /\bstructur(?:e|ed|ing) (?:problems|ambiguous problems)\b/, /\banalytical\b/, /\bsynthes(?:is|ize|izing)\b/, /\bresearch(?:,|\s+and)\s+analysis\b/],
   Bilingual: [/\bbilingual\b/, /\bspanish\b/, /\bfrench\b/, /\bmandarin\b/, /\bgerman\b/],
@@ -223,7 +225,7 @@ const RELATED_PAIRS = [
   ['Technology Strategy', 'Consulting', 0.4], ['Digital Transformation', 'Change Management', 0.5], ['Digital Transformation', 'Cloud Strategy', 0.5],
   ['Cloud Strategy', 'AWS', 0.4], ['Cloud Strategy', 'Azure', 0.4], ['Cloud Strategy', 'GCP', 0.4], ['Cloud Strategy', 'Enterprise Architecture', 0.4],
   ['Enterprise Architecture', 'Application Portfolio', 0.5], ['Application Portfolio', 'IT Portfolio Management', 0.5],
-  ['PMO', 'Project Management', 0.7], ['PMO', 'IT Portfolio Management', 0.5], ['Requirements Gathering', 'Process Mapping', 0.5], ['Business Analysis', 'Requirements Gathering', 0.6], ['Business Analysis', 'Process Mapping', 0.5], ['Business Analysis', 'IT Portfolio Management', 0.3], ['CI/CD', 'Testing', 0.3],
+  ['PMO', 'Project Management', 0.7], ['PMP', 'Project Management', 0.5], ['PMO', 'IT Portfolio Management', 0.5], ['Requirements Gathering', 'Process Mapping', 0.5], ['Business Analysis', 'Requirements Gathering', 0.6], ['Business Analysis', 'Process Mapping', 0.5], ['Business Analysis', 'IT Portfolio Management', 0.3], ['CI/CD', 'Testing', 0.3],
   ['Business Cases', 'IT Financial Management', 0.6], ['Business Cases', 'Finance', 0.4], ['ITSM', 'ServiceNow', 0.7], ['IT Governance', 'ITSM', 0.4],
   ['Stakeholder Management', 'Workshop Facilitation', 0.4], ['Consulting', 'Business Development', 0.3], ['Data Strategy', 'AI Strategy', 0.5],
   ['Data Strategy', 'Technology Strategy', 0.4], ['Operating Model', 'Change Management', 0.4], ['Vendor Selection', 'ERP', 0.2],
@@ -273,13 +275,17 @@ const STOPWORDS = new Set(
 );
 
 // "as required" means "as needed", not a requirement.
-const REQUIRED_CUE = /\b((?<!\bas )required|requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
+// "Requirements" as a heading, not "Write product requirements" in a duty.
+const REQUIRED_CUE = /\b((?<!\bas )required|^requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
 const PREFERRED_CUE = /\b(preferred|nice[- ]to[- ]haves?|bonus|plus|desired|desirable|ideally|good to have|helpful|beneficial|advantageous|an asset|additional qualifications|extra credit)\b/;
 // "No Java experience required", "Python is not required": not a requirement.
 const NEGATED_CUE = /\bnot (?:required|necessary|needed|a requirement|mandatory)\b|\bno\b[^.;]{0,40}\b(?:required|necessary|needed)\b/;
 // Example lists ("languages may include Python, R, MATLAB", "other useful
 // tools include SAS") name options, not things every applicant must have.
 const OPTIONAL_CUE = /\b(may include|not limited to|such as|e\.g\.|for example|other useful|also useful|one or more of|any of the following)/;
+// Lists whose items are alternatives without being optional: "projects
+// involving process frameworks: ITIL, ISO 20000, COBIT" asks for one of them.
+const ALTERNATIVES_CUE = new RegExp(`${OPTIONAL_CUE.source}|\\b(one or more (?:projects|engagements) involving|(?:frameworks?|tools|platforms|technologies|methodologies|certifications)\\s*:)`);
 
 // EEO, security-policy and recruiter notices: never qualifications.
 const BOILERPLATE_LINE =
@@ -385,11 +391,11 @@ const LIST_GAP = /^(?:[\s,/]|\band\b|\bor\b|\b[a-z]\b[#+]*)*$|^\s*,\s*[a-z][\w-]
 // (The second form: one unrecognised item before the "or": "cloud, data or AI".)
 const OR_GAP = /\/|\bor\b/;
 function alternativeRuns(line, items) {
-  const optional = OPTIONAL_CUE.test(line);
+  const optional = ALTERNATIVES_CUE.test(line);
   const sorted = [...items].sort((a, b) => a.index - b.index);
   // "Coursework may include econometrics, optimization, Bayesian methods...":
   // everything listed after the cue is an option, whatever sits between.
-  const cue = line.match(OPTIONAL_CUE);
+  const cue = line.match(ALTERNATIVES_CUE);
   if (cue) {
     const after = sorted.filter((it) => it.index >= cue.index);
     if (after.length >= 2) return [after, ...alternativeRuns(line.slice(0, cue.index), sorted.filter((it) => it.end <= cue.index))];
@@ -581,7 +587,7 @@ function isGenericTitle(title) {
   return !title || GENERIC_TITLE.test(String(title).trim());
 }
 
-const ROLE_NOUN = /\b(?:analyst|engineer|developer|programmer|manager|scientist|specialist|associate|director|lead|consultant|designer|nurse|accountant|auditor|coordinator|administrator|officer|architect|intern|representative|technician|assistant|advisor|adviser|strategist|researcher|economist|statistician|actuary|underwriter|modeler|quant|recruiter|editor|writer|teacher|therapist|pharmacist|attorney|paralegal|controller|planner|producer|agent|supervisor|head|vp|president|partner|fellow|senior|principal|staff)\b/i;
+const ROLE_NOUN = /\b(?:executive|analyst|engineer|developer|programmer|manager|scientist|specialist|associate|director|lead|consultant|designer|nurse|accountant|auditor|coordinator|administrator|officer|architect|intern|representative|technician|assistant|advisor|adviser|strategist|researcher|economist|statistician|actuary|underwriter|modeler|quant|recruiter|editor|writer|teacher|therapist|pharmacist|attorney|paralegal|controller|planner|producer|agent|supervisor|head|vp|president|partner|fellow|senior|principal|staff)\b/i;
 
 // The posting's job title from its text: an explicit "Job title:" field, else
 // the first short line that names a role, else the role the text says it's

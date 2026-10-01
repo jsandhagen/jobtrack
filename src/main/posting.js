@@ -22,7 +22,7 @@ const CHROME = [
 ];
 
 // Where the posting ends: the company card, other jobs, the application form.
-const END = /^(?:about the company|meet the hiring team|people you can reach out to|similar jobs|more jobs|jobs you may (?:be interested in|like)|people also viewed|other jobs at .*|company photos|apply for this job|submit (?:your )?application|first name\s*\*?|full name|resume\/cv\s*\*?|voluntary self-identification.*|u\.s\. equal (?:opportunity )?employment information.*|report (?:this )?job|company overview|follow us|why work (?:for|at) .*\?|looking for talent\?)$/i;
+const END = /^(?:about the company|set alert for similar jobs|meet the hiring team|people you can reach out to|similar jobs|more jobs|jobs you may (?:be interested in|like)|people also viewed|other jobs at .*|company photos|apply for this job|submit (?:your )?application|first name\s*\*?|full name|resume\/cv\s*\*?|voluntary self-identification.*|u\.s\. equal (?:opportunity )?employment information.*|report (?:this )?job|company overview|follow us|why work (?:for|at) .*\?|looking for talent\?)$/i;
 
 // Indeed shows the viewer's own skills ("Profile insights") and a summary
 // block before "Full job description".

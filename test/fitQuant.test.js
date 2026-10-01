@@ -69,7 +69,7 @@ test('the headline says the one thing that decides it', () => {
   assert.match(h('techStrategyConsultant', 'presalesConsultant'), /sales job/);
   assert.match(h('techStrategyConsultant', 'workdayConsultant'), /^The title names Workday,/);
   assert.match(h('dataScientist', 'creditRiskModeler'), /^You show \d+ of \d+ must-haves; the gap is experience in credit risk modeling/);
-  assert.match(h('fpaAnalyst', 'quantResearcher'), /^This role needs .*which your documents don't show\.$/);
+  assert.match(h('fpaAnalyst', 'quantResearcher'), /^A different line of work: it asks for experience in quantitative research/);
   // A dealbreaker comes first.
   const r = localFitScore(POSTINGS.derivativesQuant, [{ kind: 'resume', text: RESUMES.mfeNewGrad }], { minSalary: '250000' });
   assert.match(r.headline, /^Dealbreaker: pay tops out/);

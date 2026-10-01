@@ -39,7 +39,7 @@ function screeningRequirements(job) {
     if (/\b(?:must be an?|be an?|requires? an?|only)\s+(?:u\.?s\.?|united states|american)\s+citizens?\b|\b(?:u\.?s\.?|united states)\s+citizenship\s+(?:is\s+)?(?:required|needed|mandatory|a requirement)|\bcitizens only\b/.test(t))
       add({ id: 'citizenship', label: 'U.S. citizenship', quote });
 
-    if (/\b(?:not|unable to|will not|won['’]t|cannot|can['’]t|does not|do not|no)\b[^.;]{0,50}\bsponsor/.test(t) || /\bsponsorship\b[^.;]{0,30}\b(?:is not|not)\s+(?:available|offered|provided)|without (?:the need for )?(?:current or future |now or in the future )?(?:visa |employer |employment )?sponsorship/.test(t))
+    if (/\b(?:not|unable to|will not|won['’]t|cannot|can['’]t|does not|do not|no)\b[^.;]{0,140}\bsponsor/.test(t) || /\bsponsorship\b[^.;]{0,30}\b(?:is not|not)\s+(?:available|offered|provided)|without (?:the need for )?(?:current or future |now or in the future )?(?:visa |employer |employment )?sponsorship/.test(t))
       add({ id: 'no-sponsorship', label: 'no visa sponsorship', quote });
 
     if (/\bclearance\b|\bts\s*\/\s*sci\b/.test(t) && !preferred) {

@@ -35,7 +35,7 @@ function fieldsAsked(clause) {
   const fields = list
     .split(/,|\/|\bor\b|\band\b/)
     .map((x) => x.replace(FAMILY_WORD, ' ').replace(/\b(?:a|an|another|other|similar|related|relevant|equivalent|closely|field|fields|discipline|disciplines|area|areas|subject|major|quantitative|technical|stem|degree)\b/g, ' ').replace(/\s+/g, ' ').trim())
-    .filter((x) => x && x.length > 2 && x.split(' ').length <= 4);
+    .filter((x) => x && x.length > 2 && x.split(' ').length <= 4 && !/\b(?:the|specialization|specialisation|study|studies|concentration|relevance)\b/.test(x));
   const related = /\brelated\b|\bsimilar\b|\bequivalent field\b/.test(list);
   if (!fields.length && !families.length) return null;
   return { fields, families, related };

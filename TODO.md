@@ -34,6 +34,14 @@ risk skills. Still open:
       with Power BI missing costs as much as any must-have (the second
       held-out batch flags this). Consider treating tools listed together as
       one requirement met in part.
+- [ ] **Live postings.** `scripts/fit-realworld.js` uses postings rebuilt from
+      search results because job sites weren't reachable from the test
+      environment. Run it on real captured pages (Greenhouse, Lever, Ashby and
+      Workday APIs) when they are, and keep the labels written before scoring.
+- [ ] **Adjacent career moves.** On the real-world set the score is stricter
+      than the labels for career changers (business analyst → strategy
+      consulting, PM → advisory): 15 of 38 "possible" pairs land under 45.
+      Check against real outcomes before loosening it.
 - [ ] **Title-implied skills.** `TITLE_IMPLIES` covers a handful of titles
       with partial credit. Extend carefully: each entry should be something
       everyone in that job does every day.
