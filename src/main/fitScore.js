@@ -73,7 +73,7 @@ const SKILLS = {
   // A product roadmap, not a technology roadmap (that's Roadmapping).
   'Product Management': [/\bproduct management\b/, /\bproduct manager\b/, /\bproduct roadmaps?\b/, /\bprds?\b/, /\bproduct requirements\b/],
   Agile: [/\bagile\b/, /\bscrum\b/, /\bkanban\b/, /\bsprints?\b/, /\bsafe (?:certification|agilist|framework)\b/, /\bscaled agile\b/],
-  'Project Management': [/\bproject management\b/, /\bproject manager\b/, /\bpmp\b/, /\bproject plans?\b/],
+  'Project Management': [/\bproject management\b/, /\bproject manager\b/, /\bpmp\b/, /\bproject plans?\b/, /\bled (?:the )?(?:project|program|implementation|rollout|launch)\b/, /\btechnical program\b/],
   'UX Design': [/\bux\b/, /\buser experience\b/, /\buser research\b/, /\busability\b/],
   'UI Design': [/\bui design\b/, /\bvisual design\b/, /\bdesign systems?\b/],
   Figma: [/\bfigma\b/],
@@ -87,16 +87,23 @@ const SKILLS = {
   // technology strategy & consulting
   Consulting: [/\bconsult(?:ing|ancy)\b/, /\b(?:it|technology|management|strategy) consultant\b/, /\badvisory (?:practice|firm|services)\b/, /\bclient engagements?\b/],
   'Technology Strategy': [/\b(?:technology|tech|it|digital|enterprise technology) strateg(?:y|ies)\b/],
-  'Digital Transformation': [/\b(?:digital|technology|it|business) transformations?\b/, /\btransformation (?:programs?|engagements?|initiatives?|roadmaps?)\b/],
+  'Digital Transformation': [/\b(?:digital|technology|it|business) transformations?\b/, /\btransformation (?:programs?|engagements?|initiatives?|roadmaps?)\b/, /\b(?:it|legacy|system|systems|platform|technology) moderni[sz]ation\b/, /\bmoderni[sz](?:e|ing) (?:legacy|the|its|our)\b/, /\bdigital maturity\b/],
+  // Digitising or automating a product or process: closer to the work than a buzzword.
+  'Digital Products': [/\bdigiti[sz](?:ed|ation|ing)\b/, /\bautomated (?:underwriting|decision|workflows?|processes|products?|platform)\b/, /\bautomat(?:ed|ing) (?:manual|the) (?:process|workflow|review)/, /\bproduct launch(?:es)?\b/, /\blaunch(?:ed)? (?:of )?(?:\d+ )?(?:new |digital )?products?\b/],
   Roadmapping: [/\b(?:technology|it|transformation|digital|implementation|multi-year|\d-year)?\s*roadmaps?\b/],
-  'Business Cases': [/\bbusiness cases?\b/, /\bcost[- ]benefit\b/, /\broi analys[ie]s\b/],
-  'Operating Model': [/\b(?:target |it |technology )?operating models?\b/, /\borgani[sz]ation(?:al)? design\b/, /\bit organi[sz]ation design\b/],
-  'Cloud Strategy': [/\bcloud (?:strategy|migration|transformation|adoption|modernization)\b/, /\bmigration (?:planning|strategy|plans?)\b/, /\b(?:rehost|re-?platform|refactor) or retire\b/],
+  'Business Cases': [/\bbusiness cases?\b/, /\bcost[- ]benefit\b/, /\broi analys[ie]s\b/, /\bvalue (?:sizing|cases?)\b/, /\bsizing value\b/, /\binvestment cases?\b/, /\bcosts? and benefits\b/, /\btco\b/, /\btotal cost of ownership\b/],
+  // Quantified business value on a resume ("$3M in annual revenue"): evidence toward business cases.
+  'Business Impact': [/\$\s?\d[\d.,]*\s?(?:m|mm|k|b|million|billion)?\+?\s*(?:\w+\s){0,4}(?:revenue|savings|cost reduction|value|benefits?|funding)\b/],
+  'Operating Model': [/\b(?:target |it |technology )?operating models?\b/, /\borgani[sz]ation(?:al)? design\b/, /\bit organi[sz]ation design\b/, /\boperating rhythm\b/],
+  // Generic mentions; the specific skills (AWS, Cloud Strategy, Machine Learning…) count as these.
+  Cloud: [/\bcloud\b/],
+  AI: [/\b(?:ai|artificial intelligence|genai)\b/],
+  'Cloud Strategy': [/\bcloud (?:strategy|migration|transformation|adoption|modernization|readiness)\b/, /\bhyperscalers?\b/, /\bmigration waves?\b/, /\bmigration (?:planning|strategy|plans?)\b/, /\b(?:rehost|re-?platform|refactor) or retire\b/],
   'Enterprise Architecture': [/\benterprise architecture\b/, /\btogaf\b/, /\bsolution architecture\b/, /\barchitecture diagrams?\b/],
   'Application Portfolio': [/\bapplication (?:portfolios?|rationali[sz]ation)\b/, /\bportfolio rationali[sz]ation\b/, /\bapplication landscape\b/],
-  'IT Portfolio Management': [/\b(?:it |project |technology )portfolio (?:management|planning|status|reviews?)\b/, /\bit project portfolio\b/, /\btechnology planning\b/],
-  'Vendor Selection': [/\bvendor (?:selection|evaluation|management|assessment)\b/, /\brfps?\b/, /\bsourcing strategy\b/, /\bcontract reviews?\b/],
-  'IT Governance': [/\b(?:it|technology|data) governance\b/, /\bgovernance (?:structures?|frameworks?|model)\b/, /\bcobit\b/],
+  'IT Portfolio Management': [/\b(?:it |project |technology )portfolio (?:management|planning|status|reviews?|metrics)\b/, /\bit project portfolio\b/, /\b(?:technology|annual|quarterly) planning\b/, /\bokrs?\b/, /\binvestment (?:planning|requests|priorities)\b/, /\binitiative portfolios?\b/],
+  'Vendor Selection': [/\bvendor (?:selection|evaluation|management|assessment|consolidation|onboarding|due diligence)\b/, /\bvendor evaluations?\b/, /\brfps?\b/, /\bsourcing strateg(?:y|ies)\b/, /\bcontract reviews?\b/, /\b(?:onboard(?:ing)?|evaluat\w*|assess\w*|select\w*) (?:new |third-party )?(?:data )?(?:vendors|providers|suppliers)\b/],
+  'IT Governance': [/\b(?:it|technology|data|transformation|cloud) governance\b/, /\bgovernance guardrails\b/, /\bgovernance (?:structures?|frameworks?|model)\b/, /\bcobit\b/],
   ITSM: [/\bitil\b/, /\bitsm\b/, /\bit service management\b/],
   ServiceNow: [/\bservicenow\b/],
   ERP: [/\berp\b/, /\bsap\b/, /\bs\/4\s?hana\b/, /\boracle (?:cloud|ebs|e-business|fusion|erp)\b/, /\bnetsuite\b/, /\bworkday (?:hcm|financials)\b/],
@@ -105,18 +112,23 @@ const SKILLS = {
   'Business Analysis': [/\bbusiness analy(?:sis|sts?)\b/, /\bsystems analy(?:sis|sts?)\b/],
   'Requirements Gathering': [/\brequirements (?:gathering|elicitation|analysis)\b/, /\bgathered requirements\b/, /\bbusiness requirements\b/, /\buser stories\b/],
   'Process Mapping': [/\bprocess (?:mapping|maps|redesign|re-?engineering)\b/, /\b(?:current|future)[- ]state process(?:es)?\b/],
-  'Stakeholder Management': [/\bstakeholder (?:management|engagement)\b/, /\bc-suite\b/, /\bsteering committees?\b/, /\bexecutive stakeholders?\b/],
+  'Stakeholder Management': [/\bstakeholder (?:management|engagement|advising)\b/, /\bc-suite\b/, /\bsteering committees?\b/, /\bexecutive stakeholders?\b/, /\badvis(?:e|ed|ing) (?:senior|executive|leadership|stakeholders|clients|the cio|ctos?|cios?)\b/, /\b(?:recommendations|insights|briefings?) to (?:senior |executive )?(?:management|leadership|executives|stakeholders)\b/, /\b(?:key|primary|main) point of contact\b/, /\b(?:internal|external|cross-functional|business|key|technology and compliance) stakeholders\b/, /\bthought partner\b/],
   'Workshop Facilitation': [/\b(?:executive |discovery |client )?workshops?\b/],
   PowerPoint: [/\bpowerpoint\b/, /\bslide decks?\b/],
-  'IT Financial Management': [/\bit (?:spend|costs?|budgets?|financial)\b/, /\b(?:spend|cost) benchmarks?\b/, /\bbenefits (?:realization|tracking)\b/, /\btechnology business management\b/],
+  'IT Financial Management': [/\bit (?:spend|costs?|budgets?|financial|finance)\b/, /\b(?:spend|cost) benchmarks?\b/, /\bbenefits (?:realization|tracking)\b/, /\btechnology business management\b/, /\btbm\b/, /\bit cost optimi[sz]ation\b/, /\btechnology spend\b/, /\bfinops\b/, /\bcloud costs?\b/],
+  FedRAMP: [/\bfedramp\b/],
+  'Federal IT Policy': [/\bfitara\b/, /\bfederal cloud (?:computing )?strategy\b/, /\bcloud smart\b/, /\bomb (?:circulars?|guidance|a-\d+)\b/],
   'Business Development': [/\bbusiness development\b/, /\bproposals?\b/, /\bstatements? of work\b/, /\bpursuits?\b/],
-  'Data Strategy': [/\bdata strateg(?:y|ies)\b/, /\bdata governance\b/],
+  'Data Strategy': [/\bdata strateg(?:y|ies)\b/, /\bdata governance\b/, /\bdata platform maturity\b/],
+  'Data Quality': [/\bdata quality\b/, /\bdata validation\b/, /\bdata lineage\b/],
+  // General business strategy (growth, corporate, strategic planning); technology strategy is its own skill.
+  Strategy: [/\b(?:business|corporate|growth|go-to-market|competitive) strateg(?:y|ies)\b/, /\bstrategic (?:planning|insights|recommendations|initiatives|projects|direction|plans?)\b/, /\bstrategy and operations\b/, /\bstrategy & operations\b/, /\bmarket entry\b/],
   'AI Strategy': [/\bai strateg(?:y|ies)\b/, /\bai (?:initiatives|adoption|use cases)\b/],
   // industries
-  'Financial Services': [/\bfinancial services\b/, /\bbank(?:s|ing)?\b/, /\binsur(?:ance|er|ers)\b/, /\bfintech\b/, /\bcapital markets\b/],
+  'Financial Services': [/\bfinancial services\b/, /\bbank(?:s|ing)?\b/, /\binsur(?:ance|er|ers)\b/, /\bfintech\b/, /\bcapital markets\b/, /\bmortgage\b/, /\blending\b/, /\bcredit (?:unions?|cards?)\b/, /\bpayments\b/],
   'Public Sector': [/\bpublic sector\b/, /\bfederal\b/, /\bgovernment\b/, /\bstate and local\b/],
   'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
-  Finance: [/\bfinancial (?:analysis|modeling|reporting)\b/, /\bbudget(?:s|ing)?\b/],
+  Finance: [/\bfinancial (?:analysis|modeling|reporting|planning)\b/, /\bbudget(?:s|ing)?\b/, /\bp&l\b/],
   Accounting: [/\baccounting\b(?!\s+for\b)/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
   Operations: [/\boperations\b/, /\bprocess improvement\b/, /\blean (?:manufacturing|principles|methodolog\w*|management|practices|production)\b/, /\bsix sigma\b/],
   'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, /\bprocurement\b/, /\binventory\b(?!\s+of\b)/],
@@ -131,9 +143,9 @@ const SKILLS = {
   Testing: [/\bunit test(?:s|ing)?\b/, /\bautomated test(?:s|ing)?\b/, /\btest coverage\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
   // human skills
   Leadership: [/\bleadership\b/, /\bmentor(?:ed|ing|ship|s)?\b/, /\bled (?:a |the )?(?:team|group|squad)/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
-  Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/],
+  Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/, /\b(?:executive|written|client) communications?\b/, /\bstorytelling\b/, /\bbriefings?\b/, /\bexecutive (?:presence|narratives?|updates)\b/, /\bclient[- ]facing\b/, /\bclient conversations\b/, /\bpresenting to executives\b/],
   Collaboration: [/\bcross[-\s]functional\b/, /\bcollaborat(?:e|ed|es|ing|ion|ive(?:ly)?)\b/, /\bteamwork\b/, /\bteam player\b/],
-  'Problem Solving': [/\bproblem[-\s]solv(?:ing|er)\b/, /\banalytical (?:skills|thinking|mindset|abilities)\b/, /\bcritical thinking\b/],
+  'Problem Solving': [/\bproblem[-\s]solv(?:ing|er)\b/, /\banalytical (?:skills|thinking|mindset|abilities)\b/, /\bcritical thinking\b/, /\bstructur(?:e|ed|ing) (?:problems|ambiguous problems)\b/, /\banalytical\b/, /\bsynthes(?:is|ize|izing)\b/, /\bresearch(?:,|\s+and)\s+analysis\b/],
   Bilingual: [/\bbilingual\b/, /\bspanish\b/, /\bfrench\b/, /\bmandarin\b/, /\bgerman\b/],
 };
 
@@ -166,6 +178,13 @@ const RELATED_PAIRS = [
   ['Business Cases', 'IT Financial Management', 0.6], ['Business Cases', 'Finance', 0.4], ['ITSM', 'ServiceNow', 0.7], ['IT Governance', 'ITSM', 0.4],
   ['Stakeholder Management', 'Workshop Facilitation', 0.4], ['Consulting', 'Business Development', 0.3], ['Data Strategy', 'AI Strategy', 0.5],
   ['Data Strategy', 'Technology Strategy', 0.4], ['Operating Model', 'Change Management', 0.4], ['Vendor Selection', 'ERP', 0.2],
+  ['Cloud', 'Cloud Strategy', 0.9], ['Cloud', 'AWS', 0.9], ['Cloud', 'Azure', 0.9], ['Cloud', 'GCP', 0.9], ['AI', 'Machine Learning', 0.8], ['AI', 'AI Strategy', 0.9], ['AI', 'LLMs / GenAI', 0.9],
+  ['IT Financial Management', 'Finance', 0.5],
+  ['Business Impact', 'Business Cases', 0.5], ['Digital Products', 'Digital Transformation', 0.5], ['Digital Products', 'Product Management', 0.4],
+  ['Data Quality', 'Data Strategy', 0.5], ['Data Quality', 'IT Governance', 0.3], ['Strategy', 'Technology Strategy', 0.5], ['Strategy', 'Consulting', 0.4],
+  ['Strategy', 'Business Cases', 0.3], ['Project Management', 'Digital Transformation', 0.3], ['PMO', 'Digital Transformation', 0.3],
+  ['FedRAMP', 'Cloud Strategy', 0.4], ['Federal IT Policy', 'IT Governance', 0.5], ['Federal IT Policy', 'Public Sector', 0.4],
+  ['Machine Learning', 'AI Strategy', 0.5], ['Data Analysis', 'Data Strategy', 0.3], ['Vendor Selection', 'Consulting', 0.2],
   ['Microservices', 'Kafka', 0.4], ['Cloud Certification', 'AWS', 0.4], ['Cloud Certification', 'Azure', 0.4], ['Agile', 'Change Management', 0.2],
 ];
 const RELATED = new Map();
@@ -294,7 +313,8 @@ function stripFieldsOfStudy(line) {
 // the runs that form such a list. Plain "X and Y" stays separate requirements.
 // Between two listed items: commas, slashes, "and", "or", "and/or" — and
 // unrecognised one-letter entries like the "R" in "Python, R, or SAS".
-const LIST_GAP = /^(?:[\s,/]|\band\b|\bor\b|\b[a-z]\b[#+]*)*$/;
+const LIST_GAP = /^(?:[\s,/]|\band\b|\bor\b|\b[a-z]\b[#+]*)*$|^\s*,\s*[a-z][\w-]{1,15}\s*,?\s*(?:or|and\s*\/\s*or)\s+$/;
+// (The second form: one unrecognised item before the "or": "cloud, data or AI".)
 const OR_GAP = /\/|\bor\b/;
 function alternativeRuns(line, items) {
   const optional = OPTIONAL_CUE.test(line);

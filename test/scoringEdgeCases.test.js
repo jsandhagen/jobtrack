@@ -70,13 +70,16 @@ test('everyday words are not read as skills', () => {
     'Shipping containers and freight',
     'Social Security numbers',
     'Sales tax filings',
-    'Onboarding new data vendors',
     'Administer 5 ml doses',
     'React quickly to incidents',
     'Rust belt manufacturing',
   ]) {
     assert.deepEqual([...findSkills(s)], [], s);
   }
+});
+
+test('vendor onboarding is vendor work, not HR onboarding', () => {
+  assert.deepEqual([...findSkills('Onboarding new data vendors')], ['Vendor Selection']);
 });
 
 test('skills written in other common ways are recognised', () => {

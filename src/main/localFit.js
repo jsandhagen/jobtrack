@@ -21,7 +21,7 @@ const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 6;
+const SCORER_VERSION = 7;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -54,7 +54,7 @@ function showsProgramming(textLower) {
 // Capitalised words that are just English, not skills.
 const NOT_TERMS = new Set(
   (
-    'we you our your the this that they their a an and or of in on for to with as at by is are be will no not it executive executives cloud enterprise applications engagements industry such framework frameworks database databases ' +
+    'we you our your the this that they their a an and or of in on for to with as at by is are be will no not it executive executives cloud enterprise applications engagements industry such framework frameworks database databases interest passion curiosity obtain comfort communication communications tracking programs design optimization technology ' +
     'about role team company position job candidate candidates applicants responsibilities requirements qualifications ' +
     'preferred required minimum basic nice bonus plus benefits experience knowledge ability skills strong excellent ' +
     'proven demonstrated working work must should including include etc ideal ideally equivalent degree bachelor ' +
@@ -69,7 +69,7 @@ const NOT_TERMS = new Set(
 );
 
 const EDGE_WORDS = new Set(
-  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity advanced basic intermediate expert proficient proficiency excellent good techniques technique methods methodologies concepts principles tools skills practices'.split(' ')
+  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity advanced basic intermediate expert proficient proficiency excellent good polished crisp clear concise comfort comfortable techniques technique methods methodologies concepts principles tools skills practices'.split(' ')
 );
 
 // Terms a posting asks for that aren't in the skills dictionary: acronyms
@@ -148,7 +148,7 @@ const LEVELS = [
 ];
 // Words that look like levels but aren't here: "Staff Accountant", "Lead
 // Generation", and individual-contributor "Product/Project/Account Manager".
-const NOT_LEVEL = /\bstaff (?=accountant|nurse|writer|auditor|attorney|pharmacist|assistant|engineer i\b)|\blead (?=gen(?:eration)?\b)|\b(?:product|project|program|account|case|property|community|office) (?=manager\b)manager\b/g;
+const NOT_LEVEL = /\bchief of staff(?: to (?:the )?\w+)?\b|\bstaff (?=accountant|nurse|writer|auditor|attorney|pharmacist|assistant|engineer i\b)|\blead (?=gen(?:eration)?\b)|\b(?:product|project|program|account|case|property|community|office) (?=manager\b)manager\b/g;
 function titleLevel(title) {
   const t = lower(title).replace(NOT_LEVEL, ' ');
   for (const [lvl, re] of LEVELS) if (re.test(t)) return lvl;
@@ -243,6 +243,9 @@ function requirementUnits(job) {
     .filter((l) => !(l.isHeading && l.line.length < 40))
     .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind })));
   for (const { line, original, kind, lineKind } of parts) {
+    // Travel, clearance, sponsorship and the like are screening questions (screening.js).
+    if (SCREENING_LINE.test(line)) continue;
+    if (INTEREST.test(original)) continue;
     const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
     const found = []; // { key, label, match, index, end }
     const skillLine = stripFieldsOfStudy(line);
@@ -280,7 +283,9 @@ function requirementUnits(job) {
       }
     }
     // "Dashboards in Tableau" is one requirement (Tableau), not two.
-    if (found.some((f) => CHILD_TOOLS.has(f.skill))) found.splice(0, found.length, ...found.filter((f) => f.skill !== 'Data Visualization'));
+    for (const [parent, children] of Object.entries(PARENT_OF)) {
+      if (found.some((f) => children.includes(f.skill))) found.splice(0, found.length, ...found.filter((f) => f.skill !== parent));
+    }
     // "Python, R, or SAS": one requirement, met by whichever you have.
     const grouped = new Set();
     for (const run of alternativeRuns(line, found.filter((f) => f.index >= 0))) {
@@ -304,8 +309,18 @@ function requirementUnits(job) {
   return { units: [...units.values()], lines, hasRequiredSection, ignoreWords };
 }
 
-// Tools that are a specific case of a broader skill named in the same breath.
-const CHILD_TOOLS = new Set(['Tableau', 'Power BI', 'Looker']);
+// Application screening items, checked against the Profile instead of documents.
+const SCREENING_LINE = /\btravel\b[^.;]{0,40}\d{1,3}\s*%|\d{1,3}\s*%[^.;]{0,20}\btravel\b|\bclearance\b|\bsponsor(?:ship)?\b|\bcitizen(?:ship)?\b|\bdriver['’]?s licen[sc]e\b|\bwilling(?:ness)? to relocate\b/;
+
+// A broad skill and its specific cases named in the same breath are one
+// requirement: "dashboards in Tableau", "cloud migration on AWS".
+const PARENT_OF = {
+  'Data Visualization': ['Tableau', 'Power BI', 'Looker'],
+  Cloud: ['Cloud Strategy', 'AWS', 'Azure', 'GCP', 'Cloud Certification'],
+  AI: ['AI Strategy', 'Machine Learning', 'LLMs / GenAI', 'Deep Learning'],
+};
+// "Interest in technology", "passion for data": motivation, not a qualification.
+const INTEREST = /^(?:[-•*]\s*)?(?:an? )?(?:strong |genuine |demonstrated )?(?:interest|passion|enthusiasm|curiosity) (?:in|for|about)\b/i;
 
 // ---------- evidence ----------
 
@@ -338,6 +353,9 @@ function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
         if (!ex.isProject && ex.title) titles.push({ title: `${ex.title} ${ex.organization || ''}`, weight: w });
       }
       if (r.skills.length) segs.push({ text: r.skills.join(', '), weight: 0.75 });
+      // A listed certification or license is the evidence itself.
+      const certs = sectionLines(text, /^\s*#*\s*(?:licen[sc]es?|certifications?)\b(?:\s*(?:&|and)\s*(?:licen[sc]es?|certifications?))?\s*:?\s*$/i);
+      if (certs) segs.push({ text: certs, weight: 1 });
       if (r.summary) segs.push({ text: r.summary, weight: 0.75 });
       // Education, coursework, headline, anything unparsed. When the parser
       // accounted for little of the text (notes, a pasted paragraph), the
@@ -350,6 +368,16 @@ function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
   }
   return { segs: segs.map((s) => ({ ...s, lower: lower(s.text) })), titles };
 }
+// The lines under a heading, up to the next standard resume section.
+const NEXT_SECTION = /^\s*#*\s*(?:(?:professional |relevant |work )?experience|employment|education|skills|technical skills|projects|summary|profile|awards|honou?rs|publications|volunteer(?:ing)?|activities|interests|references|languages)\b[^.]{0,30}$/i;
+function sectionLines(text, heading) {
+  const lines = String(text).split('\n');
+  const i = lines.findIndex((l) => heading.test(l));
+  if (i < 0) return '';
+  const end = lines.findIndex((l, j) => j > i && NEXT_SECTION.test(l));
+  return lines.slice(i + 1, end < 0 ? undefined : end).join('\n').trim();
+}
+
 function yearFrom(s) {
   const m = String(s || '').match(/(?:19|20)\d{2}/);
   return m ? Number(m[0]) : null;
@@ -386,14 +414,15 @@ const TITLE_FAMILY = [
   [/^analy/, 'analy'], [/^(?:engineer|developer|programmer|swe)/, 'engineer'], [/^scien/, 'scien'], [/^manag/, 'manag'],
   [/^(?:quant|quantitative)$/, 'quant'], [/^account/, 'account'], [/^design/, 'design'], [/^consult/, 'consult'], [/^model/, 'model'],
   [/^(?:nurse|nursing|rn)$/, 'nurse'], [/^(?:front-?end|frontend)$/, 'frontend'], [/^(?:back-?end|backend)$/, 'backend'], [/^(?:full-?stack|fullstack)$/, 'fullstack'],
-  [/^architect/, 'architect'], [/^strateg/, 'strateg'], [/^(?:advis|advisory)/, 'advis'], [/^transform/, 'transform'], [/^associate/, 'associ'], [/^(?:technolog|tech|it)$|^technolog/, 'technolog'],
+  [/^chiefofstaff$/, 'chiefofstaff'], [/^architect/, 'architect'], [/^strateg/, 'strateg'], [/^(?:advis|advisory)/, 'advis'], [/^transform/, 'transform'], [/^associate/, 'associ'], [/^(?:technolog|tech|it)$|^technolog/, 'technolog'],
 ];
 // The role itself ("Consultant", "Engineer"), wherever it sits in the title:
 // "Senior Consultant, Technology Strategy" is a consultant role in a strategy practice.
-const ROLE_WORDS = new Set(['analy', 'engineer', 'scien', 'manag', 'account', 'design', 'consult', 'nurse', 'architect', 'strateg', 'advis', 'director', 'specialist', 'coordinator', 'administrator', 'officer', 'auditor', 'recruiter', 'writer', 'editor', 'teacher', 'planner', 'controller', 'economist', 'statistician', 'actuary', 'underwriter', 'technician', 'representative', 'assistant']);
+const ROLE_WORDS = new Set(['chiefofstaff', 'analy', 'engineer', 'scien', 'manag', 'account', 'design', 'consult', 'nurse', 'architect', 'strateg', 'advis', 'director', 'specialist', 'coordinator', 'administrator', 'officer', 'auditor', 'recruiter', 'writer', 'editor', 'teacher', 'planner', 'controller', 'economist', 'statistician', 'actuary', 'underwriter', 'technician', 'representative', 'assistant']);
 const TITLE_DROP = /\b(?:senior|sr|junior|jr|lead|principal|staff|head|chief|of|the|and|for|i{1,3}|iv|[1-4]|&|-|–|—)\b/g;
 function titleWords(title) {
   return lower(title)
+    .replace(/\bchief of staff(?: to (?:the )?\w+)?\b/g, 'chiefofstaff')
     .replace(/\bfull[\s-]+stack\b/g, 'fullstack')
     .replace(/\bfront[\s-]+end\b/g, 'frontend')
     .replace(/\bback[\s-]+end\b/g, 'backend')
@@ -407,7 +436,9 @@ function titleWords(title) {
 // last word: "analyst", "engineer") counts double.
 // Neighbouring roles: half credit (a frontend engineer is half way to a
 // frontend architect; frontend and full-stack engineers overlap).
-const TITLE_NEAR = [['engineer', 'architect'], ['analy', 'scien'], ['analy', 'model'], ['analy', 'quant'], ['frontend', 'fullstack'], ['backend', 'fullstack'], ['manag', 'lead'], ['account', 'audit'], ['design', 'ux'], ['consult', 'advis'], ['consult', 'strateg'], ['consult', 'analy'], ['strateg', 'transform'], ['technolog', 'digital'], ['consult', 'associ']];
+const TITLE_NEAR = [['engineer', 'architect'], ['analy', 'scien'], ['analy', 'model'], ['analy', 'quant'], ['frontend', 'fullstack'], ['backend', 'fullstack'], ['manag', 'lead'], ['account', 'audit'], ['design', 'ux'], ['consult', 'advis'], ['consult', 'strateg'], ['consult', 'analy'], ['strateg', 'transform'], ['technolog', 'digital'], ['consult', 'associ'], ['consult', 'manag'], ['chiefofstaff', 'consult'], ['chiefofstaff', 'strateg'], ['chiefofstaff', 'manag']];
+// Consulting ladders: an in-house manager is a consultant's next step; chiefs of
+// staff often come from strategy consulting.
 // Big-4 ladders call consultants "Associate" / "Senior Associate".
 const near = (a, b) => TITLE_NEAR.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
 function titleMatch(posting, held) {
@@ -599,7 +630,9 @@ function localFitScore(job, documents, profile = {}) {
     label: breakers.length ? 'Dealbreaker' : fitLabel(score),
     confidence,
     components: Object.fromEntries(Object.entries(components).map(([k, v]) => [k, v === null ? null : Math.round(v * 100)])),
-    matchedSkills: all.filter((u) => u.kind !== 'preferred' && u.met >= 0.5).map((u) => u.label),
+    // Clearly shown vs only partly (a related skill, an old role, a skills-list mention).
+    matchedSkills: all.filter((u) => u.kind !== 'preferred' && u.met >= 0.75).map((u) => u.label),
+    partialSkills: all.filter((u) => u.kind !== 'preferred' && u.met >= 0.4 && u.met < 0.75).map((u) => u.label),
     missingSkills: missingReq,
     matchedPreferred: pref.filter((u) => u.met >= 0.5).map((u) => u.label),
     missingPreferred: pref.filter((u) => u.met < 0.5).map((u) => u.label),

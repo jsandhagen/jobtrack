@@ -735,6 +735,7 @@ async function renderApplication(id) {
 
   const skills = `<div class="section-title">Skills from the posting</div><div>
     ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
+    ${(q.partialSkills || []).map((s) => `<span class="chip" title="Partly shown: a related skill, an older role or only a skills-list mention">~ ${esc(s)}</span>`).join('')}
     ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)}</span>`).join('')}
     ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Preferred">✓ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
