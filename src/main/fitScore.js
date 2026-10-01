@@ -114,6 +114,8 @@ const SKILLS = {
   'Operational Risk': [/\boperational risk\b/, /\brcsa\b/, /\brisk and control self-assessments?\b/, /\bkey risk indicators\b/],
   'Audit & Controls': [/\binternal audit\b/, /\bcontrol testing\b/, /\btest(?:ing)? (?:of )?controls\b/, /\bsox\b/, /\bcoso\b/, /\bit audit\b/],
   'Securities Licenses': [/\bseries (?:7|63|65|66|24)\b/, /\bfinra\b/],
+  Experimentation: [/\bexperimentation\b/, /\ba\/b test/, /\b(?:controlled|online|randomi[sz]ed) experiments?\b/, /\bmultivariate tests?\b/, /\b(?:design(?:ed)?|ran|run|analy[sz]e[ds]?) (?:\w+ ){0,2}experiments\b/],
+  'Causal Inference': [/\bcausal (?:inference|impact|effects?)\b/, /\bdifference[- ]in[- ]differences?\b/, /\binstrumental variables?\b/, /\buplift model/, /\bpropensity scor/, /\bsynthetic controls?\b/, /\bincrementality\b/],
   'Survey Research': [/\bsurvey (?:design|research|methodolog\w*)\b/, /\blarge-scale surveys\b/],
   // product, design, business
   // A product roadmap, not a technology roadmap (that's Roadmapping).
@@ -190,7 +192,7 @@ const SKILLS = {
   Testing: [/\bunit test(?:s|ing)?\b/, /\bautomated test(?:s|ing)?\b/, /\btest coverage\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
   // human skills
   Leadership: [/\bleadership\b/, /\bmentor(?:ed|ing|ship|s)?\b/, /\bled (?:a |the )?(?:team|group|squad)/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
-  Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/, /\b(?:executive|written|client) communications?\b/, /\bstorytelling\b/, /\bbriefings?\b/, /\bexecutive (?:presence|narratives?|updates)\b/, /\bclient[- ]facing\b/, /\bclient conversations\b/, /\bpresenting to executives\b/],
+  Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|written|oral|interpersonal) communication\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/, /\b(?:executive|written|client) communications?\b/, /\bstorytelling\b/, /\bbriefings?\b/, /\bexecutive (?:presence|narratives?|updates)\b/, /\bclient[- ]facing\b/, /\bclient conversations\b/, /\bpresenting to executives\b/],
   Collaboration: [/\bcross[-\s]functional\b/, /\bcollaborat(?:e|ed|es|ing|ion|ive(?:ly)?)\b/, /\bteamwork\b/, /\bteam player\b/],
   'Problem Solving': [/\bproblem[-\s]solv(?:ing|er)\b/, /\banalytical (?:skills|thinking|mindset|abilities)\b/, /\bcritical thinking\b/, /\bstructur(?:e|ed|ing) (?:problems|ambiguous problems)\b/, /\banalytical\b/, /\bsynthes(?:is|ize|izing)\b/, /\bresearch(?:,|\s+and)\s+analysis\b/],
   Bilingual: [/\bbilingual\b/, /\bspanish\b/, /\bfrench\b/, /\bmandarin\b/, /\bgerman\b/],
@@ -244,7 +246,7 @@ const RELATED_PAIRS = [
   ['Low Latency', 'Multithreading', 0.5], ['Memory Management', 'Low Latency', 0.5], ['Memory Management', 'Performance Optimization', 0.5], ['Memory Management', 'C++', 0.3], ['Low Latency', 'Performance Optimization', 0.6], ['Multithreading', 'Performance Optimization', 0.4], ['Data Structures & Algorithms', 'Performance Optimization', 0.3],
   ['Bayesian Methods', 'Statistics', 0.5], ['Financial Modeling', 'Finance', 0.6], ['Financial Modeling', 'FP&A', 0.5], ['FP&A', 'Forecasting', 0.5], ['FP&A', 'Finance', 0.6], ['M&A', 'Financial Modeling', 0.5], ['Cost Modeling', 'Financial Modeling', 0.6], ['Cost Modeling', 'Business Cases', 0.6], ['Cost Modeling', 'IT Financial Management', 0.5],
   ['Actuarial', 'Regression', 0.3], ['Actuarial Exams', 'Actuarial', 0.5], ['CFA', 'FRM', 0.5], ['Counterparty Risk / xVA', 'Derivatives Pricing', 0.5], ['Counterparty Risk / xVA', 'Credit Risk', 0.4],
-  ['Operational Risk', 'Audit & Controls', 0.6], ['Audit & Controls', 'Legal / Compliance', 0.4], ['Survey Research', 'Statistics', 0.3], ['Survey Research', 'UX Design', 0.4], ['Technical Writing', 'Content Writing', 0.5],
+  ['Operational Risk', 'Audit & Controls', 0.6], ['Audit & Controls', 'Legal / Compliance', 0.4], ['Survey Research', 'Statistics', 0.3], ['Experimentation', 'Statistics', 0.5], ['Causal Inference', 'Experimentation', 0.5], ['Causal Inference', 'Econometrics', 0.6], ['Causal Inference', 'Statistics', 0.4], ['Survey Research', 'UX Design', 0.4], ['Technical Writing', 'Content Writing', 0.5],
 ];
 const RELATED = new Map();
 for (const [a, b, c] of RELATED_PAIRS) {
@@ -287,6 +289,13 @@ function lower(s) {
   return (s || '').toLowerCase();
 }
 
+// Where a skill's mention starts: the R pattern needs the list around it
+// ("Python or R"), so its match begins with the "or "; the item is the "R".
+function mentionStart(m) {
+  const lead = m[0].match(/^(?:(?:in|with|and|or|using)\s+|[,/(]\s*)/);
+  return m.index + (lead ? lead[0].length : 0);
+}
+
 function findSkills(text) {
   const t = lower(text);
   const found = new Set();
@@ -303,10 +312,10 @@ const KIND_RANK = { preferred: 0, neutral: 1, required: 2 };
 
 const APOS = "['’]?";
 const REQUIRED_HEADING = new RegExp(
-  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you${APOS}ll (?:need|bring)|what you bring|what we${APOS}re looking for|who we${APOS}re looking for|who you are|about you|you have|must[- ]haves?|your profile|(?:the )?ideal candidate|you (?:might|may) be a (?:good )?fit if|you${APOS}ll thrive if|is this you)\\b[^.]{0,30}$`
+  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you(?:${APOS}ll| will) (?:need|bring)|what you bring|you(?:${APOS}ll| will)? bring|what we(?:${APOS}re| are) looking for|what we look for|who we(?:${APOS}re| are) looking for|who you are|about you|you have|you(?:${APOS}ll| will) need|must[- ]haves?|your profile|(?:the )?ideal candidate|you (?:might|may) be a (?:good )?fit if|you${APOS}ll thrive if|is this you)\\b[^.]{0,30}$`
 );
 const NEUTRAL_HEADING = new RegExp(
-  `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main )?(?:responsibilities|duties)|what you${APOS}ll (?:do|be doing|work on)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company))\\b[^.]{0,30}$`
+  `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main )?(?:responsibilities|duties)|what you(?:${APOS}ll| will) (?:do|be doing|work on)|(?:as an? [^.]{2,40} )?you(?:${APOS}ll| will)(?: be)?:|in this role,? you(?:${APOS}ll| will)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company))\\b[^.]{0,30}$`
 );
 
 // Markdown from Notion, careers sites or AI tools: "## Requirements",
@@ -435,7 +444,7 @@ function classifyJobSkills(jobText) {
         // Extend to the whole word so "rest api" becomes "rest apis", as written.
         const tail = line.slice(m.index + m[0].length).match(/^[a-z0-9+#]*/)[0];
         const term = (m[0] + tail).trim();
-        found.push({ skill, term, index: m.index, end: m.index + term.length });
+        found.push({ skill, term, index: mentionStart(m), end: m.index + term.length });
         break;
       }
     }
@@ -628,6 +637,7 @@ module.exports = {
   classifyLines,
   clauses,
   alternativeRuns,
+  mentionStart,
   stripFieldsOfStudy,
   BOILERPLATE_LINE,
   significantTerms,

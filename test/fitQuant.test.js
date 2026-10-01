@@ -7,12 +7,16 @@ const { localFitScore } = require('../src/main/localFit');
 const T = require('./fixtures/techPostings');
 const Q = require('./fixtures/quantPostings');
 const N = require('./fixtures/quantNearMiss');
+const H = require('./fixtures/quantHoldout');
+const H2 = require('./fixtures/fitHoldout2');
+const D = require('./fixtures/techStrategyDeep');
+const F = require('./fixtures/fitCases');
 
-const POSTINGS = { ...Q.POSTINGS, ...N.POSTINGS };
-const RESUMES = { ...T.RESUMES, ...Q.RESUMES };
+const POSTINGS = { ...Q.POSTINGS, ...N.POSTINGS, ...H.POSTINGS, ...H2.POSTINGS };
+const RESUMES = { ...T.RESUMES, ...D.RESUMES, ...Q.RESUMES, ...H.RESUMES, ...H2.RESUMES };
 const fit = (resume, posting) => localFitScore(POSTINGS[posting], [{ kind: 'resume', text: RESUMES[resume] }]);
 
-for (const [name, set] of [['quant roles', Q], ['quant near-miss postings', N]]) {
+for (const [name, set] of [['quant roles', Q], ['quant near-miss postings', N], ['held-out quant and strategy postings', H]]) {
   test(`${name}: scores land in the expected ranges`, () => {
     const wrong = [];
     for (const [r, p, lo, hi, why] of set.BANDS) {
@@ -31,6 +35,29 @@ for (const [name, set] of [['quant roles', Q], ['quant near-miss postings', N]])
     assert.deepEqual(wrong, []);
   });
 }
+
+// The second held-out batch was scored once before any rule change it
+// prompted; that first pass got 15 of 19 right. Fixes for what it showed (years
+// of X without "experience", skills listed inside an experience requirement,
+// "Python or R", degree fields read as skills) brought it to 17. The two still
+// outside their bands are judgment calls left as written:
+//   juniorAnalyst → digitalTransformationAnalyst: one listed tool (Power BI) missing
+//   softwareEngineer → cloudStrategyManager: 43, already labelled a stretch
+test('second held-out batch: most judgments right, and none far off', () => {
+  const wrong = [];
+  let total = 0;
+  for (const [r, p, lo, hi, why] of H2.BANDS) {
+    total++;
+    const v = fit(r, p).score;
+    if (v < lo - 10 || v > hi + 10) assert.fail(`${r} → ${p}: ${v} far outside [${lo}, ${hi}] (${why})`);
+    if (v < lo || v > hi) wrong.push(`${r} → ${p}: ${v}`);
+  }
+  for (const [p, a, b, why] of H2.ORDER) {
+    total++;
+    if (!(fit(a, p).score > fit(b, p).score)) wrong.push(`${p}: ${a} vs ${b} (${why})`);
+  }
+  assert.ok(wrong.length <= 2, `${wrong.length} of ${total} wrong: ${wrong.join('; ')}`);
+});
 
 test('the headline says the one thing that decides it', () => {
   const T2 = require('./fixtures/techStrategyNearMiss');

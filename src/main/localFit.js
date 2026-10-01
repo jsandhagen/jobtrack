@@ -18,7 +18,7 @@
 // Roles two or more levels below yours, in your own line of work, are capped
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
-const { SKILLS, RELATED, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, RELATED, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
@@ -151,7 +151,8 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
   // and product teams" is a sentence. Split as written, so blanked-out skills
   // don't break a phrase in two ("Portfolio of user research studies").
   const asWritten = original.replace(/^\s*([-•*▪●◦]|\d+[.)])\s*/, '');
-  if (/^\s*([-•*▪●◦]|\d+[.)])/.test(original) && (asWritten.includes(',') || asWritten.split(/\s+/).length <= 5)) {
+  const softLine = [...INTERPERSONAL].some((sk) => SKILLS[sk].some((p) => p.test(lower(asWritten))));
+  if (/^\s*([-•*▪●◦]|\d+[.)])/.test(original) && !softLine && (asWritten.includes(',') || asWritten.split(/\s+/).length <= 5)) {
     const cleaned = asWritten.replace(/^(strong |solid |deep |working |excellent )?(knowledge of|understanding of|experience (with|in)|proficiency (in|with))\s+/i, '');
     const parts = cleaned.split(/,|;|\band\b|\bor\b/i).map((x) => x.trim()).filter(Boolean);
     if (parts.length && parts.every((x) => x.split(/\s+/).length <= 4) && !/\d\s*\+?\s*years?/i.test(body)) {
@@ -177,7 +178,8 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
 const LEVELS = [
   [0, /\b(intern|internship|co-?op)\b/],
   [6, /\b(vp|vice president|chief|cto|cfo|coo|ceo)\b/],
-  [5, /\b(director|head of)\b/],
+  // A senior manager sits just under director on consulting and corporate ladders.
+  [5, /\b(director|head of|senior manager)\b/],
   [4, /\b(staff|principal|lead|architect|manager)\b/],
   [3, /\b(senior|sr\.?|iii|iv)\b/],
   [1, /\b(junior|jr\.?|entry[- ]level|graduate|associate|assistant|trainee|i)\b/],
@@ -185,8 +187,20 @@ const LEVELS = [
 // Words that look like levels but aren't here: "Staff Accountant", "Lead
 // Generation", and individual-contributor "Product/Project/Account Manager".
 const NOT_LEVEL = /\bchief of staff(?: to (?:the )?\w+)?\b|\bstaff (?=accountant|nurse|writer|auditor|attorney|pharmacist|assistant|engineer i\b)|\blead (?=gen(?:eration)?\b)|\b(?:product|project|program|account|case|property|community|office) (?=manager\b)manager\b/g;
+// Bank and asset-manager ranks: Analyst → Associate → (Assistant) Vice
+// President → Director / Executive Director → Managing Director. "Vice
+// President, FX Options Strats" is a senior individual role there; "VP of
+// Engineering" is an executive.
+const BANK_RANKS = [
+  [5, /\b(?:managing director|executive director)\b/],
+  [4, /(?:^|[—–]\s*|\s-\s)(?:senior )?(?:vice president|vp)\s*(?:,|-|–|—)|(?:,|-|–|—)\s*(?:senior )?(?:vice president|vp)\s*$/],
+  [3, /\b(?:assistant vice president|avp)\b/],
+  [2, /^associate\s*(?:,|-|–|—)|(?:,|-|–|—)\s*associate\s*$/],
+];
 function titleLevel(title) {
-  const t = lower(title).replace(NOT_LEVEL, ' ');
+  const raw = lower(title).trim();
+  for (const [lvl, re] of BANK_RANKS) if (re.test(raw)) return lvl;
+  const t = raw.replace(NOT_LEVEL, ' ');
   for (const [lvl, re] of LEVELS) if (re.test(t)) return lvl;
   return null; // no marker = mid level
 }
@@ -280,8 +294,10 @@ function requirementLines(text) {
 const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?years?['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:in|as|within|across)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
 const KIND_CUT = /\s+(?:for|with|at|in an?|in the|where|that|who|which|on|using|ideally|preferably|including|within|across)\b.*$|,\s*(?:ideally|preferably|including|especially|with|in)\b.*$/;
 const KIND_FILLER = new Set('a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
+// "7+ years of hands-on Oracle ERP configuration": no "experience", but the same ask.
+const YEARS_OF_PLAIN = /^(?:[-•*▪●◦]\s*)?\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?['’]?\s+of\s+(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*([a-z][^.;:()]+)/;
 function experienceKind(line) {
-  const m = line.match(YEARS_OF);
+  const m = line.match(YEARS_OF) || line.match(YEARS_OF_PLAIN);
   if (!m) return null;
   let phrase = (m[1] || m[2] || m[3] || '').replace(KIND_CUT, '').trim();
   if (!phrase) return null;
@@ -375,10 +391,13 @@ function requirementUnits(job) {
     if (INTEREST.test(original)) continue;
     const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
     const found = []; // { key, label, match, index, end }
-    const skillLine = stripFieldsOfStudy(line);
+    // "Master's in statistics, mathematics or financial engineering": the fields
+    // describe the degree (scored as the degree requirement), they aren't skills.
+    let skillLine = stripFieldsOfStudy(line);
+    if (isDegreeLine(original)) skillLine = skillLine.replace(/(\b(?:degree|discipline|field|ph\.?\s?d\.?|master['’]?s|bachelor['’]?s|mba)\b[^.;]*?\b(?:in|of)\s)([^.;]*)/, (m, a, b) => a + ' '.repeat(b.length));
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       const hit = patterns.map((p) => skillLine.match(p)).find(Boolean);
-      if (hit) found.push({ key: 's:' + skill, label: skill, skill, match: (t) => (patterns.some((p) => p.test(t)) ? 1 : 0), index: hit.index, end: hit.index + hit[0].length });
+      if (hit) found.push({ key: 's:' + skill, label: skill, skill, match: (t) => (patterns.some((p) => p.test(t)) ? 1 : 0), index: mentionStart(hit), end: hit.index + hit[0].length });
     }
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
@@ -421,6 +440,9 @@ function requirementUnits(job) {
     const sameAsKind = xk ? found.filter((f) => f.skill && xk.alts.some((ws) => SKILLS[f.skill].some((p) => p.test(ws.join(' '))))) : [];
     const kindIsSkills = xk && xk.alts.every((ws) => sameAsKind.some((f) => SKILLS[f.skill].some((p) => p.test(ws.join(' ')))));
     if (kindIsSkills) for (const f of sameAsKind) f.weight = 0.5;
+    // "3+ years in investment risk, portfolio analytics or quantitative finance":
+    // the skills are alternatives of the experience asked for, not must-haves of their own.
+    else if (xk && xk.alts.length > 1) found.splice(0, found.length, ...found.filter((f) => !sameAsKind.includes(f)));
     if (xk) {
       const inKind = (f) => f.key.startsWith('t:') && xk.alts.some((ws) => lower(f.label).split(/\s+/).every((w) => ws.includes(w)));
       found.splice(0, found.length, ...found.filter((f) => !inKind(f)));
@@ -685,7 +707,9 @@ function titleMatch(posting, held) {
   // what kind of work it is and the held title says another kind.
   const mods = want.filter((w, i) => !roleAt(w, i) && i < mainWords.length);
   const heldMods = have.filter((w) => !heldRoles.has(w));
-  const conflict = heldMods.length > 0 && (mods.some((w) => FUNCTION_WORDS.has(w) && own(w) < 0.5) || (mods.length > 0 && mods.every((w) => own(w) < 0.5) && heldMods.some((w) => FUNCTION_WORDS.has(w))));
+  // Sharing a function word ("…, Investment Risk") is the same line of work.
+  const sharesAny = want.some((w, i) => !roleAt(w, i) && FUNCTION_WORDS.has(w) && own(w) >= 0.5);
+  const conflict = heldMods.length > 0 && !sharesAny && (mods.some((w) => FUNCTION_WORDS.has(w) && own(w) < 0.5) || (mods.length > 0 && mods.every((w) => own(w) < 0.5) && heldMods.some((w) => FUNCTION_WORDS.has(w))));
   return want.reduce((s, w, i) => s + credit(w) * weights[i] * (conflict && roleAt(w, i) ? 0.5 : 1), 0) / total;
 }
 
@@ -902,7 +926,7 @@ function localFitScore(job, documents, profile = {}) {
   // Under-qualified: recruiters screen out well short of the years asked
   // (half or less) or two levels up, whatever else matches.
   const yearsRatio = needYears >= 3 && haveYears !== null ? haveYears / needYears : null;
-  const shortYears = yearsRatio !== null && yearsRatio < 0.5 ? 45 : yearsRatio !== null && yearsRatio < 0.7 ? 60 : null;
+  const shortYears = yearsRatio === null ? null : yearsRatio < 0.3 ? 30 : yearsRatio < 0.5 ? 45 : yearsRatio < 0.8 ? 64 : null;
   const stretch = seniority !== null && -levelsBelow >= 2;
 
   const components = { required, preferred: mean(pref), role, domain, experience, seniority };
@@ -938,7 +962,7 @@ function localFitScore(job, documents, profile = {}) {
   // most of what the duties name isn't in your documents, it's strong at most.
   const dutyGap = neutral.length >= 4 && mean(neutral) < 0.5;
   if (dutyGap) score = Math.min(score, 79);
-  if (stretch) score = Math.min(score, 44); // "Stretch role"
+  if (stretch) score = Math.min(score, -levelsBelow >= 3 ? 30 : 44); // "Stretch role"
   // A step up can be a strong fit, but not an excellent one: that's a role at your level.
   else if (seniority !== null && -levelsBelow === 1) score = Math.min(score, 79);
 

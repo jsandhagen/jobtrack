@@ -14,7 +14,7 @@ const fx = (f) => {
 
 const RESUMES = {};
 const POSTINGS = {};
-for (const f of ['techPostings', 'techStrategyDeep', 'techStrategyHoldout', 'techStrategyNearMiss', 'quantPostings', 'quantNearMiss', 'quantHoldout']) {
+for (const f of ['techPostings', 'techStrategyDeep', 'techStrategyHoldout', 'techStrategyNearMiss', 'quantPostings', 'quantNearMiss', 'quantHoldout', 'fitHoldout2']) {
   const m = fx(f);
   if (!m) continue;
   Object.assign(POSTINGS, m.POSTINGS || {});
@@ -47,7 +47,7 @@ const order = (name, x, y, why) => {
     misses.push(`${name}: ${x} vs ${y} (${why})`);
   }
 };
-for (const f of ['techPostings', 'techStrategyDeep', 'techStrategyHoldout', 'techStrategyNearMiss', 'quantPostings', 'quantNearMiss', 'quantHoldout']) {
+for (const f of ['techPostings', 'techStrategyDeep', 'techStrategyHoldout', 'techStrategyNearMiss', 'quantPostings', 'quantNearMiss', 'quantHoldout', 'fitHoldout2']) {
   const m = fx(f);
   if (!m) continue;
   for (const [r, p, lo, hi, why] of m.BANDS || []) band(`${f} ${r} → ${p}`, fit(r, p), lo, hi, why);
