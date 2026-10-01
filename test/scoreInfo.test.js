@@ -15,7 +15,7 @@ const pct = (w) => `${Math.round(w * 100)}%`;
 
 // The ⓘ explanations quote the weights; keep them in step with the scorers.
 test('fit explanation matches the fit score weights', () => {
-  const said = { required: 'Required qualifications', experience: 'Years of experience', role: 'role match', vocabulary: 'shared vocabulary', preferred: 'Preferred qualifications', seniority: 'seniority' };
+  const said = { required: 'Required qualifications', experience: 'Years of experience', role: 'role match', domain: 'domain', preferred: 'Preferred qualifications', seniority: 'seniority' };
   for (const [k, w] of Object.entries(FIT)) assert.match(TOPICS.fit.body, new RegExp(`${said[k]} ${pct(w)}`), k);
 });
 

@@ -50,7 +50,11 @@ const SKILLS = {
   'LLMs / GenAI': [/\bllms?\b/, /\blarge language models?\b/, /\bgenerative ai\b/, /\bgenai\b/, /\bprompt engineering\b/],
   // Having been a "Data Analyst" is evidence of data analysis.
   'Data Analysis': [/\bdata analy(?:sis|tics|sts?)\b/, /\banalytics\b/],
-  'Data Visualization': [/\bdata visuali[sz]ation\b/, /\btableau\b/, /\bpower\s*bi\b/, /\blooker\b/],
+  // Separate tools, so the fit score can tell the exact one from a related one.
+  'Data Visualization': [/\bdata visuali[sz]ation\b/, /\bdashboards?\b/],
+  Tableau: [/\btableau\b/],
+  'Power BI': [/\bpower\s*bi\b/],
+  Looker: [/\blooker\b/],
   // Not the verb: "you'll excel in a fast-paced role".
   Excel: [/\bexcel\b(?!\s+(?:in|at|as|under|within|when)\b)/, /\bspreadsheets?\b/],
   Statistics: [/\bstatistic(?:s|al)\b/, /\ba\/b test/],
@@ -85,7 +89,7 @@ const SKILLS = {
   // A clearance is a credential (and a knockout), not a security skill.
   'Security Clearance': [/\bsecurity clearance\b/, /\bts\s*\/\s*sci\b/, /\b(?:top secret|secret|public trust) clearance\b/, /\bactive clearance\b/],
   Security: [/(?<!social )\bsecurity\b(?!\s+clearance)/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
-  Testing: [/\bunit tests?\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
+  Testing: [/\bunit test(?:s|ing)?\b/, /\btest automation\b/, /\bqa\b/, /\bquality assurance\b/, /\bjest\b/, /\bpytest\b/, /\bselenium\b/],
   // human skills
   Leadership: [/\bleadership\b/, /\bmentor(?:ed|ing|ship|s)?\b/, /\bled (?:a |the )?(?:team|group|squad)/, /\bmanag(?:ed|ing) a team\b/, /\bpeople manage/],
   Communication: [/\bcommunication skills\b/, /\bwritten and (?:verbal|oral)\b/, /\b(?:verbal|oral) and written\b/, /\bcommunicator\b/, /\bpresentations?\b/, /\bpublic speaking\b/],
@@ -93,6 +97,33 @@ const SKILLS = {
   'Problem Solving': [/\bproblem[-\s]solv(?:ing|er)\b/, /\banalytical (?:skills|thinking|mindset|abilities)\b/, /\bcritical thinking\b/],
   Bilingual: [/\bbilingual\b/, /\bspanish\b/, /\bfrench\b/, /\bmandarin\b/, /\bgerman\b/],
 };
+
+// Skills close enough that having one is partial evidence of the other (the
+// idea behind LinkedIn's skill ontology and Textkernel's skill normalisation).
+// [a, b, credit]: having b when a is asked for (and vice versa) earns `credit`.
+const RELATED_PAIRS = [
+  ['Tableau', 'Power BI', 0.6], ['Tableau', 'Looker', 0.6], ['Power BI', 'Looker', 0.6],
+  ['Tableau', 'Data Visualization', 0.5], ['Power BI', 'Data Visualization', 0.5], ['Looker', 'Data Visualization', 0.5],
+  ['React', 'Vue', 0.5], ['React', 'Angular', 0.5], ['Vue', 'Angular', 0.5],
+  ['JavaScript', 'TypeScript', 0.7],
+  ['AWS', 'Azure', 0.5], ['AWS', 'GCP', 0.5], ['Azure', 'GCP', 0.5],
+  ['Java', 'C#', 0.5], ['Java', 'Kotlin', 0.6], ['Java', 'Scala', 0.5], ['C#', 'C++', 0.4],
+  ['Python', 'R', 0.4], ['R', 'SAS', 0.5], ['R', 'Stata / SPSS', 0.5], ['SAS', 'Stata / SPSS', 0.5], ['Python', 'MATLAB', 0.4], ['R', 'MATLAB', 0.4],
+  ['Machine Learning', 'Deep Learning', 0.8], ['Machine Learning', 'Statistics', 0.4], ['Deep Learning', 'LLMs / GenAI', 0.5],
+  ['Spark', 'ETL / Pipelines', 0.4], ['Snowflake', 'SQL', 0.5], ['Spark', 'Snowflake', 0.3],
+  ['Docker', 'Kubernetes', 0.5], ['Terraform', 'AWS', 0.3], ['CI/CD', 'Git', 0.3],
+  ['Django', 'Flask', 0.6], ['Node.js', 'JavaScript', 0.4],
+  ['Excel', 'Data Analysis', 0.3], ['Figma', 'UI Design', 0.4], ['UX Design', 'UI Design', 0.6],
+  ['Product Management', 'Project Management', 0.4], ['Agile', 'Project Management', 0.4],
+  ['Accounting', 'Finance', 0.4], ['CRM', 'Sales', 0.3],
+];
+const RELATED = new Map();
+for (const [a, b, c] of RELATED_PAIRS) {
+  if (!RELATED.has(a)) RELATED.set(a, []);
+  if (!RELATED.has(b)) RELATED.set(b, []);
+  RELATED.get(a).push([b, c]);
+  RELATED.get(b).push([a, c]);
+}
 
 const SOFT_SKILLS = new Set(['Leadership', 'Communication', 'Collaboration', 'Problem Solving']);
 // Soft skills a resume can't really prove by wording; leadership it can ("led a team of 6").
@@ -449,6 +480,7 @@ function looksLikeJobPosting(text) {
 
 module.exports = {
   SKILLS,
+  RELATED,
   SOFT_SKILLS,
   INTERPERSONAL,
   STOPWORDS,

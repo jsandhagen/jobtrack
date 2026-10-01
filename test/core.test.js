@@ -250,9 +250,11 @@ test('analyzeFit scores from its own checklist, verifies every quote, and caches
     ],
   });
   const res = await claude.analyzeFit(client, { job: { title: 'FE', text: POSTING }, documents: DOCS, profile: { name: 'Jordan' } });
-  // A made-up quote drops "met" to "partial"; the score is basic×2 + preferred×1.
+  // A made-up quote drops "met" to "partial". Must-haves [1, 0.5] combine
+  // conjunctively (0.4 × mean 0.75 + 0.6 × harmonic 0.667 = 0.70) and count
+  // 80%; the unmet nice-to-have adds nothing.
   assert.deepEqual(res.qualifications.map((x) => [x.status, x.verified]), [['met', true], ['partial', false], ['not_met', true]]);
-  assert.equal(res.score, Math.round(((2 + 1 + 0) / 5) * 100));
+  assert.equal(res.score, 56);
   assert.deepEqual(res.keywords, ['React']); // Kubernetes isn't in the posting
   assert.ok(res.promptVersion);
   const req = client.requests[0];

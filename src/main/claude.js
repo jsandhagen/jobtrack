@@ -5,6 +5,7 @@ const { betaZodOutputFormat } = require('@anthropic-ai/sdk/helpers/beta/zod');
 const { z } = require('zod');
 const { fitLabel } = require('./fitScore');
 const { gradeFromQualifications } = require('./atsScore');
+const { conjunctive } = require('./localFit');
 const P = require('./prompts');
 const { quoteFound, checkRewrite, checkNewText, norm } = require('./grounding');
 
@@ -171,18 +172,20 @@ async function extractJobFromScreenshot(client, { pngBase64, model }) {
   });
 }
 
-// The score comes from the checklist, computed here: required items count
-// double, partial counts half. The same checklist always gives the same score.
+// The score comes from the checklist, computed here, the same way as the free
+// fit score: must-haves combine conjunctively (a missing one weighs extra, as
+// it does for recruiters) and count 80%; nice-to-haves count in full only when
+// the must-haves are there. Partial counts half. The same checklist always
+// gives the same score.
 function scoreFromQualifications(quals) {
   if (!quals.length) return 50;
-  let got = 0;
-  let total = 0;
-  for (const q of quals) {
-    const w = q.type === 'basic' ? 2 : 1;
-    total += w;
-    got += w * (q.status === 'met' ? 1 : q.status === 'partial' ? 0.5 : 0);
-  }
-  return Math.round((got / total) * 100);
+  const val = (q) => (q.status === 'met' ? 1 : q.status === 'partial' ? 0.5 : 0);
+  const basic = conjunctive(quals.filter((q) => q.type === 'basic').map(val));
+  const prefs = quals.filter((q) => q.type !== 'basic').map(val);
+  const pref = prefs.length ? prefs.reduce((a, b) => a + b, 0) / prefs.length : null;
+  if (basic === null) return Math.round(pref * 100);
+  if (pref === null) return Math.round(basic * 100);
+  return Math.round((0.8 * basic + 0.2 * pref * (0.4 + 0.6 * basic)) * 100);
 }
 
 async function analyzeFit(client, { job, documents, profile, model }) {

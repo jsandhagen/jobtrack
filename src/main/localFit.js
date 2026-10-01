@@ -1,23 +1,29 @@
 // Offline fit score: the free first pass that runs on every posting. It aims
 // to answer "is this worth a closer look?" reliably without any API calls.
 //
-// Signals (weights are rebalanced when one doesn't apply):
-//   required qualifications met   35%   skills, tools, certifications, degree
-//   role match                    15%   posting title vs your target roles / past titles
-//   vocabulary overlap            15%   how much of the posting's language your documents share
-//   preferred qualifications      10%
-//   seniority alignment           10%   intern … director, vs your years and titles
-//   years of experience           15%
-// Dealbreakers from your profile (work mode, minimum salary, words to avoid)
-// cap the score so those roles never pop up as good matches.
-const { SKILLS, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+// Modelled on production matchers (Textkernel/Sovren category scoring with
+// recency boosting, LinkedIn's skill ontology) and on how recruiters screen
+// (conjunctively: a missing must-have outweighs extras). Parts, re-weighted
+// when one doesn't apply:
+//   required qualifications   50%   each scored by its best evidence: recent work in
+//                                   full, older roles / skills lists / coursework less,
+//                                   a related skill partly; combined conjunctively
+//   role match                14%   posting title vs titles you've held (recent ones
+//                                   count more) and your target roles
+//   years of experience       12%
+//   domain                    10%   the posting's distinctive, repeated wording
+//   preferred qualifications   8%
+//   seniority alignment        6%   intern … director, vs your years and titles
+// Everything but required counts in full only when the must-haves are there.
+// Dealbreakers and screening-question conflicts cap the score at 30.
+const { SKILLS, RELATED, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 3;
+const SCORER_VERSION = 4;
 
-const WEIGHTS = { required: 0.35, role: 0.15, vocabulary: 0.15, preferred: 0.1, seniority: 0.1, experience: 0.15 };
+const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
 // ---------- text helpers ----------
 
@@ -56,7 +62,9 @@ const NOT_TERMS = new Set(
     'january february march april may june july august september october november december monday friday ' +
     'remote hybrid onsite full time part contract us usa eeo pto ceo ok i am new senior junior lead principal staff ' +
     // generic nouns that aren't skills on their own
-    'models model analysis dashboards dashboard tools systems system field fields solutions products data reports reporting processes process projects project platforms applications services teams environment stakeholders'
+    'models model analysis dashboards dashboard tools systems system field fields solutions products data reports reporting processes process projects project platforms applications services teams environment stakeholders ' +
+    // verbs that trail "experience …" ("Experience building dashboards")
+    'building developing creating designing managing leading working using writing running supporting delivering maintaining implementing analyzing improving owning driving partnering'
   ).split(' ')
 );
 
@@ -74,7 +82,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     // Trim qualifier words off the ends: "Current RN license" -> "RN".
     while (words0.length && EDGE_WORDS.has(lower(words0[0]))) words0.shift();
     while (words0.length && EDGE_WORDS.has(lower(words0[words0.length - 1]).replace(/[.,;:]$/, ''))) words0.pop();
-    const clean = words0.join(' ').replace(/[,.;:)]+$/, '');
+    const clean = words0.join(' ').replace(/\s*\([^)]*$/, '').replace(/[,.;:)]+$/, '');
     const words = lower(clean).split(/\s+/).filter(Boolean);
     if (!clean || clean.length < 2 || words.length > 4) return;
     if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w))) return;
@@ -220,9 +228,16 @@ function requirementUnits(job) {
   const ignoreWords = new Set([...lower(job.company).split(/\W+/), ...lower(job.title).split(/\W+/)].filter(Boolean));
   const units = new Map(); // key -> {key, label, kind, match}
   const rank = { preferred: 0, neutral: 1, required: 2 };
-  const addUnit = (key, label, kind, match) => {
+  const addUnit = (key, label, kind, match, extra = {}) => {
     const prev = units.get(key);
-    if (!prev || rank[kind] > rank[prev.kind]) units.set(key, { key, label, kind, match });
+    if (!prev || rank[kind] > rank[prev.kind]) units.set(key, { key, label, kind, match, ...extra });
+  };
+  // Partial credit from a related skill (Power BI when Tableau is asked for).
+  // Only the fit score uses it; the bullet bank wants the exact skill.
+  const relatedOf = (skills) => (t) => {
+    let best = 0;
+    for (const s of skills) for (const [other, credit] of RELATED.get(s) || []) if (credit > best && SKILLS[other].some((p) => p.test(t))) best = credit;
+    return best;
   };
   const parts = lines
     .filter((l) => !(l.isHeading && l.line.length < 40))
@@ -233,12 +248,15 @@ function requirementUnits(job) {
     const skillLine = stripFieldsOfStudy(line);
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       const hit = patterns.map((p) => skillLine.match(p)).find(Boolean);
-      if (hit) found.push({ key: 's:' + skill, label: skill, match: (t) => (patterns.some((p) => p.test(t)) ? 1 : 0), index: hit.index, end: hit.index + hit[0].length });
+      if (hit) found.push({ key: 's:' + skill, label: skill, skill, match: (t) => (patterns.some((p) => p.test(t)) ? 1 : 0), index: hit.index, end: hit.index + hit[0].length });
     }
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
     if ((lineKind !== 'neutral' || !hasRequiredSection) && !isDegreeLine(original)) {
-      for (const term of extractTerms(original, ignoreWords, `${lower(job.title)} | ${lower(job.company)}`)) {
+      const terms = extractTerms(original, ignoreWords, `${lower(job.title)} | ${lower(job.company)}`);
+      // "Econometrics" and "Econometrics modeling" from one phrase are one requirement.
+      const contains = (long, short) => long !== short && ` ${lower(long)} `.includes(` ${lower(short)} `);
+      for (const term of terms.filter((x) => !terms.some((y) => contains(x, y)))) {
         const index = line.indexOf(lower(term));
         const pos = { index, end: index + term.length };
         if (GENERIC_PROGRAMMING.test(term)) {
@@ -246,84 +264,266 @@ function requirementUnits(job) {
           continue;
         }
         const words = lower(term).split(/\s+/).filter((w) => !STOPWORDS.has(w));
+        const stems = words.map(stem);
         found.push({
           key: 't:' + lower(term),
           label: term,
           match: (t) => {
             if (hasTerm(t, term)) return 1;
-            return words.length > 1 && words.every((w) => hasTerm(t, w)) ? 0.6 : 0;
+            // Other forms of the same words: "unit testing" / "unit tests".
+            const ts = ` ${(t.match(/[a-z0-9+#]+/g) || []).map(stem).join(' ')} `;
+            if (ts.includes(` ${stems.join(' ')} `)) return 0.9;
+            return words.length > 1 && stems.every((w) => ts.includes(` ${w} `)) ? 0.6 : 0;
           },
           ...pos,
         });
       }
     }
+    // "Dashboards in Tableau" is one requirement (Tableau), not two.
+    if (found.some((f) => CHILD_TOOLS.has(f.skill))) found.splice(0, found.length, ...found.filter((f) => f.skill !== 'Data Visualization'));
     // "Python, R, or SAS": one requirement, met by whichever you have.
     const grouped = new Set();
     for (const run of alternativeRuns(line, found.filter((f) => f.index >= 0))) {
       run.forEach((f) => grouped.add(f));
-      addUnit('any:' + run.map((f) => f.key).join('|'), `one of ${run.map((f) => f.label).join(', ')}`, effKind, (t) => Math.max(...run.map((f) => f.match(t))));
+      addUnit('any:' + run.map((f) => f.key).join('|'), `one of ${run.map((f) => f.label).join(', ')}`, effKind, (t) => Math.max(...run.map((f) => f.match(t))), {
+        related: relatedOf(run.filter((f) => f.skill).map((f) => f.skill)),
+      });
     }
       for (const f of found) {
       // Soft skills can't be judged from wording, so they only nudge the score.
-      if (!grouped.has(f)) addUnit(f.key, f.label, INTERPERSONAL.has(f.label) && effKind === 'required' ? 'neutral' : effKind, f.match);
+      if (!grouped.has(f)) addUnit(f.key, f.label, INTERPERSONAL.has(f.label) && effKind === 'required' ? 'neutral' : effKind, f.match, f.skill ? { related: relatedOf([f.skill]) } : {});
     }
   }
   // Degree matchers take the original text too: "BA"/"MS" only count in capitals.
   const DEGREE_NAMES = ['', 'associate degree', "bachelor's degree", "master's degree", 'PhD'];
   const deg = degreeRequirements(job.text);
   const equivalentOk = /or equivalent/i.test(job.text);
-  if (deg.required) addUnit('degree', DEGREE_NAMES[deg.required], 'required', (t, original) => (degreeLevel(original ?? t) >= deg.required ? 1 : equivalentOk ? 0.5 : 0));
-  if (deg.preferred) addUnit('degree-pref', DEGREE_NAMES[deg.preferred], 'preferred', (t, original) => (degreeLevel(original ?? t) >= deg.preferred ? 1 : 0));
+  // A degree is shown where it's shown (Education), so it isn't discounted by section.
+  if (deg.required) addUnit('degree', DEGREE_NAMES[deg.required], 'required', (t, original) => (degreeLevel(original ?? t) >= deg.required ? 1 : equivalentOk ? 0.5 : 0), { anywhere: true });
+  if (deg.preferred) addUnit('degree-pref', DEGREE_NAMES[deg.preferred], 'preferred', (t, original) => (degreeLevel(original ?? t) >= deg.preferred ? 1 : 0), { anywhere: true });
   return { units: [...units.values()], lines, hasRequiredSection, ignoreWords };
 }
+
+// Tools that are a specific case of a broader skill named in the same breath.
+const CHILD_TOOLS = new Set(['Tableau', 'Power BI', 'Looker']);
+
+// ---------- evidence ----------
+
+// How strongly a piece of a document shows something, following what
+// production matchers do: recent work counts most and older roles fade
+// (Textkernel's recency boosting), a skills list or summary claims rather than
+// shows, and other text (education, coursework, headline) still counts.
+function recencyWeight(end, now) {
+  const year = end === null || end === undefined ? null : end;
+  if (year === null) return 0.9;
+  const ago = now - year;
+  return ago <= 2 ? 1 : ago <= 5 ? 0.9 : ago <= 10 ? 0.75 : 0.6;
+}
+const DOC_WEIGHT = { bank: 0.85, project: 0.85, recommendation: 0.8, certification: 0.9, transcript: 0.7, 'cover-letter': 0.7 };
+
+function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
+  const { parseResume } = require('./bullets'); // lazy: bullets.js requires this module
+  const segs = [];
+  const titles = [];
+  for (const d of documents) {
+    const text = d.text || '';
+    if (d.kind === 'resume' || !d.kind) {
+      const r = parseResume(text);
+      for (const ex of r.experiences) {
+        const end = /present|current|now|today/i.test(ex.end || '') ? now : yearFrom(ex.end) ?? yearFrom(ex.dates);
+        const w = ex.isProject ? 0.85 : recencyWeight(end, now);
+        const body = [ex.title, ex.organization, ...ex.bullets.map((b) => b.text)].join('\n');
+        segs.push({ text: body, weight: w });
+        if (!ex.isProject && ex.title) titles.push({ title: ex.title, weight: w });
+      }
+      if (r.skills.length) segs.push({ text: r.skills.join(', '), weight: 0.75 });
+      if (r.summary) segs.push({ text: r.summary, weight: 0.75 });
+      // Education, coursework, headline, anything unparsed. When the parser
+      // accounted for little of the text (notes, a pasted paragraph), the
+      // rest counts nearly in full.
+      const parsed = r.experiences.reduce((n, ex) => n + ex.bullets.reduce((m, b) => m + b.text.length, 0), 0) + r.skills.join(', ').length + r.summary.length;
+      segs.push({ text, weight: parsed / Math.max(1, text.length) >= 0.4 ? 0.7 : 0.9 });
+    } else {
+      segs.push({ text, weight: DOC_WEIGHT[d.kind] ?? 0.75 });
+    }
+  }
+  return { segs: segs.map((s) => ({ ...s, lower: lower(s.text) })), titles };
+}
+function yearFrom(s) {
+  const m = String(s || '').match(/(?:19|20)\d{2}/);
+  return m ? Number(m[0]) : null;
+}
+
+// Best evidence for one requirement across the segments: exact matches at
+// the segment's weight, related skills at their credit times that weight.
+function evidenceFor(unit, segs, lib, libText) {
+  if (unit.anywhere) return unit.match(lib, libText);
+  let best = 0;
+  for (const s of segs) {
+    const exact = unit.match(s.lower, s.text);
+    const related = exact ? 0 : unit.related ? unit.related(s.lower) : 0;
+    best = Math.max(best, Math.max(exact, related) * s.weight);
+  }
+  return best;
+}
+
+// Must-haves combine conjunctively, as recruiters screen: the plain average,
+// pulled down by a harmonic mean so one clear miss costs more than a
+// weighted average says.
+function conjunctive(values) {
+  if (!values.length) return null;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const harmonic = values.length / values.reduce((a, v) => a + 1 / Math.max(v, 0.2), 0);
+  return 0.4 * mean + 0.6 * harmonic;
+}
+
+// ---------- job titles ----------
+
+// Title words reduced to a family, so "Analytics"/"Analyst" and
+// "Developer"/"Engineer" meet.
+const TITLE_FAMILY = [
+  [/^analy/, 'analy'], [/^(?:engineer|developer|programmer|swe)/, 'engineer'], [/^scien/, 'scien'], [/^manag/, 'manag'],
+  [/^(?:quant|quantitative)$/, 'quant'], [/^account/, 'account'], [/^design/, 'design'], [/^consult/, 'consult'], [/^model/, 'model'],
+  [/^(?:nurse|nursing|rn)$/, 'nurse'], [/^(?:front-?end|frontend)$/, 'frontend'], [/^(?:back-?end|backend)$/, 'backend'], [/^(?:full-?stack|fullstack)$/, 'fullstack'],
+];
+const TITLE_DROP = /\b(?:senior|sr|junior|jr|lead|principal|staff|head|chief|of|the|and|for|i{1,3}|iv|[1-4]|&|-|–|—)\b/g;
+function titleWords(title) {
+  return lower(title)
+    .replace(/\bfull[\s-]+stack\b/g, 'fullstack')
+    .replace(/\bfront[\s-]+end\b/g, 'frontend')
+    .replace(/\bback[\s-]+end\b/g, 'backend')
+    .replace(/\(.*?\)/g, ' ')
+    .replace(TITLE_DROP, ' ')
+    .split(/[^a-z+#-]+/)
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w))
+    .map((w) => (TITLE_FAMILY.find(([re]) => re.test(w)) || [null, stem(w)])[1]);
+}
+// How much of the posting's title a held title covers; the role noun (the
+// last word: "analyst", "engineer") counts double.
+// Neighbouring roles: half credit (a frontend engineer is half way to a
+// frontend architect; frontend and full-stack engineers overlap).
+const TITLE_NEAR = [['engineer', 'architect'], ['analy', 'scien'], ['analy', 'model'], ['analy', 'quant'], ['frontend', 'fullstack'], ['backend', 'fullstack'], ['manag', 'lead'], ['account', 'audit'], ['design', 'ux']];
+const near = (a, b) => TITLE_NEAR.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
+function titleMatch(posting, held) {
+  const want = titleWords(posting);
+  const have = [...new Set(titleWords(held))];
+  if (!want.length || !have.length) return 0;
+  const weights = want.map((_, i) => (i === want.length - 1 ? 2 : 1));
+  const total = weights.reduce((a, b) => a + b, 0);
+  const credit = (w) => (have.includes(w) ? 1 : have.some((h) => near(w, h)) ? 0.5 : 0);
+  return want.reduce((s, w, i) => s + credit(w) * weights[i], 0) / total;
+}
+
+// ---------- domain ----------
+
+// Words every posting uses; they say nothing about the field.
+const GENERIC = new Set(
+  ('ability able work working works worked team teams environment provide providing support supporting ensure ensuring develop developing ' +
+    'development design designing build building maintain maintaining manage business strong excellent skill skills knowledge understanding ' +
+    'related relevant various multiple key role position opportunity opportunities responsible responsibility job company organization ' +
+    'across within also well using use used based high level best practice practices help make take part join looking seeking ideal great good ' +
+    'other time people person world partner partners collaborate collaboration communication written verbal detail oriented fast paced growing ' +
+    'growth success successful impact deliver delivering drive driven passion passionate self motivated proactive ideas approach approaches ' +
+    'unique user users quality process processes tool tools system systems solution solutions project projects need needs result results ' +
+    'standard standards policy policies procedure procedures requirement degree bachelor master field equivalent experience year years day days ' +
+    'including include includes new current currently every each all any both more most many must should will would can could may might ' +
+    'candidate candidates applicant applicants employee employees employer apply hire hiring recruit benefit benefits salary pay range ' +
+    'offer offers support supports create creating improve improving identify identifying perform performing review reviewing respond ' +
+    'responding understand partner partnering facilitate facilitating own owning other others like etc per via plus preferred required')
+    .split(' ')
+);
+const DOMAIN_SKIP_HEADING = /^(?:about (?:us|the company)|who we are|our (?:mission|culture|values|team|company|story)|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|equal (?:opportunity|employment))\b/i;
+
+// Distinctive words from what the job does and needs, weighted by how often
+// the posting comes back to them (what it emphasises), plus two-word phrases
+// it repeats ("credit risk"). The company pitch and benefits count little or
+// nothing; generic hiring words not at all.
+const BODY_HEADING = /^(?:about (?:the|this) (?:job|role|position)|job description|full job description|description)\s*:?$/i;
+function domainTerms(job, ignoreWords) {
+  const counts = new Map();
+  const add = (k, w) => counts.set(k, { n: ((counts.get(k) || {}).n || 0) + 1, w: Math.max((counts.get(k) || {}).w || 0, w) });
+  let skip = false;
+  let inSections = false;
+  const content = (w) => w.length >= 4 && !STOPWORDS.has(w) && !NOT_TERMS.has(w) && !GENERIC.has(w) && !ignoreWords.has(w);
+  for (const l of classifyLines(job.text)) {
+    if (l.isHeading && l.line.length < 60) {
+      // "About the job" opens the whole page, not a section.
+      if (BODY_HEADING.test(l.line)) continue;
+      inSections = true;
+      skip = DOMAIN_SKIP_HEADING.test(l.line);
+      continue;
+    }
+    if (skip || BOILERPLATE_LINE.test(l.line)) continue;
+    const weight = inSections ? 1 : 0.4; // an intro paragraph is often the company pitch
+    const words = (l.line.match(/[a-z][a-z+#-]{2,}/g) || []).map((w) => (content(w) ? stem(w) : null));
+    words.forEach((w, i) => {
+      if (!w) return;
+      add(w, weight);
+      if (words[i + 1]) add(`${w} ${words[i + 1]}`, weight);
+    });
+  }
+  const terms = new Map();
+  for (const [k, { n, w }] of counts) {
+    if (k.includes(' ') && n < 2) continue; // a phrase only counts if the posting repeats it
+    terms.set(k, w * Math.sqrt(Math.min(n, 4)) * (k.includes(' ') ? 1.5 : 1));
+  }
+  return terms;
+}
+
+function domainScore(job, lib, ignoreWords) {
+  const terms = domainTerms(job, ignoreWords);
+  if (terms.size < 5) return null;
+  const words = (lib.match(/[a-z][a-z+#-]{2,}/g) || []).map(stem);
+  const uni = new Set(words);
+  const bi = new Set(words.slice(1).map((w, i) => `${words[i]} ${w}`));
+  let got = 0;
+  let total = 0;
+  for (const [term, w] of terms) {
+    total += w;
+    if (term.includes(' ') ? bi.has(term) : uni.has(term)) got += w;
+  }
+  // Even a perfect candidate shares well under all of a posting's wording.
+  return Math.max(0, Math.min(1, (got / total - 0.1) / 0.55));
+}
+
+// ---------- the score ----------
 
 function localFitScore(job, documents, profile = {}) {
   const libText = documents.map((d) => d.text).join('\n\n');
   const lib = lower(libText);
-  const { units, lines, ignoreWords } = requirementUnits(job);
-  const all = units.map((u) => ({ label: u.label, kind: u.kind, met: u.match(lib, libText) }));
+  const { units, ignoreWords } = requirementUnits(job);
+  const { segs, titles } = evidenceSegments(documents);
+  const all = units.map((u) => ({ label: u.label, kind: u.kind, met: evidenceFor(u, segs, lib, libText) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
   const neutral = all.filter((u) => u.kind === 'neutral');
-  const ratio = (list) => (list.length ? list.reduce((s, u) => s + u.met, 0) / list.length : null);
-  // Neutral mentions (e.g. "what you'll do") count a little toward required.
-  const reqPool = req.length ? [...req, ...neutral.map((u) => ({ ...u, met: u.met }))] : neutral;
-  const requiredScore = reqPool.length ? (ratio(req) ?? ratio(neutral)) * 0.8 + (ratio(reqPool) ?? 0) * 0.2 : null;
+  const mean = (list) => (list.length ? list.reduce((s, u) => s + u.met, 0) / list.length : null);
 
-  // 2. Role match.
-  const coreTitle = lower(job.title)
-    .replace(/\b(senior|sr|junior|jr|lead|principal|staff|head|of|i{1,3}|iv|[1-4]|and|the|&)\b/g, ' ')
-    .split(/\W+/)
-    .filter((w) => w.length > 1);
+  // 1. Must-haves (with responsibilities' skills counting a little).
+  const reqCore = conjunctive((req.length ? req : neutral).map((u) => u.met));
+  const required = reqCore === null ? null : req.length && neutral.length ? 0.9 * reqCore + 0.1 * mean(neutral) : reqCore;
+
+  // 2. Role: the posting title against the titles you've held (recent ones
+  // count more) and the roles you're aiming for.
   let role = null;
-  // No real title ("About the job" from a paste): don't judge the role at all.
-  if (coreTitle.length && !isGenericTitle(job.title)) {
-    const targets = lower(profile.targetRoles || '');
-    const inTargets = coreTitle.filter((w) => targets.includes(stem(w))).length / coreTitle.length;
-    const inLib = coreTitle.filter((w) => hasTerm(lib, w) || lib.includes(stem(w))).length / coreTitle.length;
-    const phrase = lib.includes(coreTitle.join(' ')) || (targets && targets.includes(coreTitle.join(' ')));
-    role = Math.max(phrase ? 1 : 0, inTargets, inLib * 0.85);
-  }
-
-  // 3. Vocabulary overlap (stemmed), boilerplate removed.
-  const counts = new Map();
-  for (const { line } of lines) {
-    for (const w of line.match(/[a-z][a-z+#-]{2,}/g) || []) {
-      if (STOPWORDS.has(w) || NOT_TERMS.has(w) || ignoreWords.has(w) || w.length < 4) continue;
-      const k = stem(w);
-      counts.set(k, (counts.get(k) || 0) + 1);
+  if (!isGenericTitle(job.title) && titleWords(job.title).length) {
+    const held = titles.map((t) => titleMatch(job.title, t.title) * t.weight);
+    const targets = String(profile.targetRoles || '').split(/[,;\n]/).filter((s) => s.trim()).map((s) => titleMatch(job.title, s) * 0.9);
+    role = Math.max(0, ...held, ...targets);
+    // No titles parsed (notes, not a resume): fall back to the words anywhere.
+    if (!titles.length && !targets.length) {
+      const words = titleWords(job.title);
+      role = (words.filter((w) => lib.includes(w)).length / words.length) * 0.8;
     }
   }
-  const libStems = new Set((lib.match(/[a-z][a-z+#-]{2,}/g) || []).map(stem));
-  const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
-  const overlap = top.length ? top.filter(([k]) => libStems.has(k)).length / top.length : null;
-  // Even great matches rarely share more than ~70% of a posting's words.
-  const vocabulary = overlap === null ? null : Math.max(0, Math.min(1, (overlap - 0.15) / 0.5));
+
+  // 3. Domain: distinctive wording from the duties and requirements.
+  const domain = domainScore(job, lib, ignoreWords);
 
   // 4. Years + seniority.
   const needYears = requiredYears(job.text);
   const haveYears = yearsOfExperience(libText);
-  const experience = needYears !== null && haveYears !== null ? Math.min(1, haveYears / Math.max(1, needYears)) : needYears !== null ? 0.4 : null;
+  const experience = needYears !== null && haveYears !== null ? Math.min(1, Math.pow(haveYears / Math.max(1, needYears), 1.2)) : needYears !== null ? 0.4 : null;
   // Most titles carry no level; only judge seniority when the posting states one.
   const postingLevel = titleLevel(job.title);
   const docLevels = documents.filter((d) => d.kind === 'resume' || !d.kind).map((d) => d.text.split('\n').map(titleLevel).filter((l) => l !== null && l < 6)).flat();
@@ -336,10 +536,18 @@ function localFitScore(job, documents, profile = {}) {
     seniority = gap > 1 ? 0.25 : gap === 1 ? 0.65 : postingLevel <= 1 && userLevel >= 3 ? 0.7 : 1;
   }
 
-  const components = { required: requiredScore, preferred: ratio(pref), role, vocabulary, experience, seniority };
+  const components = { required, preferred: mean(pref), role, domain, experience, seniority };
+  // Like Textkernel's suggested weights, lean on what the posting gives the
+  // most information about: few stated requirements shift weight to the rest.
+  const weights = { ...WEIGHTS };
+  if (req.length + neutral.length <= 2) weights.required *= 0.6;
   const active = Object.entries(components).filter(([, v]) => v !== null);
-  const wsum = active.reduce((s, [k]) => s + WEIGHTS[k], 0);
-  let score = documents.length && wsum ? Math.round((active.reduce((s, [k, v]) => s + v * WEIGHTS[k], 0) / wsum) * 100) : 0;
+  const wsum = active.reduce((s, [k]) => s + weights[k], 0);
+  // Strengths elsewhere count in full only when the must-haves are there:
+  // recruiters weigh a low must-have match more than the rest (a conjunctive
+  // rule), so the other parts are scaled by must-have coverage.
+  const gate = required === null ? 1 : 0.4 + 0.6 * required;
+  let score = documents.length && wsum ? Math.round((active.reduce((s, [k, v]) => s + v * weights[k] * (k === 'required' ? 1 : gate), 0) / wsum) * 100) : 0;
 
   // Screening-question conflicts get an application rejected outright.
   const screening = screeningCheck(job, profile);
@@ -385,4 +593,4 @@ function localFitScore(job, documents, profile = {}) {
   };
 }
 
-module.exports = { localFitScore, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };
+module.exports = { localFitScore, conjunctive, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };

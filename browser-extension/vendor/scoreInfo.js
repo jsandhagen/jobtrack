@@ -6,14 +6,13 @@
   const TOPICS = {
     fit: {
       title: 'Fit score: are you a match for this job?',
-      short: `<p>Compares the posting with <b>everything about you</b>: your whole library and Profile. Required qualifications count most, then experience, role match and shared wording; a dealbreaker caps it at 30. Free and worked out on your computer (Claude's score if you asked Claude).</p>`,
+      short: `<p>Compares the posting with <b>everything about you</b>: your whole library and Profile. Must-haves count most, and missing one costs more than nice-to-haves can make up; then role, experience and domain. A dealbreaker caps it at 30. Free and worked out on your computer (Claude's score if you asked Claude).</p>`,
       body: `<p>Compares the posting with <b>everything about you</b>: all the documents in your library, your bullet bank and your Profile (target roles, dealbreakers).</p>
         <ul>
-          <li>Required qualifications 35%</li>
-          <li>Years of experience 15% · role match 15% · shared vocabulary 15%</li>
-          <li>Preferred qualifications 10% · seniority 10%</li>
+          <li>Required qualifications 50% · Preferred qualifications 8%</li>
+          <li>role match 14% · Years of experience 12% · domain 10% · seniority 6%</li>
         </ul>
-        <p class="faint">Parts that don't apply to a posting are left out and the rest re-weighted.</p>
+        <p class="faint">Evidence in your recent work counts most; older roles, a skills list or coursework count somewhat less, and a related skill (Power BI for Tableau) earns partial credit. Missing must-haves weigh extra, as they do for recruiters, and the other parts count in full only when the must-haves are there. Role match compares the posting's title with titles you've held; domain is how much of the posting's distinctive wording your documents share. Parts that don't apply are left out.</p>
         <p>A dealbreaker from your Profile caps it at 30. It's free and worked out on your computer. If you asked Claude for a deeper read, the score is Claude's instead.</p>
         <p>Editing a resume doesn't change it. Use it to decide <b>whether to apply</b>.</p>`,
     },

@@ -719,7 +719,7 @@ async function renderApplication(id) {
       ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Dealbreaker:</b> ${q.dealbreakers.map(esc).join('; ')}</div>` : ''}
       ${q.reasons && q.reasons.length ? `<ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
       ${q.concerns && q.concerns.length ? `<ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${q.components ? `<div class="mini-bars">${[['required', 'Required quals'], ['preferred', 'Preferred'], ['role', 'Role match'], ['experience', 'Experience'], ['seniority', 'Seniority'], ['vocabulary', 'Vocabulary']]
+      ${q.components ? `<div class="mini-bars">${[['required', 'Required quals'], ['preferred', 'Preferred'], ['role', 'Role match'], ['experience', 'Experience'], ['seniority', 'Seniority'], ['domain', 'Domain']]
         .filter(([k]) => q.components[k] !== null && q.components[k] !== undefined)
         .map(([k, l]) => `<div class="ats-bar"><span>${l}</span><div class="track"><i style="width:${q.components[k]}%;background:${barColor(q.components[k])}"></i></div><b>${q.components[k]}</b></div>`)
         .join('')}</div>` : ''}
