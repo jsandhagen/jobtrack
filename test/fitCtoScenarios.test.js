@@ -89,3 +89,20 @@ test('ATS gaps group "experience in A, B or C" as one ask, with or without years
   const sn = atsGaps(asPasted('serviceNowAIProductSO'), F.RESUMES.ctoOfficeStrategist, []).gaps.map((g) => g.phrase);
   assert.ok(!sn.includes('influencing senior leaders') && !sn.includes('operational excellence'), sn.join(', '));
 });
+
+test('employers to skip: a dealbreaker for them and their units, and nobody else', () => {
+  const { skippedEmployer } = require('../src/main/localFit');
+  const profile = { ...S.PROFILE, maxTravel: '100', skipEmployers: 'Accenture, Deloitte, KPMG, EY, Booz Allen' };
+  const fitWith = (k) => localFitScore(asPasted(k), [{ kind: 'resume', text: F.RESUMES.ctoOfficeStrategist }], profile);
+  for (const k of ['accentureTSAManager', 'kpmgITMAManager', 'boozDigitalTransformation']) {
+    const f = fitWith(k);
+    assert.ok(f.score <= 30 && /list of employers to skip/.test(f.dealbreakers.join()), `${k}: ${f.score} ${f.dealbreakers}`);
+  }
+  // In-house roles that ask for consulting experience are untouched.
+  for (const k of ['capOneTechStratOps', 'serviceNowAIProductSO', 'westMonroeSrMgrMA']) assert.ok(!fitWith(k).dealbreakers.length, k);
+  assert.equal(skippedEmployer('Deloitte Consulting LLP', 'Deloitte'), 'Deloitte');
+  assert.equal(skippedEmployer('EY-Parthenon', 'EY'), 'EY');
+  assert.equal(skippedEmployer('Eyeglass World', 'EY'), null);
+  assert.equal(skippedEmployer('Booz Allen Hamilton Inc.', 'booz allen'), 'booz allen');
+  assert.equal(skippedEmployer('Accenture', ''), null);
+});

@@ -256,8 +256,23 @@ function workMode(text) {
   return null;
 }
 
+// An employer on Profile's skip list. An entry covers the employer's units
+// ("Deloitte" is also "Deloitte Consulting LLP") but not other words that
+// start the same way ("EY" isn't "Eyeglass World").
+const employerKey = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/\b(?:the|inc|llc|llp|ltd|plc|corp|corporation|co|company)\b\.?/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+function skippedEmployer(company, list) {
+  const name = employerKey(company);
+  if (!name) return null;
+  return String(list || '').split(/[,;\n]/).map((e) => e.trim()).find((e) => {
+    const k = employerKey(e);
+    return k && (name === k || name.startsWith(`${k} `));
+  }) || null;
+}
+
 function dealbreakers(job, profile) {
   const out = [];
+  const skip = skippedEmployer(job.company, profile.skipEmployers);
+  if (skip) out.push(`${job.company} is on your list of employers to skip`);
   const text = job.text || '';
   const t = lower(text);
   const min = parseMoney(profile.minSalary || '');
@@ -277,7 +292,7 @@ function dealbreakers(job, profile) {
 /**
  * @param {{title?:string, company?:string, location?:string, text:string}} job
  * @param {{text:string, kind?:string}[]} documents
- * @param {object} [profile]  { targetRoles, workModes, minSalary, avoidKeywords }
+ * @param {object} [profile]  { targetRoles, workModes, minSalary, avoidKeywords, skipEmployers }
  */
 // Degree lines count once, as the degree requirement (met by that level or higher).
 const isDegreeLine = (original) => degreeLevels(original, true).length > 0 || /\bdiploma\b/i.test(original);
@@ -1183,4 +1198,4 @@ function localFitScore(job, documents, profile = {}) {
   };
 }
 
-module.exports = { localFitScore, conjunctive, titleSimilarity: titleMatch, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, workMode, postingSalaryMax };
+module.exports = { localFitScore, conjunctive, titleSimilarity: titleMatch, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, skippedEmployer, workMode, postingSalaryMax };

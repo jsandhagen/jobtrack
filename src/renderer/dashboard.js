@@ -583,7 +583,8 @@ const views = {
           'Your target roles shape the fit score. Postings that hit a dealbreaker are capped at 30 and labelled "Dealbreaker", so they don\'t pop up as good matches.',
           `<div class="full"><label>Roles you are aiming for</label><textarea data-k="targetRoles" rows="2" style="min-height:0" placeholder="Frontend engineer, design engineer">${esc(p.targetRoles)}</textarea><small class="faint">Separate with commas. List every title you'd take: the same job goes by many names (Technology Strategy Manager, Strategy &amp; Operations Manager, Chief of Staff), and Find jobs looks for each one.</small></div>
           ${f('workModes', 'Work arrangements', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
-          ${f('avoidKeywords', 'Skip postings that mention', 'commission only, night shift', true)}`
+          ${f('avoidKeywords', 'Skip postings that mention', 'commission only, night shift', true)}
+          <div class="full"><label>Employers to skip</label><textarea data-k="skipEmployers" rows="2" style="min-height:0" placeholder="Accenture, Deloitte, KPMG, PwC, EY, McKinsey, BCG, Booz Allen">${esc(p.skipEmployers)}</textarea><small class="faint">Separate with commas. Their postings read as a dealbreaker, Find jobs leaves them out, and the company finder won't suggest them. "Deloitte" also covers Deloitte Consulting. Use this rather than "consulting" above: in-house roles often ask for consulting experience.</small></div>`
         )}
         ${card(
           'shield',

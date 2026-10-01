@@ -45,6 +45,8 @@ const DEFAULT_PROFILE = {
   workModes: '',
   minSalary: '',
   avoidKeywords: '',
+  // employers you won't work for ("Accenture, Deloitte"): never suggested, never a match
+  skipEmployers: '',
   // answers to common application screening (knockout) questions
   workAuth: '', // citizen | permanent-resident | authorized | needs-sponsorship
   clearance: '', // none | public-trust | secret | top-secret | ts-sci
