@@ -974,7 +974,7 @@ p.way-next { display: flex; }
 /* Theme: swatches in the sidebar and in Settings → Appearance. */
 .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14); }
 .swatch.light { background: linear-gradient(135deg, #ffffff 50%, #faf2e6 50%); }
-.swatch.green { background: linear-gradient(135deg, #e2f2e7 50%, #62a77f 50%); }
+.swatch.green { background: linear-gradient(135deg, #c4e1cc 50%, #62a77f 50%); }
 .swatch.dark { background: linear-gradient(135deg, #232a26 50%, #8fd0a6 50%); }
 .swatch.system { background: linear-gradient(135deg, #ffffff 50%, #232a26 50%); }
 .theme-switch { display: flex; align-items: center; gap: 2px; margin-top: 8px; padding: 4px 6px; font-size: 12px; font-weight: 700; color: var(--ink-faint); }

@@ -303,19 +303,19 @@ button.info-btn:hover, button.info-btn[aria-expanded='true'] { border-color: var
 /* Green: the light theme, washed in sage. Chosen in Settings → Appearance
    (the app sets data-theme on <html>; the window stays in light mode). */
 :root[data-theme="green"] {
-  --bg: #eaf3ec;
-  --surface: #f7fbf8;
-  --surface-2: #e2eee5;
-  --surface-3: #d6e7da;
-  --line: #d2e3d6;
-  --line-strong: #bcd5c2;
-  --ink-faint: #7f9488;
-  --sage-soft: #d3ead9;
+  --bg: #d9eadd;
+  --surface: #eef6f0;
+  --surface-2: #d0e4d5;
+  --surface-3: #c3dccb;
+  --line: #c2d9c8;
+  --line-strong: #a9c8b1;
+  --ink-faint: #6c8277;
+  --sage-soft: #c4e1cc;
   --peach-soft: #f6ebe1;
   --lavender-soft: #e7e8f6;
   --butter-soft: #f5f1da;
   --body: #f9f5e8;
-  --btn-shade: #dde9e0;
+  --btn-shade: #cde0d2;
   --shadow-sm: 0 1px 2px rgba(30, 60, 40, 0.07);
   --shadow: 0 1px 2px rgba(30, 60, 40, 0.05), 0 4px 16px -4px rgba(30, 60, 40, 0.1);
   --shadow-lg: 0 2px 6px rgba(30, 60, 40, 0.07), 0 24px 60px -12px rgba(30, 60, 40, 0.25);
