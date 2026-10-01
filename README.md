@@ -229,6 +229,7 @@ Every resume uses **one template** (`src/shared/resumeDoc.js`), a classic Word/G
 - Bold capitalised section headings over a heavy rule: *Professional Summary, Relevant Work Experience, Projects, Relevant Skills, Education*.
 - For each job, "**Employer** … **City, ST**" on one line and "**Title** … Dates" on the next, then ● bullets with a hanging indent.
 - A three-column ● skills grid.
+- Page breaks keep a role's header rows with its first bullet and a heading with what follows, and never split a bullet. The editor's page-break guides follow the same rules.
 - Education as school and location, degree and date, then bold-labelled lines such as "**Relevant Courses:** …".
 
 The editor, PDF export, Markdown export and ATS check all render from this same template, so what you see is exactly what you send. Cover letters use the same letterhead and typeface.
@@ -236,7 +237,8 @@ The editor, PDF export, Markdown export and ATS check all render from this same 
 **Editing** (each application's *Resume* tab):
 - Click anywhere on the page to type: name, contact lines, summary, employers, titles, dates, bullets, skills, education. Headings are editable too.
 - **Enter** starts a new bullet (or skill). **Backspace** on an empty one removes it.
-- Tools in the left margin (⋮⋮ drag · ▲▼ · ⇄ other wordings · ✕) sit next to the bullet you're editing. Hover a role for ✕ / ▲ in the right margin.
+- Every bullet has a drag grip in the right margin when you hover it, on the side nearest the bullet bank. The bullet you're editing also gets ▲▼ · ⇄ other wordings · ✕ beside its grip. Hover a role for ✕ / ▲.
+- The "+ add a bullet / role / skill / line" links sit in the left margin, so the page on screen is laid out exactly as it prints.
 - Dashed page-break guides and a page counter show the length exactly as it will print (the editor's "+ add" rows don't count).
 - **Length** (next to the page counter): *Auto* (one page; two only when that shows more of what the posting asks for), *1 page*, or *Up to 2 pages*. It sets how long *Optimize for ATS* makes the resume.
 - **Trim to 1 page / Trim to 2 pages** appears when the resume runs over your length, or when a second page holds only a few lines. It takes off what shows the least for this posting: first skills the posting doesn't mention (keeping at least 9), then bullets, weakest first. Every role keeps a bullet, and a bullet that's the only proof of a requirement stays. Your wording isn't touched, the bullets stay in your bank, and **Undo** puts everything back.
@@ -244,8 +246,8 @@ The editor, PDF export, Markdown export and ATS check all render from this same 
 **Side panel:**
 - **Requirement checklist:** ✓ shown on the page, ½ only in your skills grid, ○ missing. Tap one to highlight the bullets that prove it, or to list bank bullets that would.
 - **Live ATS score** for the page.
-- **Slot in a bullet:** drag from your bank onto the page, or click *+ Add*. Roles not yet on the resume can be added from here too.
-- **Take a bullet off:** drag it by its ⋮⋮ handle onto the side panel (or anywhere off the page), or click ✕. Bullets from your bank go back to *Slot in a bullet*, so you can add them again later.
+- **Slot in a bullet:** drag from your bank onto the page, or click *+ Add*. Bank bullets show in the resume's typeface, with the requirements each one proves; each role lists its best four, with *Show more* for the rest. Roles not yet on the resume can be added from here too.
+- **Take a bullet off:** drag it by its grip onto the side panel (or anywhere off the page), or click ✕. Bullets from your bank go back to *Slot in a bullet*, so you can add them again later.
 - **This bullet:** swap in another wording from the bank, or save your rewording back (*another wording* / *replace original*). New bullets can be added to the bank.
 - **Optional Claude help:** *Polish wording* marks suggested rewordings with a wavy underline for you to accept or dismiss. *Have Claude write a draft* fills the page from your bank. Any wording it couldn't trace to your documents is highlighted for you to check.
 - Make this resume's header, summary, skills or education the default for new resumes.

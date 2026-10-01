@@ -15,6 +15,7 @@ const ed = {
   info: null,
   focus: null, // {kind:'bullet', r, b} | {kind:'skill', i} | null
   filter: null, // requirement key the tray is filtered to
+  showAll: new Set(), // roles whose full list of bank bullets is open in the tray
   polish: new Map(), // "r:b" -> {text, why}
   held: [], // polish edits the fact checks held back: {id, text, why}
   timer: null,
@@ -168,6 +169,7 @@ async function renderEditor(appId, app) {
     ed.held = [];
     ed.filter = null;
     ed.focus = null;
+    ed.showAll = new Set();
   }
   ed.appId = appId;
   ed.app = app;
@@ -196,7 +198,7 @@ async function renderEditor(appId, app) {
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
         </div>
-        <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click anywhere on the page to edit · Enter = new bullet</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
+        <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click the page to edit · Enter = new bullet · drag a bullet’s grip (right margin) to move it, or onto the side panel to remove it</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
       </div>
       <aside class="ed-tray" id="edTray"></aside>
     </div>`;
@@ -239,7 +241,7 @@ async function exportResume(btn, fmt) {
 function renderPaper(focusSel) {
   const page = document.getElementById('edPage');
   if (!page) return;
-  page.innerHTML = ResumeDoc.renderBody(ed.doc, { editable: true }) + '<div class="ed-float" id="edFloat" hidden></div><div id="edGuides"></div>';
+  page.innerHTML = ResumeDoc.renderBody(ed.doc, { editable: true }) + '<div class="ed-float" id="edFloat" hidden></div><div class="ed-grip" id="edGrip" hidden></div><div id="edGuides"></div>';
   // Mark bullets with a pending Claude suggestion.
   for (const key of ed.polish.keys()) {
     const [r, b] = key.split(':');
@@ -298,7 +300,8 @@ function drawGuides() {
   const starts = [];
   for (let k = 1; k < pages; k++) {
     const cut = top0 + usable * k;
-    starts.push(visible.find((el) => yOf(el) + el.getBoundingClientRect().height / scale > cut + 1) || null);
+    const el = visible.find((x) => yOf(x) + x.getBoundingClientRect().height / scale > cut + 1);
+    starts.push(el ? keepWith(el, top0 + usable * (k - 1)) : null);
   }
   page.classList.remove('measuring');
 
@@ -308,6 +311,24 @@ function drawGuides() {
     .join('');
   const fill = (h - usable * (pages - 1)) / usable;
   showLength(pages, fill);
+}
+
+// Where the printed page really breaks before a line: the template keeps a
+// role's or school's header rows with its first line, and a section heading
+// with its first entry (break-after: avoid), so those move down together.
+// pageTop: where the page before starts; a block taller than that page splits.
+function keepWith(el, pageTop) {
+  const page = document.getElementById('edPage');
+  const scale = page.getBoundingClientRect().height / page.offsetHeight || 1;
+  const yOf = (x) => (x.getBoundingClientRect().top - page.getBoundingClientRect().top) / scale;
+  let at = el;
+  const block = el.closest('.rs-role, .rs-edu');
+  const firstLine = block && (el.matches('.rs-row') || (el.matches('.rs-bullets > li') && !el.previousElementSibling) || (el.matches('.rs-detail') && !el.previousElementSibling.matches('.rs-detail')));
+  if (firstLine && yOf(block) > pageTop) at = block;
+  const sec = at.closest('.rs-sec');
+  const first = sec && sec.querySelector(':scope > .rs-h + *');
+  if (first && (first === at || first.contains(at)) && yOf(at) === yOf(first) && yOf(sec) > pageTop) at = sec;
+  return at;
 }
 
 // The page count, and a one-click trim when the resume runs long.
@@ -388,18 +409,22 @@ function renderTray() {
   let groups = ed.doc.roles.map((role, r) => ({ r, role, items: (info.roles[r] && info.roles[r].more) || [] }));
   if (ed.filter) groups = groups.map((g) => ({ ...g, items: g.items.filter((m) => m.covers.includes(ed.filter)) }));
   const focusRole = ed.focus && ed.focus.kind === 'bullet' ? ed.focus.r : null;
+  const SHOW = 4;
   const cand = groups
     .filter((g) => g.items.length)
     .sort((a, b) => (a.r === focusRole ? -1 : b.r === focusRole ? 1 : 0))
-    .map(
-      (g) => `<div class="tray-group"><div class="tray-role">${esc(g.role.title || g.role.organization || 'Role')}</div>${g.items
-        .slice(0, ed.filter ? 20 : 6)
+    .map((g) => {
+      const all = ed.filter || ed.showAll.has(g.r);
+      const shown = g.items.slice(0, all ? 30 : SHOW);
+      const rest = g.items.length - shown.length;
+      const where = g.role.isProject ? '' : g.role.organization && g.role.title ? g.role.organization : '';
+      return `<div class="tray-group"><div class="tray-role">${esc(g.role.title || g.role.organization || 'Role')}${where ? ` <small>· ${esc(where)}</small>` : ''}</div>${shown
         .map(
           (m) => `<div class="cand" draggable="true" data-r="${g.r}" data-bullet-id="${esc(m.bulletId)}" title="Drag onto the page, or click + Add">
-            <div class="cand-text">${esc(m.text)}</div><div class="cand-foot">${coverChips(m.covers)}<button class="small soft" data-add-cand="${g.r}" data-bullet-id="${esc(m.bulletId)}">+ Add</button></div></div>`
+            <span class="handle" aria-hidden="true"></span><div><div class="cand-text">${esc(m.text)}</div><div class="cand-foot">${coverChips(m.covers)}<button class="small soft" data-add-cand="${g.r}" data-bullet-id="${esc(m.bulletId)}" title="Add to the end of this role">+ Add</button></div></div></div>`
         )
-        .join('')}</div>`
-    )
+        .join('')}${rest > 0 ? `<button class="small ghost tray-more" data-show-all="${g.r}">Show ${rest} more</button>` : !ed.filter && g.items.length > SHOW ? `<button class="small ghost tray-more" data-show-all="${g.r}">Show fewer</button>` : ''}</div>`;
+    })
     .join('');
   const filterLabel = ed.filter && (info.units.find((u) => u.key === ed.filter) || {}).label;
 
@@ -536,6 +561,14 @@ function wireTray() {
       renderTray();
     })
   );
+  $$('[data-show-all]', tray).forEach((b) =>
+    b.addEventListener('click', () => {
+      const r = +b.dataset.showAll;
+      if (ed.showAll.has(r)) ed.showAll.delete(r);
+      else ed.showAll.add(r);
+      renderTray();
+    })
+  );
   const cf = $('#clearFilter', tray);
   if (cf) cf.addEventListener('click', () => ((ed.filter = null), renderTray(), highlightFilter()));
   $$('[data-add-cand]', tray).forEach((b) =>
@@ -553,6 +586,7 @@ function wireTray() {
       e.dataTransfer.effectAllowed = 'copyMove';
       dragGhost(e, m.text);
       document.body.classList.add('dragging');
+      hideGrip();
     })
   );
   $$('.cand[draggable]', tray).forEach((c) => c.addEventListener('dragend', endDrag));
@@ -713,7 +747,7 @@ function wirePaper() {
     if (!text.trim()) el.innerHTML = '';
     if (/\.label$/.test(el.dataset.path)) text = text.replace(/:\s*$/, '');
     setPath(ed.doc, el.dataset.path, text);
-    requestAnimationFrame(drawGuides);
+    requestAnimationFrame(() => (drawGuides(), placeTools()));
     scheduleSave();
   });
 
@@ -805,21 +839,32 @@ function wirePaper() {
     }
   });
 
-  // Hover controls for roles (right margin).
+  // Hover controls (right margin): a drag grip for the bullet under the
+  // pointer, and ✕ / ▲ for its role.
   page.addEventListener('mouseover', (e) => {
+    if (document.body.classList.contains('dragging')) return;
+    if (e.target.closest('.role-tools, .ed-grip, .ed-float')) return;
+    const li = e.target.closest('li.rs-bullet');
+    if (li) showGrip(li);
+    else if (!e.target.closest('.rs-bullets')) hideGrip();
     const block = e.target.closest('[data-role-block]');
-    page.querySelectorAll('.role-tools').forEach((t) => t.remove());
+    const have = page.querySelector('.role-tools');
+    if (have && block && have.dataset.r === block.dataset.roleBlock) return;
+    if (have) have.remove();
     if (!block) return;
     const r = +block.dataset.roleBlock;
     const t = document.createElement('div');
     t.className = 'role-tools';
+    t.dataset.r = r;
     t.contentEditable = 'false';
     t.innerHTML = `${r > 0 && !ed.doc.roles[r].isProject ? `<button data-role-tool="up" data-r="${r}" title="Move role up">▲</button>` : ''}<button data-role-tool="remove" data-r="${r}" title="Take this role off this resume">✕</button>`;
     t.style.top = `${offsetWithin(block, page)}px`;
     page.appendChild(t);
   });
 
-  // Drag & drop: bullets from the tray, or reordering by the ⋮⋮ handle.
+  page.addEventListener('mouseleave', () => document.body.classList.contains('dragging') || hideGrip());
+
+  // Drag & drop: bullets from the tray, or reordering by a bullet's grip.
   page.addEventListener('dragover', (e) => {
     const list = e.target.closest('[data-role-list]');
     if (!list) return;
@@ -920,35 +965,89 @@ function hideDropLine() {
   if (line) line.remove();
 }
 
-// Tools in the left margin next to the bullet being edited.
+// Start dragging bullet r:b (by its grip): onto another spot on the page to
+// move it, or off the page to take it off.
+function startMove(e, r, b) {
+  e.dataTransfer.setData('application/x-sprout', JSON.stringify({ move: { r, b } }));
+  e.dataTransfer.setData(MOVE_TYPE, '1'); // readable during dragover, unlike the payload
+  e.dataTransfer.effectAllowed = 'move';
+  dragGhost(e, ed.doc.roles[r].bullets[b].text);
+  document.body.classList.add('dragging', 'dragging-out');
+}
+
+function gripHtml(li) {
+  return `<span class="handle" draggable="true" title="Drag to move · drag off the page to remove" style="height:${Math.max(18, li.offsetHeight)}px"></span>`;
+}
+
+// Line a margin tool up with its bullet.
+function placeBeside(el, li) {
+  el.style.top = `${offsetWithin(li, document.getElementById('edPage'))}px`;
+  const h = el.querySelector('.handle');
+  if (h) h.style.height = `${Math.max(18, li.offsetHeight)}px`;
+}
+
+function liAt(r, b) {
+  return document.querySelector(`#edPage li[data-role="${r}"][data-bullet="${b}"]`);
+}
+
+// Keep the margin tools beside their bullets as the text reflows.
+function placeTools() {
+  const fl = document.getElementById('edFloat');
+  const f = ed.focus;
+  const li = fl && !fl.hidden && f && f.kind === 'bullet' && liAt(f.r, f.b);
+  if (li) placeBeside(fl, li);
+}
+
+// A grip beside whichever bullet the pointer is on, so any bullet can be
+// dragged without clicking into it first.
+function showGrip(li) {
+  const g = document.getElementById('edGrip');
+  if (!g) return;
+  const r = +li.dataset.role;
+  const b = +li.dataset.bullet;
+  const f = ed.focus;
+  if (f && f.kind === 'bullet' && f.r === r && f.b === b) return hideGrip(); // its tools are showing
+  if (!g.hidden && g.dataset.at === `${r}:${b}`) return placeBeside(g, li);
+  g.dataset.at = `${r}:${b}`;
+  g.hidden = false;
+  g.contentEditable = 'false';
+  g.innerHTML = gripHtml(li);
+  placeBeside(g, li);
+  const handle = g.firstElementChild;
+  handle.addEventListener('dragstart', (e) => startMove(e, r, b));
+  handle.addEventListener('dragend', endDrag);
+}
+
+function hideGrip() {
+  const g = document.getElementById('edGrip');
+  if (g) (g.hidden = true), delete g.dataset.at;
+}
+
+// Tools in the right margin next to the bullet being edited, with its grip
+// on the outside, nearest the bullet bin.
 function showFloat(li) {
   const fl = document.getElementById('edFloat');
-  const page = document.getElementById('edPage');
   if (!fl) return;
   if (!li) {
     fl.hidden = true;
     return;
   }
+  hideGrip();
   const r = +li.dataset.role;
   const b = +li.dataset.bullet;
   const meta = ed.info.roles[r] && ed.info.roles[r].bullets[b];
   const nWords = meta ? meta.wordings.filter((w) => w !== ed.doc.roles[r].bullets[b].text).length : 0;
   fl.hidden = false;
   fl.contentEditable = 'false';
-  fl.innerHTML = `<span class="handle" draggable="true" title="Drag to move">⋮⋮</span>
-    <button data-tool="up" title="Move up" ${b === 0 ? 'disabled' : ''}>▲</button>
-    <button data-tool="down" title="Move down" ${b === ed.doc.roles[r].bullets.length - 1 ? 'disabled' : ''}>▼</button>
-    ${nWords ? `<button data-tool="swap" title="Other wordings in your bank">⇄${nWords}</button>` : ''}
-    <button data-tool="remove" title="Remove from this resume">✕</button>`;
-  fl.style.top = `${offsetWithin(li, page)}px`;
+  fl.innerHTML = `<div class="tools">
+      <button data-tool="up" title="Move up" ${b === 0 ? 'disabled' : ''}>▲</button>
+      <button data-tool="down" title="Move down" ${b === ed.doc.roles[r].bullets.length - 1 ? 'disabled' : ''}>▼</button>
+      ${nWords ? `<button data-tool="swap" title="${nWords} other wording${nWords === 1 ? '' : 's'} in your bank">⇄${nWords > 1 ? nWords : ''}</button>` : ''}
+      <button data-tool="remove" title="Take off this resume" ${nWords ? '' : 'class="wide"'}>✕</button>
+    </div>${gripHtml(li)}`;
+  placeBeside(fl, li);
   const handle = fl.querySelector('.handle');
-  handle.addEventListener('dragstart', (e) => {
-    e.dataTransfer.setData('application/x-sprout', JSON.stringify({ move: { r, b } }));
-    e.dataTransfer.setData(MOVE_TYPE, '1'); // readable during dragover, unlike the payload
-    e.dataTransfer.effectAllowed = 'move';
-    dragGhost(e, ed.doc.roles[r].bullets[b].text);
-    document.body.classList.add('dragging', 'dragging-out');
-  });
+  handle.addEventListener('dragstart', (e) => startMove(e, r, b));
   handle.addEventListener('dragend', endDrag);
   // Keep the caret in the bullet when clicking tools.
   fl.addEventListener('mousedown', (e) => {
