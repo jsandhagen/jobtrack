@@ -506,7 +506,8 @@ function requiredYears(jobText) {
       const before = line.slice(Math.max(0, m.index - 30), m.index);
       if (/^\s*(?:of age|old|or older|ago|in business|warranty)|^[-\s]*(?:degree|college|university|program)/.test(after)) continue;
       if (/(?:for (?:over |more than )?|founded|since|within|every|past|last|over the)\s*$/.test(before)) continue;
-      found.push({ years: toNum(m[1]), kind });
+      // Nobody asks for 40 years: that's something else (a company's age, a typo).
+      if (toNum(m[1]) <= 25) found.push({ years: toNum(m[1]), kind });
     }
   }
   const req = found.find((f) => f.kind !== 'preferred');

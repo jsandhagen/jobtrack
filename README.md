@@ -33,7 +33,7 @@ Sprout, the little seedling mascot, keeps you company the whole way. It greets y
   - **Hotkey** (`Ctrl/Cmd + Shift + J`): reads the job posting on your screen with free, on-device OCR.
   - **Screen watching** (off by default): reads the screen with OCR whenever it changes and then stays still.
   - Claude can optionally be used as a fallback or instead of OCR for unusual layouts (Settings → *Read the screen with*).
-- **Free fit score for every posting**: computed on your computer with no API calls. It checks required vs preferred qualifications (including certifications and tools it has never seen before), role match, seniority, years of experience and your dealbreakers. See [Free fit score](#free-fit-score).
+- **Free fit score for every posting**: computed on your computer with no API calls, with a one-line verdict. It checks required vs preferred qualifications (including certifications, tools and degree fields it has never seen before), role match, seniority, years of experience and your dealbreakers, and screens for stretch, overqualified and different-function roles. See [Free fit score](#free-fit-score).
 - **Claude only when you want it**: by default Claude's deeper read (strengths, gaps, a qualifications checklist) runs only when you press **Ask Claude**. You can switch it to run automatically for promising roles. A monthly budget pauses automatic use, and Settings shows this month's calls and estimated cost.
 - **ATS check (before → after)**: estimates how applicant tracking systems (ATS) will read your current resume and the tailored one, with an A–D grade, knockouts and tips. It updates live as you edit. [Details below](#ats-check).
 - **Resume editor**: each job's resume opens as a real page in a classic resume format. Type on it directly, press Enter for a new bullet, drag bullets in from your bank (or off the page to remove them), and watch the requirement checklist and ATS score update. See [Resume editor](#resume-editor).
@@ -345,18 +345,30 @@ It captures at the screen's full resolution and enlarges standard-resolution scr
 
 Runs on every posting, instantly and offline (`src/main/localFit.js`). In the app, the **ⓘ** next to the fit score and the ATS score explains each one and how they differ. In short: the fit score asks whether *you* match the job (from everything in your library and Profile), and the ATS score asks whether *one resume* will get past the screening software.
 
-| Signal | Weight | What it checks |
+Under the score is **one line that says what decides it**, most decisive first: a dealbreaker, a sales or recruiting job you haven't done, a product the title names that you don't show, a stretch on level or years, being overqualified, or how many must-haves you show and the main gaps ("You show 8 of 10 must-haves; the main gaps are FRTB and fixed income").
+
+**1. What the posting asks for.** Each line is classified as required, preferred or a duty (by its section heading and its own wording: "a plus", "must"). Requirements come from a skill dictionary with a related-skill graph (Power BI is partial credit for Tableau; validating PD models for credit risk modeling), plus terms it has never seen: codes and products (FRTB, SR 11-7, Epic, Hyperion) and phrases ("ventilator management"). "N years of X" is a requirement of its own (the *kind* of experience), lists of alternatives ("Python or R") are one requirement, and a degree counts for its level and its field ("Master's in statistics, physics or another quantitative field").
+
+**2. Evidence.** Each requirement is scored by its best evidence, as Textkernel does: recent work in full, older roles, a skills list, coursework or a degree a little less; a few skills are inferred from titles you've held (partial credit only, like LinkedIn's and Eightfold's title-to-skill inference).
+
+**3. The score.**
+
+| Part | Weight | What it checks |
 |---|---|---|
-| Required qualifications | 35% | Skills, tools, certifications and degree from the posting's required section. It finds terms outside its built-in skill list: acronyms (BLS, CPA), product names (Epic, NetSuite), and phrases like "experience with ventilator management". |
-| Years of experience | 15% | Years asked for vs. the date ranges in your documents |
-| Role match | 15% | The posting's title vs. your target roles (Profile) and your past titles |
-| Vocabulary overlap | 15% | How much of the posting's language your documents share (benefits and equal-opportunity boilerplate removed) |
-| Preferred qualifications | 10% | Nice-to-haves |
-| Seniority | 10% | Intern … director. Only judged when the title states a level. |
+| Required qualifications | 50% | Combined conjunctively, as recruiters screen: one clear miss costs more than an average says. Dictionary skills count in full; phrases mined from the text count less. Duties' skills add a little. |
+| Role match | 14% | The posting's title vs. titles you've held (recent ones count more) and your target roles. The role noun counts double; a desk after a comma counts half; the same role noun in a different function ("Sales Engineer" vs "Software Engineer") counts half. |
+| Years of experience | 12% | Years asked for vs. your date ranges (internships and research-assistant jobs count half) |
+| Domain | 10% | How much of the posting's distinctive, repeated wording your documents share |
+| Preferred qualifications | 8% | A bonus on top: missing them doesn't sink a full match |
+| Seniority | 6% | Intern … executive, from the title (bank ranks too: a "Vice President, FX Strats" is a senior individual role) |
+
+Everything but the must-haves counts in full only when the must-haves are there.
+
+**4. Screens**, the way recruiters screen whatever else matches: well short of the years asked (under 30% / 50% / 80% of the minimum) or two levels up reads as a stretch; two levels below as overqualified; a quota-carrying or recruiting job you haven't done, or a product the title names that you don't show, caps it. A step up is strong at most, and "Excellent" means you meet the must-haves *and* have done the day-to-day work. Claude's deeper read is held to the same screens.
 
 - **Dealbreakers** (Profile → work arrangement, minimum salary, "skip postings that mention…") cap the score at 30.
 - **Confidence** (low / medium / high) says how much of the posting it could recognise. Low confidence is a good moment to ask Claude.
-- **Benchmark**: `test/fixtures/fitCases.js` holds 16 candidate/posting pairs across software, nursing and accounting, from clear fits to clear mismatches. The tests require every pair to land in the expected band, and better matches to outrank worse ones. It's a small, hand-made set, so it's a sanity check rather than proof. Add your own real cases to it as you go.
+- **Benchmark.** `node scripts/fit-benchmark.js --list` scores every labelled judgment in `test/fixtures/` (236 bands and orderings across software, nursing, accounting, technology strategy and quantitative roles, with near-miss postings that share a field's vocabulary but are a different job). Two batches were written after tuning and scored once first; the second got 15 of 19 on that first pass. `node scripts/fit-explain.js <resume> <posting>` shows why a pair scored as it did. Add a fixture before changing a rule, and compare every pair before and after.
 
 ### ATS check
 

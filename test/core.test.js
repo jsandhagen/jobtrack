@@ -297,6 +297,19 @@ test('analyzeFit scores from its own checklist, verifies every quote, and caches
   assert.ok(req.messages[0].content.trim().endsWith('</task>'), 'the task comes last, after the long material');
 });
 
+test("analyzeFit holds Claude's checklist score to the free score's screens", async () => {
+  const q = (requirement, type, status, evidence_quote) => ({ requirement, type, status, evidence_quote });
+  const out = { headline: 'Great', strengths: ['React'], gaps: [], talking_points: ['x'], keywords: [], job_title: 'FE', company: 'Acme', qualifications: [q('React and TypeScript', 'basic', 'met', 'Built a React + TypeScript design system')] };
+  const res = await claude.analyzeFit(fakeClient(out), { job: { title: 'FE', text: POSTING }, documents: DOCS, profile: {}, screens: [{ max: 60, reason: 'You would likely be overqualified for this role' }] });
+  assert.equal(res.score, 60);
+  assert.equal(res.label, 'Good potential');
+  assert.deepEqual(res.screened, ['You would likely be overqualified for this role']);
+  // No screens: the checklist score stands.
+  const plain = await claude.analyzeFit(fakeClient(out), { job: { title: 'FE', text: POSTING }, documents: DOCS, profile: {} });
+  assert.equal(plain.score, 100);
+  assert.deepEqual(plain.screened, []);
+});
+
 test('generateResume and screenshot extraction pass through structured output', async () => {
   const client = fakeClient({ summary: 'S', experience: [], skills: [], notes: [] });
   const r = await claude.generateResume(client, { job: { text: POSTING }, documents: DOCS, profile: {}, analysis: null, roles: [], picked: [], model: 'claude-sonnet-5-5' });

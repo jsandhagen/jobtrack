@@ -230,7 +230,7 @@ function scoreFromQualifications(quals) {
   return Math.round((0.8 * basic + 0.2 * pref * (0.4 + 0.6 * basic)) * 100);
 }
 
-async function analyzeFit(client, { job, documents, profile, model }) {
+async function analyzeFit(client, { job, documents, profile, model, screens = [] }) {
   const out = await structuredCall(client, {
     kind: 'fit',
     model,
@@ -253,13 +253,17 @@ async function analyzeFit(client, { job, documents, profile, model }) {
   });
   const postingNorm = norm(job.text);
   const keywords = out.keywords.filter((k) => postingNorm.includes(norm(k)));
-  const score = scoreFromQualifications(qualifications);
+  // The checklist judges the stated requirements; level, years and the kind
+  // of job are screened the same way as the free score (localFit.js).
+  const checklist = scoreFromQualifications(qualifications);
+  const score = Math.min(checklist, ...screens.map((s) => s.max));
   return {
     ...out,
     qualifications,
     keywords,
     score,
     label: fitLabel(score),
+    screened: score < checklist ? screens.filter((s) => s.max < checklist).map((s) => s.reason) : [],
     grade: gradeFromQualifications(qualifications, score),
     source: 'claude',
     promptVersion: P.PROMPT_VERSION,

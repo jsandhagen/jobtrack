@@ -146,3 +146,19 @@ Requirements
   // Someone who has sold consulting work isn't flagged.
   assert.ok(!localFitScore(posting, [{ kind: 'resume', text: D.RESUMES.techStrategyManager }]).concerns.some((c) => /sales role/.test(c)));
 });
+
+test('odd input: empty, title-only, CRLF, capitals, markup and impossible years', () => {
+  const P = POSTINGS.quantResearcher;
+  const docs = [{ kind: 'resume', text: RESUMES.quantResearcherPhD }];
+  const base = localFitScore(P, docs).score;
+  assert.match(localFitScore({ title: '', text: '' }, docs).headline, /isn't enough in this posting/);
+  assert.match(localFitScore({ title: 'Quantitative Analyst' }, docs).headline, /isn't enough in this posting/);
+  assert.equal(localFitScore({ ...P, text: P.text.replace(/\n/g, '\r\n') }, [{ kind: 'resume', text: RESUMES.quantResearcherPhD.replace(/\n/g, '\r\n') }]).score, base);
+  assert.equal(localFitScore({ ...P, text: P.text.toUpperCase() }, docs).score, base);
+  assert.equal(localFitScore({ ...P, text: P.text.replace(/^- /gm, '* ') }, docs).score, base);
+  // "40+ years" is no one's requirement.
+  assert.equal(localFitScore({ ...P, text: `${P.text}\n- 40+ years of experience` }, docs).requiredYears, 2);
+  // Regex characters in titles and requirements don't break anything.
+  const r = localFitScore({ title: 'C++ (Engineer) [Sr.] $$ ^.*', text: 'Requirements\n- C++ (17) and .NET\n- *** ??? +++\n- 3+ years of C++/C# (.NET) ((nested)' }, [{ kind: 'resume', text: 'Engineer, Acme, 2020 - Present\n- C++ and C#' }]);
+  assert.ok(r.score >= 0 && r.score <= 100);
+});

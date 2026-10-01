@@ -24,7 +24,7 @@ const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 11;
+const SCORER_VERSION = 12;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -42,6 +42,9 @@ function hasTerm(textLower, term) {
 function stem(w) {
   return w.replace(/(ing|ed|es|s)$/, '').replace(/(ment|ation)$/, '');
 }
+// Every skill pattern, extended to the whole word, for blanking known skills out of a line.
+const SKILL_BLANKERS = Object.values(SKILLS).flatMap((ps) => ps.map((p) => new RegExp(p.source + '[a-z]*', 'gi')));
+const blankSkills = (text, filler) => SKILL_BLANKERS.reduce((t, re) => t.replace(re, filler), text);
 function isDictionarySkill(term) {
   const t = lower(term);
   return Object.values(SKILLS).some((ps) => ps.some((p) => p.test(t)));
@@ -116,8 +119,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
   // says something with the rest: "frontend".
   const addPart = (part) => {
     if (!isDictionarySkill(part)) return add(part);
-    let rest = part;
-    for (const ps of Object.values(SKILLS)) for (const p of ps) rest = rest.replace(new RegExp(p.source + '[a-z]*', 'gi'), '\u0000');
+    const rest = blankSkills(part, '\u0000');
     // Only one piece left over, and only when it's next to the skill, not split by it.
     const pieces = rest.split('\u0000').map((x) => x.trim()).filter(Boolean);
     if (pieces.length === 1 && pieces[0] !== part) add(pieces[0]);
@@ -125,7 +127,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
   let body = original.replace(/^\s*([-•*▪●◦]|\d+[.)])\s*/, '');
   // Blank out anything the skills dictionary already covers ("Power BI", "REST APIs").
   // Whole words, so "A/B testing" doesn't leave "ing" behind.
-  for (const ps of Object.values(SKILLS)) for (const p of ps) body = body.replace(new RegExp(p.source + '[a-z]*', 'gi'), ' ; ');
+  body = blankSkills(body, ' ; ');
   // Acronyms / mixed-case tokens: ACLS, HubSpot, AutoCAD, SAP, CPA, iOS
   // A code with its number is one term: "SR 11-7", "Series 7", "ISO 27001".
   for (const m of body.matchAll(/\b([A-Z]{2,6}|[A-Z][a-z]+)\s(\d{1,5}(?:-\d{1,3})?)\b/g)) if (/^[A-Z]{2,6}$|^Series$/.test(m[1])) add(`${m[1]} ${m[2]}`);
@@ -382,8 +384,9 @@ function requirementUnits(job) {
     for (const s of skills) for (const [other, credit] of RELATED.get(s) || []) if (credit > best && SKILLS[other].some((p) => p.test(t))) best = credit;
     return best;
   };
+  const seenLines = new Set(); // a page that repeats a block says it once
   const parts = lines
-    .filter((l) => !(l.isHeading && l.line.length < 40))
+    .filter((l) => !(l.isHeading && l.line.length < 40) && !seenLines.has(l.line) && seenLines.add(l.line))
     .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind, section: l.section })));
   for (const { line, original, kind, lineKind, section } of parts) {
     // Travel, clearance, sponsorship and the like are screening questions (screening.js).
@@ -396,7 +399,8 @@ function requirementUnits(job) {
     let skillLine = stripFieldsOfStudy(line);
     if (isDegreeLine(original)) skillLine = skillLine.replace(/(\b(?:degree|discipline|field|ph\.?\s?d\.?|master['’]?s|bachelor['’]?s|mba)\b[^.;]*?\b(?:in|of)\s)([^.;]*)/, (m, a, b) => a + ' '.repeat(b.length));
     for (const [skill, patterns] of Object.entries(SKILLS)) {
-      const hit = patterns.map((p) => skillLine.match(p)).find(Boolean);
+      let hit = null;
+      for (const p of patterns) if ((hit = skillLine.match(p))) break;
       if (hit) found.push({ key: 's:' + skill, label: skill, skill, match: (t) => (patterns.some((p) => p.test(t)) ? 1 : 0), index: mentionStart(hit), end: hit.index + hit[0].length });
     }
     // Only mine free-form terms from qualification-ish lines, not the company
@@ -835,9 +839,9 @@ function fitHeadline(f) {
   if (f.breakers.length) return `Dealbreaker: ${f.breakers[0].replace(/^./, (c) => c.toLowerCase())}.`;
   if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, and that's not work your documents show.`;
   if (f.missingCore.length) return `The title names ${listOf(f.missingCore)}, which your documents don't show — that's the job's core.`;
-  const years = f.needYears !== null && f.haveYears !== null ? ` It asks for ${f.needYears}+ years; you have about ${Math.round(f.haveYears)}.` : '';
-  if (f.stretch) return `A stretch: this is a ${LEVEL_NAMES[f.postingLevel]}-level role and your experience reads as ${LEVEL_NAMES[f.userLevel]}.${years}`;
-  if (f.shortYears) return `A stretch on experience:${years}`;
+  const years = f.needYears !== null && f.haveYears !== null ? `it asks for ${f.needYears}+ years; you have about ${Math.round(f.haveYears)}.` : '';
+  if (f.stretch) return `A stretch: this is ${/^[aeio]/.test(LEVEL_NAMES[f.postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[f.postingLevel]}-level role and your experience reads as ${LEVEL_NAMES[f.userLevel]}.${years ? ` It${years.slice(2)}` : ''}`;
+  if (f.shortYears) return `A stretch on experience: ${years}`;
   if (f.overqualified) return `You'd likely be overqualified: this is an earlier-career version of what you already do.`;
   // The kind of experience and the degree come first, then by how sure we are it's a requirement.
   const rank = (u) => (u.gate || /degree|^PhD/.test(u.label) ? 2 : u.weight);
@@ -850,6 +854,7 @@ function fitHeadline(f) {
   const done = f.role !== null && f.role >= 0.7 ? ' and have done this kind of role' : '';
   const step = f.stepUp ? 'A step up from where you are: ' : '';
   const cap = (x) => (step ? x.replace(/^./, (c) => c.toLowerCase()) : x);
+  if (f.thin) return "There isn't enough in this posting to judge the fit; paste the full description for a real read.";
   if (!f.req.length) return f.score >= 65 ? 'Your background lines up with this role.' : f.score >= 45 ? 'Some of your background carries over to this role.' : 'Little of this role shows in your documents.';
   if (!gaps.length && !partial.length) return `${step}${cap(`You meet all ${f.req.length} must-haves${done}.`)}${f.dutyGap ? ' The day-to-day work would be new, though.' : ''}`;
   if (!gaps.length) return `${step}${cap(`You meet the must-haves${done}; ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown.`)}`;
@@ -989,7 +994,7 @@ function localFitScore(job, documents, profile = {}) {
 
   // One sentence to decide by, most decisive fact first.
   const headline = documents.length
-    ? fitHeadline({ breakers, otherFunction, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
+    ? fitHeadline({ breakers, otherFunction, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
     : '';
   if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
 
@@ -1011,6 +1016,14 @@ function localFitScore(job, documents, profile = {}) {
     postingLevel: postingLevel === null ? null : LEVEL_NAMES[postingLevel],
     yourLevel: userLevel === null ? null : LEVEL_NAMES[userLevel],
     dealbreakers: breakers,
+    // Screens on level, years and the kind of job, which a qualifications
+    // checklist doesn't see: Claude's score is held to them too.
+    screens: [
+      overqualified && { max: levelsBelow >= 3 ? 50 : 60, reason: 'You would likely be overqualified for this role' },
+      stretch && { max: -levelsBelow >= 3 ? 30 : 44, reason: `This is ${/^[aeio]/.test(LEVEL_NAMES[postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}` },
+      shortYears && { max: shortYears, reason: `It asks for ${needYears}+ years; your documents show about ${Math.round(haveYears)}` },
+      otherFunction && { max: 40, reason: `This is a ${otherFunction} role, and your documents don't show ${otherFunction} work` },
+    ].filter(Boolean),
     reasons,
     concerns,
     source: 'local',

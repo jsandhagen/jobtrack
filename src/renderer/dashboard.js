@@ -812,6 +812,7 @@ async function renderApplication(id) {
 
   const insight = an
     ? `<h3 style="margin-top:4px">Claude's fit read ${infoBtn('fit')}</h3><p style="font-weight:700">${esc(an.headline)}</p>
+      ${an.screened && an.screened.length ? `<p class="muted" style="margin-top:-4px">Score held down: ${an.screened.map(esc).join('; ')}.</p>` : ''}
       <div class="section-title">Why you fit</div><ul class="tidy">${an.strengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       ${an.gaps.length ? `<div class="section-title">Room to grow</div><ul class="tidy muted">${an.gaps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
       ${an.qualifications && an.qualifications.length ? `<div class="section-title">Qualifications checklist ${an.grade ? `<span class="grade g-${an.grade}" title="HiredScore-style grade from Claude's checklist">${an.grade}</span>` : ''}</div>

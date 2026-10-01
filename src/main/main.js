@@ -456,7 +456,7 @@ async function analyzeApp(appId, { popup = false, keepTitle = true } = {}) {
     if (popup && overlay && !overlay.isDestroyed() && overlay.isVisible()) overlay.webContents.send('overlay:show', { mode: 'score', app: withAts(app), analyzing: false });
   };
   try {
-    const analysis = await claude.analyzeFit(claudeClient(), { job: rec.job, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
+    const analysis = await claude.analyzeFit(claudeClient(), { job: rec.job, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model, screens: scoreLocally(rec.job).screens || [] });
     const patch = { analysis, analysisStatus: 'ready' };
     if (analysis.job_title && !keepTitle) patch.job = { ...rec.job, title: analysis.job_title, company: rec.job.company || analysis.company };
     const updated = store.updateApplication(appId, patch);
