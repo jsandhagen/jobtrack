@@ -6,6 +6,11 @@ const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills } = require('./fi
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 
+// The posting's requirements, less the kind of experience asked for ("5+
+// years in software engineering"): a role's title meets that, so it can't
+// tell one bullet from another.
+const bulletUnits = (job) => requirementUnits(job).units.filter((u) => !u.gate);
+
 const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?';
 const DATE = `(?:${MONTH}\\s+)?(?:\\d{1,2}/)?(?:19|20)\\d{2}`;
 const DATE_RANGE = new RegExp(`(${DATE})\\s*(?:-|–|—|to)\\s*(${DATE}|present|current|now|today)`, 'i');
@@ -385,7 +390,7 @@ function recencyBonus(exp) {
  * @returns {{ranked: object[], units: object[], evidence: object[]}}
  */
 function rankBullets(job, bank) {
-  const { units } = requirementUnits(job);
+  const units = bulletUnits(job);
   const jobTerms = [...significantTerms(job.text).entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => stem(t));
   const expById = new Map(bank.experiences.map((e) => [e.id, e]));
   const ranked = bank.bullets
@@ -642,7 +647,7 @@ function pickSkills(job, bank, { max = 15 } = {}) {
     add(name, kind, mentions, term);
   }
   // Your own listed skills the posting names outside the skills dictionary ("Storybook", "HIPAA").
-  const { units } = requirementUnits(job || { text: '' });
+  const units = bulletUnits(job || { text: '' });
   for (const s of listed) {
     const l = lower(s);
     const unit = units.filter((u) => !u.key.startsWith('s:') && u.match(l) >= 1).sort((x, y) => KIND_RANK[y.kind] - KIND_RANK[x.kind])[0];
@@ -690,7 +695,7 @@ function orderedExperiences(bank) {
  * checker already understand. No AI involved.
  */
 function buildResume({ profile, bank, job, roles }) {
-  const { units } = requirementUnits(job);
+  const units = bulletUnits(job);
   const expById = new Map(bank.experiences.map((e) => [e.id, e]));
   const chosen = roles
     .map((r) => ({ exp: expById.get(r.experienceId), bullets: r.bullets.map((b) => b.text).filter((t) => t && t.trim()) }))
@@ -765,7 +770,7 @@ function fitDocToPages(doc, job, bank, pages = 1, { skills = true } = {}) {
   const d = ResumeDoc.normalize(doc);
   d.roles.forEach((r) => (r.bullets = r.bullets.filter((b) => b.text)));
   d.skills = d.skills.filter(Boolean);
-  const { units } = requirementUnits(job || { text: '' });
+  const units = bulletUnits(job || { text: '' });
   const { ranked } = rankBullets(job || { text: '' }, bank || emptyBank());
   const scoreById = new Map(ranked.map((r) => [r.id, r.score]));
   const removed = [];

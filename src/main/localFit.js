@@ -21,7 +21,7 @@ const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 8;
+const SCORER_VERSION = 9;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -219,11 +219,65 @@ function dealbreakers(job, profile) {
 // Degree lines count once, as the degree requirement (met by that level or higher).
 const isDegreeLine = (original) => degreeLevels(original, true).length > 0 || /\bdiploma\b/i.test(original);
 
+// Pay, benefits and EEO lines aren't requirements. Words like insurance,
+// compensation or benefits are, though, in an insurance or HR job ("Process
+// insurance claims", "knowledge of compensation and benefits"): those lines
+// only go under a perks heading, or when they don't read as a duty or a
+// qualification ("Medical, dental and vision insurance").
+const PAY_LINE = /401\(?k|\bpto\b|paid time off|pay range|salary range|\$\s?\d|equal (?:opportunity|employment)|without regard to|protected categor|e-verify|fair chance|conviction records|search firms|how to apply|acceptable use policy|internal career site|parental leave|reasonable accommodation/i;
+const PERKS_HEADING = /^(?:benefits|perks|what we offer|compensation|total rewards|pay|salary|why (?:join|work)|our benefits)\b/i;
+const DUTY_START = /^(?:[-•*▪●◦✓✔➢►‣–—]|\d+[.)])?\s*(?:(?:\d+\s*\+?\s*years?)|experience|knowledge|understanding|familiarity|proficien|background|expertise|ability|certifi|licen[sc]|administer|advise|analy[sz]e|assess|assist|audit|build|calculate|conduct|configure|coordinate|design|develop|enroll|evaluate|handle|implement|investigate|lead|maintain|manage|negotiate|own|oversee|partner|perform|prepare|process|reconcile|research|resolve|review|run|support|underwrite|adjust|benchmark|model)\b/i;
+function requirementLines(text) {
+  let perks = false;
+  return classifyLines(text).filter((l) => {
+    if (l.isHeading && l.line.length < 60) perks = PERKS_HEADING.test(l.line);
+    if (PAY_LINE.test(l.line)) return false;
+    if (!BOILERPLATE_LINE.test(l.line)) return !perks || l.isHeading;
+    return !perks && !l.isHeading && DUTY_START.test(l.line);
+  });
+}
+
+// "3+ years in technology consulting or IT strategy roles": the kind of
+// experience asked for, not just how long. Each alternative is met when one
+// role in the documents shows its words (later ones count more).
+const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?years?['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:in|as|within|across)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
+const KIND_CUT = /\s+(?:for|with|at|in an?|in the|where|that|who|which|on|using|ideally|preferably|including|within|across)\b.*$|,\s*(?:ideally|preferably|including|especially|with|in)\b.*$/;
+const KIND_FILLER = new Set('a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
+function experienceKind(line) {
+  const m = line.match(YEARS_OF);
+  if (!m) return null;
+  let phrase = (m[1] || m[2] || m[3] || '').replace(KIND_CUT, '').trim();
+  if (!phrase) return null;
+  const alts = phrase
+    .split(/,|\bor\b|\band\/or\b|\/|\bsuch as\b|\be\.g\.?|\bi\.e\.?/)
+    .map((a) =>
+      (a.match(/[a-z0-9][a-z0-9+#&-]*/g) || [])
+        .filter((w) => !STOPWORDS.has(w) && !KIND_FILLER.has(w))
+    )
+    .filter((ws) => ws.length && ws.length <= 4 && !(ws.length === 1 && (ws[0].length < 3 || NOT_TERMS.has(ws[0]))));
+  if (!alts.length) return null;
+  return { alts, label: `experience in ${alts.map((ws) => ws.join(' ')).join(' or ')}` };
+}
+// One form for a word family: analysis / analyst / analytics, consulting /
+// consultant, recruiting / recruiter, engineering / engineer.
+function kindStem(w) {
+  return w.replace(/(?:ysis|ysts?|ytics?|ytical|yz(?:e[sd]?|ing))$/, 'y').replace(/(?:ants?|ings?|ers?|ors?|ions?|ments?|ed|es|s)$/, '') || w;
+}
+function kindMatch(alts) {
+  const stems = alts.map((ws) => ws.map(kindStem));
+  return (t) => {
+    const toks = (t.match(/[a-z0-9][a-z0-9+#&-]*/g) || []).map(kindStem);
+    // A shorter form matches a longer one only when it's distinctive (engine / engineer).
+    const has = (s) => toks.some((x) => x === s || (Math.min(x.length, s.length) >= 5 && (x.startsWith(s) || s.startsWith(x))));
+    return Math.max(...stems.map((ss) => Math.pow(ss.filter(has).length / ss.length, 2)));
+  };
+}
+
 // What the posting asks for, as a list of units, each able to say how well a
 // piece of text (your whole library, or a single resume bullet) covers it.
 // Shared by the fit score and the bullet bank so they agree.
 function requirementUnits(job) {
-  const lines = classifyLines(job.text).filter((l) => !BOILERPLATE_LINE.test(l.line));
+  const lines = requirementLines(job.text);
   const hasRequiredSection = lines.some((l) => l.kind === 'required');
   const ignoreWords = new Set([...lower(job.company).split(/\W+/), ...lower(job.title).split(/\W+/)].filter(Boolean));
   // The title repeated back isn't a requirement, unless it names a product
@@ -261,8 +315,8 @@ function requirementUnits(job) {
   };
   const parts = lines
     .filter((l) => !(l.isHeading && l.line.length < 40))
-    .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind })));
-  for (const { line, original, kind, lineKind } of parts) {
+    .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind, section: l.section })));
+  for (const { line, original, kind, lineKind, section } of parts) {
     // Travel, clearance, sponsorship and the like are screening questions (screening.js).
     if (SCREENING_LINE.test(line)) continue;
     if (INTEREST.test(original)) continue;
@@ -302,6 +356,14 @@ function requirementUnits(job) {
         });
       }
     }
+    // The kind of experience the years are in.
+    // Its examples ("such as sales engineering") are its alternatives, so
+    // they don't make it optional the way an example list of tools does;
+    // nor does a trailing ", ideally in consumer goods".
+    const xk = experienceKind(line);
+    const head = line.split(/,\s*(?:ideally|preferably|especially)\b/)[0];
+    const xkKind = /\b(?:preferred|plus|bonus|ideally|preferably|desired|nice to have|a big plus)\b/.test(head) || section === 'preferred' ? 'preferred' : section === 'required' || lineKind === 'required' || !hasRequiredSection ? 'required' : effKind;
+    if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindMatch(xk.alts), { gate: true });
     // "Dashboards in Tableau" is one requirement (Tableau), not two.
     for (const [parent, children] of Object.entries(PARENT_OF)) {
       if (found.some((f) => children.includes(f.skill))) found.splice(0, found.length, ...found.filter((f) => f.skill !== parent));
@@ -565,7 +627,7 @@ function localFitScore(job, documents, profile = {}) {
   const { segs, titles } = evidenceSegments(documents);
   // "Coursework or work experience": the posting accepts what school shows.
   if (/\bcoursework\b/i.test(job.text)) for (const s of segs) if (s.weight < 0.9) s.weight = 0.9;
-  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, met: evidenceFor(u, segs, lib, libText) }));
+  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, gate: !!u.gate, met: evidenceFor(u, segs, lib, libText) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
   // Communication, collaboration, problem solving: can't be judged from
@@ -573,8 +635,12 @@ function localFitScore(job, documents, profile = {}) {
   const neutral = all.filter((u) => u.kind === 'neutral' && !INTERPERSONAL.has(u.label));
   const mean = (list) => (list.length ? list.reduce((s, u) => s + u.met, 0) / list.length : null);
 
-  // 1. Must-haves (with responsibilities' skills counting a little).
-  const reqCore = conjunctive((req.length ? req : neutral).map((u) => u.met));
+  // 1. Must-haves (with responsibilities' skills counting a little). The kind
+  // of experience asked for is a gate: missing it costs, but having it is
+  // already credited by the role match, so it doesn't water down other misses.
+  const pool = req.length ? req : neutral;
+  const kept = pool.filter((u) => !(u.gate && u.met >= 0.75));
+  const reqCore = conjunctive((kept.length ? kept : pool).map((u) => u.met));
   const required = reqCore === null ? null : req.length && neutral.length ? 0.9 * reqCore + 0.1 * mean(neutral) : reqCore;
 
   // 2. Role: the posting title against the titles you've held (recent ones
