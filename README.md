@@ -243,14 +243,37 @@ The editor, PDF export, Markdown export and ATS check all render from this same 
 - **Length** (next to the page counter): *Auto* (one page; two only when that shows more of what the posting asks for), *1 page*, or *Up to 2 pages*. It sets how long *Optimize for ATS* makes the resume.
 - **Trim to 1 page / Trim to 2 pages** appears when the resume runs over your length, or when a second page holds only a few lines. It takes off what shows the least for this posting: first skills the posting doesn't mention (keeping at least 9), then bullets, weakest first. Every role keeps a bullet, and a bullet that's the only proof of a requirement stays. Your wording isn't touched, the bullets stay in your bank, and **Undo** puts everything back.
 
-**Side panel:**
-- **Requirement checklist:** ✓ shown on the page, ½ only in your skills grid, ○ missing. Tap one to highlight the bullets that prove it, or to list bank bullets that would.
-- **Live ATS score** for the page.
-- **Slot in a bullet:** drag from your bank onto the page, or click *+ Add*. Bank bullets show in the resume's typeface, with the requirements each one proves; each role lists its best four, with *Show more* for the rest. Roles not yet on the resume can be added from here too.
-- **Take a bullet off:** drag it by its grip onto the side panel (or anywhere off the page), or click ✕. Bullets from your bank go back to *Slot in a bullet*, so you can add them again later.
-- **This bullet:** swap in another wording from the bank, or save your rewording back (*another wording* / *replace original*). New bullets can be added to the bank.
-- **Optional Claude help:** *Polish wording* marks suggested rewordings with a wavy underline for you to accept or dismiss. *Have Claude write a draft* fills the page from your bank. Any wording it couldn't trace to your documents is highlighted for you to check.
-- Make this resume's header, summary, skills or education the default for new resumes.
+**Side panel:** three rings stay at the top on every tab: requirements shown (one segment per requirement), the live ATS match with its A–D grade, and **strong bullets** (bullets that pass every check). Click a ring to open its tab. The panel remembers your tab and never switches on its own.
+- **Bullets** (edit and add):
+  - **This bullet:** the requirements it proves, a one-line summary of its checks, other wordings from your bank, and saving your rewording back (*another wording* / *replace original*). New bullets can be added to the bank.
+  - **Slot in a bullet:** drag from your bank onto the page, or click *+ Add*. Bank bullets show in the resume's typeface, with the requirements each one proves; each role lists its best four, with *Show more* for the rest. Roles not yet on the resume can be added here too.
+  - **Take a bullet off:** drag it by its grip onto the side panel (or anywhere off the page), or click ✕. Bullets from your bank go back to *Slot in a bullet*.
+- **Check** (how well it's written). See [Resume checks](#resume-checks).
+  - The bullet you're editing, check by check, each with a fix and **Why?**: the reasoning, and exactly how Sprout measures it.
+  - **Resume check:** whether the summary names the role, whether each role leads with its strongest bullet (with a button to move it up), and how many bullets show a result. Below that, every other bullet with tips, each with *Go to it*.
+  - Claude's fact-check flags (*Check before sending*) and the optional *Polish wording* suggestions.
+- **Job match** (how well it fits this posting):
+  - **What the posting asks for:** each requirement with its evidence: the bullet that proves it, "only in your skills list", or "not on the page" with the bank bullets that would prove it and *+ Add*. Tap one to highlight its bullets on the page.
+  - **How the ATS match adds up:** a bar for each part of the score with its weight (hard skills 35%, format 20%, job title, years, education, other keywords 10% each, soft skills 5%), then what would raise it.
+  - Make this resume's header, summary, skills or education the default for new resumes.
+- **Optional Claude help:** *Polish wording* marks suggested rewordings with a wavy underline for you to accept or dismiss. *Write with Claude* fills the page from your bank. Any wording it couldn't trace to your documents is highlighted for you to check.
+
+#### Resume checks
+
+Free, instant and worked out on your computer (`src/shared/resumeCheck.js`), updating as you type. A mark in the left margin of the page shows ✓ for a bullet that passes every check, or how many tips it has. Each check says why it matters and how it's measured, in the app and here:
+
+| Check | Why it matters | How it's measured |
+|---|---|---|
+| Strong opener | "Helped", "Assisted" or "Responsible for" describe a duty, not what you did | The first words, against a list of duty-style openers |
+| A result or number | A number turns an activity into an outcome and makes it believable | A number, %, $, or words like "doubled"; years and names like "Q3" or "EC2" don't count |
+| 1–2 lines | Bullets are skimmed; past two lines the point gets lost | Lines measured with the page count's font widths; also flags under 5 words |
+| No "I" or "my" | Resume convention is an implied first person | I, me, my, we, our as whole words |
+| Not repeated | Repeats waste attention; the same verb twice in a role reads as a list of duties | 60%+ word overlap with another bullet, or the same first word in one role |
+| Role named up top | The first glance lands on the top third | The posting's title (less "Senior", "II"…) in your summary or contact lines |
+| Strongest proof first | The first bullet in each role is the one most likely to be read | Requirements each bullet proves, then whether it shows a result |
+| Most bullets show a result | Outcomes separate you from others with the same title | At least half the bullets pass "A result or number" |
+
+**What makes a resume work** (linked from the Check and Job match tabs) explains that a resume is read twice: searched by software (most ATS rank rather than reject, so use the posting's words for skills you really have) and skimmed by a person (top third, first bullets, results). It lists every check and what the checks can't tell you. **What's working for you** compares interview rates across the tailored resumes you've sent (ATS-optimized, Claude-written, baseline, and with more or fewer strong bullets). It stays hidden until you've sent 10, because with fewer the numbers would mostly be luck. When you mark a job applied, Sprout records which kind of resume went out and how many of its bullets passed every check.
 
 The resume reader handles resumes exported from Word or Google Docs:
 - "RELEVANT WORK EXPERIENCE"-style headings;

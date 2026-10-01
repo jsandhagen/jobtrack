@@ -31,6 +31,7 @@ const { createBridge } = require('./bridge');
 const { createUpdater } = require('./updater');
 const bulletBank = require('./bullets');
 const ResumeDoc = require('../shared/resumeDoc');
+const ResumeCheck = require('../shared/resumeCheck');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore, libraryAtsScore } = require('./atsScore');
@@ -757,7 +758,9 @@ function builderState(rec) {
       .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
     coverage,
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
-    ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 5) },
+    ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 5), components: ats.components },
+    // The posting's title, for the "role named up top" check.
+    jobTitle: (rec.job && rec.job.title) || '',
     bankSize: bank.bullets.length,
     resumeSource: resumeMode(rec),
     // A saved resume (Resumes page) rather than an application's; and whether
@@ -1435,9 +1438,13 @@ function registerIpc() {
     const appliedAt = info.appliedAt ? new Date(info.appliedAt).toISOString() : new Date().toISOString();
     const followUpAt = info.followUpAt === '' ? null : info.followUpAt ? new Date(info.followUpAt).toISOString() : new Date(Date.parse(appliedAt) + days * 86400000).toISOString();
     const best = libraryAtsScore(rec.job, evidenceDocs(), store.getProfile());
+    // For "What's working for you": which kind of resume went out, and how
+    // many of its bullets passed every resume check.
+    const doc = rec.builder && rec.builder.doc;
+    const checked = doc ? ResumeCheck.checkResume(doc) : null;
     const sent =
       info.resumeChoice === 'tailored' && rec.resumeHtml
-        ? { resume: 'tailored', resumeHtml: rec.resumeHtml, letterHtml: info.includeLetter && rec.letterHtml ? rec.letterHtml : null }
+        ? { resume: 'tailored', resumeHtml: rec.resumeHtml, letterHtml: info.includeLetter && rec.letterHtml ? rec.letterHtml : null, source: resumeMode(rec), strong: checked && checked.total ? { pass: checked.strong, of: checked.total } : null }
         : info.resumeChoice === 'library'
           ? { resume: best && best.basis ? best.basis : 'library resume', resumeHtml: null, letterHtml: null }
           : { resume: info.resumeChoice || 'other', resumeHtml: null, letterHtml: null };
@@ -1985,6 +1992,7 @@ function summarizeApp(a) {
     hasResume: !!a.resume,
     hasPage: !!(a.builder && a.builder.doc),
     hasLetter: !!a.letter,
+    sent: a.sent ? { resume: a.sent.resume, source: a.sent.source || null, strong: a.sent.strong || null } : null,
   };
 }
 
