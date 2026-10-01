@@ -865,7 +865,9 @@ function titleMatches(title, roles = [], keywords = []) {
 
 // Find a company's board: its careers link, then the careers page (where it
 // redirects to, or what its HTML links to), then its name tried on the boards
-// that live at predictable addresses. When nothing turns up only because the
+// that live at predictable addresses, then the company's own site (its
+// careers page, or a Phenom site on careers. or jobs.), then the same on
+// sites named after it (acme.com). When nothing turns up only because the
 // sites couldn't be reached, that's an error to retry, not "no board".
 async function findBoard(company, fetchImpl) {
   const link = normalizeLink(company.careersUrl);
@@ -874,8 +876,7 @@ async function findBoard(company, fetchImpl) {
   let unreachable = null;
   if (/^https?:\/\//i.test(link)) {
     try {
-      const page = await getText(fetchImpl, link);
-      const b = detectBoard(page.url) || boardFromHtml(page.text) || phenomFromPage(page.text, page.url);
+      const b = await boardOnPage(link, fetchImpl);
       if (b) return { ...b, via: 'page' };
     } catch (err) {
       if (err.transient) unreachable = err;
@@ -883,8 +884,9 @@ async function findBoard(company, fetchImpl) {
     }
   }
   let answered = false;
-  for (const slug of slugsFor(company.name)) {
-    for (const ats of ['greenhouse', 'lever', 'ashby']) {
+  const slugs = slugsFor(company.name);
+  for (const slug of slugs) {
+    for (const ats of ['greenhouse', 'lever', 'ashby', 'recruitee', 'bamboohr']) {
       const b = board(ats, slug);
       try {
         const jobs = await listJobs(b, fetchImpl);
@@ -897,7 +899,56 @@ async function findBoard(company, fetchImpl) {
       }
     }
   }
+  // The company's own site. One you set is trusted; one guessed from the
+  // name must name the company on its careers page, and is marked guessed.
+  const own = siteDomain(company.website);
+  const guesses = [...new Set(slugs.filter((x) => !x.includes('-')).map((x) => `${x}.com`))].filter((d) => d !== own);
+  for (const [domain, guessed] of [...(own ? [[own, false]] : []), ...guesses.map((d) => [d, true])]) {
+    const pages = [`https://careers.${domain}/`, `https://jobs.${domain}/`, ...(guessed ? [] : [`https://${domain}/careers`])];
+    for (const url of pages) {
+      try {
+        const page = await getText(fetchImpl, url);
+        if (guessed && !namesCompany(page.text, company.name)) continue;
+        const b = detectBoard(page.url) || boardFromHtml(page.text) || phenomFromPage(page.text, page.url);
+        if (b) return guessed ? { ...b, guessed: true } : { ...b, via: 'page' };
+      } catch {
+        // no such site, or nothing there: try the next
+      }
+    }
+  }
   return null;
+}
+
+async function boardOnPage(url, fetchImpl) {
+  const page = await getText(fetchImpl, url);
+  return detectBoard(page.url) || boardFromHtml(page.text) || phenomFromPage(page.text, page.url);
+}
+
+// acme.com from "https://www.acme.com/about", or null.
+function siteDomain(url) {
+  try {
+    const host = new URL(normalizeLink(url)).hostname.toLowerCase().replace(/^www\./, '');
+    return host.includes('.') && !/^[\d.]+$/.test(host) && !detectBoard(url) ? host : null;
+  } catch {
+    return null;
+  }
+}
+
+// Does a page name the company? "Freddie Mac" on careers.freddiemac.com,
+// in its title, its text or its page data.
+function namesCompany(html, name) {
+  const plain = (x) =>
+    ` ${String(x || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/&amp;|&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()} `;
+  // Anywhere on it: Phenom pages carry most of their text in script data.
+  const text = plain(html);
+  const want = plain(String(name || '').replace(/\([^)]*\)/g, ' ').replace(/\b(inc|llc|ltd|corp|corporation|co|company|plc|gmbh)\b\.?/gi, ' '));
+  return want.trim().length >= 2 && text.includes(want);
 }
 
 const KEEP = 60; // matching jobs kept per company

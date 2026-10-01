@@ -513,3 +513,26 @@ test('reads Recruitee, BambooHR and Oracle Cloud boards', async () => {
   assert.match(decodeURIComponent(f.calls.find((c) => /Requisitions\?/.test(c.url)).url), /siteNumber=CX_1.*keyword="Operations Manager"/);
   assert.equal(await C.jobDetail(ob, oj[0], f), 'Lead operations.\n\n- 5 years');
 });
+
+test('without a careers link, Recruitee and BambooHR are tried by name too', async () => {
+  const f = fakeFetch([['https://brio.bamboohr.com/careers/list', { result: [{ id: '1', jobOpeningName: 'Chief of Staff', location: { city: 'Austin', state: 'Texas' } }] }]]);
+  const r = await C.checkCompany({ name: 'Brio' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
+  assert.deepEqual([r.patch.board.ats, r.patch.board.token, r.patch.board.guessed], ['bamboohr', 'brio', true]);
+  assert.ok(f.calls.some((c) => c.url === 'https://brio.recruitee.com/api/offers/'));
+});
+
+test('without a careers link, a Phenom site is found on careers.<name>.com, only when it names the company', async () => {
+  const page = phenomHtml([]).replace(/careers\.acme\.com/g, 'careers.freddiemac.com').replace('<head>', '<head><title>Careers at Freddie Mac</title>');
+  const f = fakeFetch([['https://careers.freddiemac.com/', page]]);
+  const b = await C.findBoard({ name: 'Freddie Mac' }, f);
+  assert.deepEqual([b.ats, b.host, b.site, b.guessed], ['phenom', 'careers.freddiemac.com', 'us/en', true]);
+
+  // Someone else's site at the guessed address isn't taken.
+  const other = fakeFetch([['https://careers.freddiemac.com/', phenomHtml([])]]);
+  assert.equal(await C.findBoard({ name: 'Freddie Mac' }, other), null);
+
+  // A website you set is trusted, and its own /careers page is read too.
+  const site = fakeFetch([['https://acme.io/careers', '<a href="https://acme.wd5.myworkdayjobs.com/en-US/Ext">Jobs</a>']]);
+  const w = await C.findBoard({ name: 'Acme', website: 'https://www.acme.io' }, site);
+  assert.deepEqual([w.ats, w.via, w.guessed], ['workday', 'page', undefined]);
+});
