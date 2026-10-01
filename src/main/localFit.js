@@ -18,13 +18,13 @@
 // Roles two or more levels below yours, in your own line of work, are capped
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
-const { SKILLS, RELATED, EMPLOYER_EVIDENCE, SOFT_TERM_WORDS, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, RELATED, EMPLOYER_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 20;
+const SCORER_VERSION = 21;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -189,7 +189,8 @@ const LEVELS = [
   [0, /\b(intern|internship|co-?op)\b/],
   [6, /\b(vp|vice president|chief|cto|cfo|coo|ceo)\b/],
   // A senior manager sits just under director on consulting and corporate ladders.
-  [5, /\b(director|head of|senior manager)\b/],
+  // A group product manager leads product managers, as a director does at smaller companies.
+  [5, /\b(director|head of|senior manager|group product manager|group manager)\b/],
   [4, /\b(staff|principal|lead|architect|manager)\b/],
   [3, /\b(senior|sr\.?|iii|iv)\b/],
   [1, /\b(junior|jr\.?|entry[- ]level|graduate|associate|assistant|trainee|i)\b/],
@@ -302,18 +303,27 @@ function requirementLines(text) {
 // "3+ years in technology consulting or IT strategy roles": the kind of
 // experience asked for, not just how long. Each alternative is met when one
 // role in the documents shows its words (later ones count more).
-const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?(?:years?|months?)['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:working\s+)?(?:in|as|within|across|on|at)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
+const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?(?:years?|months?)['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:working\s+)?(?:in|as|within|across|on|at|managing|leading|delivering|running|supporting)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
 const KIND_CUT = /\s+(?:for|with|at|in an?|in the|where|that|who|which|on|using|ideally|preferably|including|within|across)\b.*$|,\s*(?:ideally|preferably|including|especially|with|in)\b.*$/;
 const KIND_FILLER = new Set('projects initiatives programs efforts firm firms company companies organization organizations focused based enterprise a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
 // "7+ years of hands-on Oracle ERP configuration": no "experience", but the same ask.
 const YEARS_OF_PLAIN = /^(?:[-•*▪●◦]\s*)?\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?['’]?\s+of\s+(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*([a-z][^.;:()]+)/;
+// "2+ years managing product managers", "5+ years leading project managers":
+// managing people is the experience asked for, whatever their job is.
+const MANAGES_PEOPLE = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?\b[^.;]{0,40}?\b(?:managing|leading|supervising|directly managing|people management of)\s+(?:a\s+)?(?:team\s+of\s+|teams\s+of\s+)?((?:[a-z]+\s+){0,2}(?:managers|engineers|people|direct reports|analysts|staff|consultants|designers|scientists|teams|leaders|nurses|associates|accountants|developers))\b|\bpeople management experience\b|\b\d{1,2}\s*\+?\s*years?\s+(?:of\s+)?people (?:management|leadership)\b/;
+const PEOPLE_SHOWN = [/\b(?:managed|manage|managing|led|lead|leading|supervised|supervise|built and led|hired and (?:led|managed|coached))\s+(?:a\s+)?(?:team|teams|group|staff)\s+of\b/, /\b(?:managed|led|supervised|managing|leading)\s+(?:a\s+)?(?:team of\s+)?\d+\s+(?:\w+\s+){0,2}(?:managers|engineers|people|analysts|consultants|designers|scientists|nurses|associates|accountants|developers|direct reports|reports)\b/, /\bdirect reports\b/, /\bpeople manage(?:r|ment)\b/, /\b(?:hired|hiring),? (?:and )?(?:coached|developed|managed)\b/];
 function experienceKind(line) {
+  const people = line.match(MANAGES_PEOPLE);
+  if (people) return { alts: [['people', 'management']], phrase: people[0], label: `experience managing ${people[1] ? people[1].trim() : 'people'}`, people: true };
   const m = line.match(YEARS_OF) || line.match(YEARS_OF_PLAIN);
   if (!m) return null;
   // "…at a consulting firm or in a strategy role": "or in a" starts another kind, not a qualifier.
   let phrase = (m[1] || m[2] || m[3] || '').replace(/\s+or\s+(?:in|as|at)\s+(?:an?\s+|the\s+)?/g, ' or ').replace(KIND_CUT, '').trim();
   // "…in at least one offering: Cloud Transformation, Operating Model…": the list is the kinds.
   if (/^(?:at least |any )?(?:one|1)\b/.test(phrase) && /:\s*\S/.test(line.slice(m.index))) phrase = line.slice(line.indexOf(':', m.index) + 1).replace(KIND_CUT, '').trim();
+  // "managing IT projects" / "leading programs" is project / program management.
+  const run = phrase.match(/^(?:(it|technology|software|construction|engineering|digital|infrastructure)\s+)?(project|program)s\b/i);
+  if (run && /\b(?:managing|leading|delivering|running)\s+$/.test(line.slice(0, line.indexOf(phrase)).replace(/\s+$/, ' '))) phrase = `${run[1] ? `${run[1]} ` : ''}${run[2]} management`;
   // "at a top management consulting firm": the firm's kind is the experience.
   phrase = phrase.replace(/^(?:a|an|the)\s+(?:top|leading|top-tier|tier[- ]1|large|global|major)?\s*/, '');
   if (!phrase) return null;
@@ -352,6 +362,7 @@ const KIND_SYNONYMS = [
   [/\b(?:data |business |product |people |marketing )?analytics\b/g, 'data analytics'],
 ];
 const canonicalKind = (t) => KIND_SYNONYMS.reduce((x, [re, to]) => x.replace(re, to), t);
+const DEPARTMENT_KIND = new Set(['marketing', 'sales', 'recruiting', 'accounting', 'audit', 'legal', 'design', 'clinical', 'construction', 'nursing'].map((w) => w.replace(/(?:ing|s)$/, '')).concat(['marketing', 'sales', 'recruiting', 'accounting', 'audit', 'legal', 'design', 'clinical', 'construction', 'nursing']));
 const BROAD_KIND = new Set(['strategy', 'management', 'consulting', 'operations', 'planning', 'development', 'leadership'].map(kindStem));
 function kindMatch(alts) {
   const stems = alts.map((ws) => canonicalKind(ws.join(' ')).split(/\s+/).map(kindStem));
@@ -367,9 +378,17 @@ function kindMatch(alts) {
     // 40 conferences a year" is event planning), and so does the line after
     // ("commercial jobs", then "electrical systems").
     const lines = String(t).split(/\n|[.;](?:\s|$)/).filter((x) => x.trim());
-    const pieces = lines.map((x, i) => hasIn(tokens(`${i ? lines[0] : ''} ${x} ${lines[i + 1] || ''}`)));
+    // A department named in a bullet is usually who you worked with ("launched
+    // with sales and marketing"), so with the title's help it has to come from the title.
+    const title = hasIn(tokens(lines[0] || ''));
+    const pieces = lines.map((x, i) => {
+      const own = hasIn(tokens(`${x} ${lines[i + 1] || ''}`));
+      if (!i) return own;
+      return (w) => own(w) || (title(w) && !DEPARTMENT_KIND.has(w)) || (DEPARTMENT_KIND.has(w) && title(w));
+    });
+    const piecesOk = (ss, h, i) => i === 0 || !ss.some((w) => DEPARTMENT_KIND.has(w) && !title(w)) || ss.every((w) => BROAD_KIND.has(w) || hasIn(tokens(`${lines[i]} ${lines[i + 1] || ''}`))(w));
     // Broad words ("… strategy", "… management") can sit anywhere.
-    return Math.max(...stems.map((ss) => (ss.length === 1 ? (has(ss[0]) ? 1 : 0) : Math.max(...pieces.map((h) => Math.pow(ss.filter((w) => (BROAD_KIND.has(w) ? has(w) : h(w))).length / ss.length, 2))))));
+    return Math.max(...stems.map((ss) => (ss.length === 1 ? (has(ss[0]) ? 1 : 0) : Math.max(...pieces.map((h, i) => (piecesOk(ss, h, i) ? Math.pow(ss.filter((w) => (BROAD_KIND.has(w) ? has(w) : h(w))).length / ss.length, 2) : 0))))));
   };
 }
 
@@ -419,7 +438,13 @@ function requirementUnits(job) {
   const parts = lines
     .filter((l) => !(l.isHeading && l.line.length < 40) && !seenLines.has(l.line) && seenLines.add(l.line))
     .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind, section: l.section })));
-  for (const { line, original, kind, lineKind, section } of parts) {
+  for (let { line, original, kind, lineKind, section } of parts) {
+    // "Certified ScrumMaster (CSM) or PSM": a name and its abbreviation are one thing.
+    const abbr = /\b((?:[A-Z][A-Za-z]+[\s-]){1,5}[A-Za-z]+)\s*\(([A-Z][A-Za-z]{1,6})\)/g;
+    if (abbr.test(original)) {
+      original = original.replace(abbr, '$2');
+      line = line.replace(/\b([a-z][a-z-]+[\s-]){1,5}[a-z]+\s*\(([a-z]{2,7})\)/g, '$2');
+    }
     // Travel, clearance, sponsorship and the like are screening questions (screening.js).
     if (SCREENING_LINE.test(line)) continue;
     if (INTEREST.test(original)) continue;
@@ -451,6 +476,10 @@ function requirementUnits(job) {
         const pos = { index, end: index + term.length };
         // Part of a skill already found: "language models" in "large language models".
         if (index >= 0 && found.some((f) => f.skill && index >= f.index && pos.end <= f.end)) continue;
+        // A word that only means something with another ("methodology", "principles").
+        if (/^(?:methodolog(?:y|ies)|principles?|concepts?|fundamentals|practices|frameworks?|tools?|platforms?|processes|environment|environments)$/i.test(term)) continue;
+        // A claim, not a qualification: "shipping products customers love".
+        if (/\b(?:love|loves|delight|delightful|passion|passionate|amazing|world-class)\b/i.test(term)) continue;
         // A piece of a clause, not a thing: "role that involves".
         if (/\b(?:that|which|who|whose|involves?|involving|including|requires?)\b/i.test(term)) continue;
         // Soft-skill wording ("operational excellence", "influencing senior leaders")
@@ -512,7 +541,8 @@ function requirementUnits(job) {
     })));
     const kindSkills = kindIsSkills && wholeKind ? sameAsKind.map((f) => SKILLS[f.skill]) : [];
     const kindMatcher = kindMatch(xk ? xk.alts : []);
-    if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindSkills.length ? (t) => Math.max(kindMatcher(t), kindSkills.some((ps) => ps.some((p) => p.test(t))) ? 1 : 0) : kindMatcher, { gate: true, weight: kindIsSkills ? 0.5 : 1, functionKind, ...(kindSkills.length ? { skills: sameAsKind.map((f) => f.skill), related: relatedOf(sameAsKind.map((f) => f.skill)) } : {}) });
+    if (xk && xk.people) addUnit('x:' + xk.label, xk.label, xkKind, (t) => (PEOPLE_SHOWN.some((p) => p.test(t)) ? 1 : 0), { gate: true, weight: 1 });
+    else if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindSkills.length ? (t) => Math.max(kindMatcher(t), kindSkills.some((ps) => ps.some((p) => p.test(t))) ? 1 : 0) : kindMatcher, { gate: true, weight: kindIsSkills ? 0.5 : 1, functionKind, ...(kindSkills.length ? { skills: sameAsKind.map((f) => f.skill) } : {}), ...(sameAsKind.length ? { related: relatedOf(sameAsKind.map((f) => f.skill)) } : {}) });
     // "Dashboards in Tableau" is one requirement (Tableau), not two.
     for (const [parent, children] of Object.entries(PARENT_OF)) {
       if (found.some((f) => children.includes(f.skill))) found.splice(0, found.length, ...found.filter((f) => f.skill !== parent));
@@ -642,7 +672,7 @@ function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
       segs.push({ text, weight: DOC_WEIGHT[d.kind] ?? 0.75 });
     }
   }
-  return { segs: segs.map((s) => ({ ...s, lower: lower(s.text) })), titles };
+  return { segs: segs.map((s) => ({ ...s, lower: lower(withoutCollaborators(s.text)) })), titles };
 }
 // What a title says you can do, the way LinkedIn and Eightfold infer skills
 // from job titles: partial credit only (a resume that says it still counts

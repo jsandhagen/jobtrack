@@ -2,7 +2,7 @@
 // under the role it belongs to, so resumes can be assembled from the ones
 // that fit a posting best. Everything here is offline and free.
 const crypto = require('crypto');
-const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE } = require('./fitScore');
+const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 
@@ -690,10 +690,10 @@ function atsSummary(job, bank) {
   const current = orderedExperiences(bank).find((e) => !e.isProject && e.title);
   if (!text.trim() || !current) return '';
   const { postingPhrases } = require('./atsScore');
-  const bankText = lower([...(bank.skills || []), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n'));
+  const bankText = lower(withoutCollaborators([...(bank.skills || []), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n')));
   // What you did, without the skills list: "business process management" listed as a
   // technology isn't years "in process management".
-  const workText = lower([...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n'));
+  const workText = lower(withoutCollaborators([...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n')));
   const listed = lower((bank.skills || []).join('\n'));
   const years = Math.floor(careerYears(bank));
   // The phrase itself, other word forms allowed ("technology strategies"), not its words scattered about.
@@ -708,7 +708,12 @@ function atsSummary(job, bank) {
   }
   // "technology strategy" says "strategy" already.
   kinds.splice(0, kinds.length, ...kinds.filter((a) => !kinds.some((k) => k !== a && ` ${k} `.includes(` ${a} `))));
-  const field = kinds.sort((a, b) => b.split(' ').length - a.split(' ').length).slice(0, 2);
+  // A field, not a job title ("product manager", "software engineer": years "in"
+  // one would claim the whole career was that job) or a fragment ("technical program").
+  const field = kinds
+    .filter((k) => !/\b(?:manager|owner|analyst|engineer|developer|consultant|program|coordinator|scientist|designer|director|lead|specialist|architect)s?$/.test(k))
+    .sort((a, b) => b.split(' ').length - a.split(' ').length)
+    .slice(0, 2);
   // As the posting writes it, but a word it also writes in lower case is a
   // common word, not a name: "Forrester", "Excel", "OKRs", "AI" keep their
   // capitals; "Strategy" in a title doesn't.
@@ -722,6 +727,8 @@ function atsSummary(job, bank) {
   const items = [];
   const add = (name, rank) => {
     const n = lower(name);
+    // Things you know or did, not a job title ("Product Manager") or a verb phrase ("analyze usage").
+    if (/\b(?:manager|owner|analyst|engineer|developer|consultant|program|coordinator|scientist|designer|director)s?$/.test(n) || /^(?:analy[sz]e|build|built|run|ran|lead|led|manage|drive|own)\b/.test(n) || /\b(?:leaders|leadership|executives|stakeholders|customers|teams|partners|clients)$/.test(n)) return;
     if (items.some((x) => lower(x.name) === n) || field.some((f) => n.includes(f) || f.includes(n))) return;
     items.push({ name, rank });
   };
@@ -797,7 +804,7 @@ function pickSkills(job, bank, { max = 15 } = {}) {
   const jobText = String((job && job.text) || '');
   const jobLower = lower(jobText);
   const listed = (bank.skills || []).filter((s) => String(s).trim());
-  const bankText = lower([listed.join(', '), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text)].join('\n'));
+  const bankText = lower(withoutCollaborators([listed.join(', '), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text)].join('\n')));
   const keys = new Set();
   const found = []; // {name, rank, mentions, pos}
   const add = (name, kind, mentions, term) => {

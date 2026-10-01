@@ -52,7 +52,7 @@ const SKILLS = {
   'Deep Learning': [/\bdeep learning\b/, /\bneural networks?\b/, /\bpytorch\b/, /\btensorflow\b/],
   'LLMs / GenAI': [/\bllms?\b/, /\blarge language models?\b/, /\bgenerative ai\b/, /\bgenai\b/, /\bprompt engineering\b/],
   // Having been a "Data Analyst" is evidence of data analysis.
-  'Data Analysis': [/\bdata analy(?:sis|tics|sts?)\b/, /\banalytics\b/],
+  'Data Analysis': [/\bdata analy(?:sis|tics|sts?)\b/, /\banalytics\b/, /\banaly[sz](?:e|ed|es|ing)\s+(?:\w+\s+){0,2}(?:data|usage|metrics|results|trends)\b/],
   // Separate tools, so the fit score can tell the exact one from a related one.
   'Data Visualization': [/\bdata visuali[sz]ation\b/, /\bdashboards?\b/],
   Tableau: [/\btableau\b/],
@@ -224,6 +224,13 @@ const EMPLOYER_EVIDENCE = {
 
 // Words of soft-skill phrases ("operational excellence", "influencing senior leaders"): a resume can't show them, so they're neither requirements nor keywords.
 const SOFT_TERM_WORDS = new Set('operational excellence influencing influence influential senior leaders leadership leader stakeholders stakeholder relationships relationship trusted trust building ownership owning owner ambiguity ambiguous fast-paced environments environment initiative independently thinking strategic strategically mindset growth mindset curiosity curious collaborative collaboration interpersonal executive presence judgment high integrity humility passion passionate self-starter self-motivated motivated proactive accountability accountable empathy resilience adaptable adaptability agility agile-minded attention detail team player excellent strong effective effectively ability able skills skill drive driven results-oriented outcomes customer-obsessed bias action'.split(' '));
+
+// "Launched it with sales and marketing", "partnered with engineering and
+// design": the teams you worked with, not work you did. Taken out before a
+// resume counts as evidence of a skill (the ATS check still reads every word).
+const DEPT = '(?:sales|marketing|finance|legal|engineering|design|product|support|customer success|operations|hr|it|security|data|research|procurement)';
+const COLLABORATORS = new RegExp(`\\b(?:with|alongside|across|partner(?:ed|ing)? with|work(?:ed|ing)? with|collaborat(?:ed|ing) with)\\s+(?:the\\s+)?(?:[a-z]+\\s+)?${DEPT}(?:\\s*(?:,|and|&|\\/)\\s*(?:the\\s+)?${DEPT})*(?:\\s+(?:teams?|leaders|partners|stakeholders|orgs?|organi[sz]ations?))?\\b`, 'gi');
+const withoutCollaborators = (text) => String(text || '').replace(COLLABORATORS, 'with partner teams');
 
 const RELATED_PAIRS = [
   ['Tableau', 'Power BI', 0.6], ['Tableau', 'Looker', 0.6], ['Power BI', 'Looker', 0.6],
@@ -681,6 +688,7 @@ module.exports = {
   RELATED,
   EMPLOYER_EVIDENCE,
   SOFT_TERM_WORDS,
+  withoutCollaborators,
   SOFT_SKILLS,
   INTERPERSONAL,
   STOPWORDS,

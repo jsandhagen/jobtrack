@@ -525,7 +525,9 @@ function atsGaps(job, resumeText, bullets = []) {
   // Industries ("bank" for financial services) are where you worked, not words to add.
   const INDUSTRIES = new Set(['Financial Services', 'Public Sector', 'Healthcare', 'Enterprise Software']);
   for (const w of r.wordingTips) {
-    if (INTERPERSONAL.has(w.skill) || SOFT_SKILLS.has(w.skill) || INDUSTRIES.has(w.skill) || containsTerm(resumeLower, w.term)) continue;
+    // "steering committee" on the page answers "steering committees".
+    const forms = [w.term, `${w.term}s`, w.term.replace(/s$/, ''), w.term.replace(/ies$/, 'y'), w.term.replace(/y$/, 'ies')];
+    if (INTERPERSONAL.has(w.skill) || SOFT_SKILLS.has(w.skill) || INDUSTRIES.has(w.skill) || forms.some((f) => containsTerm(resumeLower, f))) continue;
     gaps.push({ type: 'wording', phrase: w.term, why: 'You show this in other words. Strict systems match the posting\'s words literally.', closest: closest(w.term, w.skill) });
   }
   // Searched phrases only (a posting too short for phrases gives single words, which aren't worth chasing),
