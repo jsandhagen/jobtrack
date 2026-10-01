@@ -1,8 +1,8 @@
 // Finding roles and people: one-click search links, the outreach tracker's
 // rules, and message templates.
 //
-// - Search links: LinkedIn job searches limited to the last week and sorted
-//   newest first, Google searches of the job boards startups use (Ashby,
+// - Search links: LinkedIn and Indeed job searches limited to the last week
+//   and sorted newest first, Google searches of the job boards startups use (Ashby,
 //   Greenhouse, Lever, Workable), LinkedIn people searches ("chiefs of staff
 //   who went to my school"), and a Google search that finds one person's
 //   LinkedIn profile from their name and company.
@@ -48,14 +48,18 @@
 
   // ---------------- search links ----------------
 
-  // Posted within: LinkedIn's f_TPR takes seconds; Google's tbs takes d/w/m.
+  // Posted within: LinkedIn's f_TPR takes seconds; Google's tbs takes d/w/m;
+  // Indeed's fromage takes days, and 14 is the longest it offers.
   const WINDOWS = {
-    day: { label: 'Past 24 hours', tpr: 'r86400', tbs: 'qdr:d' },
-    week: { label: 'Past week', tpr: 'r604800', tbs: 'qdr:w' },
-    month: { label: 'Past month', tpr: 'r2592000', tbs: 'qdr:m' },
+    day: { label: 'Past 24 hours', tpr: 'r86400', tbs: 'qdr:d', fromage: '1' },
+    week: { label: 'Past week', tpr: 'r604800', tbs: 'qdr:w', fromage: '7' },
+    month: { label: 'Past month', tpr: 'r2592000', tbs: 'qdr:m', fromage: '14' },
   };
   const WORK_TYPES = { any: 'Any', remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site' };
   const LINKEDIN_WT = { onsite: '1', remote: '2', hybrid: '3' };
+  // Indeed's remote and hybrid filters (it has none for on-site).
+  const INDEED_WT = { remote: '0kf:attr(DSQF7);', hybrid: '0kf:attr(PAXZC);' };
+  const JOB_SOURCES = { linkedin: 'LinkedIn jobs', indeed: 'Indeed jobs', startups: 'Startup job boards' };
 
   // The job boards most startups post on. Big companies mostly use Workday,
   // so searching these finds the smaller places LinkedIn buries.
@@ -73,10 +77,15 @@
   }
 
   // Titles in quotes, so "chief of staff" doesn't match every "staff" job, and
-  // OR between several. Newest first; distance keeps "near me" near.
-  function linkedinJobsUrl({ titles, keywords, location, within = 'week', workType = 'any', distance } = {}) {
+  // OR between several.
+  function jobKeywords(titles, keywords) {
     const t = splitList(titles);
-    const kw = [t.length > 1 ? t.map(quote).join(' OR ') : quote(t[0]), clean(keywords)].filter(Boolean).join(' ');
+    return [t.length > 1 ? t.map(quote).join(' OR ') : quote(t[0]), clean(keywords)].filter(Boolean).join(' ');
+  }
+
+  // Newest first; distance keeps "near me" near.
+  function linkedinJobsUrl({ titles, keywords, location, within = 'week', workType = 'any', distance } = {}) {
+    const kw = jobKeywords(titles, keywords);
     const loc = clean(location);
     return `https://www.linkedin.com/jobs/search/?${qs({
       keywords: kw,
@@ -88,6 +97,20 @@
     })}`;
   }
 
+  // The same search on Indeed: quoted titles, newest first, a 25-mile radius,
+  // and its own remote and hybrid filters.
+  function indeedJobsUrl({ titles, keywords, location, within = 'week', workType = 'any', distance } = {}) {
+    const loc = clean(location);
+    return `https://www.indeed.com/jobs?${qs({
+      q: jobKeywords(titles, keywords),
+      l: loc || (workType === 'remote' ? 'Remote' : ''),
+      radius: loc && !isRemote(loc) ? distance || 25 : '',
+      fromage: WINDOWS[within] ? WINDOWS[within].fromage : '',
+      sc: INDEED_WT[workType] || '',
+      sort: 'date',
+    })}`;
+  }
+
   function startupBoardsUrl({ titles, keywords, location, within = 'week', workType = 'any' } = {}) {
     const sites = `(${STARTUP_BOARDS.map((s) => `site:${s}`).join(' OR ')})`;
     const loc = workType === 'remote' ? 'remote' : clean(location);
@@ -96,7 +119,9 @@
   }
 
   function jobSearchUrl(s) {
-    return s.source === 'startups' ? startupBoardsUrl(s) : linkedinJobsUrl(s);
+    if (s.source === 'startups') return startupBoardsUrl(s);
+    if (s.source === 'indeed') return indeedJobsUrl(s);
+    return linkedinJobsUrl(s);
   }
 
   // People search on LinkedIn: titles, plus what you have in common.
@@ -249,6 +274,7 @@
     return {
       careers: /^https?:\/\//i.test(clean(co.careersUrl)) ? clean(co.careersUrl) : '',
       jobs: `https://www.linkedin.com/jobs/search/?${qs({ keywords: quote(co.name), f_TPR: WINDOWS.week.tpr, sortBy: 'DD' })}`,
+      indeedJobs: `https://www.indeed.com/jobs?${qs({ q: `company:(${clean(co.name).replace(/[()"]/g, '')})`, fromage: WINDOWS.week.fromage, sort: 'date' })}`,
       people: linkedinPeopleUrl({ company: co.name, titles: profile.targetRoles }),
       peopleInCommon: common.length ? linkedinPeopleUrl({ company: co.name, common: common.join(', ') }) : '',
       linkedin: `https://www.linkedin.com/search/results/companies/?${qs({ keywords: clean(co.name) })}`,
@@ -265,8 +291,10 @@
     const common = [...splitList(profile.schools), ...splitList(profile.pastEmployers)];
     const out = [];
     for (const r of roles) {
-      if (loc && !isRemote(loc)) out.push({ kind: 'jobs', source: 'linkedin', name: `${r} near ${loc}`, titles: r, location: loc, within: 'week', workType: 'any' });
-      if (remoteOk || !loc || isRemote(loc)) out.push({ kind: 'jobs', source: 'linkedin', name: `${r}, remote`, titles: r, within: 'week', workType: 'remote' });
+      for (const [source, on] of [['linkedin', ''], ['indeed', ' on Indeed']]) {
+        if (loc && !isRemote(loc)) out.push({ kind: 'jobs', source, name: `${r} near ${loc}${on}`, titles: r, location: loc, within: 'week', workType: 'any' });
+        if (remoteOk || !loc || isRemote(loc)) out.push({ kind: 'jobs', source, name: `${r}, remote${on}`, titles: r, within: 'week', workType: 'remote' });
+      }
       out.push({ kind: 'jobs', source: 'startups', name: `${r} at startups`, titles: r, location: remoteOk ? '' : loc, within: 'week', workType: remoteOk ? 'remote' : 'any' });
     }
     for (const c of common.slice(0, 4)) {
@@ -284,7 +312,8 @@
   function describeSearch(s) {
     if (s.url) return 'Your link';
     if (s.kind === 'people') return [s.source === 'google' ? 'Google → LinkedIn profiles' : 'LinkedIn people', s.company && `at ${s.company}`, s.common && `in common: ${s.common}`].filter(Boolean).join(' · ');
-    return [s.source === 'startups' ? 'Startup job boards' : 'LinkedIn jobs', WINDOWS[s.within] ? WINDOWS[s.within].label.toLowerCase() : 'any time', s.workType && s.workType !== 'any' ? WORK_TYPES[s.workType].toLowerCase() : '', s.location, s.source !== 'startups' ? 'newest first' : ''].filter(Boolean).join(' · ');
+    const within = !WINDOWS[s.within] ? 'any time' : s.source === 'indeed' && s.within === 'month' ? 'past 14 days' : WINDOWS[s.within].label.toLowerCase();
+    return [JOB_SOURCES[s.source] || JOB_SOURCES.linkedin, within, s.workType && s.workType !== 'any' ? WORK_TYPES[s.workType].toLowerCase() : '', s.location, s.source !== 'startups' ? 'newest first' : ''].filter(Boolean).join(' · ');
   }
 
   // ---------------- contacts ----------------
@@ -863,6 +892,7 @@
     WINDOWS,
     WORK_TYPES,
     STARTUP_BOARDS,
+    JOB_SOURCES,
     CONTACT_STATUSES,
     CONTACT_LABEL,
     COMPANY_STATUSES,
@@ -874,6 +904,7 @@
     sameCompany,
     googleUrl,
     linkedinJobsUrl,
+    indeedJobsUrl,
     startupBoardsUrl,
     linkedinPeopleUrl,
     googlePeopleUrl,
