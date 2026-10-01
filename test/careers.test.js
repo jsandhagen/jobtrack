@@ -439,3 +439,159 @@ test('fit preview: scored from listed descriptions, read one by one where the li
   assert.equal(sr.calls.filter((c) => /postings\/p\d$/.test(c.url)).length, reads, 'previews already made are kept, not re-read');
   assert.ok(again.patch.jobs.every((j) => j.fit && j.pay));
 });
+
+test('recognises the newer boards from their links, and not the ATS makers\' own sites', () => {
+  const cases = [
+    ['https://acme.recruitee.com/o/chief-of-staff', 'recruitee', 'acme'],
+    ['acme.bamboohr.com/careers/12', 'bamboohr', 'acme'],
+    ['https://acme.breezy.hr/p/abc-chief-of-staff', 'breezy', 'acme'],
+    ['https://acme.pinpointhq.com/en/postings/1', 'pinpoint', 'acme'],
+    ['https://ats.rippling.com/acme/jobs/1b2c', 'rippling', 'acme'],
+    ['https://jobs.gem.com/acme/abc', 'gem', 'acme'],
+    ['https://acme.teamtailor.com/jobs/123-chief-of-staff', 'teamtailor', 'acme'],
+    ['https://acme.jobs.personio.de/job/77', 'personio', 'acme'],
+    ['https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/123', 'oracle', 'eeho.fa.us2.oraclecloud.com'],
+  ];
+  for (const [url, ats, token] of cases) {
+    const b = C.detectBoard(url);
+    assert.ok(b, url);
+    assert.deepEqual([b.ats, b.token], [ats, token], url);
+    assert.match(b.url, /^https:\/\//);
+  }
+  assert.equal(C.detectBoard('https://acme.jobs.personio.com/').url, 'https://acme.jobs.personio.com/');
+  assert.equal(C.detectBoard('https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1').site, 'CX_1');
+  for (const u of ['https://www.bamboohr.com/pricing', 'https://app.recruitee.com/', 'https://help.breezy.hr/x', 'https://www.teamtailor.com/en/']) assert.equal(C.detectBoard(u), null, u);
+  // "Powered by" links don't outvote the company's own board.
+  assert.equal(C.boardFromHtml('<script src="https://acme.bamboohr.com/js/embed.js"></script><a href="https://www.bamboohr.com">Powered by BambooHR</a>').ats, 'bamboohr');
+});
+
+test('reads jobs from the newer boards', async () => {
+  const rss = `<?xml version="1.0"?><rss xmlns:tt="https://teamtailor.com/locations"><channel>
+    <item><title>Chief of Staff</title><link>https://acme.teamtailor.com/jobs/1-chief-of-staff</link><guid>tt-1</guid><pubDate>Sun, 27 Sep 2026 10:00:00 +0000</pubDate>
+      <description><![CDATA[<p>Run the <b>operating cadence</b>.</p>]]></description><remoteStatus>hybrid</remoteStatus>
+      <tt:department>Ops</tt:department><tt:locations><tt:location><tt:city>Berlin</tt:city><tt:country>Germany</tt:country></tt:location></tt:locations></item>
+  </channel></rss>`;
+  const xml = `<?xml version="1.0"?><workzag-jobs><position><id>77</id><office>Munich</office><additionalOffices><office>Berlin</office></additionalOffices><department>Ops</department><name>Head of Operations &amp; Strategy</name>
+    <jobDescriptions><jobDescription><name>Your role</name><value><![CDATA[<p>Lead ops.</p>]]></value></jobDescription></jobDescriptions><createdAt>2026-09-25T08:00:00+00:00</createdAt></position></workzag-jobs>`;
+  const f = fakeFetch([
+    ['https://acme.recruitee.com/api/offers/', { offers: [{ id: 5, title: 'Chief of Staff', location: 'Amsterdam', remote: true, careers_url: 'https://acme.recruitee.com/o/cos', published_at: '2026-09-28 10:00:00 UTC', status: 'published', description: '<p>Pay: €70k – €90k</p>' }, { id: 6, title: 'Draft', status: 'draft' }] }],
+    ['https://acme.bamboohr.com/careers/list', { result: [{ id: '12', jobOpeningName: 'Operations Manager', location: { city: 'Austin', state: 'Texas' }, isRemote: false, departmentLabel: 'Ops' }] }],
+    ['https://acme.breezy.hr/json', [{ id: 'b1', name: 'BizOps Lead', url: 'https://acme.breezy.hr/p/b1', location: { name: 'Denver, CO', is_remote: true }, published_date: daysAgo(3), salary: '$120,000 - $150,000' }]],
+    ['https://acme.pinpointhq.com/postings.json', { data: [{ id: 9, title: 'Chief of Staff', url: 'https://acme.pinpointhq.com/postings/9', location: { name: 'London' }, workplace_type: 'remote', description: '<p>Hello</p>' }] }],
+    ['https://api.rippling.com/platform/api/ats/v1/board/acme/jobs', [{ uuid: 'r1', name: 'Ops Manager', url: 'https://ats.rippling.com/acme/jobs/r1', workLocation: { label: 'New York, NY' }, department: { label: 'Ops' } }]],
+    ['https://api.gem.com/job_board/v0/acme/job_posts/', [{ id: 3, title: 'Chief of Staff', absolute_url: 'https://jobs.gem.com/acme/3', location: { name: 'SF' }, first_published_at: daysAgo(1), content: '<p>Own it</p>' }]],
+    ['https://acme.teamtailor.com/jobs.rss', rss],
+    ['https://acme.jobs.personio.de/xml?language=en', xml],
+    [/oraclecloud\.com\/hcmRestApi\/resources\/latest\/recruitingCEJobRequisitions\?/, (url) => ({ items: [{ TotalJobsCount: 1, requisitionList: /offset=0,/.test(url) ? [{ Id: '300', Title: 'Chief of Staff', PrimaryLocation: 'Austin, TX', PostedDate: '2026-09-29', WorkplaceType: 'Remote' }] : [] }] })],
+  ]);
+  const read = (u) => C.listJobs(C.detectBoard(u), f, { now: NOW });
+  const rc = await read('https://acme.recruitee.com');
+  assert.deepEqual(rc.map((j) => [j.title, j.location, j.url]), [['Chief of Staff', 'Amsterdam · Remote', 'https://acme.recruitee.com/o/cos']]);
+  assert.equal(rc[0].pay.currency, 'EUR');
+  assert.deepEqual((await read('https://acme.bamboohr.com/careers')).map((j) => [j.title, j.location, j.url]), [['Operations Manager', 'Austin, Texas', 'https://acme.bamboohr.com/careers/12']]);
+  assert.equal(f.calls.find((c) => /bamboohr/.test(c.url)).opts.headers['X-Requested-With'], 'XMLHttpRequest');
+  const bz = await read('https://acme.breezy.hr');
+  assert.deepEqual([bz[0].location, bz[0].pay.min, bz[0].postedAt], ['Denver, CO · Remote', 120000, daysAgo(3)]);
+  assert.equal((await read('https://acme.pinpointhq.com'))[0].location, 'London · Remote');
+  assert.equal((await read('https://ats.rippling.com/acme/jobs'))[0].id, 'r1');
+  assert.equal((await read('https://jobs.gem.com/acme'))[0].text, 'Own it');
+  const tt = await read('https://acme.teamtailor.com');
+  assert.deepEqual([tt[0].id, tt[0].title, tt[0].location, tt[0].department, tt[0].text], ['tt-1', 'Chief of Staff', 'Berlin, Germany', 'Ops', 'Run the operating cadence.']);
+  assert.equal(tt[0].postedAt, '2026-09-27T10:00:00.000Z');
+  const ps = await read('https://acme.jobs.personio.de');
+  assert.deepEqual([ps[0].title, ps[0].location, ps[0].url, ps[0].text], ['Head of Operations & Strategy', 'Munich · Berlin', 'https://acme.jobs.personio.de/job/77', 'Your role\nLead ops.']);
+  const oc = await read('https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1');
+  assert.deepEqual([oc[0].title, oc[0].location, oc[0].url], ['Chief of Staff', 'Austin, TX · Remote', 'https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/300']);
+  assert.match(f.calls.find((c) => /oraclecloud/.test(c.url)).url, /finder=findReqs;siteNumber=CX_1,limit=200,offset=0,sortBy=POSTING_DATES_DESC/);
+});
+
+test('BambooHR and Oracle descriptions come from their detail APIs', async () => {
+  const f = fakeFetch([
+    ['https://acme.bamboohr.com/careers/12/detail', { result: { jobOpening: { description: '<p>Run <b>ops</b> for the whole company, every day.</p>' } } }],
+    [/recruitingCEJobRequisitionDetails\?.*finder=ById;Id=%22300%22,siteNumber=CX_1/, { items: [{ ExternalDescriptionStr: '<p>Lead the CEO office.</p>', ExternalQualificationsStr: '<ul><li>5 years</li></ul>' }] }],
+  ]);
+  assert.equal(await C.jobDetail(C.detectBoard('https://acme.bamboohr.com'), { id: '12' }, f), 'Run ops for the whole company, every day.');
+  assert.equal(await C.jobDetail(C.detectBoard('https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1'), { id: '300' }, f), 'Lead the CEO office.\n\n- 5 years');
+});
+
+test('a Teamtailor careers site on the company\'s own domain is read through its feed', async () => {
+  const f = fakeFetch([
+    ['https://careers.acme.com/', '<html><link href="https://teamtailor-cdn.com/assets/app.css"></html>'],
+    ['https://careers.acme.com/jobs.rss', '<rss><channel><item><title>Chief of Staff</title><link>https://careers.acme.com/jobs/1</link><guid>1</guid></item></channel></rss>'],
+  ]);
+  const r = await C.checkCompany({ name: 'Acme', careersUrl: 'https://careers.acme.com/' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
+  assert.deepEqual([r.patch.board.ats, r.patch.board.token, r.patch.board.url], ['teamtailor', 'careers.acme.com', 'https://careers.acme.com/jobs']);
+  assert.equal(r.patch.jobs[0].url, 'https://careers.acme.com/jobs/1');
+});
+
+test('own careers site: the jobs it describes for search engines', () => {
+  const html = `<script type="application/ld+json">{"@context":"https://schema.org","@type":"ItemList","itemListElement":[
+    {"@type":"ListItem","item":{"@type":"JobPosting","title":"Chief of Staff","url":"/careers/chief-of-staff-4471","datePosted":"2026-09-28",
+      "jobLocation":{"@type":"Place","address":{"addressLocality":"Arlington","addressRegion":"VA","addressCountry":{"name":"US"}}},
+      "baseSalary":{"currency":"USD","value":{"minValue":150000,"maxValue":190000,"unitText":"YEAR"}},"description":"&lt;p&gt;Run the CEO's office.&lt;/p&gt;"}},
+    {"@type":"ListItem","item":{"@type":"JobPosting","title":"Ops Manager","url":"https://acme.com/careers/ops-manager-12","jobLocationType":"TELECOMMUTE"}}]}</script>`;
+  const jobs = C.siteJobs(html, 'https://acme.com/careers');
+  assert.deepEqual(jobs.map((j) => [j.title, j.url, j.location]), [
+    ['Chief of Staff', 'https://acme.com/careers/chief-of-staff-4471', 'Arlington, VA, US'],
+    ['Ops Manager', 'https://acme.com/careers/ops-manager-12', 'Remote'],
+  ]);
+  assert.deepEqual([jobs[0].postedAt, jobs[0].pay.min, jobs[0].text], ['2026-09-28T00:00:00.000Z', 150000, "Run the CEO's office."]);
+});
+
+test('own careers site: links to postings, not to sections, other sites or "Apply"', () => {
+  const html = `<nav><a href="/careers/benefits">Benefits</a><a href="/careers/life-at-acme">Life at Acme</a><a href="/careers/early-careers">Early careers</a><a href="/careers/students-and-graduates">Students and graduates</a></nav>
+    <a href="/careers/jobs/4471"><h3>Chief of Staff</h3><span>Engineering</span><span>Arlington, VA</span></a>
+    <a href="https://jobs.acme.com/job/operations-manager-remote-us">Operations Manager</a>
+    <a href="/careers/jobs/4471">Apply</a>
+    <a href="https://other.com/jobs/123">Someone else's job</a>
+    <a href="/blog/2026/how-we-hire-1234">How we hire</a>`;
+  const jobs = C.siteJobs(html, 'https://www.acme.com/careers');
+  assert.deepEqual(jobs.map((j) => [j.title, j.url, j.location]), [
+    ['Chief of Staff', 'https://www.acme.com/careers/jobs/4471', 'Arlington, VA'],
+    ['Operations Manager', 'https://jobs.acme.com/job/operations-manager-remote-us', ''],
+  ]);
+  // A menu of sections under /careers/ isn't a job list, but /careers/jobs/<title> is.
+  assert.deepEqual(C.siteJobs('<a href="/careers/students-and-graduates">Students and graduates</a><a href="/careers/our-hiring-process">Our hiring process</a>', 'https://acme.com/careers'), []);
+  assert.equal(C.siteJobs('<a href="/careers/jobs/chief-of-staff">Chief of Staff</a><a href="/careers/jobs/ops-manager">Ops Manager</a>', 'https://acme.com/careers').length, 2);
+  // One stray link isn't a job list.
+  assert.deepEqual(C.siteJobs('<a href="/jobs/12345">Chief of Staff</a>', 'https://acme.com/'), []);
+  assert.deepEqual(C.listingLinks('<a href="/careers/open-roles">See open roles</a><a href="/about">About</a><a href="https://x.com/jobs">Elsewhere</a>', 'https://acme.com/careers'), ['https://acme.com/careers/open-roles']);
+});
+
+test('checking a company with its own careers site: follows "See open roles", reads the postings, and scores them from their pages', async () => {
+  let listing = `<a href="/careers/jobs/101-chief-of-staff">Chief of Staff</a><a href="/careers/jobs/102-data-engineer">Data Engineer</a>`;
+  const f = fakeFetch([
+    ['https://acme.com/careers', '<h1>Join us</h1><a href="/careers/benefits">Benefits</a><a href="/careers/openings">See open roles</a>'],
+    ['https://acme.com/careers/openings', () => listing],
+    ['https://acme.com/careers/jobs/101-chief-of-staff', '<script type="application/ld+json">{"@type":"JobPosting","title":"Chief of Staff","description":"<p>Partner with the CEO on strategy, planning and the operating cadence. 5+ years of experience.</p>"}</script>'],
+  ]);
+  const co = { name: 'Acme', careersUrl: 'https://acme.com/careers' };
+  const scored = [];
+  const scoreJob = (j) => (scored.push(j.title), { score: 70 });
+  const r = await C.checkCompany(co, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW, scoreJob });
+  assert.deepEqual([r.patch.board.ats, r.patch.board.url, r.patch.board.via], ['site', 'https://acme.com/careers/openings', 'page']);
+  assert.equal(r.patch.openCount, 2);
+  assert.deepEqual(r.patch.jobs.map((j) => [j.title, j.fit && j.fit.score]), [['Chief of Staff', 70]]);
+  assert.deepEqual(scored, ['Chief of Staff']);
+
+  // A new posting goes up on the site.
+  listing += `<a href="/careers/jobs/103-deputy-chief-of-staff">Deputy Chief of Staff</a>`;
+  const next = await C.checkCompany({ ...co, ...r.patch }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW + 3600000 });
+  assert.deepEqual(next.fresh.map((j) => j.title), ['Deputy Chief of Staff']);
+
+  // The site stops listing jobs in its HTML: Sprout says it can't read it rather than "0 open".
+  listing = '<div id="root"></div>';
+  const gone = await C.checkCompany({ ...co, ...next.patch }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW + 7200000 });
+  assert.equal(gone.patch.checkError, 'no-board');
+});
+
+test('a careers page whose jobs are an ATS a click away is read through that ATS', async () => {
+  const f = fakeFetch([
+    ['https://acme.com/careers', '<a href="https://acme.com/careers/jobs">View all jobs</a>'],
+    ['https://acme.com/careers/jobs', '<div id="BambooHR" data-domain="acme.bamboohr.com"></div><script src="https://acme.bamboohr.com/js/embed.js"></script>'],
+    ['https://acme.bamboohr.com/careers/list', { result: [{ id: '1', jobOpeningName: 'Chief of Staff' }] }],
+  ]);
+  const r = await C.checkCompany({ name: 'Acme', careersUrl: 'https://acme.com/careers' }, { fetchImpl: f, roles: ['Chief of Staff'], now: NOW });
+  assert.deepEqual([r.patch.board.ats, r.patch.board.token], ['bamboohr', 'acme']);
+  assert.equal(r.patch.jobs.length, 1);
+});

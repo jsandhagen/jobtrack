@@ -1020,7 +1020,7 @@ function outreachHomeCard() {
 //   Searches   one-click searches (saved, suggested, build your own).
 //   Companies  the companies you watch and their careers sites.
 
-const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday' };
+const ATS_NAME = { greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', workable: 'Workable', smartrecruiters: 'SmartRecruiters', workday: 'Workday', recruitee: 'Recruitee', bamboohr: 'BambooHR', breezy: 'Breezy', pinpoint: 'Pinpoint', rippling: 'Rippling', gem: 'Gem', teamtailor: 'Teamtailor', personio: 'Personio', oracle: 'Oracle' };
 const FEED_WINDOWS = [
   ['week', 'Past week', 7],
   ['month', 'Past month', 30],
@@ -1318,10 +1318,10 @@ function careersStatus(co) {
   if (co.status === 'pass') return `<div class="co-status faint">Not checking: you passed on this one.</div>`;
   if (!co.lastCheckedAt) return `<div class="co-status faint">${state.careersChecking ? '<span class="spinner"></span> Looking for its careers site…' : 'Not checked yet.'}</div>`;
   if (co.checkError === 'no-board')
-    return `<div class="co-status warn">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. <a href="#" class="coCareers" data-id="${co.id}">Paste its job board link</a> (Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Workday) and I'll check it.</div>`;
+    return `<div class="co-status warn">${icon('warn', 13)} I can't read ${co.careersUrl ? 'this careers site' : 'its careers site'} on my own. <a href="#" class="coCareers" data-id="${co.id}">Paste the link to the page that lists its jobs</a> (its own jobs page, or its board on Greenhouse, Lever, Ashby, Workday, BambooHR, Oracle and the like) and I'll check it.</div>`;
   if (co.checkError) return `<div class="co-status warn">${icon('warn', 13)} Last check didn't work: ${esc(co.checkError)}</div>`;
   const b = co.board;
-  return `<div class="co-status faint">${icon('check', 13)} Reading its <a href="#" data-open-url="${esc(b.url)}">${ATS_NAME[b.ats] || b.ats} job board</a> · ${co.openCount} open · checked ${timeAgo(co.lastCheckedAt)}
+  return `<div class="co-status faint">${icon('check', 13)} Reading its <a href="#" data-open-url="${esc(b.url)}">${b.ats === 'site' ? 'own careers page' : `${ATS_NAME[b.ats] || b.ats} job board`}</a> · ${co.openCount} open · checked ${timeAgo(co.lastCheckedAt)}
     ${b.guessed ? `<br>I found this board by its name. Is it really them? <a href="#" class="coNotThem" data-id="${co.id}">Not them</a>` : ''}</div>`;
 }
 
