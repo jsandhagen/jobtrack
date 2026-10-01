@@ -16,6 +16,7 @@ const {
   safeStorage,
   shell,
   net,
+  powerMonitor,
 } = require('electron');
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
@@ -1790,6 +1791,12 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
   }
 }
 
+const CAREERS_EVERY = 8 * 60 * 60 * 1000;
+function checkCareersIfDue() {
+  const last = Date.parse(store.getSettings().careersCheckedAt || '') || 0;
+  if (Date.now() - last >= CAREERS_EVERY) checkCareers().catch(() => {});
+}
+
 async function checkCareers(ids, { manual = false } = {}) {
   if (careersChecking) {
     if (manual) throw new Error('Already checking. Give me a moment.');
@@ -1828,6 +1835,8 @@ async function checkCareers(ids, { manual = false } = {}) {
     }
   } finally {
     careersChecking = false;
+    // A full check (automatic or Check now) restarts the 8-hour clock.
+    if (!ids) store.updateSettings({ careersCheckedAt: new Date().toISOString() });
     broadcast('state-changed');
   }
   // Logos after the jobs, so they never hold up the board.
@@ -2043,10 +2052,32 @@ function startUpdates() {
     told = key;
     broadcast('toast', {
       kind: 'good',
-      text: st.state === 'ready' ? `Sprout ${st.version} is ready. Restart from Settings → Updates, or it installs next time you quit.` : `Sprout ${st.version} is out! Download it from Settings → Updates.`,
+      text: st.state === 'ready' ? `Sprout ${st.version} is ready. I'll restart into it once you step away, or restart now from Settings → Updates.` : `Sprout ${st.version} is out! Download it from Settings → Updates.`,
     });
   });
   updater.start();
+  // Downloaded updates install themselves; look every minute for a good moment.
+  setInterval(installWhenAway, 60 * 1000);
+  // A laptop waking up may have missed a check or two.
+  powerMonitor.on('resume', () => setTimeout(() => updater.check(), 30 * 1000));
+}
+
+// Install a downloaded update without asking, but never in the middle of
+// something: only while the dashboard is closed, hidden or minimized, or
+// you've been away from the computer for a while, and no scan, search or
+// careers check is running. Sprout reopens on the new version.
+const AWAY_SECONDS = 10 * 60;
+function installWhenAway() {
+  if (updater.status().state !== 'ready') return;
+  if (careersChecking || roleSearching || finderRunning) return;
+  if (overlay && !overlay.isDestroyed() && overlay.isVisible()) return;
+  const inUse = dashboard && !dashboard.isDestroyed() && dashboard.isVisible() && !dashboard.isMinimized();
+  if (inUse && powerMonitor.getSystemIdleTime() < AWAY_SECONDS) return;
+  try {
+    updater.install({ quiet: true });
+  } catch (err) {
+    console.warn('Auto-install failed:', err.message);
+  }
 }
 
 // ---------------- lifecycle ----------------
@@ -2105,9 +2136,11 @@ if (process.argv.includes('--smoke-test')) {
     registerHotkey(store.getSettings().hotkey);
     checkFollowUps();
     setInterval(checkFollowUps, 60 * 60 * 1000);
-    // Careers sites: shortly after start, then every six hours.
-    setTimeout(() => checkCareers().catch(() => {}), 60 * 1000);
-    setInterval(() => checkCareers().catch(() => {}), 6 * 60 * 60 * 1000);
+    // Careers sites: every 8 hours, counted from the last full check (so a
+    // restart or a sleeping laptop doesn't throw the schedule off).
+    setTimeout(checkCareersIfDue, 60 * 1000);
+    setInterval(checkCareersIfDue, 15 * 60 * 1000);
+    powerMonitor.on('resume', () => setTimeout(checkCareersIfDue, 60 * 1000));
     startBridge();
     startUpdates();
   });

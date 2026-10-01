@@ -4,6 +4,8 @@
 // itself when the app is signed with an Apple certificate, which the default
 // builds aren't, so there (and for a Linux build that isn't the AppImage)
 // Sprout just checks GitHub, says a new version is out and links to it.
+// Once an update has downloaded, main.js installs it by itself as soon as
+// you're not using Sprout (see installWhenAway there).
 
 const EventEmitter = require('events');
 
@@ -86,9 +88,11 @@ function createUpdater({ app, log = console, fetchImpl = globalThis.fetch }) {
       setTimeout(check, 15000);
       timer = setInterval(check, EVERY);
     },
-    install() {
+    // `quiet` installs without the installer's window (used when Sprout
+    // updates itself while you're away); either way Sprout reopens after.
+    install({ quiet = false } = {}) {
       if (status.state !== 'ready') throw new Error('No update is ready to install yet.');
-      load().quitAndInstall(false, true);
+      load().quitAndInstall(quiet, true);
     },
   };
 }

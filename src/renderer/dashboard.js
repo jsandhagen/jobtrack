@@ -1010,7 +1010,7 @@ async function renderUpdateCard(st) {
     checking: '<span class="spinner"></span> Checking for a new version…',
     current: `You're up to date (version ${esc(st.current)}).${when}`,
     downloading: `<span class="spinner"></span> Downloading version ${esc(st.version)}… ${st.percent ? `${st.percent}%` : ''}`,
-    ready: `<b>Version ${esc(st.version)} is ready.</b> Restart to switch to it, or it installs next time you quit Sprout.`,
+    ready: `<b>Version ${esc(st.version)} is ready.</b> It installs by itself once you step away from Sprout (and Sprout reopens), or restart now.`,
     available: `<b>Version ${esc(st.version)} is out</b> (you have ${esc(st.current)}). Download it and install over this one; your documents and applications are kept.`,
     error: `Couldn't check for updates: ${esc(st.error || 'unknown error')}`,
   }[st.state] || '';
