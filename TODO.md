@@ -1,5 +1,23 @@
 # TODO
 
+## Resume optimizer/editor
+
+### Highest priority
+- [x] **Evidence-aware bullet ranking.** Rank documented accomplishments using impact, scope and ownership signals in addition to keyword/requirement coverage; numbers are useful evidence but are not required.
+- [ ] **Requirement-aware evidence graph.** Map each critical/preferred posting requirement to the strongest supporting evidence, source document, role and bullet; surface unsupported requirements instead of trying to paper over them.
+- [ ] **Separate ATS compatibility from resume strength.** Show ATS/parseability, requirement coverage and evidence/accomplishment strength as separate diagnostics rather than implying one ATS percentage represents overall resume quality.
+- [ ] **Evidence mining during optimization.** Search all candidate documents for stronger documented accomplishments before relying only on the existing bullet bank.
+- [ ] **Narrative-aware selection.** Optimize the selected bullet set for coherent career story, seniority, ownership and business impact, not just independent keyword coverage.
+- [ ] **Evidence-first final audit.** Before export, verify every AI-added fact/number/tool, requirement coverage, unsupported gaps, duplicate accomplishments, page count and parseability.
+
+### Editor improvements
+- [ ] **Source provenance UI.** Let users inspect the source document/quote supporting each AI-generated or materially rewritten bullet.
+- [ ] **Semantic before/after diff.** Show changed wording, newly emphasized posting terms, and the reason/evidence behind each suggestion.
+- [ ] **Separate edit modes.** Distinguish Polish (wording only), Strengthen (find better documented evidence), Tailor (change emphasis), and Rebuild (replace with a stronger documented accomplishment).
+- [ ] **Replace “Use all” with review-first behavior.** Preserve the candidate-review model for AI changes and flag higher-risk edits.
+- [ ] **Broaden resume checks beyond numeric results.** Recognize impact through scope, adoption, ownership, decision influence, process improvement and business consequence; do not equate “has a number” with “has a result.”
+- [ ] **Distinguish weak from unquantified.** A strong ownership/accomplishment bullet without a metric should not automatically be treated as weak.
+
 ## Fit score (`src/main/localFit.js`)
 
 The offline fit score is hand-tuned rules checked against fixtures in
