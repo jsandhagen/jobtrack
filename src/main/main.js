@@ -430,6 +430,63 @@ const atsScore = memoize(readAts, {
   key: (job, text, opts = {}) => `${jobKey(job)}\u0000${text}\u0000${JSON.stringify(opts)}`,
 });
 
+// The posting and bank determine rankings, independently of the page being
+// edited. Ordinary typing can reuse them; bank/role edits invalidate them.
+const rankBank = memoize((job) => bulletBank.rankBullets(job, store.getBank()), {
+  size: 30,
+  key: (job) => `${store.bankVersion}\u0000${new Date().getFullYear()}\u0000${jobKey(job)}`,
+});
+const bankTags = memoize((text) => bulletBank.skillTags(text), { size: 5000, key: (text) => text });
+const bankView = memoize(() => {
+  const bank = store.getBank();
+  return { ...bank, experiences: bulletBank.orderedExperiences(bank), bullets: bank.bullets.map((b) => ({ ...b, tags: bankTags(b.text) })) };
+}, { size: 1, key: () => store.bankVersion });
+
+// List reads must stay cheap even just after importing/removing a document.
+// Score one resume between IPC requests and publish the completed batch. The
+// detail view still calculates its current score immediately when opened.
+const summaryScores = new WeakMap();
+const pendingSummaryScores = new Set();
+let summaryScoreScheduled = false;
+const summaryScoreKey = (rec, profile) => [store.documentsVersion, profile, jobKey(rec.job), rec.resumeHtml];
+const sameSummaryKey = (a, b) => a && a.every((value, i) => value === b[i]);
+function listAts(rec, profile) {
+  if (!rec.resumeHtml) return { atsBefore: null, atsAfter: null };
+  const cached = summaryScores.get(rec);
+  if (cached && sameSummaryKey(cached.key, summaryScoreKey(rec, profile))) return cached.scores;
+  pendingSummaryScores.add(rec);
+  if (!summaryScoreScheduled) {
+    summaryScoreScheduled = true;
+    setImmediate(scoreNextSummary);
+  }
+  return { atsBefore: null, atsAfter: null };
+}
+function scoreNextSummary() {
+  const rec = pendingSummaryScores.values().next().value;
+  pendingSummaryScores.delete(rec);
+  if (rec && store.getApplication(rec.id) === rec && rec.resumeHtml) {
+    const key = summaryScoreKey(rec, JSON.stringify(store.getProfile()));
+    const cached = summaryScores.get(rec);
+    if (!cached || !sameSummaryKey(cached.key, key)) {
+      try {
+        summaryScores.set(rec, {
+          key,
+          scores: {
+            atsBefore: (libraryAts(rec.job) || {}).score ?? null,
+            atsAfter: atsScore(rec.job, htmlToText(rec.resumeHtml), { profile: store.getProfile() }).score,
+          },
+        });
+      } catch (err) {
+        console.warn('Could not score a resume in the applications list:', err.message);
+        summaryScores.set(rec, { key, scores: { atsBefore: null, atsAfter: null } });
+      }
+    }
+  }
+  if (pendingSummaryScores.size) return void setImmediate(scoreNextSummary);
+  summaryScoreScheduled = false;
+  broadcast('state-changed');
+}
+
 // The editor's page against the length estimate on this computer (see builder:calibrate).
 const validScale = (s) => (typeof s === 'number' && s >= 0.85 && s <= 1.3 ? Math.round(s * 1000) / 1000 : null);
 const pageScale = () => validScale(store.getSettings().pageScale) || 1;
@@ -606,11 +663,12 @@ async function analyzeApp(appId, { popup = false, keepTitle = true } = {}) {
 // Computed on read so it stays current as the library or the resume is edited.
 function withAts(rec) {
   if (!rec) return rec;
+  ensureResumeHeader(rec);
   const before = libraryAts(rec.job);
   const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml), { profile: store.getProfile() }) : null;
   const bank = store.getBank();
   // Which bullet proves each requirement.
-  const evidence = bank.bullets.length ? bulletBank.rankBullets(rec.job, bank).evidence : [];
+  const evidence = bank.bullets.length ? rankBank(rec.job).evidence : [];
   // The few things worth doing, in plain words, for whichever resume is shown.
   const nudges = after
     ? atsNudges({ ats: after, job: rec.job, pageText: htmlToText(rec.resumeHtml), bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true })
@@ -920,7 +978,7 @@ function currentDoc(rec) {
 }
 
 function saveDoc(appId, doc, extra = {}) {
-  const clean = ResumeDoc.normalize(doc);
+  const clean = ResumeDoc.normalize({ ...doc, header: ResumeDoc.fillHeader(doc.header, store.getProfile()) });
   updateHost(appId, {
     builder: { doc: clean, savedAt: new Date().toISOString() },
     resumeHtml: ResumeDoc.renderHtml(ResumeDoc.compact(clean)),
@@ -928,6 +986,19 @@ function saveDoc(appId, doc, extra = {}) {
     ...extra,
   });
   return clean;
+}
+
+// Old resumes can have been saved before contact details were added. Repair
+// both the stored page and its rendered HTML on every preview/export path.
+function ensureResumeHeader(rec) {
+  if (!rec || (!(rec.builder && rec.builder.doc) && !rec.resume)) return;
+  const doc = currentDoc(rec);
+  const header = ResumeDoc.fillHeader(doc.header, store.getProfile());
+  const renderedHeader = String(rec.resumeHtml || '').match(/<header\b[^>]*class="[^"]*\brs-head\b[^"]*"[^>]*>([\s\S]*?)<\/header>/i);
+  const blankPreview = renderedHeader && !htmlToText(renderedHeader[1]) && Object.values(header).some((value) => String(value || '').trim());
+  if (!rec.builder || !rec.builder.doc || blankPreview || ['name', 'line1', 'line2'].some((k) => header[k] !== (doc.header || {})[k])) {
+    saveDoc(rec.id, { ...doc, header });
+  }
 }
 
 function builderState(rec) {
@@ -940,7 +1011,7 @@ function builderState(rec) {
     rec = getHost(rec.id);
   }
   const bank = store.getBank();
-  const { ranked, units } = bulletBank.rankBullets(rec.job, bank);
+  const { ranked, units } = rankBank(rec.job);
   const used = new Set(doc.roles.flatMap((r) => r.bullets.map((b) => b.bulletId).filter(Boolean)));
   const usedText = new Set(doc.roles.flatMap((r) => r.bullets.map((b) => b.text)));
   const rankById = new Map(ranked.map((r) => [r.id, r]));
@@ -1326,32 +1397,36 @@ function handle(channel, fn) {
 }
 
 function registerIpc() {
-  handle('state:get', () => ({
-    settings: { ...store.getSettings(), bridgePairings: undefined },
-    profile: store.getProfile(),
-    documents: store.listDocuments(),
-    applications: store.listApplications().filter((a) => a.saved !== false).map(summarizeApp),
-    resumes: store.listResumes().map(summarizeResume),
-    checked: store
-      .listApplications()
-      .filter((a) => a.saved === false)
-      .sort((a, b) => String(b.lastSeenAt || b.createdAt).localeCompare(String(a.lastSeenAt || a.createdAt)))
-      .map(summarizeApp),
-    hasApiKey: !!getApiKey(),
-    usage: store.getUsage(),
-    autoBudgetOk: autoBudgetOk(),
-    platform: process.platform,
-    contacts: store.list('contacts'),
-    connections: store.list('connections'),
-    companies: store.list('companies').map(({ seen, ...c }) => c),
-    careersChecking,
-    jobBoards: jobBoards.BOARD_INFO,
-    defaultJobBoards: jobBoards.DEFAULT_BOARDS,
-    searches: store.list('searches'),
-    templates: store.list('templates', outreach.DEFAULT_TEMPLATES),
-    finder: store.getFinder(),
-    finderRunning,
-  }));
+  handle('state:get', () => {
+    const profile = store.getProfile();
+    const scoreProfile = JSON.stringify(profile);
+    const applications = store.listApplications();
+    return {
+      settings: { ...store.getSettings(), bridgePairings: undefined },
+      profile,
+      documents: store.listDocuments(),
+      applications: applications.filter((a) => a.saved !== false).map((a) => summarizeApp(a, scoreProfile)),
+      resumes: store.listResumes().map(summarizeResume),
+      checked: applications
+        .filter((a) => a.saved === false)
+        .sort((a, b) => String(b.lastSeenAt || b.createdAt).localeCompare(String(a.lastSeenAt || a.createdAt)))
+        .map((a) => summarizeApp(a, scoreProfile)),
+      hasApiKey: !!getApiKey(),
+      usage: store.getUsage(),
+      autoBudgetOk: autoBudgetOk(),
+      platform: process.platform,
+      contacts: store.list('contacts'),
+      connections: store.list('connections'),
+      companies: store.list('companies').map(({ seen, ...c }) => c),
+      careersChecking,
+      jobBoards: jobBoards.BOARD_INFO,
+      defaultJobBoards: jobBoards.DEFAULT_BOARDS,
+      searches: store.list('searches'),
+      templates: store.list('templates', outreach.DEFAULT_TEMPLATES),
+      finder: store.getFinder(),
+      finderRunning,
+    };
+  });
   // Just the settings, for windows that only need the theme (the whole state reads every job).
   handle('settings:get', () => ({ ...store.getSettings(), bridgePairings: undefined }));
   handle('settings:update', (patch) => applySettings(patch));
@@ -1433,10 +1508,7 @@ function registerIpc() {
   handle('spire:save', (run) => store.saveSpire(run && typeof run === 'object' ? run : null));
 
   // ---- bullet bank ----
-  handle('bank:get', () => {
-    const bank = store.getBank();
-    return { ...bank, experiences: bulletBank.orderedExperiences(bank), bullets: bank.bullets.map((b) => ({ ...b, tags: bulletBank.skillTags(b.text) })) };
-  });
+  handle('bank:get', () => bankView());
   handle('bank:import', () => {
     const r = importBullets(store.allDocuments());
     broadcast('state-changed');
@@ -1526,11 +1598,17 @@ function registerIpc() {
     const clean = saveDoc(appId, doc);
     // Role facts (employer, title, dates, location) are the same on every resume: keep the bank in step.
     store.updateBank((bank) => {
+      const byId = new Map(bank.experiences.map((e) => [e.id, e]));
+      let changed = false;
       for (const r of clean.roles) {
-        const e = r.experienceId && bank.experiences.find((x) => x.id === r.experienceId);
+        const e = byId.get(r.experienceId);
         if (!e) continue;
-        for (const k of ['organization', 'location', 'title', 'dates']) if (r[k] && r[k] !== e[k]) e[k] = r[k];
+        for (const k of ['organization', 'location', 'title', 'dates']) if (r[k] && r[k] !== e[k]) {
+          e[k] = r[k];
+          changed = true;
+        }
       }
+      if (!changed) return false;
     });
     hostUpdated(getHost(appId));
     return builderState(getHost(rec.id));
@@ -1562,7 +1640,7 @@ function registerIpc() {
     const bank = store.getBank();
     const e = bank.experiences.find((x) => x.id === experienceId);
     if (!e) throw new Error('That role is no longer in your bank.');
-    const top = bulletBank.rankBullets(rec.job, bank).ranked.filter((r) => r.experienceId === experienceId).slice(0, 3);
+    const top = rankBank(rec.job).ranked.filter((r) => r.experienceId === experienceId).slice(0, 3);
     return { experienceId: e.id, isProject: !!e.isProject, organization: e.organization, location: e.location, title: e.title, dates: e.dates, bullets: top.map((t) => ({ bulletId: t.id, text: t.text })) };
   });
   // Make parts of this resume your defaults for new ones.
@@ -1800,6 +1878,7 @@ function registerIpc() {
   handle('resume:get', (id) => {
     const r = store.getResume(id);
     if (!r) return null;
+    ensureResumeHeader(r);
     const { builderPrev, ...rest } = r;
     return rest;
   });
@@ -1866,6 +1945,7 @@ function registerIpc() {
     const rec = which === 'resume' ? getHost(id) : store.getApplication(id);
     if (!rec) throw new Error('Application not found.');
     const isLetter = which === 'letter';
+    if (!isLetter && !editedHtml) ensureResumeHeader(rec);
     const html = editedHtml || (isLetter ? rec.letterHtml : rec.resumeHtml);
     if (!html) throw new Error('Generate it first!');
     if (editedHtml) updateHost(id, isLetter ? { letterHtml: editedHtml } : { resumeHtml: editedHtml });
@@ -2347,7 +2427,7 @@ function summarizeResume(r) {
   };
 }
 
-function summarizeApp(a) {
+function summarizeApp(a, scoreProfile) {
   return {
     id: a.id,
     createdAt: a.createdAt,
@@ -2366,9 +2446,7 @@ function summarizeApp(a) {
     statusHistory: a.statusHistory || [],
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
-    // Shown only beside a tailored resume ("ATS 61→74%"), so only worked out then.
-    atsBefore: a.resumeHtml ? (libraryAts(a.job) || {}).score ?? null : null,
-    atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml), { profile: store.getProfile() }).score : null,
+    ...listAts(a, scoreProfile),
     hasResume: !!a.resume,
     hasPage: !!(a.builder && a.builder.doc),
     hasLetter: !!a.letter,
@@ -2517,7 +2595,7 @@ if (process.argv.includes('--smoke-test')) {
   });
   app.on('activate', () => createDashboard());
   // Changes are written shortly after they happen; write any still waiting.
-  const flushStore = () => store && store.saveTimer && store.flush();
+  const flushStore = () => store && store.hasPendingSave() && store.flush();
   app.on('before-quit', flushStore);
   process.on('exit', flushStore);
   app.on('will-quit', () => {

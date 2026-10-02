@@ -1843,7 +1843,7 @@ function isTyping() {
 let refreshHeld = false;
 function routeWhenFree() {
   if (isEditing()) refreshHeld = true;
-  else route({ ifChanged: true });
+  else return route({ ifChanged: true });
 }
 
 // Leaving the box: catch up on what changed meanwhile. Wait for a click in
@@ -1868,17 +1868,34 @@ window.addEventListener('hashchange', route);
 // redraw for each burst, and none when the page would look the same.
 let redrawTimer = null;
 let redrawApp = false;
+let redrawRunning = false;
+let redrawAgain = false;
 function redrawSoon(app) {
   if (app && currentAppId && app.id === currentAppId) redrawApp = true;
-  clearTimeout(redrawTimer);
+  // Keep the first deadline: a stream of updates mustn't postpone a click's
+  // result indefinitely. Serialize requests and catch up after an in-flight read.
+  if (redrawRunning) return void (redrawAgain = true);
+  if (redrawTimer) return;
   redrawTimer = setTimeout(async () => {
+    redrawTimer = null;
+    redrawRunning = true;
     const appToo = redrawApp;
     redrawApp = false;
-    await refreshState();
-    if (currentAppId) {
-      if (appToo) renderApplication(currentAppId, { ifChanged: true });
-    } else if (!currentResumeId) routeWhenFree(); // don't wipe a form the user is typing in
-  }, 120);
+    try {
+      await refreshState();
+      if (currentAppId) {
+        if (appToo) await renderApplication(currentAppId, { ifChanged: true });
+      } else if (!currentResumeId) await routeWhenFree(); // don't wipe a form the user is typing in
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      redrawRunning = false;
+      if (redrawAgain) {
+        redrawAgain = false;
+        redrawSoon(null);
+      }
+    }
+  }, 32);
 }
 S.onStateChanged(() => redrawSoon(null));
 S.onAppUpdated((app) => redrawSoon(app));

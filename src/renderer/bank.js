@@ -23,8 +23,11 @@ async function renderBankPage() {
   const page = document.getElementById('bankPage');
   if (!page) return;
   const bank = await S.getBank();
-  const q = bankSearch.toLowerCase();
-  const match = (b) => !q || [b.text, ...(b.variants || [])].join(' ').toLowerCase().includes(q) || (b.tags || []).join(' ').toLowerCase().includes(q);
+  const bulletsByRole = new Map();
+  for (const b of bank.bullets) {
+    if (!bulletsByRole.has(b.experienceId)) bulletsByRole.set(b.experienceId, []);
+    bulletsByRole.get(b.experienceId).push(b);
+  }
   const total = bank.bullets.length;
   const roleOptions = (sel) => bank.experiences.map((e) => `<option value="${e.id}" ${e.id === sel ? 'selected' : ''}>${esc([e.title, e.organization].filter(Boolean).join(' · ') || 'Untitled role')}</option>`).join('');
 
@@ -47,12 +50,11 @@ async function renderBankPage() {
 
   const roles = bank.experiences
     .map((e) => {
-      const bullets = bank.bullets.filter((b) => b.experienceId === e.id && match(b));
-      if (q && !bullets.length) return '';
-      return `<div class="card role-card">
+      const bullets = bulletsByRole.get(e.id) || [];
+      return `<div class="card role-card" data-bank-role="${e.id}">
         <div class="role-head"><div><h3 style="margin:0">${esc(e.title || 'Untitled role')}${e.isProject ? ' <span class="chip tiny">project</span>' : ''}${e.hidden ? ' <span class="chip tiny">left off resumes</span>' : ''}</h3>
           <div class="muted">${esc([e.organization, e.location, e.dates].filter(Boolean).join(' · '))}</div></div>
-          <div class="inline"><button class="small ghost" data-hiderole="${e.id}" title="${e.hidden ? 'Let Sprout put this role on resumes again' : 'Never put this role on a resume (internships, a job you don\'t want to show). Its bullets stay here.'}">${e.hidden ? 'Use on resumes' : 'Leave off resumes'}</button><button class="small ghost" data-editrole="${e.id}">${icon('pencil', 14)} Edit</button>${bank.bullets.some((b) => b.experienceId === e.id) ? '' : `<button class="small ghost danger" data-delrole="${e.id}">Delete</button>`}</div></div>
+          <div class="inline"><button class="small ghost" data-hiderole="${e.id}" title="${e.hidden ? 'Let Sprout put this role on resumes again' : 'Never put this role on a resume (internships, a job you don\'t want to show). Its bullets stay here.'}">${e.hidden ? 'Use on resumes' : 'Leave off resumes'}</button><button class="small ghost" data-editrole="${e.id}">${icon('pencil', 14)} Edit</button>${bullets.length ? '' : `<button class="small ghost danger" data-delrole="${e.id}">Delete</button>`}</div></div>
         ${bullets.map(bulletRow).join('') || '<p class="faint">No bullets yet.</p>'}
         <div class="bb-new"><textarea rows="1" placeholder="+ Write a new bullet for this role… (start with a verb: Led, Built, Reduced…)" data-newfor="${e.id}"></textarea><button class="small soft" data-addto="${e.id}">Add</button></div>
       </div>`;
@@ -86,19 +88,43 @@ async function renderBankPage() {
         <textarea id="bankEdu" rows="2">${esc((bank.education || []).map((e) => [e.degree, e.school, e.dates].filter(Boolean).join(' — ')).join('\n'))}</textarea></div>
     </div>`;
 
-  page.querySelectorAll('textarea').forEach((t) => {
-    autoGrow(t);
+  // Measuring after each height write forced a layout for every bullet.
+  // Reset, measure and apply in batches so a large bank needs one layout.
+  const textareas = [...page.querySelectorAll('textarea')];
+  textareas.forEach((t) => (t.style.height = 'auto'));
+  const heights = textareas.map((t) => t.scrollHeight + 2);
+  textareas.forEach((t, i) => {
+    t.style.height = heights[i] + 'px';
     t.addEventListener('input', () => autoGrow(t));
   });
+  // Keep form rows and their edits in place while searching. Fetching and
+  // rebuilding the entire bank on each keystroke also repeated every layout.
+  const byId = new Map(bank.bullets.map((b) => [b.id, b]));
+  const searchable = [...page.querySelectorAll('[data-bullet]')].map((row) => ({
+    row,
+    role: byId.get(row.dataset.bullet).experienceId,
+    texts: [...row.querySelectorAll('textarea')],
+    tags: (byId.get(row.dataset.bullet).tags || []).join(' ').toLowerCase(),
+  }));
+  const roleCards = [...page.querySelectorAll('[data-bank-role]')];
+  const filter = () => {
+    const q = bankSearch.toLowerCase();
+    const visibleRoles = new Set();
+    for (const entry of searchable) {
+      const show = !q || entry.texts.map((t) => t.value).join(' ').toLowerCase().includes(q) || entry.tags.includes(q);
+      if (entry.row.hidden === show) entry.row.hidden = !show;
+      if (show) visibleRoles.add(entry.role);
+    }
+    for (const card of roleCards) card.hidden = !!q && !visibleRoles.has(card.dataset.bankRole);
+  };
+  // Grow all rows before hiding matches so clearing the search restores their
+  // measured heights, including after a saved edit refreshes this page.
+  filter();
   const search = $('#bankSearch', page);
   if (search)
     search.addEventListener('input', () => {
       bankSearch = search.value;
-      renderBankPage().then(() => {
-        const el = $('#bankSearch');
-        el.focus();
-        el.setSelectionRange(el.value.length, el.value.length);
-      });
+      filter();
     });
   $('#bankImport', page).addEventListener('click', (e) =>
     run(e.currentTarget, async () => {

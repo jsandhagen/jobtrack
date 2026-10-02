@@ -13,7 +13,8 @@ function esc(s) {
 // Every resume renders through the one shared template (src/shared/resumeDoc.js).
 // Accepts an editor doc, or an older/Claude-structured resume which is converted.
 function toDoc(r, profile) {
-  return r && r.header ? r : ResumeDoc.fromResume(r || {}, profile || {});
+  const doc = r && r.header ? r : ResumeDoc.fromResume(r || {}, profile || {});
+  return { ...doc, header: ResumeDoc.fillHeader(doc.header, profile || {}) };
 }
 
 function renderResumeHtml(r, profile) {

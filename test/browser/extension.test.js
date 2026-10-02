@@ -103,7 +103,9 @@ test.before(async () => {
     },
     onOpenPerson: () => {},
   });
-  await bridge.listen(47321);
+  // An installed Sprout can already own the usual ports. Point the test
+  // extension at this fixture server so it never pairs with the user's app.
+  const port = await bridge.listen(0);
   context = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'sprout-ext-')), {
     headless: !process.env.HEADED,
     channel: 'chromium',
@@ -119,6 +121,7 @@ test.before(async () => {
   await context.route('https://careers.northwind.example/**', (r) => r.fulfill({ contentType: 'text/html', body: page('framed-top.html') }));
   await context.route('https://northwind.ats-frame.example/**', (r) => r.fulfill({ contentType: 'text/html', body: page('framed-posting.html') }));
   sw = context.serviceWorkers()[0] || (await context.waitForEvent('serviceworker'));
+  await sw.evaluate((port) => chrome.storage.local.set({ port }), port);
 });
 
 test.after(async () => {
