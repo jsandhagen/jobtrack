@@ -6,6 +6,7 @@ const { overlap, checkBullet } = require('../shared/resumeCheck');
 const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
+const { strategyFocus, strategyEvidence, strategySummary, strategyChecks } = require('./strategyResume');
 
 // The posting's requirements, less the kind of experience asked for ("5+
 // years in software engineering"): a role's title meets that, so it can't
@@ -31,7 +32,7 @@ const TITLE_WORD =
 const SCHOOL = /\b(university|college|institute|school|academy|polytechnic|conservatory)\b/i;
 const DEGREE_WORD = /\b(b\.?s\.?|b\.?a\.?|m\.?s\.?|m\.?a\.?|mba|ph\.?d|bachelor'?s?|masters?|master'?s|associate'?s?|diploma|certificate|degree|bsn|msn|gpa)\b/i;
 const CITY_PREFIX = '(?:San|Santa|New|Los|Las|Salt Lake|St\\.|Saint|Fort|Ft\\.|El|Palo|Baton|Grand|Kansas|Oklahoma|Colorado|Jersey|Silver|Cedar|Des|Sioux|Ann|Little|Long|Corpus|Green|Ocean|Mountain|Newport|West|East|North|South|Falls|Virginia)\\s';
-const TRAILING_PLACE = new RegExp(`^(.*\\S)\\s+((?:${CITY_PREFIX})?[A-Z][a-zA-Z.'-]+,\\s?[A-Z]{2}|Remote|Hybrid)$`);
+const TRAILING_PLACE = new RegExp(`^(.*\\S)\\s+((?:${CITY_PREFIX})?[A-Z][a-zA-Z.'-]+,\\s?(?:[A-Z]{2}|D\\.C\\.)|Remote|Hybrid)$`);
 
 const id = () => crypto.randomUUID();
 const lower = (s) => String(s || '').toLowerCase();
@@ -96,11 +97,31 @@ function sectionOf(line) {
   return null;
 }
 
+function splitSkillList(text) {
+  const out = [];
+  let start = 0;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')') depth = Math.max(0, depth - 1);
+    else if (!depth && (/[,;|●•▪◦·]/.test(text[i]) || /\s/.test(text[i]) && /\s/.test(text[i + 1] || ''))) {
+      out.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(text.slice(start).trim());
+  return out.filter(Boolean);
+}
+
 // "Freddie Mac McLean, VA" / "Bloom Labs — Portland, OR" / "Acme    Remote"
 function splitOrgLocation(text) {
   const t = String(text || '').trim().replace(/[|·•,–—-]\s*$/, '');
   const wide = t.split(/\s{2,}|\s+[|·•]\s+|\s+[–—]\s+|\s+-\s+/).map((x) => x.trim()).filter(Boolean);
-  if (wide.length > 1) return { organization: wide[0], location: wide.slice(1).join(', ') };
+  if (wide.length > 1) {
+    const location = wide.slice(1).join(', ');
+    const place = location.match(TRAILING_PLACE);
+    return { organization: wide[0], location: place ? place[2] : location };
+  }
   const m = t.match(TRAILING_PLACE);
   if (m) return { organization: m[1].replace(/,\s*$/, ''), location: m[2] };
   return { organization: t, location: '' };
@@ -238,10 +259,12 @@ function parseEducation(lines) {
       lastLabel = null;
       continue;
     }
-    if (DEGREE_WORD.test(line) && (!cur || !cur.degree)) {
-      if (!cur) fresh();
+    const newDegree = /^(?:[BM]\.?[SA]\.?|MBA|Ph\.?D|Bachelor|Master|Associate|Doctor|Diploma)\b/i.test(line);
+    if (DEGREE_WORD.test(line) && (!cur || !cur.degree || newDegree)) {
+      if (!cur || cur.degree) fresh();
       // "Bachelor of Science in X, Oregon State University" -> degree + school
-      const m = body.match(/^(.*?),\s*([^,]*\b(?:University|College|Institute|School|Academy|Polytechnic)\b[^,]*)(?:,.*)?$/i);
+      const m = body.match(/^(.*?),\s*([^,]*\b(?:University|College|Institute|School|Academy|Polytechnic)\b[^,]*)(?:,.*)?$/i)
+        || body.match(/^(.*?),\s*((?:[A-Z][A-Za-z.&'-]*\s+)+[A-Z][A-Za-z.&'-]*)$/);
       if (m && !cur.school) Object.assign(cur, { degree: m[1].trim(), school: m[2].trim() });
       else cur.degree = body;
       if (date) cur.dates = date[0].trim();
@@ -277,22 +300,24 @@ function parseResume(text) {
     // An inline list heading: "Skills: JavaScript, React, …"
     const inline = !sec && l.trim().match(/^([A-Za-z &]{3,40}):\s+(\S.*)$/);
     if (sec) sections.push((cur = { name: sec, lines: [] }));
-    else if (inline && sectionOf(inline[1]) === 'skills') sections.push((cur = { name: 'skills', lines: [inline[2]] }));
+    else if (inline && ['skills', 'certifications'].includes(sectionOf(inline[1]))) sections.push((cur = { name: sectionOf(inline[1]), lines: [inline[2]] }));
     else cur.lines.push(l);
   }
 
   const experiences = [];
   const education = [];
   const skills = [];
+  const certifications = [];
   const summary = [];
   for (const sec of sections) {
     if (sec.name === 'summary') summary.push(...sec.lines.map((l) => l.trim()).filter(Boolean));
+    else if (sec.name === 'certifications') certifications.push(...sec.lines.map((l) => l.replace(BULLET, '').trim()).filter(Boolean));
     else if (sec.name === 'education') education.push(...parseEducation(sec.lines));
     else if (sec.name === 'skills') {
       for (const l of sec.lines) {
-        for (const s of l.replace(/^[^:●•]{0,40}:\s*/, '').split(/[●•▪◦,;|·]|\s{2,}/)) {
-          const v = s.replace(BULLET, '').trim();
-          if (v && v.length < 45) skills.push(v);
+        for (const s of splitSkillList(l.replace(/^[^:●•]{0,40}:\s*/, ''))) {
+          const v = s.replace(BULLET, '').replace(/\([^)]*$/, '').trim();
+          if (v && v.length < 100) skills.push(v);
         }
       }
     } else if (sec.name === 'experience' || sec.name === 'projects' || sec.name === null) {
@@ -303,6 +328,7 @@ function parseResume(text) {
     experiences: experiences.filter((e) => e.bullets.length || e.dates),
     education: education.filter((e) => e.degree || e.school),
     skills: [...new Set(skills)],
+    certifications: [...new Set(certifications)],
     summary: summary.join(' ').trim(),
   };
 }
@@ -330,6 +356,12 @@ function parseRoles(lines, isProject, preamble) {
       continue;
     }
     const h = headerAt(L, i);
+    // The last wrapped word before "Employer / Title + dates" is not part
+    // of that next header. PDF extraction often leaves it on its own line.
+    if (h && last && cur.glyph && h.lines.length > 2 && (/^[a-z(&]/.test(line) || /[,;]$/.test(last.text) && !TITLE_WORD.test(line))) {
+      last.text += ' ' + line;
+      continue;
+    }
     if (h) {
       cur = roleFromHeader(h);
       // LinkedIn's export: the title line is the whole title ("…, Office of the CTO"),
@@ -387,7 +419,7 @@ function parseRoles(lines, isProject, preamble) {
 const SAME_BULLET = 0.62;
 
 function emptyBank() {
-  return { experiences: [], bullets: [], education: [], skills: [], summary: '' };
+  return { experiences: [], bullets: [], education: [], skills: [], certifications: [], summary: '' };
 }
 
 // An employer as resumes name it differently: "Appian" / "Appian Corporation",
@@ -511,6 +543,7 @@ function mergeIntoBank(bank, parsed, source = {}) {
   }
   const have = new Set(b.skills.map(norm));
   for (const s of parsed.skills || []) if (!have.has(norm(s))) (b.skills.push(s), have.add(norm(s)));
+  b.certifications = [...new Map([...(b.certifications || []), ...(parsed.certifications || [])].map((c) => [norm(c), c])).values()];
   if (!b.summary && parsed.summary) b.summary = parsed.summary;
   return { bank: b, added, merged, roles };
 }
@@ -566,6 +599,7 @@ function writingPenalty(text) {
 
 function rankBullets(job, bank) {
   const units = bulletUnits(job);
+  const focus = strategyFocus(job);
   const jobTerms = [...significantTerms(job.text).entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => stem(t));
   const expById = new Map(bank.experiences.map((e) => [e.id, e]));
   const ranked = bank.bullets
@@ -583,8 +617,9 @@ function rankBullets(job, bank) {
         // What it proves (impact, scope, ownership; a number helps but isn't
         // required), less what the Check tab would flag in how it's written.
         const quality = evidenceStrength(text) + writingPenalty(text);
-        const score = coverage + vocab + quality + recencyBonus(exp);
-        if (!best || score > best.score) best = { text, score, quality, covers: covers.map(({ u, m }) => ({ key: u.key, label: u.label, kind: u.kind, m })) };
+        const strategy = strategyEvidence(focus, text);
+        const score = coverage + vocab + quality + recencyBonus(exp) + strategy.reduce((s, theme) => s + theme.weight, 0);
+        if (!best || score > best.score) best = { text, score, quality, strategy, covers: covers.map(({ u, m }) => ({ key: u.key, label: u.label, kind: u.kind, m })) };
       }
       return { id: b.id, experienceId: b.experienceId, ...best, evidenceStrength: evidenceStrength(best.text), isVariant: best.text !== b.text };
     })
@@ -680,6 +715,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     const roleLimits2 = new Map(exps.map((e, i) => [e.id, roleLimit(e, i) + 2]));
     const picked = new Map(exps.map((e) => [e.id, []]));
     const covered = new Map();
+    const themesShown = new Set();
     const pool = [...ranked];
     let count = 0;
     const shown = new Set(); // roles on the page
@@ -704,6 +740,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
       picked.get(r.experienceId).push(r);
       pool.splice(pool.indexOf(r), 1);
       for (const c of r.covers) covered.set(c.key, Math.max(covered.get(c.key) || 0, c.m));
+      for (const theme of r.strategy) themesShown.add(theme.key);
       count++;
     };
 
@@ -739,7 +776,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     // Recent roles first: they're what a reader looks at.
     exps.forEach((e, i) => roleMinimum(e, i) >= 3 && topUp(e, i));
     // Then the bullets that prove the most new requirements per line of page.
-    const gainOf = (r) => r.covers.reduce((s, c) => s + KIND_WEIGHT[c.kind] * Math.max(0, c.m - (covered.get(c.key) || 0)), 0) * 1.5 + r.score * 0.5;
+    const gainOf = (r) => r.covers.reduce((s, c) => s + KIND_WEIGHT[c.kind] * Math.max(0, c.m - (covered.get(c.key) || 0)), 0) * 1.5 + r.score * 0.5 + r.strategy.reduce((s, theme) => s + (themesShown.has(theme.key) ? 0 : theme.weight), 0);
     // Whether a bullet is worth room at all is about this posting; how well
     // it's written decides the order (gainOf), not whether it's relevant.
     const relevantGain = (r) => gainOf(r) - (r.quality || 0) * 0.5;
@@ -944,7 +981,7 @@ function docShell({ profile = {}, bank, job, header }) {
     roles: [],
     skills: pickSkills(job, bank).all,
     education: (bank.education || []).map((e) => ({ school: e.school || '', location: e.location || '', degree: e.degree || '', dates: e.dates || '', lines: e.lines || ResumeDoc.labelLines(e.details) })),
-    certifications: [],
+    certifications: (bank.certifications || []).slice(),
   };
 }
 
@@ -967,24 +1004,35 @@ const hasWord = (hay, term) => new RegExp(`(^|[^a-z0-9])${escapeRe(lower(term))}
 // a grid) and the industries you've worked in.
 const NOT_IN_GRID = new Set([...INTERPERSONAL, 'Leadership', 'Financial Services', 'Public Sector', 'Healthcare', 'Enterprise Software', 'Customer Success', 'Operations', 'Strategy']);
 const gridWords = (s) => lower(s).split(/[^a-z0-9+#]+/).filter((w) => w.length > 2).map((w) => w.replace(/(?:ing|s)$/, ''));
+const sameGridSkill = (a, b) => {
+  const [x, y] = [gridWords(a), gridWords(b)];
+  return norm(a) === norm(b) || (x.length && y.length && (x.every((w) => y.includes(w)) || y.every((w) => x.includes(w))));
+};
+const PLATFORM_SKILLS = new Set(['ServiceNow', 'ERP', 'Salesforce', 'AWS', 'Azure', 'GCP', 'Snowflake', 'Workday', 'SAP', 'Oracle', 'Microsoft Power Platform']);
 
 function pickSkills(job, bank, { max = 15 } = {}) {
   const jobText = String((job && job.text) || '');
   const jobLower = lower(jobText);
-  const listed = (bank.skills || []).filter((s) => String(s).trim());
-  const bankText = lower(withoutCollaborators([listed.join(', '), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text)].join('\n')));
+  const focus = strategyFocus(job);
+  const jobWords = tokens(jobText);
+  const listedRelevance = (s) => {
+    const words = [...tokens(s)];
+    const pairs = lower(s).replace(/[&/()-]+/g, ' ').split(/\s+/).filter(Boolean);
+    return words.filter((w) => jobWords.has(w)).length
+      + pairs.slice(1).filter((w, i) => hasWord(jobLower, `${pairs[i]} ${w}`)).length * 3
+      + strategyEvidence(focus, s).reduce((n, t) => n + t.weight, 0);
+  };
+  const listed = (bank.skills || []).filter((s) => String(s).trim()).map((s, i) => ({ s, i, rank: listedRelevance(s) })).sort((a, b) => b.rank - a.rank || a.i - b.i).map((x) => x.s);
+  const work = bank.bullets.filter((b) => !b.hidden).map((b) => /(?:track|review|research|monitor)\w*[^.\n]*competitor|reviewing technical documentation/i.test(b.text) ? b.text.replace(/\bproduct launches\b/gi, '') : b.text);
+  const bankText = lower(withoutCollaborators([listed.join(', '), ...work].join('\n')));
   const keys = new Set();
   const reworded = []; // { from, to }: your word with the posting's alongside
   const found = []; // {name, rank, mentions, pos}
   const add = (name, kind, mentions, term) => {
     // "Roadmap" next to "Roadmaps" or "Product roadmap" says it twice.
-    const same = (a, b) => {
-      const [x, y] = [gridWords(a), gridWords(b)];
-      return norm(a) === norm(b) || (x.length && y.length && (x.every((w) => y.includes(w)) || y.every((w) => x.includes(w))));
-    };
-    if (!name || found.some((x) => same(x.name, name))) return;
+    if (!name || /^(?:for|with|to|by|at|in|of|on|from)\b/i.test(name) || found.some((x) => sameGridSkill(x.name, name))) return;
     const pos = jobLower.indexOf(lower(term || name));
-    found.push({ name, rank: KIND_RANK[kind] || 2, mentions: mentions || 1, pos: pos < 0 ? Infinity : pos });
+    found.push({ name, rank: KIND_RANK[kind] ?? 2, mentions: mentions || 1, pos: pos < 0 ? Infinity : pos });
   };
 
   for (const [skill, { kind, term, mentions }] of classifyJobSkills(jobText)) {
@@ -994,14 +1042,24 @@ function pickSkills(job, bank, { max = 15 } = {}) {
     const mine = listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s))) && hasWord(lower(s), term));
     // Your words or the posting's, never a label you didn't write ("IT Portfolio Management" for "planning cycle").
     const own = listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s))));
-    const label = gridWords(skill).every((w) => bankText.includes(w)) ? skill : null;
-    let name = mine || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : own || label);
+    // Analysing a competitor or partnering with SAP does not mean the
+    // candidate administers its software. Require a listed skill or usage.
+    if (PLATFORM_SKILLS.has(skill) && !own && !work.some((t) => SKILLS[skill].some((p) => {
+      const match = lower(t).match(p);
+      return match && /\b(?:us(?:ed|ing)|built|configured|administered|implemented|developed|integrated|migrated|deployed)\b[^.;()]{0,60}$/.test(lower(t).slice(0, match.index));
+    }))) continue;
+    // Commercial ROI diligence alone is not acquisition or integration work.
+    if (skill === 'M&A' && !/\bm&a\b|mergers and acquisitions|acquisition (?:targets?|integration)|post[- ]acquisition|transaction advisory|deal execution/i.test(bankText)) continue;
+    const label = hasWord(bankText, skill) ? skill : null;
+    let name = mine || (own && /\s/.test(own) ? own : null) || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : own || label);
     // Your short form and the posting's long one ("AWS" / "Amazon Web Services"), or the
     // other way round: strict systems search the posting's words, so the grid says both.
     if (name && name === own) {
       const theirs = postingWording(jobText, term, skill);
       const short = (w) => /^[A-Z][A-Z0-9&+#./-]{1,5}$/.test(w);
-      if ((short(own) || short(theirs)) && norm(theirs) !== norm(own) && theirs.length + own.length <= 30) {
+      const initials = (s) => s.toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w && !['OF', 'AND', 'THE'].includes(w)).map((w) => w[0]).join('');
+      const alias = (short(own) && own === initials(theirs)) || (short(theirs) && theirs === initials(own));
+      if (alias && !hasWord(lower(own), lower(theirs)) && norm(theirs) !== norm(own) && theirs.length + own.length <= 30) {
         name = short(own) ? `${theirs} (${own})` : `${own} (${theirs})`;
         reworded.push({ from: own, to: name });
       }
@@ -1022,7 +1080,7 @@ function pickSkills(job, bank, { max = 15 } = {}) {
   const other = [];
   for (const s of listed) {
     if (relevant.length + other.length >= size) break;
-    if ([...relevant, ...other].some((x) => norm(x) === norm(s))) continue;
+    if (/^(?:for|with|to|by|at|in|of|on|from)\b/i.test(s) || [...relevant, ...other].some((x) => sameGridSkill(x, s))) continue;
     // "Postgres" adds nothing next to "PostgreSQL".
     const tags = skillTags(s);
     if (tags.length && tags.every((t) => keys.has(t))) continue;
@@ -1142,7 +1200,7 @@ function buildResume({ profile, bank, job, roles }) {
     experience: jobs.map(({ exp, bullets }) => ({ title: exp.title, organization: exp.organization, location: exp.location || '', dates: exp.dates || '', bullets })),
     projects: projects.map(({ exp, bullets }) => ({ name: exp.title, description: exp.organization || '', bullets })),
     education: bank.education.map(({ degree, school, dates, details }) => ({ degree, school: school || '', dates: dates || '', details: details || '' })),
-    certifications: [],
+    certifications: (bank.certifications || []).slice(),
     tailoring_notes: [
       missing.length ? `Not shown anywhere: ${missing.join(', ')}. If you have that experience, add a bullet for it.` : '',
       inSkillsOnly.length ? `Only in your skills list: ${inSkillsOnly.join(', ')}. A bullet showing how you used them is stronger.` : '',
@@ -1159,6 +1217,54 @@ function buildDoc({ profile, bank, job, roles, header }) {
   const r = buildResume({ profile, bank, job, roles });
   const expById = new Map(bank.experiences.map((e) => [e.id, e]));
   return { doc: { ...docShell({ profile, bank, job, header }), roles: docRoles(roles, expById) }, notes: r.tailoring_notes };
+}
+
+// The complete one-click path, shared by the app and evaluation scripts.
+// A strategy resume gets a fresh evidence-led summary even when its imported
+// summary was aimed at a different role. The bank and historical titles stay intact.
+function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale = 1 }) {
+  const ResumeDoc = require('../shared/resumeDoc');
+  const { atsScore } = require('./atsScore');
+  const { htmlToText } = require('./resumeRender');
+  const ranked = rankBullets(job, bank).ranked;
+  const allowed = new Set(resumeExperiences(bank, job).map((e) => e.id));
+  const startingRoles = orderedExperiences(bank).filter((e) => allowed.has(e.id)).map((e) => ({ experienceId: e.id, bullets: ranked.filter((b) => b.experienceId === e.id).map((b) => ({ bulletId: b.id, text: b.text })) }));
+  const starting = buildDoc({ profile, bank, job, header, roles: startingRoles }).doc;
+  const summary = strategySummary(job, starting, ranked);
+  const tailoredBank = summary ? { ...bank, summary } : bank;
+  const sel = selectBullets(job, tailoredBank, { profile, header, pages, scale });
+  let { doc } = buildDoc({ profile, bank: tailoredBank, job, roles: sel.roles, header });
+  const refreshSummary = () => {
+    const finalSummary = strategySummary(job, doc, ranked);
+    if (finalSummary) doc.summary = finalSummary;
+    return addIndustryWords(doc, job).added;
+  };
+  let industry = refreshSummary();
+  const reworded = pickSkills(job, bank).reworded;
+  while (!ResumeDoc.fits(doc, sel.pages, { scale })) {
+    const trimmed = fitDocToPages(doc, job, bank, sel.pages, { scale });
+    doc = trimmed.doc;
+    // Trimming can remove the summary's source role or accomplishment. Build
+    // it from the final page again, then account for any change in its length.
+    industry = refreshSummary();
+    if (!trimmed.removed.length && !trimmed.skills.length && !trimmed.roles.length) break;
+  }
+  const pageText = htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(doc)));
+  const ats = atsScore(job, pageText, { profile });
+  const gates = requirementUnits(job).units.filter((u) => u.kind === 'required' && u.gate && u.match(lower(pageText)) < 0.6).map((u) => u.label);
+  const missing = [...gates, ...strategyChecks(job, doc), ...ats.knockouts.filter((gap) => !gap.includes('(posting says') && !(/^Leadership\b/.test(gap) && gates.some((g) => /managing (?:people|project teams)|leading/i.test(g))))];
+  const checks = [...new Set(missing)].map((gap) => `Your documents don't yet show ${gap}. If you have relevant experience, an example could strengthen this resume.`);
+  if (!doc.header.name.trim()) checks.unshift('Add your name before submitting.');
+  if (!/@/.test(`${doc.header.line1} ${doc.header.line2}`)) checks.unshift('Add your email before submitting.');
+  const fixes = [
+    ...industry.map((x) => ({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` })),
+    ...reworded.map((x) => ({ kind: 'wording', term: x.to, text: `Wrote “${x.to}” in your skills, so a search for the posting's words finds it.` })),
+  ];
+  const notes = [
+    ...(summary ? ['Put the most relevant documented achievement in the summary; kept your job titles and contribution level.'] : []),
+    ...ats.knockouts.filter((gap) => gap.includes('(posting says')).map((gap) => `Posting wording not on the page: ${gap}. Check whether your documented experience supports this wording; a keyword mismatch does not establish a qualification gap.`),
+  ];
+  return { doc, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes };
 }
 
 /**
@@ -1257,6 +1363,7 @@ function linkDocToBank(doc, bank) {
 
 module.exports = {
   buildDoc,
+  optimizeResume,
   pickSkills,
   addIndustryWords,
   fitDocToPages,

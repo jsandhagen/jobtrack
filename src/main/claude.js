@@ -7,6 +7,7 @@ const { fitLabel } = require('./fitScore');
 const { gradeFromQualifications } = require('./atsScore');
 const { conjunctive } = require('./localFit');
 const P = require('./prompts');
+const { isEvidenceDoc } = require('./sourceEvidence');
 const { quoteFound, checkRewrite, checkNewText, norm } = require('./grounding');
 
 const DEFAULT_MODEL = 'claude-opus-5-5';
@@ -213,7 +214,7 @@ async function structuredCall(client, { kind, model, effort, system, content, sc
 // All the candidate's text the checks compare against.
 // The text facts may come from. Writing samples are there for voice only.
 function libraryText(documents, profile) {
-  return [...(documents || []).filter((d) => d.kind !== 'writing-sample').map((d) => d.text), ...Object.values(profile || {}).filter((v) => typeof v === 'string')].join('\n');
+  return [...(documents || []).filter(isEvidenceDoc).map((d) => d.text), ...Object.values(profile || {}).filter((v) => typeof v === 'string')].join('\n');
 }
 
 async function extractJobFromScreenshot(client, { pngBase64, model }) {
@@ -346,7 +347,7 @@ async function suggestBullets(client, { documents, profile, roles, existing, mod
   const suggestions = [];
   let dropped = 0;
   for (const b of out.bullets) {
-    const doc = documents.find((d) => d.name === b.source_document && d.kind !== 'writing-sample');
+    const doc = documents.find((d) => d.name === b.source_document && isEvidenceDoc(d));
     const source = doc ? doc.text : libraryText(documents, profile);
     const traced = quoteFound(b.source_quote, source) && !checkNewText(b.text, source + '\n' + libraryText([], profile)).length;
     const repeat = [...existing, ...suggestions.map((x) => x.text)].some((t) => similarity(t, b.text) >= SAME_BULLET);

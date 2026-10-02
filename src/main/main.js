@@ -21,6 +21,7 @@ const {
 } = require('electron');
 const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
+const { isEvidenceDoc } = require('./sourceEvidence');
 const { analyzeLayout } = require('./layout');
 const { localFitScore, skippedEmployer, SCORER_VERSION } = require('./localFit');
 const { cleanPosting } = require('./posting');
@@ -39,6 +40,8 @@ const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } 
 const { atsScore: readAts, atsGaps, libraryAtsScore } = require('./atsScore');
 const { memoize } = require('./memo');
 const { atsNudges } = require('./atsNudges');
+const { resumeEnhancements } = require('./resumeContext');
+const contextSuggestions = memoize(resumeEnhancements, { size: 30 });
 const outreach = require('../shared/outreach');
 const finder = require('../shared/finder');
 const careers = require('./careers');
@@ -370,7 +373,7 @@ function openInDashboard(id, tab) {
 // reworded in the app (those aren't in any document yet).
 function docsForPrompt() {
   const docs = store.allDocuments().map(({ name, kind, text }) => ({ name, kind, text }));
-  const inDocs = docs.filter((d) => d.kind !== 'writing-sample').map((d) => d.text.replace(/\s+/g, ' ').toLowerCase()).join('\n');
+  const inDocs = docs.filter(isEvidenceDoc).map((d) => d.text.replace(/\s+/g, ' ').toLowerCase()).join('\n');
   const own = [...new Set(store.getBank().bullets.filter((b) => !b.hidden).flatMap((b) => [b.text, ...(b.variants || [])]))]
     .filter((t) => t && !inDocs.includes(t.replace(/\s+/g, ' ').toLowerCase()));
   if (own.length) docs.push({ name: 'Bullets written in Sprout', kind: 'bank', text: own.map((t) => `- ${t}`).join('\n') });
@@ -389,7 +392,7 @@ async function backfillLayouts() {
 }
 
 function evidenceDocs() {
-  return store.allDocuments().filter((d) => d.kind !== 'writing-sample');
+  return store.allDocuments().filter(isEvidenceDoc);
 }
 
 // Your library plus bullet-bank text (bullets you wrote or reworded in the
@@ -714,25 +717,20 @@ function makeAtsResume(appId) {
   const rec = getHost(appId);
   if (!rec) throw new Error('That resume no longer exists.');
   if (!store.getBank().experiences.length && store.allDocuments().length) importBullets(store.allDocuments());
-  const bank = store.getBank();
+  // Older banks predate certification import. Recover their explicit sections
+  // from the library now, without overwriting edited or hidden bank bullets.
+  const storedBank = store.getBank();
+  const bank = { ...storedBank, certifications: [...new Set([
+    ...(storedBank.certifications || []),
+    ...evidenceDocs().flatMap((d) => bulletBank.parseResume(d.text).certifications || []),
+    ...((rec.builder && rec.builder.doc && rec.builder.doc.certifications) || []),
+  ])] };
   if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add your resume to My library first.");
   store.saveApplication(appId);
   const profile = store.getProfile();
   const header = rec.builder && rec.builder.doc ? ResumeDoc.fillHeader(rec.builder.doc.header, profile) : undefined;
-  // Sized to the page: the template is measured as bullets go in.
-  const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages, scale: pageScale() });
-  let { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
-  // What a keyword search would miss but the facts support, fixed on the page:
-  // an industry the employer proves ("SaaS" for Appian), and the posting's
-  // words beside yours in the skills grid ("Amazon Web Services (AWS)").
-  const industry = bulletBank.addIndustryWords(doc, rec.job).added;
-  const reworded = bulletBank.pickSkills(rec.job, bank).reworded;
-  if (!ResumeDoc.fits(doc, sel.pages, { scale: pageScale() })) doc = bulletBank.fitDocToPages(doc, rec.job, bank, sel.pages, { scale: pageScale() }).doc;
-  const fixes = [
-    ...industry.map((x) => ({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` })),
-    ...reworded.map((x) => ({ kind: 'wording', term: x.to, text: `Wrote “${x.to}” in your skills, so a search for the posting's words finds it.` })),
-  ];
-  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, atsFit: { pages: sel.pages, why: sel.why, fixes }, builderPrev: undoPoint(rec) });
+  const optimized = bulletBank.optimizeResume({ profile, bank, job: rec.job, header, pages: store.getSettings().resumePages, scale: pageScale() });
+  saveDoc(appId, optimized.doc, { resumeSource: 'ats', resumeError: null, resumeChecks: optimized.checks, resumeNotes: optimized.notes, atsFit: { pages: optimized.pages, why: optimized.why, fixes: optimized.fixes }, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
   hostUpdated(updated);
   return updated;
@@ -808,9 +806,9 @@ function importBullets(docs) {
   store.updateBank((bank) => {
     let b = bank;
     for (const d of docs) {
-      if (!d || d.kind === 'writing-sample') continue;
+      if (!isEvidenceDoc(d)) continue;
       const parsed = bulletBank.parseResume(d.text);
-      if (!parsed.experiences.some((e) => e.bullets.length)) continue;
+      if (!parsed.experiences.some((e) => e.bullets.length) && !(parsed.certifications || []).length) continue;
       fillProfileFromResume(parsed);
       const r = bulletBank.mergeIntoBank(b, parsed, { id: d.id, name: d.name });
       b = r.bank;
@@ -870,6 +868,7 @@ function builderState(rec) {
     ...doc.roles.flatMap((r) => r.bullets.map((b) => `${b.text}\n${r.title}`.toLowerCase())),
     doc.summary.toLowerCase(),
     doc.education.map((e) => [e.degree, e.school, ...e.lines.map((l) => `${l.label}: ${l.text}`)].join('\n')).join('\n').toLowerCase(),
+    doc.certifications.join('\n').toLowerCase(),
   ].filter(Boolean);
   const skillsText = doc.skills.join(', ').toLowerCase();
   const coverage = units.map((u) => {
@@ -905,6 +904,7 @@ function builderState(rec) {
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 10), components: ats.components, gaps },
     nudges: rec.job && String(rec.job.text || '').trim() ? atsNudges({ ats, job: rec.job, pageText, bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true }) : null,
+    enhancements: contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units }),
     // The posting's title, for the "role named up top" check.
     jobTitle: (rec.job && rec.job.title) || '',
     bankSize: bank.bullets.length,
@@ -919,8 +919,8 @@ function builderState(rec) {
     canUndo: !!rec.builderPrev,
     undoTo: rec.builderPrev ? rec.builderPrev.source : null,
     // What the code-side checks found in Claude's draft, and Claude's own notes.
-    checks: rec.resumeSource === 'claude' ? rec.resumeChecks || [] : [],
-    notes: rec.resumeSource === 'claude' ? rec.resumeNotes || [] : [],
+    checks: ['claude', 'ats'].includes(rec.resumeSource) ? rec.resumeChecks || [] : [],
+    notes: ['claude', 'ats'].includes(rec.resumeSource) ? rec.resumeNotes || [] : [],
     flagged: doc.roles.flatMap((r) => r.bullets.filter((b) => b.flag).map((b) => ({ role: r.title || r.organization, text: b.text, flag: b.flag }))),
   };
 }

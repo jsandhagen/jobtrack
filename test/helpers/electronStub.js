@@ -28,7 +28,7 @@ module.exports = {
   dialog: deep(), clipboard: { readText: () => '', readImage: () => ({ isEmpty: () => true }) }, desktopCapturer: deep(),
   screen: { getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 }, workAreaSize: { width: 1440, height: 900 }, scaleFactor: 1 }), getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }) },
   globalShortcut: { register: () => true, unregisterAll: noop, unregister: noop },
-  nativeImage: { createFromPath: () => ({ resize: () => ({}), setTemplateImage: noop, isEmpty: () => false }), createFromBitmap: () => ({}), createEmpty: () => ({}) },
+  nativeImage: { createFromPath: () => ({ resize: () => ({}), setTemplateImage: noop, isEmpty: () => false }), createFromBitmap: () => ({}), createFromBuffer: () => ({ resize: () => ({}), isEmpty: () => false, getSize: () => ({ width: 1, height: 1 }) }), createEmpty: () => ({}) },
   Notification: class { static isSupported() { return false; } show() {} on() {} },
   safeStorage: { isEncryptionAvailable: () => false, encryptString: (s) => Buffer.from(s), decryptString: (b) => b.toString() },
   shell: { openExternal: noop, openPath: noop, showItemInFolder: noop },

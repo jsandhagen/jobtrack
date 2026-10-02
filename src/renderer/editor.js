@@ -194,7 +194,11 @@ async function saveNow() {
     renderTray();
   });
   ed.saving = p;
-  return p.catch((err) => toast(err.message, 'error'));
+  return p.then(() => true).catch((err) => {
+    if (ed.appId === appId) ed.dirty = true;
+    toast(`Couldn't save your resume: ${err.message}. Your edits are still on the page; try again.`, 'error');
+    return false;
+  });
 }
 
 // ---------- rendering ----------
@@ -204,7 +208,7 @@ async function saveNow() {
 // shows straight away, and one step can be undone.
 const RESUME_STATES = {
   baseline: { title: 'Baseline resume', line: 'Your resume as it is, with nothing tailored yet. Optimize it for this posting, or have Claude write an updated version.' },
-  ats: { title: 'Optimized for ATS by Spike', line: 'Your bullets that prove the most of what the posting asks for, sized to fill the page, in your own words, with the skills you can back up listed first.' },
+  ats: { title: 'Optimized for ATS by Spike', line: 'Your most relevant accomplishments first, a summary built from your experience, and the skills you can back up. Review the page before submitting.' },
   claude: { title: 'Written by Root with Claude', line: 'Tailored to this posting and fact-checked against your records. Click anywhere on the page to edit.' },
 };
 
@@ -226,7 +230,7 @@ function modeBar(info) {
   const back = cur !== 'baseline' && info.undoTo !== 'baseline' ? '<button class="small ghost" data-mode-go="baseline">Back to baseline</button>' : '';
   const locked = !state.hasApiKey;
   return `<div class="mode-strip mode-is-${cur}">
-    <div class="mode-status">${who}<div><b>${st.title}</b><p>${st.line}</p>${cur === 'ats' && info.length && info.length.why ? `<p class="mode-why">${icon('doc', 13)} ${esc(info.length.why)}</p>` : ''}${undo || back ? `<div class="inline mode-links">${undo}${back}</div>` : ''}</div></div>
+    <div class="mode-status">${who}<div><b>${st.title}</b><p>${st.line}</p>${cur === 'ats' && info.length && info.length.why ? `<p class="mode-why">${icon('doc', 13)} ${esc(info.length.why)}</p>` : ''}${cur === 'ats' && info.checks && info.checks.length ? `<p class="mode-why">${icon('warn', 13)} ${info.checks.length} item${info.checks.length === 1 ? '' : 's'} to review before submitting. See the Check tab.</p>` : ''}${undo || back ? `<div class="inline mode-links">${undo}${back}</div>` : ''}</div></div>
     <div class="mode-actions">
       <button class="peek mode-ats" data-mode-go="ats">${window.SproutMascot.peekPal('ats', 54)}<b>${aimed ? (cur === 'ats' ? 'Optimize again' : 'Optimize for ATS') : 'Pick my best bullets'}</b><small>Free · instant</small></button>
       <button class="peek mode-claude" data-mode-go="${locked ? 'settings' : 'claude'}" title="${locked ? 'Add a Claude API key in Settings' : aimed ? 'Claude writes an updated version for this posting' : 'Claude writes a version from your records'}">${window.SproutMascot.peekPal('claude', 54)}<b>${cur === 'claude' ? 'Rewrite with Claude' : 'Write with Claude'}</b><small>${locked ? 'Add an API key first' : 'Uses Claude · ~1 min'}</small></button>
@@ -248,7 +252,7 @@ function previewFresh() {
 
 async function switchMode(mode) {
   if (mode === 'settings') return void (location.hash = '#settings');
-  await saveNow();
+  if (!await saveNow()) return;
   ed.polish = new Map();
   ed.held = [];
   const appId = ed.appId;
@@ -287,7 +291,7 @@ async function renderEditor(appId, app) {
   let slot = document.getElementById('editorSlot');
   if (!slot) return;
   // Edits not sent yet go to the resume they were made on before anything reloads.
-  if (ed.dirty && ed.appId && ed.appId !== appId) await saveNow();
+  if (ed.dirty && ed.appId && ed.appId !== appId && !await saveNow()) return;
   injectResumeCss();
   if (ed.appId !== appId) {
     ed.polish = new Map();
@@ -356,7 +360,7 @@ async function renderEditor(appId, app) {
 // A new saved resume from the one on screen (an application's, or a duplicate of a saved one).
 async function copyToResumes(btn) {
   await run(btn, async () => {
-    if (ed.dirty) await saveNow(); // copying isn't an edit: don't save a checked job for it
+    if (ed.dirty && !await saveNow()) return; // copying isn't an edit: don't save a checked job for it
     const from = ed.info.standalone ? { resume: ed.appId } : { app: ed.appId };
     const rec = await S.createResume({ from });
     toast(ed.info.standalone ? 'Copy made. You\'re editing it now.' : 'Saved to your Resumes.', 'good');
@@ -366,7 +370,7 @@ async function copyToResumes(btn) {
 
 async function exportResume(btn, fmt) {
   await run(btn, async () => {
-    await saveNow();
+    if (!await saveNow()) return;
     const out = await S.exportDoc(ed.appId, 'resume', fmt, null);
     if (out) {
       toast(say('exported'), 'good', 3800, 'cheer');
@@ -527,7 +531,7 @@ async function setLength(value) {
 
 async function fitToPages(btn, pages) {
   await run(btn, async () => {
-    await saveNow();
+    if (!await saveNow()) return;
     const appId = ed.appId;
     const t = { bullets: [], skills: [], roles: [], pages };
     // Trim, then look at the page as drawn; if it still runs over (this
@@ -754,7 +758,7 @@ function checksPanel() {
       )
       .join('')}
     ${checks.length ? `<ul class="tidy" style="margin-top:6px">${checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
-    ${notes.length ? `<div class="tray-role" style="margin-top:8px">Claude's tailoring notes</div><ul class="tidy">${notes.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+    ${notes.length ? `<div class="tray-role" style="margin-top:8px">${ed.info.resumeSource === 'ats' ? 'Optimizer notes' : "Claude's tailoring notes"}</div><ul class="tidy">${notes.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
   </details>`;
 }
 
@@ -830,7 +834,7 @@ function jobPane() {
   const skillTip = /^(?:Required: |Use the posting's exact wording|Nice to have: )/;
   const otherTips = info.ats.tips.filter((t) => !skillTip.test(t)).slice(0, 5);
   ed.gaps = gaps;
-  return `${info.nudges ? `<div class="tray-card">${nudgeCard(info.nudges, { appId: ed.appId, compact: true })}</div>` : ''}
+  return `${(info.enhancements || []).length ? `<div class="tray-card">${nudgeCard({ context: true, headline: 'Want to strengthen this further?', fixed: [], nudges: info.enhancements, more: 0 }, { appId: ed.appId, compact: true })}</div>` : ''}${info.nudges ? `<div class="tray-card">${nudgeCard(info.nudges, { appId: ed.appId, compact: true })}</div>` : ''}
     ${gaps.length ? `<details class="tray-card tray-fold"><summary><h4><span>Words the screen looks for</span> <span class="n">${gaps.length}</span></h4></summary>
       <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. The software matches them literally, so it's about wording, not about you. Use each only where it's true of you: the closest bullet is a place to start.</p>
       ${gaps.map(gapRow).join('')}</details>` : ''}
@@ -921,6 +925,42 @@ function openGuide() {
 function gotoBullet(r, b) {
   const li = document.querySelector(`#edPage li[data-role="${r}"][data-bullet="${b}"]`);
   if (li) (li.scrollIntoView({ block: 'center', behavior: 'smooth' }), placeCaret(li, true));
+}
+
+async function openResumeContext(key) {
+  const suggestion = (ed.info.enhancements || []).find((s) => s.id === key);
+  if (!suggestion) return;
+  const appId = ed.appId;
+  const bank = await S.getBank();
+  const roles = bank.experiences.filter((r) => !r.hidden && !r.isProject);
+  if (typeof setPanelOpen === 'function') setPanelOpen(false);
+  const card = openModal(`<h2>Add context (optional)</h2><p class="muted">${esc(suggestion.question)}</p>
+    <label for="contextRole">Which role was this part of?</label><select id="contextRole">${roles.map((r) => `<option value="${esc(r.id)}">${esc([r.title, r.organization].filter(Boolean).join(' · '))}</option>`).join('')}</select>
+    <label for="contextExample" style="margin-top:12px">Your example, in the words you'd use on a resume</label>
+    <textarea id="contextExample" rows="4" placeholder="What you did, your contribution, and the result. Keep the scope accurate."></textarea>
+    <p class="faint">I'll keep your wording in your bullet bank and use it when it fits. For another role or additional years, <a href="#bank" id="contextBank">add the role and dates in your bullet bank</a>.</p>
+    <div class="inline" style="margin-top:14px"><button class="primary" id="contextSave" ${roles.length ? '' : 'disabled'}>Save and optimize (free)</button><button class="ghost" id="contextSkip">Keep this resume</button></div>`);
+  $('#contextSkip', card).addEventListener('click', closeModal);
+  $('#contextBank', card).addEventListener('click', closeModal);
+  let savedText = '';
+  let savedRole = '';
+  $('#contextSave', card).addEventListener('click', () => run($('#contextSave', card), async () => {
+    const text = $('#contextExample', card).value.trim();
+    const experienceId = $('#contextRole', card).value;
+    if (text.length < 10) throw new Error('Add a short example first, or keep this resume.');
+    if (ed.appId !== appId) throw new Error('Reopen this option from the resume you want to update.');
+    if (!(await saveNow())) return;
+    if (text !== savedText || experienceId !== savedRole) {
+      await S.addBullet({ experienceId, text, source: `Context you added for ${ed.info.jobTitle || 'this application'}` });
+      savedText = text;
+      savedRole = experienceId;
+    }
+    await S.atsResume(appId);
+    closeModal();
+    edPending = { tab: 'job' };
+    await renderEditor(appId, ed.app);
+    toast('Saved your example and optimized the resume. Review the updated page whenever you’re ready.', 'good', 5000);
+  }, 'Optimizing…'));
 }
 
 function wireTray() {
@@ -1098,7 +1138,7 @@ function wireTray() {
   if (pol)
     pol.addEventListener('click', () =>
       run(pol, async () => {
-        await saveNow();
+        if (!await saveNow()) return;
         const { edits, rejected } = await S.polishBullets(ed.appId);
         ed.polish = new Map(edits.map((e) => [e.id, e]));
         ed.held = rejected || [];

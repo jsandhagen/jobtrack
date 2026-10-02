@@ -127,3 +127,32 @@ test('a page break never strands a role header away from its first bullet', asyn
     await browser.close();
   }
 });
+
+test('optimized strategy PDFs keep every bullet beside its employer when extracted and re-imported', async () => {
+  const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+  const B = require('../../src/main/bullets');
+  const { RESUMES, POSTINGS } = require('../fixtures/ctoOfficePersona');
+  const bank = B.mergeIntoBank(B.emptyBank(), B.parseResume(RESUMES.ctoOfficeStrategist)).bank;
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    for (const key of ['octoStrategyOps', 'competitiveIntel', 'emergingTechStrategist']) {
+      const { doc } = B.optimizeResume({ profile: { name: 'Jordan Avery', email: 'jordan@example.com' }, bank, job: POSTINGS[key] });
+      await page.setContent(ResumeDoc.renderHtml(ResumeDoc.compact(doc)));
+      const parsed = await pdfParse(await page.pdf({ preferCSSPageSize: true, printBackground: true }));
+      assert.equal(parsed.numpages, 1, key);
+      const reimported = B.parseResume(parsed.text);
+      assert.equal(reimported.experiences.length, doc.roles.length, key);
+      for (let i = 0; i < doc.roles.length; i++) {
+        const expected = doc.roles[i];
+        const actual = reimported.experiences[i];
+        assert.equal(actual.title, expected.title, key);
+        assert.equal(actual.organization, expected.organization, key);
+        assert.deepEqual(actual.bullets.map((b) => b.text), expected.bullets.map((b) => b.text), key + ': employer and accomplishments stay associated');
+      }
+      assert.ok(parsed.text.indexOf('EDUCATION') > parsed.text.indexOf(doc.roles[0].bullets[0].text.slice(0, 40)), key);
+    }
+  } finally {
+    await browser.close();
+  }
+});

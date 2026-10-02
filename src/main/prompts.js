@@ -16,12 +16,13 @@
 // result so outputs can be traced to the prompt that produced them.
 
 const { voiceProfile } = require('./voice');
+const { isEvidenceDoc, isFictionalSample } = require('./sourceEvidence');
 
 // Resume: a free hand with the content (swap, reframe, merge and split
 // bullets from anything in the documents) inside the fixed layout and the
 // truthfulness rules; the page goes to the most relevant roles. Repeated
 // bullets across documents are sent once.
-const PROMPT_VERSION = '2026-10-02.5';
+const PROMPT_VERSION = '2026-10-02.7';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -47,6 +48,7 @@ Read all of the candidate documents before you write, not just the resume. The s
 - other (notes): facts in the candidate's own words; treat them like any other document.
 - bank: bullets the candidate wrote or reworded inside Sprout; they are the candidate's own statements and count like a resume.
 Writing samples are the exception: use them for how the candidate writes, never as a source of facts about their work — a fact that appears only in a writing sample stays out.
+Explicitly fictional or hypothetical portfolio samples are also excluded from candidate facts. Their scenario, companies, acquisitions, team sizes, targets and timelines must never become completed employment accomplishments or qualifications.
 
 # Truthfulness
 
@@ -341,7 +343,7 @@ function libraryBlock(documents, profile = {}) {
   const samples = all.filter((d) => d.kind === 'writing-sample');
   const { docs: evidence, dropped } = withoutRepeats(
     all
-      .filter((d) => d.kind !== 'writing-sample')
+      .filter(isEvidenceDoc)
       .map((d, i) => ({ d, i, k: KIND_ORDER.indexOf(KIND_ORDER.includes(d.kind) ? d.kind : 'other') }))
       .sort((a, b) => a.k - b.k || a.i - b.i)
       .map((x) => x.d)
@@ -350,7 +352,7 @@ function libraryBlock(documents, profile = {}) {
   const profileLines = PROFILE_KEYS.filter((k) => profile[k] && String(profile[k]).trim())
     .map((k) => `${k}: ${String(profile[k]).trim()}`)
     .join('\n');
-  const voice = voiceProfile(all);
+  const voice = voiceProfile(all.filter((d) => !isFictionalSample(d)));
   return [
     `<candidate_profile>\n${profileLines || '(not filled in)'}\n</candidate_profile>`,
     `<candidate_documents>\n${repeatNote}${evidence.map(docXml).join('\n\n') || '(no documents uploaded)'}\n</candidate_documents>`,

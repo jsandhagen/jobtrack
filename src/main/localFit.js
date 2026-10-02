@@ -354,7 +354,7 @@ function experienceKind(line) {
   // "…working in a matrixed / fast-paced environment": the setting, which any resume can claim.
   if (/^(?:a |an )?(?:matrix(?:ed)?|fast[- ]paced|dynamic|global|complex|ambiguous|cross[- ]functional|agile|startup|high[- ]growth)\s+(?:environments?|organi[sz]ations?|settings?)?$/.test(phrase)) return null;
   // "at a top management consulting firm": the firm's kind is the experience.
-  phrase = phrase.replace(/^(?:a|an|the)\s+(?:top|leading|top-tier|tier[- ]1|large|global|major)?\s*/, '');
+  phrase = phrase.replace(/^(?:a|an|the)\s+(?:top-tier|tier[- ]1|top|leading|large|global|major)?\s*/, '');
   if (!phrase) return null;
   const alts = phrase
     .split(/,|\bor\b|\band\/or\b|\/|\bsuch as\b|\be\.g\.?|\bi\.e\.?/)

@@ -120,7 +120,7 @@ test('requirements are phrases a resume can show, not filler', () => {
 
 test('internships and research assistant jobs count half toward years', () => {
   const { yearsOfExperience } = require('../src/main/fitScore');
-  const now = new Date('2026-01-01');
+  const now = new Date(2026, 0, 1);
   assert.equal(yearsOfExperience('Analyst, Acme, Jan 2024 – Jan 2026', now), 2);
   assert.equal(yearsOfExperience('Quantitative Analyst Intern, Acme, Jan 2024 – Jan 2026', now), 1);
   assert.equal(yearsOfExperience('Research Assistant, Dept. of Mathematics, Jan 2024 – Jan 2026\nAnalyst, Acme, Jan 2025 – Jan 2026', now), 2);

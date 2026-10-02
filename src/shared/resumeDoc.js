@@ -35,9 +35,9 @@
 .rs-b { font-weight: 700; }
 .rs-role + .rs-role, .rs-edu + .rs-edu { margin-top: 7pt; }
 .rs-bullets { list-style: none; margin: 0; padding: 0; }
-.rs-bullets > li, .rs-skills > li, .rs-certs > li { position: relative; padding-left: 18pt; break-inside: avoid; }
+.rs-bullets > li, .rs-skills > li, .rs-certs > li { padding-left: 18pt; text-indent: -15pt; break-inside: avoid; }
 .rs-bullets > li + li { margin-top: 2pt; }
-.rs-bullets > li::before, .rs-skills > li::before, .rs-certs > li::before { content: "\\25CF"; position: absolute; left: 3pt; top: 0; font-family: Arial, Helvetica, sans-serif; font-size: 7pt; line-height: 13.2pt; }
+.rs-bullets > li::before, .rs-skills > li::before, .rs-certs > li::before { content: "\\25CF\\00a0"; margin-right: 9pt; font-family: Arial, Helvetica, sans-serif; font-size: 7pt; line-height: 1.2; }
 .rs-skills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2pt 12pt; list-style: none; margin: 0; padding: 0; }
 .rs-skills.rs-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .rs-certs { list-style: none; margin: 0; padding: 0; }

@@ -10,7 +10,7 @@ const SUPPORTED = ['.pdf', '.docx', '.txt', '.md', '.markdown', '.json'];
 function guessKind(name, text) {
   const n = name.toLowerCase();
   const t = text.slice(0, 4000).toLowerCase();
-  if (/writing[\s_-]?sample|\bessay\b|\bblog\b|\barticle\b/.test(n)) return 'writing-sample';
+  if (/writing[\s_-]?sample|\bessay\b|\bblog\b|\barticle\b|(?:^|[\s_-])paper(?:[\s_.-]|$)/.test(n)) return 'writing-sample';
   if (/cover[\s_-]?letter/.test(n) || /^dear\b/m.test(t)) return 'cover-letter';
   if (/resume|résumé|\bcv\b/.test(n)) return 'resume';
   if (/transcript/.test(n)) return 'transcript';
@@ -36,7 +36,7 @@ async function extractText(filePath) {
   if (ext === '.pdf') {
     // pdf-parse's index.js runs a self-test when required directly; the lib path skips it.
     const pdfParse = require('pdf-parse/lib/pdf-parse.js');
-    text = (await pdfParse(buf)).text;
+    text = (await pdfParse(new Uint8Array(buf), { pagerender: require('./pdfText').renderPage })).text;
   } else if (ext === '.docx') {
     const mammoth = require('mammoth');
     text = (await mammoth.extractRawText({ buffer: buf })).value;

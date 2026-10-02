@@ -179,7 +179,7 @@ const SKILLS = {
   // General business strategy (growth, corporate, strategic planning); technology strategy is its own skill.
   Strategy: [/\b(?:business|corporate|growth|go-to-market|competitive) strateg(?:y|ies)\b/, /\bstrategic (?:planning|insights|recommendations|initiatives|projects|direction|plans?)\b/, /\bstrategy (?:and |& )?operations\b/, /\bmarket entry\b/],
   'AI Strategy': [/\bai strateg(?:y|ies)\b/, /\bai (?:initiatives|adoption|use cases)\b/],
-  'Competitive Analysis': [/\bcompetitive (?:analysis|analyses|landscape|intelligence|positioning)\b/, /\bcompetitor (?:analysis|research|benchmarking)\b/, /\bbattle ?cards?\b/, /\bwin\/loss\b/],
+  'Competitive Analysis': [/\bcompetitive (?:analysis|analyses|landscape|intelligence|positioning)\b/, /\bcompetitive\/market intelligence\b/, /\bcompetitor (?:analysis|research|benchmarking)\b/, /\bbattle ?cards?\b/, /\bwin\/loss\b/],
   'Low-Code / BPM': [/\blow[- ]code\b/, /\bno[- ]code\b/, /\bbusiness process management\b/, /\bbpm\b/, /\bworkflow (?:automation|platforms?)\b/, /\bprocess automation\b/, /\brpa\b/, /\brobotic process automation\b/],
   // industries
   'Enterprise Software': [/\benterprise software\b/, /\bsaas\b/, /\bsoftware[- ]as[- ]a[- ]service\b/, /\bb2b software\b/, /\b(?:enterprise )?software (?:company|companies|vendors?|firms?|industry)\b/],
@@ -356,7 +356,7 @@ const KIND_RANK = { preferred: 0, neutral: 1, required: 2 };
 
 const APOS = "['’]?";
 const REQUIRED_HEADING = new RegExp(
-  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you(?:${APOS}ll| will) (?:need|bring)|what you bring|you(?:${APOS}ll| will)? bring|what we(?:${APOS}re| are) looking for|what we look for|who we(?:${APOS}re| are) looking for|who you are|about you|you have|you(?:${APOS}ll| will) need|must[- ]haves?|your profile|(?:the )?ideal candidate|you (?:might|may) be a (?:good )?fit if|you${APOS}ll thrive if|is this you)\\b[^.]{0,30}$`
+  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you(?:${APOS}ll| will) (?:need|bring)|what you bring|you(?:${APOS}ll| will)? bring|(?:what )?we(?:${APOS}re| are) looking for|what we look for|who we(?:${APOS}re| are) looking for|who you are|about you|you have|you(?:${APOS}ll| will) need|must[- ]haves?|your profile|(?:the )?ideal candidate|you (?:might|may) be a (?:good )?fit if|you${APOS}ll thrive if|is this you)\\b[^.]{0,30}$`
 );
 const NEUTRAL_HEADING = new RegExp(
   `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main |essential |principal |job )?(?:responsibilities|duties|functions)(?: and (?:responsibilities|duties))?|duties and responsibilities|position summary|job purpose|what you(?:${APOS}ll| will) (?:do|be doing|work on)|(?:as an? [^.]{2,40} )?you(?:${APOS}ll| will)(?: be)?:|in this role,? you(?:${APOS}ll| will)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company))\\b[^.]{0,30}$`

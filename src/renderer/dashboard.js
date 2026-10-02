@@ -927,7 +927,7 @@ function nudgeCard(n, { appId, compact = false } = {}) {
   };
   return `<div class="nudges${compact ? ' compact' : ''}">
     ${n.headline ? `<div class="nudge-head">${mascotSvg(n.nudges.length ? 'curious' : 'proud', compact ? 34 : 44)}<p>${esc(n.headline)}</p></div>` : ''}
-    <p class="nudge-literal">${icon('search', 13)} ATS software matches words literally, so this is about the resume's wording, not about you.</p>
+    <p class="nudge-literal">${icon(n.context ? 'chat' : 'search', 13)} ${n.context ? 'Your documents may not tell the whole story. Share more only if it applies; you can keep this resume as it is.' : "ATS software matches words literally, so this is about the resume's wording, not about you."}</p>
     ${n.fixed.map((f) => `<div class="nudge t-done"><span class="ni">${icon('check', 15)}</span><div><p>${esc(f)}</p></div></div>`).join('')}
     ${n.nudges.map((x) => `<div class="nudge t-${x.tone}"><span class="ni">${icon(NUDGE_ICON[x.tone] || 'check', 15)}</span><div><p>${esc(x.text)}</p>${act(x)}</div></div>`).join('')}
     ${n.more ? `<p class="faint nudge-more">${n.more === 1 ? 'One smaller thing is' : `${n.more} smaller things are`} in the details below, if you're curious.</p>` : ''}
@@ -939,6 +939,7 @@ async function runNudge(btn) {
   const id = btn.dataset.nudgeApp;
   const type = btn.dataset.nudge;
   const inEditor = !!btn.closest('#edTray');
+  if (type === 'add-context' && inEditor) return openResumeContext(btn.dataset.key);
   if (type === 'profile') return void (location.hash = '#profile');
   if (type === 'bank') return void (location.hash = '#bank');
   if (type === 'requirement') {
@@ -955,7 +956,7 @@ async function runNudge(btn) {
     return toast(say('atsDone'), 'good', 3800, 'proud');
   }
   if (type === 'fix-page' || type === 'add-skill') {
-    if (inEditor) await saveNow(); // editor.js: keep what you typed
+    if (inEditor && !(await saveNow())) return; // editor.js: keep what you typed
     const ok = await run(btn, () => S.fixPage(id, type === 'add-skill' ? { addSkill: btn.dataset.term } : {}).then(() => true), '…');
     if (!ok) return;
     if (inEditor && ed.appId === id) await renderEditor(id, ed.app);
