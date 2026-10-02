@@ -23,7 +23,7 @@
   };
 
   const CSS = `
-.rs-page { font-family: "Times New Roman", Tinos, "Liberation Serif", Times, serif; font-size: 11pt; line-height: 1.2; color: #000; background: #fff; }
+.rs-page { font-family: "Times New Roman", Tinos, "Liberation Serif", Times, serif; font-size: 11pt; line-height: 1.2; color: #000; background: #fff; overflow-wrap: anywhere; }
 .rs-page * { box-sizing: border-box; }
 .rs-name { font-size: 20pt; font-weight: 700; text-align: center; line-height: 1.15; }
 .rs-line { text-align: center; }
@@ -36,8 +36,10 @@
 .rs-role + .rs-role, .rs-edu + .rs-edu { margin-top: 7pt; }
 .rs-bullets { list-style: none; margin: 0; padding: 0; }
 .rs-bullets > li, .rs-skills > li, .rs-certs > li { position: relative; padding-left: 18pt; break-inside: avoid; }
+.rs-bullets > li + li { margin-top: 2pt; }
 .rs-bullets > li::before, .rs-skills > li::before, .rs-certs > li::before { content: "\\25CF"; position: absolute; left: 3pt; top: 0; font-family: Arial, Helvetica, sans-serif; font-size: 7pt; line-height: 13.2pt; }
-.rs-skills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2pt 12pt; list-style: none; margin: 0; padding: 0; }
+.rs-skills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2pt 12pt; list-style: none; margin: 0; padding: 0; }
+.rs-skills.rs-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .rs-certs { list-style: none; margin: 0; padding: 0; }
 .rs-detail { margin: 0; }
 .rs-label { font-weight: 700; }
@@ -146,7 +148,7 @@
       ${section('summary', doc, summary, ed)}
       ${section('experience', doc, jobs.length || ed ? jobs.map(({ r, i }) => roleHtml(r, i, ed)).join('') + addRole : '', ed)}
       ${section('projects', doc, projects.length ? projects.map(({ r, i }) => roleHtml(r, i, ed)).join('') : '', ed)}
-      ${section('skills', doc, skills || ed ? `<ul class="rs-skills">${skills}${skillsAdd}</ul>` : '', ed)}
+      ${section('skills', doc, skills || ed ? `<ul class="rs-skills${skillColumns(doc.skills) === 2 ? ' rs-cols-2' : ''}">${skills}${skillsAdd}</ul>` : '', ed)}
       ${section('education', doc, (doc.education || []).length || ed ? (doc.education || []).map((e, i) => eduHtml(e, i, ed)).join('') + (ed ? '<div class="rs-add" data-add-edu contenteditable="false">＋ add education</div>' : '') : '', ed)}
       ${section('certifications', doc, certs ? `<ul class="rs-certs">${certs}</ul>` : '', ed)}
     </div>`;
@@ -166,6 +168,16 @@
       line1: [p.location, p.phone].filter(Boolean).join(' | '),
       line2: [p.email, p.links].filter(Boolean).join(' | '),
     };
+  }
+
+  // A resume's header with any empty part (name, contact lines) filled in from
+  // the profile. A resume made before the profile was filled in would
+  // otherwise keep a blank header for good. What you typed is never replaced.
+  function fillHeader(header, profile = {}) {
+    const h = { name: '', line1: '', line2: '', ...(header || {}) };
+    const p = headerFromProfile(profile);
+    for (const k of ['name', 'line1', 'line2']) if (!String(h[k] || '').trim() && p[k]) h[k] = p[k];
+    return h;
   }
 
   function labelLines(details) {
@@ -308,7 +320,9 @@
   const CONTENT_W = (8.5 - MARGINS.left - MARGINS.right) * 72; // 468pt
   const PAGE_H = (11 - MARGINS.top - MARGINS.bottom) * 72; // 712.8pt
   const INDENT = 18; // ● hanging indent
-  const SKILL_COL = (CONTENT_W - 2 * 12) / 3 - INDENT;
+  const BULLET_GAP = 2; // space between bullets, so each one reads as its own point
+  const SKILL_GAP = 12;
+  const skillCol = (cols) => (CONTENT_W - (cols - 1) * SKILL_GAP) / cols - INDENT;
 
   function textWidth(s, size = PT, bold = false) {
     const table = bold ? W_BOLD : W_REG;
@@ -375,14 +389,15 @@
       const head = r.isProject
         ? rowLines(r.title, r.dates, true, false) + (r.organization ? rowLines(r.organization, '', false, false) : 0)
         : rowLines(r.organization, r.location, true, true) + rowLines(r.title, r.dates, true, false);
-      return (head + r.bullets.reduce((s, b) => s + lineCount(b.text, CONTENT_W - INDENT), 0)) * LINE;
+      return (head + r.bullets.reduce((s, b) => s + lineCount(b.text, CONTENT_W - INDENT), 0)) * LINE + BULLET_GAP * Math.max(0, r.bullets.length - 1);
     };
     const stack = (blocks) => (blocks.length ? blocks.reduce((s, x) => s + x, 0) + 7 * (blocks.length - 1) : 0);
     y += sec(stack(d.roles.filter((r) => !r.isProject).map(roleH)));
     y += sec(stack(d.roles.filter((r) => r.isProject && r.bullets.length).map(roleH)));
     if (d.skills.length) {
+      const cols = skillColumns(d.skills);
       let grid = 0;
-      for (let i = 0; i < d.skills.length; i += 3) grid += Math.max(...d.skills.slice(i, i + 3).map((s) => lineCount(s, SKILL_COL))) * LINE + (i ? 2 : 0);
+      for (let i = 0; i < d.skills.length; i += cols) grid += Math.max(...d.skills.slice(i, i + cols).map((s) => lineCount(s, skillCol(cols)))) * LINE + (i ? 2 : 0);
       y += sec(grid);
     }
     y += sec(
@@ -402,6 +417,42 @@
     return { height: y, pages, lastPageFill: (y - (pages - 1) * PAGE_H) / PAGE_H, pageHeight: PAGE_H, lineHeight: LINE };
   }
 
+  // Skills sit three across. When one is too long for a third of the page (it
+  // would wrap past two lines), the grid goes two across instead, so long
+  // names wrap evenly rather than squeezing their neighbours.
+  const fitsColumn = (s, cols) => lineCount(s, skillCol(cols)) <= 2 && s.split(' ').every((w) => textWidth(w) <= skillCol(cols));
+  function skillColumns(skills) {
+    const list = (skills || []).map((s) => String(s || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    return list.every((s) => fitsColumn(s, 3)) ? 3 : 2;
+  }
+
+  // A skill too long for the grid even two across: over two lines, or a word
+  // so long it has to break in the middle.
+  function skillTooLong(skill) {
+    const s = String(skill || '').replace(/\s+/g, ' ').trim();
+    return !!s && !fitsColumn(s, 2);
+  }
+
+  // One skill that's really a list ("Python, SQL, Tableau" or
+  // "AWS/Kubernetes/Terraform", "Excel / Word") as separate skills. Commas inside brackets
+  // stay ("Power BI (DAX, Power Query)"), as do short pairs like "A/B" or "CI/CD".
+  function splitSkill(skill) {
+    const out = [];
+    let depth = 0;
+    let cur = '';
+    for (const ch of String(skill || '').replace(/\s+\/\s+/g, '\n')) {
+      if (ch === '(' || ch === '[') depth++;
+      if ((ch === ')' || ch === ']') && depth) depth--;
+      if (!depth && /[,;|•●▪\n]/.test(ch)) (out.push(cur), (cur = ''));
+      else cur += ch;
+    }
+    out.push(cur);
+    return out
+      .flatMap((p) => (/^[^\s/()]{3,}(?:\/[^\s/()]{3,})+$/.test(p.trim()) ? p.split('/') : [p]))
+      .map((p) => p.replace(/^\s*(?:and|&)\s+/i, '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+  }
+
   // Does it fit on `pages` pages with half a line to spare? Trimming and
   // building stop here rather than at the very bottom of the page, so a
   // rounding difference in the browser's layout can't push it onto another.
@@ -409,5 +460,5 @@
     return measure(doc, { scale }).height <= pages * PAGE_H - LINE / 2;
   }
 
-  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, normalize, compact, labelLines, esc, measure, fits, lineCount, textWidth };
+  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, fillHeader, normalize, compact, labelLines, esc, measure, fits, lineCount, textWidth, skillColumns, skillTooLong, splitSkill };
 });

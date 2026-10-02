@@ -54,3 +54,15 @@ test('the resume checks: role named up top, strongest bullet first, share of res
 test('every check explains why it matters and how it is measured', () => {
   for (const c of [...RC.BULLET_CHECKS, ...RC.RESUME_CHECKS]) assert.ok(c.title && c.why.length > 40 && c.how.length > 20, c.id);
 });
+
+test('a long skill, or a list packed into one skill, is flagged with how to split it', () => {
+  const doc = (skills) => ({ roles: [], skills });
+  const skillsCheck = (skills) => RC.checkResume(doc(skills)).resume.find((c) => c.id === 'skills');
+  assert.equal(skillsCheck(['SQL', 'Python', 'Microsoft Power BI (DAX, Power Query, M)']).ok, true);
+  const packed = skillsCheck(['SQL', 'dbt, Snowflake, Looker']);
+  assert.equal(packed.ok, false);
+  assert.deepEqual(packed.long, [{ i: 1, text: 'dbt, Snowflake, Looker', parts: ['dbt', 'Snowflake', 'Looker'] }]);
+  const wordy = skillsCheck(['Cross-functional stakeholder management, executive communication and storytelling for senior leaders']);
+  assert.equal(wordy.ok, false);
+  assert.equal(skillsCheck([]), undefined);
+});
