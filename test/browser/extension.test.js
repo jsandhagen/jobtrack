@@ -192,7 +192,7 @@ test('LinkedIn: pops up the card, asks before saving, and follows in-page naviga
   const text = await waitFor(async () => ((await cardText(p)).includes('Senior Frontend Engineer') ? cardText(p) : null));
   assert.match(text, /Add this job to your saved jobs\?/);
   assert.match(text, /Excellent match/);
-  assert.match(text, /Medium\s*ATS visibility of your current resume: found in a search, but below closer matches/);
+  assert.match(text, /Medium\s*ATS visibility of your resume: found in a search, but below closer matches/);
   assert.ok(!/72%|ATS match/.test(text), 'ATS shows as visibility, not a score');
   assert.equal(postings.length, 0, 'nothing is saved until you say so');
 
