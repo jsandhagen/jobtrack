@@ -73,7 +73,7 @@ async function main() {
         row.domReadyMs = round(performance.now() - started);
         // Evaluate our reader through DevTools, as strict CSP can reject an
         // inline <script>. The actual extension runs in its isolated world.
-        await p.evaluate(fs.readFileSync(path.join(EXT, 'extract.js'), 'utf8'));
+        for (const file of ['vendor/jobTitle.js', 'extract.js']) await p.evaluate(fs.readFileSync(path.join(EXT, file), 'utf8'));
         // Allow client-rendered pages to fill in, without waiting on analytics.
         await p.waitForFunction(() => globalThis.sproutExtract().isPosting, { }, { timeout: 10000 }).catch(() => {});
         const readableAt = performance.now();

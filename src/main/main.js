@@ -32,6 +32,8 @@ const { PostingWatcher, fingerprint } = require('./watcher');
 const ocr = require('./ocr');
 const { createBridge } = require('./bridge');
 const { createUpdater } = require('./updater');
+const { installExtension } = require('./extensionFolder');
+const haveIt = require('./haveIt');
 const bulletBank = require('./bullets');
 const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
@@ -402,7 +404,8 @@ function evidenceDocs() {
 // app count as evidence too).
 function scoringDocuments() {
   const bank = store.getBank();
-  const bankText = [...bank.bullets.flatMap((b) => [b.text, ...(b.variants || [])]), bank.skills.join(', ')].join('\n');
+  // `confirmed`: experience you said you have when a posting asked (haveIt.js).
+  const bankText = [...bank.bullets.flatMap((b) => [b.text, ...(b.variants || [])]), bank.skills.join(', '), ...(bank.confirmed || [])].join('\n');
   const docs = evidenceDocs();
   return bankText.trim() ? [...docs, { kind: 'bank', text: bankText }] : docs;
 }
@@ -483,6 +486,74 @@ const pageScale = () => validScale(store.getSettings().pageScale) || 1;
 
 function scoreLocally(job) {
   return shownFit(localFitScore(job, scoringDocuments(), store.getProfile()));
+}
+
+// The missing must-haves worth asking "Do you have it?" about (haveIt.js):
+// each one scored as if your documents showed it. Remembered per job and
+// score, since the browser's card asks again every couple of seconds while
+// a resume is being written.
+const asksCache = new Map();
+function missingAsks(job, quick) {
+  if (!job || !job.text || !quick || !evidenceDocs().length) return [];
+  const declined = store.getSettings().declinedQualifications || [];
+  const key = [fingerprint(job.text), job.title, quick.score, (quick.missingSkills || []).join('|'), declined.length].join('#');
+  if (asksCache.has(key)) return asksCache.get(key);
+  const docs = scoringDocuments();
+  const profile = store.getProfile();
+  const asks = haveIt.asksFor(quick, (extra) => shownFit(localFitScore(job, [...docs, { kind: 'bank', text: extra }], profile)), { declined });
+  if (asksCache.size > 100) asksCache.delete(asksCache.keys().next().value);
+  asksCache.set(key, asks);
+  return asks;
+}
+
+// "Yes, I have it": record it (skills, or experience that counts toward the
+// score but stays off resumes) and re-score every job, since it counts for
+// all of them. "No": don't ask about it again.
+function answerHaveIt({ label, answer, option, id }) {
+  label = String(label || '').trim().slice(0, 200);
+  if (!label) throw new Error('Nothing to answer.');
+  if (answer === 'no') {
+    const declined = store.getSettings().declinedQualifications || [];
+    if (!declined.some((x) => x.toLowerCase() === label.toLowerCase())) store.updateSettings({ declinedQualifications: [...declined, label].slice(-300) });
+    return null;
+  }
+  let recorded;
+  store.updateBank((b) => {
+    recorded = haveIt.recordYes(b, label, option);
+  });
+  // Said no to it once, yes now: yes wins.
+  const declined = store.getSettings().declinedQualifications || [];
+  if (declined.some((x) => x.toLowerCase() === label.toLowerCase())) store.updateSettings({ declinedQualifications: declined.filter((x) => x.toLowerCase() !== label.toLowerCase()) });
+  // The job on screen now (the caller's), the rest a few at a time so the app stays responsive.
+  if (id) rescoreOne(id);
+  rescoreAllSoon(id);
+  broadcast('state-changed');
+  return { where: recorded.where, value: recorded.value };
+}
+
+function rescoreOne(id) {
+  const rec = store.getApplication(id);
+  if (!rec || !rec.job || !rec.job.text) return;
+  broadcast('app-updated', store.updateApplication(id, { quick: scoreLocally(rec.job) }));
+}
+
+// Every job's free score, again (what you have changed), in small batches.
+let rescoreQueue = null;
+function rescoreAllSoon(skip) {
+  const ids = store.listApplications().map((r) => r.id).filter((x) => x !== skip);
+  const fresh = !rescoreQueue;
+  rescoreQueue = ids; // a newer answer starts over with everything
+  if (!fresh) return;
+  const step = () => {
+    const batch = rescoreQueue.splice(0, 10);
+    for (const x of batch) rescoreOne(x);
+    if (rescoreQueue.length) setTimeout(step, 0);
+    else {
+      rescoreQueue = null;
+      broadcast('state-changed');
+    }
+  };
+  setTimeout(step, 0);
 }
 
 // The free fit preview for postings found by careers checks and searches.
@@ -1038,7 +1109,7 @@ function jobFromBrowser(p) {
   return cleanPosting({ text, title: p.title, company: p.company, location: p.location, url: p.url });
 }
 
-const pickQuick = (q) => ({
+const pickQuick = (q, job) => ({
   score: q.score,
   label: q.label,
   headline: q.headline || '',
@@ -1049,9 +1120,52 @@ const pickQuick = (q) => ({
   components: q.components || null,
   partialSkills: (q.partialSkills || []).slice(0, 8),
   missingSkills: (q.missingSkills || []).slice(0, 8),
+  // For the card's detailed breakdown.
+  matchedPreferred: (q.matchedPreferred || []).slice(0, 8),
+  missingPreferred: (q.missingPreferred || []).slice(0, 8),
+  reasons: (q.reasons || []).slice(0, 4),
+  concerns: (q.concerns || []).filter((c) => !/^Not found in your documents/.test(c)).slice(0, 4),
+  requiredYears: q.requiredYears ?? null,
+  estimatedYears: q.estimatedYears ?? null,
+  // "Do you have it?" for the missing must-haves that would move the score.
+  asks: missingAsks(job, q),
 });
-const pickAts = (a) => (a ? { score: a.score, grade: a.grade, skillsMatch: a.skillsMatch || '' } : null);
+const pickAts = (a) =>
+  a
+    ? {
+        score: a.score,
+        grade: a.grade,
+        skillsMatch: a.skillsMatch || '',
+        // For the card's detailed breakdown.
+        basis: a.basis || '',
+        components: a.components || null,
+        basic: a.basic || null,
+        preferred: a.preferred || null,
+        strictKeywordRate: a.strictKeywordRate ?? null,
+        normalizedKeywordRate: a.normalizedKeywordRate ?? null,
+        knockouts: (a.knockouts || []).slice(0, 6),
+        tips: (a.tips || []).slice(0, 4),
+      }
+    : null;
 const cardEnv = () => ({ hasDocs: evidenceDocs().length > 0, hasKey: !!getApiKey() });
+
+// A job on the page, scored for the browser's card without saving it (the card asks first).
+// `fresh`: score it now, not from a checked copy (which may not be re-scored yet).
+async function previewCard(p, { fresh = false } = {}) {
+  const job = jobFromBrowser(p);
+  const dup = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
+  if (dup && dup.saved !== false) return browserCard(dup, { seen: true });
+  const quick = dup && !fresh ? dup.quick : scoreLocally(job);
+  return {
+    saved: false,
+    preview: {
+      job: { title: job.title, company: job.company, location: job.location, url: job.url },
+      quick: pickQuick(quick, job),
+      ats: { before: pickAts(libraryAts(job)) },
+    },
+    ...cardEnv(),
+  };
+}
 
 // A saved job, as the extension's card shows it (the same things the app's popup shows).
 function browserCard(rec, { seen = false } = {}) {
@@ -1066,7 +1180,7 @@ function browserCard(rec, { seen = false } = {}) {
       createdAt: rec.createdAt,
       appliedAt: rec.appliedAt || null,
       job: { title: rec.job.title, company: rec.job.company, location: rec.job.location, url: rec.job.url },
-      quick: pickQuick(rec.quick),
+      quick: pickQuick(rec.quick, rec.job),
       analysis: a ? { score: a.score, label: a.label, strengths: a.strengths || [], headline: a.headline || '', grade: a.grade || '' } : null,
       analysisStatus: rec.analysisStatus || null,
       analysisError: rec.analysisError || null,
@@ -1151,8 +1265,25 @@ function openPersonInDashboard(id) {
   else go();
 }
 
-function extensionDir() {
+// The extension that ships with the app (it moves with the app; see extensionFolder.js).
+function bundledExtensionDir() {
   return app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(__dirname, '..', '..', 'browser-extension');
+}
+
+// The folder people load the extension from. Packaged builds keep a copy in
+// the data folder, which stays put across updates, so the browser never
+// loses it; running from source, it's the source folder itself.
+let extensionFolder = null;
+function setUpExtensionFolder() {
+  if (!app.isPackaged) return;
+  try {
+    extensionFolder = installExtension(bundledExtensionDir(), path.join(app.getPath('userData'), 'browser-extension')).dir;
+  } catch (err) {
+    console.warn('Could not copy the browser extension to the data folder:', err.message);
+  }
+}
+function extensionDir() {
+  return extensionFolder || bundledExtensionDir();
 }
 
 function askToPair({ origin, name }) {
@@ -1217,21 +1348,7 @@ async function startBridge() {
       };
     },
     // Score a job for the browser's card without saving it; the card asks first.
-    onPreview: async (p) => {
-      const job = jobFromBrowser(p);
-      const dup = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
-      if (dup && dup.saved !== false) return browserCard(dup, { seen: true });
-      const quick = dup ? dup.quick : scoreLocally(job);
-      return {
-        saved: false,
-        preview: {
-          job: { title: job.title, company: job.company, location: job.location, url: job.url },
-          quick: pickQuick(quick),
-          ats: { before: pickAts(libraryAts(job)) },
-        },
-        ...cardEnv(),
-      };
-    },
+    onPreview: (p) => previewCard(p),
     onGet: async (id) => {
       const rec = store.getApplication(id);
       if (!rec) throw Object.assign(new Error('That job is no longer in Sprout.'), { status: 404 });
@@ -1256,6 +1373,16 @@ async function startBridge() {
       else if (action === 'skip' && rec.status === 'scored') store.setStatus(id, 'skipped');
       broadcast('state-changed');
       return browserCard(store.getApplication(id));
+    },
+    // "Do you have it?" answered on the card: record it, then the card again,
+    // re-scored (a saved job by its id, one not saved yet from the page).
+    onHave: async ({ label, answer, option, id, posting }) => {
+      const before = id ? store.getApplication(id) : null;
+      if (id && !before) throw Object.assign(new Error('That job is no longer in Sprout.'), { status: 404 });
+      const was = before ? before.quick.score : null;
+      const recorded = answerHaveIt({ label, answer, option, id });
+      const card = id ? browserCard(store.getApplication(id)) : await previewCard(posting, { fresh: true });
+      return { ...card, answered: { label, answer, ...(recorded || {}), was } };
     },
     onOpen: openInDashboard,
     onPerson: async (p) => personCard(p),
@@ -1369,7 +1496,11 @@ function registerIpc() {
     return handlePosting({ ...posting, text: posting.text.trim(), via: 'manual' }, { fromDashboard: true });
   });
   handle('job:scanScreen', () => scanFromApp());
-  handle('app:get', (id) => withAts(store.getApplication(id)));
+  handle('app:get', (id) => {
+    const rec = withAts(store.getApplication(id));
+    // "Do you have these?" under the free score, as on the browser card.
+    return rec && rec.quick ? { ...rec, asks: missingAsks(rec.job, rec.quick) } : rec;
+  });
   handle('app:update', (id, patch) => {
     const allowed = {};
     for (const k of ['notes', 'followUpAt', 'appliedVia', 'contact', 'salaryNote']) if (patch[k] !== undefined) allowed[k] = patch[k];
@@ -1400,6 +1531,7 @@ function registerIpc() {
     store.updateBank((b) => {
       if (typeof patch.summary === 'string') b.summary = patch.summary;
       if (Array.isArray(patch.skills)) b.skills = patch.skills.map((x) => String(x).trim()).filter(Boolean);
+      if (Array.isArray(patch.confirmed)) b.confirmed = patch.confirmed.map((x) => String(x).trim()).filter(Boolean);
       if (Array.isArray(patch.education)) b.education = patch.education;
     });
     broadcast('state-changed');
@@ -1700,6 +1832,14 @@ function registerIpc() {
     // Only real web links (and email drafts), never file:// or custom schemes.
     if (!/^(https?:\/\/|mailto:)/i.test(url || '')) throw new Error('That link doesn\'t look like a web address.');
     return shell.openExternal(url);
+  });
+  // "I have this" on a missing skill (dashboard): same as the browser card's yes.
+  handle('app:haveIt', ({ label, option, id, answer = 'yes' }) => {
+    const before = id && store.getApplication(id);
+    const r = answerHaveIt({ label, answer: answer === 'no' ? 'no' : 'yes', option, id });
+    const after = id && store.getApplication(id);
+    if (id) broadcast('app-updated', after); // redraws the job's page, with the questions that are left
+    return { ...(r || {}), was: before ? before.quick.score : null, now: after ? after.quick.score : null };
   });
   handle('app:rescoreLocal', (id) => {
     const rec = store.getApplication(id);
@@ -2405,6 +2545,7 @@ async function smokeTest() {
     await ocr.terminate();
     const win = new BrowserWindow({ show: false, webPreferences: { preload: PRELOAD } });
     await win.loadFile(path.join(RENDERER, 'dashboard.html'));
+    setUpExtensionFolder();
     if (!fs.existsSync(path.join(extensionDir(), 'manifest.json'))) throw new Error(`browser extension missing at ${extensionDir()}`);
     console.log(`SMOKE OK (${app.isPackaged ? 'packaged' : 'dev'})`);
     clearTimeout(timer);
@@ -2452,6 +2593,8 @@ if (process.argv.includes('--smoke-test')) {
     setTimeout(checkCareersIfDue, 60 * 1000);
     setInterval(checkCareersIfDue, 15 * 60 * 1000);
     powerMonitor.on('resume', () => setTimeout(checkCareersIfDue, 60 * 1000));
+    // Before the bridge, which tells the extension which version is on disk.
+    setUpExtensionFolder();
     startBridge();
     startUpdates();
     // Slower housekeeping once the window is up: first run with the bullet bank

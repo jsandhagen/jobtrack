@@ -662,11 +662,13 @@ function fitLabel(score) {
 
 // ---------- job title ----------
 
+const { notJobTitle } = require('../shared/jobTitle');
+
 // Page and section headings that come first in pasted postings ("About the
 // job" on LinkedIn), never a job title.
 const GENERIC_TITLE = /^(?:about (?:the|this) (?:job|role|position|opportunity|company|team)|about us|job (?:description|details|summary|overview|posting|information)|full job description|description|overview|position (?:overview|summary|description)|role (?:overview|summary|description)|the role|the opportunity|summary|responsibilities|requirements|qualifications|company (?:description|overview)|who we are|untitled role|easy apply|apply(?: now)?|save|share|show more)\s*:?$/i;
 function isGenericTitle(title) {
-  return !title || GENERIC_TITLE.test(String(title).trim());
+  return !title || GENERIC_TITLE.test(String(title).trim()) || notJobTitle(title);
 }
 
 const ROLE_NOUN = /\b(?:generalist|executive|teller|cashier|clerk|electrician|plumber|carpenter|mechanic|welder|machinist|operator|driver|hygienist|technologist|therapist|worker|counselor|aide|caregiver|cook|chef|server|bartender|housekeeper|custodian|janitor|guard|officer|inspector|surveyor|estimator|foreman|superintendent|dispatcher|receptionist|bookkeeper|appraiser|adjuster|banker|broker|trader|instructor|tutor|librarian|nanny|veterinarian|physician|dentist|paramedic|emt|phlebotomist|sonographer|dietitian|analyst|engineer|developer|programmer|manager|scientist|specialist|associate|director|lead|consultant|designer|nurse|accountant|auditor|coordinator|administrator|officer|architect|intern|representative|technician|assistant|advisor|adviser|strategist|researcher|economist|statistician|actuary|underwriter|modeler|quant|recruiter|editor|writer|teacher|therapist|pharmacist|attorney|paralegal|controller|planner|producer|agent|supervisor|head|vp|president|partner|fellow|senior|principal|staff)\b/i;

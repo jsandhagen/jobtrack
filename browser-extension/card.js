@@ -11,7 +11,9 @@
 //                              add them to your people, with what you share
 //   { error }                  something went wrong
 (() => {
-  if (globalThis.SproutCard) return;
+  // Already loaded, unless this is a newer copy put on the page after the extension updated.
+  const VERSION = chrome.runtime.getManifest().version;
+  if (globalThis.SproutCard && globalThis.SproutCard.version === VERSION) return;
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const seed = (s) => [...String(s || '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
@@ -45,17 +47,144 @@
     `<div class="scoreline" data-info-host>${M().scoreRing(score, 84)}
       <div><div class="label">${esc(label)}</div><div class="src">${src} ${info('fit')}</div></div></div>`;
 
-  // "How an ATS would see the resume you have today", Workday-style grade included.
-  function atsLine(before, grade) {
+  // The ATS score, described as what it is: how visible the resume is when
+  // recruiters search their applicant tracking system for this job. It's
+  // about the resume, not about you (that's the fit score), and it goes up
+  // as the resume is tailored.
+  const visCls = (score) => (score >= 75 ? 'hi' : score >= 55 ? 'mid' : 'lo');
+
+  // A ring, like the fit score's and the app's ATS ring.
+  function atsLine(before) {
     if (!before) return '';
-    const g = grade || before.grade;
-    return `<div class="ats-line" data-info-host title="Estimated applicant-tracking-system match for your current resume">
-      <span class="grade g-${esc(g)}">${esc(g)}</span>
-      <span>ATS visibility of your current resume: <b>${before.score}%</b>${before.skillsMatch ? ` · skills ${esc(before.skillsMatch.toLowerCase())}` : ''}</span>${info('ats')}</div>`;
+    return `<div class="scoreline vis-line" data-info-host title="How easily recruiters find your current resume when they search their applicant tracking system for this job">
+      ${M().scoreRing(before.score, 64, 'ATS')}
+      <div><div class="label">Resume visibility</div><div class="src">How easily recruiters find it ${info('visibility')}</div></div></div>`;
   }
 
-  const chips = (list) => `<div class="chips">${list.map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')}</div>`;
+  // The score's labels, as you'd say them: "one of ERP, Oracle" -> "ERP or Oracle",
+  // "experience in accounting" -> "Accounting experience".
+  function plain(s) {
+    let t = String(s || '').trim();
+    const one = t.match(/^one of (.+)$/i);
+    if (one) {
+      const opts = one[1].split(/\s*,\s*/);
+      t = opts.length > 1 ? `${opts.slice(0, -1).join(', ')} or ${opts[opts.length - 1]}` : opts[0];
+    }
+    const exp = t.match(/^experience in (.+)$/i);
+    if (exp) t = `${exp[1]} experience`;
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  // "Accounting" beside "Accounting experience" says the same thing twice.
+  const distinct = (list) => {
+    const shown = list.map((s) => plain(s).toLowerCase());
+    return list.filter((s, i) => !shown.some((o, j) => j !== i && o.startsWith(shown[i] + ' ')));
+  };
+  function chips(list) {
+    return `<div class="chips">${distinct(list).map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(plain(s))}</span>`).join('')}</div>`;
+  }
   const note = (html, cls = '') => `<div class="note ${cls}">${html}</div>`;
+  // "Do you have these?": must-haves the posting asks for that your documents
+  // don't show, each with how much a yes would add to the free score. A yes
+  // adds it to your bullet bank and re-scores; a no stops asking about it.
+  function haveAsks(q) {
+    const asks = (q && q.asks) || [];
+    if (!asks.length) return '';
+    const btn = (label, answer, text, option, cls) =>
+      `<button class="${cls}" data-act="have" data-label="${esc(label)}" data-answer="${answer}"${option ? ` data-option="${esc(option)}"` : ''}>${esc(text)}</button>`;
+    const rows = asks
+      .map(
+        (a) => `<div class="have-row"><span class="have-q">${esc(a.ask)} <span class="have-gain" title="How much your fit score would go up">+${a.gain}</span></span>
+        <span class="have-btns">${(a.options || []).length ? a.options.slice(0, 4).map((o) => btn(a.label, 'yes', o, o, 'soft')).join('') : btn(a.label, 'yes', 'I have it', '', 'soft')}${btn(a.label, 'no', 'No', '', 'ghost')}</span></div>`
+      )
+      .join('');
+    return `<div class="have"><div class="have-title" title="Must-haves your documents don't show yet. A yes adds them and re-scores.">Do you have these?</div>${rows}</div>`;
+  }
+
+  // After an answer: what changed.
+  function answeredNote(ui) {
+    const a = ui.answered;
+    if (!a || a.answer !== 'yes') return '';
+    const moved = a.was != null && a.now != null && a.now !== a.was ? ` Fit ${a.was} → <b>${a.now}</b>.` : '';
+    // Skills go on resumes; experience needs a bullet that shows it.
+    const where = a.where === 'skills' ? `Added <b>${esc(a.value)}</b> to your skills.` : `Noted <b>${esc(a.value)}</b>.`;
+    const hint = a.where === 'skills' ? '' : ' <span class="faint">Add a bullet to show it on resumes.</span>';
+    return note(where + moved + hint, 'good');
+  }
+
+  // ---------- detailed breakdown ----------
+  // The card's short version, opened up: what the dashboard's Fit & ATS tab
+  // shows, in the card's width. Open or closed is remembered for every card.
+  let detailsOpen = false;
+  try {
+    chrome.storage.local.get({ details: false }).then((v) => (detailsOpen = !!v.details), () => {});
+  } catch {
+    /* no storage here */
+  }
+  const band = (v) => (v >= 75 ? 'var(--band-hi)' : v >= 50 ? 'var(--band-mid)' : 'var(--band-lo)');
+  const bars = (rows) =>
+    rows.length
+      ? `<div class="fit-bars">${rows.map(([l, v, hint]) => `<div class="fit-bar"${hint ? ` title="${esc(hint)}"` : ''}><span>${esc(l)}</span><div class="track"><i style="width:${v}%;background:${band(v)}"></i></div><b>${v}</b></div>`).join('')}</div>`
+      : '';
+  const ATS_PARTS = [
+    ['hardSkills', 'Hard skills', 'Required skills count most'],
+    ['parseability', 'Parse-ready', 'Contact info, standard headings, dates, length'],
+    ['title', 'Job title', 'The posting\'s title on your resume'],
+    ['experience', 'Years', 'Years shown vs. years asked'],
+    ['education', 'Education', 'Degree level vs. what is asked'],
+    ['keywords', 'Keywords', 'The posting\'s other wording'],
+    ['softSkills', 'Soft skills', 'Counted lightly'],
+  ];
+  // 'Audit & Controls (posting says "sox")' -> 'Audit & Controls ("SOX" in the posting)'.
+  const knockout = (k) => String(k).replace(/\s*\(posting says "([^"]+)"\)/, (_m, w) => ` ("${w.length <= 4 ? w.toUpperCase() : w}" in the posting)`);
+  const tag = (s, cls, mark, title) => `<span class="chip ${cls}"${title ? ` title="${esc(title)}"` : ''}>${mark} ${esc(plain(s))}</span>`;
+
+  function breakdown(q, ats) {
+    if (!q) return '';
+    const toggle = `<button class="ghost small details-toggle" data-act="details" aria-expanded="${detailsOpen}">${detailsOpen ? '▾' : '▸'} Detailed breakdown</button>`;
+    if (!detailsOpen) return toggle;
+    const list = (items, cls) => (items.length ? `<ul class="bd-list ${cls}">${items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : '');
+    const must = [
+      ...distinct(q.matchedSkills || []).map((s) => tag(s, 'good', '✓')),
+      ...(q.partialSkills || []).map((s) => tag(s, '', '~', 'Partly shown: a related skill, an older role or a skills-list mention')),
+      ...(q.missingSkills || []).map((s) => tag(s, 'grow', '＋', 'Not in your documents')),
+    ];
+    const nice = [...(q.matchedPreferred || []).map((s) => tag(s, 'good', '✓')), ...(q.missingPreferred || []).map((s) => tag(s, '', '＋', 'Not in your documents'))];
+    const c = q.components || {};
+    const fitRows = [
+      ['Must-haves', c.required],
+      ['Preferred', c.preferred],
+      ['Role match', c.role],
+      ['Experience', c.experience],
+      ['Seniority', c.seniority],
+      ['Domain', c.domain],
+    ].filter(([, v]) => v !== null && v !== undefined);
+    const years = q.requiredYears && !(q.reasons || []).concat(q.concerns || []).some((r) => /\byears?\b/.test(r)) ? `<p class="bd-note">Asks for ${q.requiredYears}+ years${q.estimatedYears != null ? `; your documents show about ${q.estimatedYears}` : ''}.</p>` : '';
+    const fit = `<div class="bd-h">Your fit</div>
+      ${list(q.reasons || [], 'good')}${list(q.concerns || [], 'warn')}
+      ${bars(fitRows)}
+      ${must.length ? `<div class="bd-sub">Must-haves</div><div class="chips">${must.join('')}</div>` : ''}
+      ${nice.length ? `<div class="bd-sub">Nice-to-haves</div><div class="chips">${nice.join('')}</div>` : ''}
+      ${years}`;
+    let vis = '';
+    if (ats && ats.components) {
+      const stat = (label, value) => (value === null || value === undefined ? '' : `<div class="bd-stat"><b>${esc(value)}</b><span>${esc(label)}</span></div>`);
+      // The screen-outs are listed already; the rest of the advice.
+      const tips = (ats.tips || []).filter((t) => !/^Required (?:skill not found|: any one of)/.test(t));
+      const atsRows = ATS_PARTS.filter(([k]) => ats.components[k] !== null && ats.components[k] !== undefined).map(([k, l, hint]) => [l, ats.components[k], hint]);
+      vis = `<div class="bd-h">Resume visibility${ats.basis ? ` <span>${esc(ats.basis)}</span>` : ''}</div>
+        <div class="bd-stats">
+          ${ats.basic && ats.basic.total ? stat('Basic quals', `${ats.basic.met}/${ats.basic.total}`) : ''}
+          ${ats.preferred && ats.preferred.total ? stat('Preferred', `${ats.preferred.met}/${ats.preferred.total}`) : ''}
+          ${stat('Exact keywords', ats.strictKeywordRate === null ? null : ats.strictKeywordRate + '%')}
+          ${stat('Smart keywords', ats.normalizedKeywordRate === null ? null : ats.normalizedKeywordRate + '%')}
+        </div>
+        ${bars(atsRows)}
+        ${(ats.knockouts || []).length ? `<div class="bd-sub">Could screen it out</div>${list(ats.knockouts.map(knockout), 'warn')}` : ''}
+        ${tips.length ? `<div class="bd-sub">To raise it</div>${list(tips, 'tips')}` : ''}`;
+    }
+    return `${toggle}<div class="breakdown">${fit}${vis}</div>`;
+  }
+
   const dealbreakers = (q) => (q.dealbreakers && q.dealbreakers.length ? note(`Heads up — ${esc(q.dealbreakers.join('; '))}.`, 'warn') : '');
 
   // Two ways to tailor: Spike optimizes your resume for ATS (free), Root has
@@ -76,7 +205,9 @@
       ${atsLine(ats && ats.before)}
       ${quick.headline ? `<div class="headline">${esc(quick.headline)}</div>` : ''}
       ${chips(quick.matchedSkills.slice(0, 6))}
-      ${window.SproutInfo.fitDetails(quick)}
+      ${answeredNote(ui)}
+      ${haveAsks(quick)}
+      ${breakdown(quick, ats && ats.before)}
       ${dealbreakers(quick)}
       ${r.hasDocs ? '' : note('Add your resume to your library in Sprout so I can score you properly.')}
       ${ui.error ? note(esc(ui.error), 'err') : ''}
@@ -168,10 +299,12 @@
       ${role(app.job)}
       <div class="saved-tag">${icon('check', 14)} ${r.justSaved ? 'Added to your saved jobs' : 'In your saved jobs'}</div>
       ${scoreline(score, label, src)}
-      ${atsLine(app.ats && app.ats.before, a && a.grade)}
+      ${atsLine(app.ats && app.ats.before)}
       ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
       ${chips(a ? a.strengths.slice(0, 3) : app.quick.matchedSkills.slice(0, 6))}
-      ${window.SproutInfo.fitDetails(app.quick)}
+      ${a ? '' : answeredNote(ui)}
+      ${a || analyzing ? '' : haveAsks(app.quick)}
+      ${breakdown(app.quick, app.ats && (app.ats.after || app.ats.before))}
       ${a ? '' : dealbreakers(app.quick)}
       ${errors.map((e) => note(esc(e), 'err')).join('')}
       ${footer}`;
@@ -186,6 +319,12 @@
       <span class="spinner" style="color: var(--sage)"></span></div>`;
   }
 
+  // Before and after tailoring: "ATS visibility Medium → High".
+  // Before and after tailoring: "Resume visibility 72% → 88%".
+  function atsCompare(before, after) {
+    return `<div class="ats-compare">Resume visibility ${before ? `<span class="was">${before.score}%</span> → ` : ''}<span class="vis vis-${visCls(after.score)}">${after.score}%</span></div>`;
+  }
+
   function doneView(app, { what, engine }) {
     const at = app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : '';
     if (what === 'letter')
@@ -198,7 +337,7 @@
     return `<div class="center">${M().helperSvg(claude ? 'claude' : 'ats', 'thrilled', 88)}
       <h3>Your ${claude ? 'Claude' : 'ATS'} resume is ready!</h3>
       <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${at}. Give it a quick read, tweak anything you like, and export to PDF.</p>
-      ${after ? `<div class="ats-compare">ATS visibility ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${after.score}%</b></div>` : ''}
+      ${after ? atsCompare(app.ats.before, after) : ''}
       <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="back">Back</button></div></div>`;
   }
 
@@ -315,6 +454,33 @@
         ui.error = null;
         return show({ ...r.value, justSaved: !r.value.seen });
       }
+      if (action === 'details') {
+        detailsOpen = !detailsOpen;
+        try {
+          chrome.storage.local.set({ details: detailsOpen }).catch(() => {});
+        } catch {
+          /* no storage here */
+        }
+        return draw();
+      }
+      if (action === 'have') {
+        const { label, answer, option } = btn.dataset;
+        const q = result.saved ? result.app.quick : result.preview.quick;
+        const was = q.score;
+        btn.closest('.have-row').querySelectorAll('button').forEach((b) => (b.disabled = true));
+        const r = await opts.send({ type: 'have', label, answer, option: option || '' });
+        if (dead || result !== actingOn) return;
+        if (!r.ok) {
+          ui.error = r.error;
+          return draw();
+        }
+        const keep = { justSaved: result.justSaved, seen: result.seen };
+        show({ ...r.value, ...keep });
+        const nq = r.value.saved ? r.value.app.quick : r.value.preview.quick;
+        ui.error = null;
+        ui.answered = { ...(r.value.answered || {}), answer, was, now: nq.score };
+        return draw();
+      }
       if (action === 'add-person' || action === 'open-person') {
         const person = action === 'add-person';
         if (btn && person) btn.innerHTML = '<span class="spinner"></span> Adding…';
@@ -393,5 +559,5 @@
     };
   }
 
-  globalThis.SproutCard = { mount, statusLine };
+  globalThis.SproutCard = { mount, statusLine, version: VERSION };
 })();

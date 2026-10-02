@@ -41,6 +41,21 @@
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+  // The text of part of the page, with its list items marked "- " as they
+  // look on the page. innerText drops the bullets, and without them the app
+  // reads short requirement lines ("SOX compliance experience") as headings
+  // and leaves them out of the score.
+  function readText(el) {
+    const raw = el.innerText || [...(el.children || [])].map((c) => c.innerText || '').join('\n');
+    const items = new Set();
+    for (const li of [...el.querySelectorAll('li')].slice(0, 400)) {
+      const first = (li.innerText || '').split('\n').map((l) => l.trim()).find(Boolean);
+      if (first) items.add(first);
+    }
+    if (!items.size) return clean(raw);
+    const marked = /^(?:[-•*▪●◦✓✔➢►‣–—]|\d+[.)])\s/;
+    return clean(raw.split('\n').map((l) => (items.has(l.trim()) && !marked.test(l.trim()) ? `- ${l.trim()}` : l)).join('\n'));
+  }
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const signalCount = (t) => SIGNALS.filter((re) => re.test(t)).length;
   const q = (sel, root = document) => {
@@ -57,6 +72,28 @@
   const text = (sel) => {
     const el = q(sel);
     return el ? clean(el.innerText).split('\n')[0].trim() : '';
+  };
+  // Headings, labels and buttons that sit where a title would ("About this
+  // role", "Responsibilities:", "Careers at Acme"). The rules are the app's
+  // (vendor/jobTitle.js); without them, only empty titles are refused.
+  const notJobTitle = (t) => (globalThis.SproutJobTitle ? globalThis.SproutJobTitle.notJobTitle(t) : !String(t || '').trim());
+  // The first element any of the selectors match whose first line can be a
+  // job title: a site's own title element, then its fallbacks (<h1>, <h2>),
+  // skipping section headings that use the same tag.
+  const titleText = (sel) => {
+    for (const s of [].concat(sel)) {
+      let els = [];
+      try {
+        els = [...document.querySelectorAll(s)];
+      } catch {
+        /* invalid selector on this browser */
+      }
+      for (const el of els.slice(0, 20)) {
+        const t = clean(el.innerText || '').split('\n')[0].trim();
+        if (t && !notJobTitle(t)) return t;
+      }
+    }
+    return '';
   };
 
   // HTML description from JSON-LD -> readable text with bullets.
@@ -332,10 +369,10 @@
     const body = q(site.body);
     if (!body) return null;
     return {
-      title: text(site.title),
+      title: titleText(site.title),
       company: text(site.company),
       location: text(site.location),
-      text: clean(body.innerText),
+      text: readText(body),
       source: site.name,
     };
   }
@@ -368,12 +405,12 @@
         }
         el = el.parentElement;
       }
-      const t = clean(el.innerText);
+      const t = readText(el);
       if (t.length > 300 && signalCount(t) >= 4 && (!best || t.length < best.text.length)) best = { el, text: t };
     }
     if (!best) {
       const main = q(['main', '[role="main"]', 'article']);
-      const t = main ? clean(main.innerText) : '';
+      const t = main ? readText(main) : '';
       if (t.length > 300 && signalCount(t) >= 4) best = { el: main, text: t };
     }
     if (!best) best = fromShadowRoots();
@@ -399,7 +436,7 @@
     walk(document);
     let best = null;
     for (const r of roots) {
-      const t = clean([...r.children].map((c) => c.innerText || '').join('\n'));
+      const t = readText(r);
       if (t.length > 300 && signalCount(t) >= 4 && (!best || t.length < best.text.length)) best = { el: r, text: t };
     }
     return best;
@@ -423,7 +460,7 @@
   function titleAndCompany(block) {
     const ogSite = document.querySelector('meta[property="og:site_name"]');
     const site = norm(ogSite && ogSite.content);
-    const ok = (t) => t && t.length <= 120 && !ANCHOR.test(t) && !SECTION.test(t) && !SITE_HEADING.test(t) && norm(t) !== site;
+    const ok = (t) => t && !notJobTitle(t) && !ANCHOR.test(t) && !SECTION.test(t) && !SITE_HEADING.test(t) && norm(t) !== site;
     const tab = fromTabTitle();
     let title = '';
     // The posting's <h1>, the page's, the posting's first heading if it isn't
@@ -436,9 +473,19 @@
         break;
       }
     }
-    if (!title) title = tab.title;
+    if (!title && ok(tab.title)) title = tab.title;
     const company = (ogSite && ogSite.content) || tab.company || '';
     return { title, company: clean(company) };
+  }
+
+  // The job title from the page as a whole, or '' when nothing on it can be one.
+  function pageTitle() {
+    const og = document.querySelector('meta[property="og:title"]');
+    const ogTitle = og && og.content ? og.content.split(/\s[|–—-]\s|\s·\s/)[0].replace(/^job application for\s+/i, '').trim() : '';
+    const site = norm((document.querySelector('meta[property="og:site_name"]') || {}).content);
+    const ok = (t) => t && !notJobTitle(t) && !ANCHOR.test(t) && !SECTION.test(t) && !SITE_HEADING.test(t) && norm(t) !== site;
+    for (const t of [titleText('h1'), ogTitle, fromTabTitle().title]) if (ok(t)) return t;
+    return '';
   }
 
   // Structured data already says "this is a job posting", so it needs less
@@ -476,8 +523,10 @@
     else if (teaser && STRUCTURED.has(teaser.source) && !STRUCTURED.has(result.source))
       result = { ...result, ...Object.fromEntries(['title', 'company', 'location', 'salary'].filter((k) => teaser[k]).map((k) => [k, teaser[k]])) };
     if (!result) return { isPosting: false, url: location.href };
-    // Fill gaps from the page if structured data was thin on details.
-    if (!result.title) result.title = text('h1');
+    // No title, or a heading in its place ("About this role"): the page's
+    // own title, its <h1>s, then the tab title. Better none than a wrong one;
+    // the app then looks for one in the text.
+    if (notJobTitle(result.title)) result.title = pageTitle();
     if (!result.company) {
       const og = document.querySelector('meta[property="og:site_name"]');
       const tab = fromTabTitle();

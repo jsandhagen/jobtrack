@@ -32,19 +32,37 @@
         <p>These systems match words literally: they don't know that Appian is a SaaS company or that you've done something under another name. So a lower score usually means different wording, not a lesser candidate, and that's the easiest thing to change.</p>
         <p>It goes up as you tailor and edit. Around 75% is plenty.</p>`,
     },
+    // The browser extension describes the ATS score as resume visibility, so
+    // it reads as a measure of the resume, not a verdict on you: recruiters
+    // search and sort their applicant tracking system, and read the top.
+    visibility: {
+      title: 'Resume visibility',
+      short: `<p>The ATS score: how easily recruiters find <b>this resume</b> when they search their tracking system (Workday, Taleo, iCIMS) for this job. It rates the resume, not you.</p>
+        <p class="faint">75+ lands near the top · 55–74 is found, below closer matches · under 55 is likely buried. Tailoring raises it.</p>`,
+      body: `<p>This is the ATS score, and it's about <b>your resume, not you</b>. Recruiters <b>search and sort</b> applicants in their tracking system (Workday, Taleo, iCIMS) by the skills, title and keywords they need, and read the top of the list.</p>
+        <p>The score is how visible <b>one resume</b> (your current one, or the one tailored for this job) is in those searches for this posting:</p>
+        <ul>
+          <li><b>75%+</b>: near the top.</li>
+          <li><b>55–75%</b>: found, but below closer matches.</li>
+          <li><b>Under 55%</b>: likely buried. Key skills or terms are missing from the resume, even if you have them.</li>
+        </ul>
+        <p class="faint">Hard skills count most, then a parse-ready format, the job title, years, education and keywords.</p>
+        <p>It goes up as you tailor and edit the resume.</p>`,
+      contrast: '<p class="info-vs">High fit, low visibility? You\'re qualified; the resume just doesn\'t show it yet.</p>',
+    },
   };
   const CONTRAST =
     '<p class="info-vs"><b>Fit vs. ATS:</b> fit is about you; ATS is about the resume. A high fit with a low ATS score means you\'re qualified but the resume doesn\'t show it yet, so tailor it.</p>';
 
   function infoBtn(topic, label) {
     const t = TOPICS[topic];
-    return `<button type="button" class="info-btn" data-info="${topic}" aria-expanded="false" aria-label="${label || `How the ${topic === 'ats' ? 'ATS' : 'fit'} score works`}" title="${t.title}">i</button>`;
+    return `<button type="button" class="info-btn" data-info="${topic}" aria-expanded="false" aria-label="${label || (topic === 'visibility' ? 'How resume visibility works' : `How the ${topic === 'ats' ? 'ATS' : 'fit'} score works`)}" title="${t.title}">i</button>`;
   }
 
   // The overlay is a small popup, so it gets the short version.
   function panelHtml(topic, short) {
     const t = TOPICS[topic];
-    return `<b class="info-title">${t.title}</b>${short ? t.short : t.body}${CONTRAST}`;
+    return `<b class="info-title">${t.title}</b>${short ? t.short : t.body}${t.contrast || CONTRAST}`;
   }
 
   let open = null; // { btn, el }

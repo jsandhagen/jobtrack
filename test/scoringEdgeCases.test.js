@@ -204,3 +204,11 @@ test('an unknown title leaves role match out instead of scoring it zero', () => 
   assert.ok(Math.abs(generic.score - real.score) <= 5, `${generic.score} vs ${real.score}`);
   assert.equal(atsScore({ title: 'About the job', text }, docs[0].text).components.jobTitle, null);
 });
+
+test('section headings and site headings are never job titles; real titles that share their words are', () => {
+  for (const t of ['About this role', 'About This Role:', "What You'll Do", 'Who you are', 'Key Responsibilities', 'Minimum Qualifications', 'Your Impact', 'Essential Duties and Responsibilities', 'Why join us?', 'Careers at Acme', 'What we offer', 'Education and Experience'])
+    assert.ok(isGenericTitle(t), t);
+  for (const t of ['Requirements Engineer', 'Compensation Analyst', 'Experience Designer', 'Benefits Specialist', 'Applied Scientist', 'Chief of Staff, Office of the CTO', 'Registered Nurse (RN) - ICU'])
+    assert.ok(!isGenericTitle(t), t);
+  assert.equal(guessJobTitle('About this role\nSenior Data Analyst\nWe are hiring a data analyst to join our team.'), 'Senior Data Analyst');
+});

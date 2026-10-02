@@ -47,6 +47,18 @@ function newApp(p) {
   saved.set(app.id, app);
   return app;
 }
+// "Do you have it?": the Senior Accountant posting asks for a CPA and Big 4
+// audit experience; a yes adds 9 points, a no just stops asking.
+const answers = [];
+const declined = new Set();
+const ACCOUNTANT_ASKS = [
+  { label: 'CPA', ask: 'CPA', options: null, gain: 9 },
+  { label: 'one of NetSuite, SAP', ask: 'NetSuite or SAP', options: ['NetSuite', 'SAP'], gain: 4 },
+];
+function accountantQuick() {
+  const yes = answers.filter((a) => a.answer === 'yes').length;
+  return { ...quick, score: 61 + 9 * yes, label: 'Good potential', asks: ACCOUNTANT_ASKS.filter((a) => !declined.has(a.label) && !answers.some((x) => x.label === a.label && x.answer === 'yes')) };
+}
 const findSaved = (p) => [...saved.values()].find((a) => a.job.title === p.title && a.job.company === p.company);
 
 test.before(async () => {
@@ -59,7 +71,8 @@ test.before(async () => {
       if (previewGate) await previewGate(p);
       const dup = findSaved(p);
       if (dup) return card(dup, true);
-      return { saved: false, preview: { job: { title: p.title, company: p.company, location: p.location, url: p.url }, quick, ats: { before: { score: 72, grade: 'B', skillsMatch: 'Good' } } }, ...env };
+      const q = p.title === 'Senior Accountant' ? accountantQuick() : quick;
+      return { saved: false, preview: { job: { title: p.title, company: p.company, location: p.location, url: p.url }, quick: q, ats: { before: { score: 72, grade: 'B', skillsMatch: 'Good' } } }, ...env };
     },
     onPosting: async (p) => {
       postings.push(p);
@@ -73,6 +86,12 @@ test.before(async () => {
       const app = saved.get(id);
       if (action === 'resume-ats') Object.assign(app, { hasResume: true, resumeStatus: 'ready', resumeSource: 'ats', status: 'resume-ready', ats: { ...app.ats, after: { score: 88, grade: 'A' } } });
       return card(app);
+    },
+    onHave: async ({ label, answer, option, id, posting }) => {
+      answers.push({ label, answer, option, id, posting });
+      if (answer === 'no') declined.add(label);
+      const q = accountantQuick();
+      return { saved: false, preview: { job: { title: posting.title, company: posting.company, url: posting.url }, quick: q, ats: null }, ...env, answered: answer === 'yes' ? { label, answer, where: 'skills', value: option || label } : { label, answer } };
     },
     onOpen: () => {},
     onPerson: async (p) => {
@@ -178,7 +197,9 @@ test('LinkedIn: pops up the card, asks before saving, and follows in-page naviga
   const text = await waitFor(async () => ((await cardText(p)).includes('Senior Frontend Engineer') ? cardText(p) : null));
   assert.match(text, /Add this job to your saved jobs\?/);
   assert.match(text, /Excellent match/);
-  assert.match(text, /ATS visibility of your current resume: 72%/);
+  // (The rings count up as they appear: wait for the final number.)
+  await waitFor(async () => /72\s*ATS\s*Resume visibility\s*How easily recruiters find it/.test(await cardText(p)));
+  assert.ok(!/ATS match/.test(text), 'described as the resume\'s visibility, not a match of you');
   assert.equal(postings.length, 0, 'nothing is saved until you say so');
 
   await p.click('[data-job="pm"]'); // LinkedIn-style: no page reload
@@ -203,7 +224,7 @@ test('LinkedIn: pops up the card, asks before saving, and follows in-page naviga
   assert.ok(await clickCard(p, 'resume-ats'));
   await waitFor(async () => (await cardText(p)).includes('Your ATS resume is ready!'));
   assert.deepEqual(actions.at(-1), { id: 'a1', action: 'resume-ats' });
-  assert.match(await cardText(p), /88%/);
+  assert.match(await cardText(p), /Resume visibility\s*72%\s*→\s*88%/);
 
   // Leaving the job (still on LinkedIn, no reload) puts the card away.
   await p.evaluate(() => {
@@ -248,6 +269,7 @@ test('a job you already saved shows as saved, not as a new question', async () =
 test('company careers pages: finds the posting, leaves out menus and other openings, and asks too', async () => {
   const p = await context.newPage();
   await p.goto('https://careers.fabrikam.example/jobs/senior-accountant');
+  await p.addScriptTag({ path: path.join(EXT_DIR, 'vendor/jobTitle.js') });
   await p.addScriptTag({ path: path.join(EXT_DIR, 'extract.js') });
   const r = await p.evaluate(() => globalThis.sproutExtract());
   assert.equal(r.isPosting, true);
@@ -257,6 +279,49 @@ test('company careers pages: finds the posting, leaves out menus and other openi
   for (const junk of ['Warehouse Associate', 'About us', 'Privacy']) assert.ok(!r.text.includes(junk), `leaked: ${junk}`);
   await waitFor(async () => (await cardText(p)).includes('Add this job to your saved jobs?'));
   assert.ok(!postings.some((x) => x.title === 'Senior Accountant'), 'not saved on its own');
+  await p.close();
+});
+
+test('"Do you have these?": a yes is recorded and the card re-scores; a no stops asking', async () => {
+  const p = await context.newPage();
+  await p.goto('https://careers.fabrikam.example/jobs/senior-accountant');
+  const text = await waitFor(async () => ((await cardText(p)).includes('Do you have these?') ? cardText(p) : null));
+  assert.match(text, /CPA\s*\+9/);
+  assert.match(text, /NetSuite or SAP/);
+  // Yes to the CPA.
+  assert.ok(
+    await inCard(p, function () {
+      const b = this.querySelector('.dock [data-act="have"][data-label="CPA"][data-answer="yes"]');
+      if (b) b.click();
+      return !!b;
+    })
+  );
+  const after = await waitFor(async () => ((await cardText(p)).includes('Fit 61 → 70') ? cardText(p) : null));
+  assert.match(after, /Added CPA to your skills/);
+  assert.ok(!/CPA\s*\+9/.test(after), 'not asked again');
+  const yes = answers.find((a) => a.label === 'CPA');
+  assert.equal(yes.answer, 'yes');
+  assert.equal(yes.posting.title, 'Senior Accountant', 'a job not saved yet is re-scored from the page');
+  assert.ok(!postings.some((x) => x.title === 'Senior Accountant'), 'answering does not save the job');
+  // The detailed breakdown opens and closes, and is remembered.
+  assert.ok(!/Your fit/.test(after), 'folded away at first');
+  assert.ok(await clickCard(p, 'details'));
+  const open = await waitFor(async () => ((await cardText(p)).includes('Your fit') ? cardText(p) : null));
+  assert.match(open, /Must-haves/i);
+  assert.equal(await sw.evaluate(() => chrome.storage.local.get('details').then((v) => v.details)), true);
+  assert.ok(await clickCard(p, 'details'));
+  await waitFor(async () => !(await cardText(p)).includes('Your fit'));
+  // No to the other one: it goes away.
+  assert.ok(
+    await inCard(p, function () {
+      const b = this.querySelector('.dock [data-act="have"][data-answer="no"]');
+      if (b) b.click();
+      return !!b;
+    })
+  );
+  await waitFor(async () => !(await cardText(p)).includes('Do you have these?'));
+  assert.equal(answers.at(-1).answer, 'no');
+  assert.equal(answers.at(-1).label, 'one of NetSuite, SAP');
   await p.close();
 });
 
@@ -273,6 +338,7 @@ test('Phenom careers sites (careers.freddiemac.com and the like): reads the job 
   await p.evaluate(() => (document.querySelector('h1').textContent = 'Data Engineer'));
   await p.evaluate(() => (document.title = 'Data Engineer | Contoso Careers'));
   await p.evaluate(() => history.pushState({}, '', '/us/en/job/JR456/Data-Engineer'));
+  await p.addScriptTag({ path: path.join(EXT_DIR, 'vendor/jobTitle.js') });
   await p.addScriptTag({ path: path.join(EXT_DIR, 'extract.js') });
   const stale = await p.evaluate(() => globalThis.sproutExtract());
   assert.ok(!stale.isPosting || stale.title !== 'Chief of Staff');

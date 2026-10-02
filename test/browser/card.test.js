@@ -10,6 +10,9 @@ test.after(async () => { if (browser) await browser.close(); });
 async function openCard() {
   const page = await browser.newPage();
   await page.setContent('<div id="card"></div>');
+  await page.evaluate(() => {
+    window.chrome = { runtime: { getManifest: () => ({ version: '0.1.0' }) }, storage: { local: { get: async () => ({ details: false }), set: async () => {} } } };
+  });
   for (const file of ['vendor/fitScale.js', 'vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'card.js']) {
     await page.addScriptTag({ path: path.resolve(__dirname, '../../browser-extension', file) });
   }
@@ -47,5 +50,19 @@ test('a poll finishing after the card is hidden stays hidden without throwing', 
     await p.waitForTimeout(50);
     assert.equal(await p.evaluate(() => card.result), null);
     assert.deepEqual(errors, []);
+  } finally { await p.close(); }
+});
+
+test('a late qualification answer cannot replace a newer job on the card', async () => {
+  const p = await openCard();
+  try {
+    await p.evaluate(() => {
+      preview.preview.quick.asks = [{ label: 'SQL', ask: 'SQL', gain: 5 }];
+      card.show(preview);
+    });
+    await p.click('[data-act="have"][data-answer="yes"]');
+    await p.evaluate(() => { card.show(saved('Second job')); finish({ ok: true, value: preview }); });
+    await p.waitForTimeout(50);
+    assert.match(await p.locator('.role').innerText(), /Second job/);
   } finally { await p.close(); }
 });

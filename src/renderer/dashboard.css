@@ -210,6 +210,14 @@ details[open] > summary::before { transform: rotate(90deg); }
 .timeline li { position: relative; display: flex; justify-content: space-between; font-size: 12.5px; padding: 3px 0 3px 8px; }
 .timeline li::before { content: ""; position: absolute; left: -19px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--sage); box-shadow: 0 0 0 3px var(--surface); }
 .timeline li span { color: var(--ink-faint); }
+.have-box { background: var(--surface-2); border-radius: var(--radius-sm); padding: 10px 12px; margin: 12px 0 4px; }
+.have-box .have-title { font-weight: 800; margin-bottom: 4px; }
+.have-box .have-title .faint { font-weight: 600; font-size: 12.5px; }
+.have-box .have-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 5px 0; border-top: 1px solid var(--line); }
+.have-box .have-row:first-of-type { border-top: 0; }
+.have-box .have-q { flex: 1 1 180px; min-width: 0; }
+.have-box .have-gain { font-weight: 800; font-size: 12.5px; color: var(--sage-deep); }
+.have-box .have-btns { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip .have-skill { margin-left: 4px; padding: 0 7px; min-height: 0; font-size: 11.5px; font-weight: 800; border-radius: 99px; background: var(--surface); color: var(--sage-deep); border: 1px solid var(--line-strong); box-shadow: none; }
 .center { text-align: center; }
 .center .sprout { margin: 0 auto; display: block; }

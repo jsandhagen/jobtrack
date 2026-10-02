@@ -1,5 +1,6 @@
 // The browser extension draws the same card as the app's popup, so it ships
-// copies of the mascot, icons, lines, score explanations and theme. Run this
+// copies of the mascot, icons, lines, score explanations and theme, and reads
+// job titles with the app's own check (jobTitle.js). Run this
 // after changing any of them (npm test fails while the copies are stale).
 //   node scripts/sync-extension.js           copy them over
 //   node scripts/sync-extension.js --check   exit 1 if any copy is stale
@@ -10,13 +11,17 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
+// The card's files (the popup loads them too).
 const FILES = ['fitScale.js', 'buddyLines.js', 'icons.js', 'mascot.js', 'scoreInfo.js', 'theme.css'];
-const SHARED = new Set(['fitScale.js']); // from src/shared rather than src/renderer
+// What reading the page needs, from src/shared (content scripts only).
+const READER_FILES = ['jobTitle.js'];
+const SHARED = new Set(['fitScale.js', ...READER_FILES]);
 const from = (f) => path.join(ROOT, SHARED.has(f) ? 'src/shared' : 'src/renderer', f);
 const to = (f) => path.join(ROOT, 'browser-extension/vendor', f);
+const ALL = [...FILES, ...READER_FILES];
 
 function stale() {
-  return FILES.filter((f) => !fs.existsSync(to(f)) || fs.readFileSync(to(f), 'utf8') !== fs.readFileSync(from(f), 'utf8'));
+  return ALL.filter((f) => !fs.existsSync(to(f)) || fs.readFileSync(to(f), 'utf8') !== fs.readFileSync(from(f), 'utf8'));
 }
 
 if (require.main === module) {
@@ -34,9 +39,9 @@ if (require.main === module) {
     }
   } else {
     fs.mkdirSync(path.dirname(to(FILES[0])), { recursive: true });
-    for (const f of FILES) fs.copyFileSync(from(f), to(f));
-    console.log(`Copied ${FILES.length} files to browser-extension/vendor/`);
+    for (const f of ALL) fs.copyFileSync(from(f), to(f));
+    console.log(`Copied ${ALL.length} files to browser-extension/vendor/`);
   }
 }
 
-module.exports = { FILES, stale };
+module.exports = { FILES, READER_FILES, stale };

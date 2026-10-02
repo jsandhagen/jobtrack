@@ -17,7 +17,7 @@ function worker(fetchImpl = async (url) => ({ ok: true, status: 200, json: async
   const storage = (obj) => ({ get: async (keys) => get(obj, keys), set: async (v) => Object.assign(obj, v), remove: async (k) => { delete obj[k]; } });
   const chrome = {
     storage: { local: storage(local), session: storage(session) },
-    runtime: { getManifest: () => ({ version: '0.1.0' }), onMessage: { addListener() {} } },
+    runtime: { getManifest: () => ({ version: '0.1.0' }), onMessage: { addListener() {} }, onInstalled: { addListener() {} } },
     action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async (b) => { badges.push(b); } },
     commands: { onCommand: { addListener() {} } },
     tabs: { onUpdated: { addListener(fn) { updated = fn; } }, onRemoved: { addListener() {} }, sendMessage: async () => null },
@@ -70,6 +70,26 @@ test('toolbar badge uses the app display bands', async () => {
   w.ctx.result = preview(83);
   w.run('badge(1, result)');
   assert.equal(w.badges.at(-1).color, '#3f8a61');
+});
+
+test('a qualification answer cannot restore the old job after navigation', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let started;
+  const entered = new Promise((r) => { started = r; });
+  const w = worker(async (url) => {
+    if (url.endsWith('/ping')) return { ok: true, json: async () => ({ app: 'sprout', paired: true }) };
+    if (url.endsWith('/have')) { started(); await gate; }
+    return { ok: true, json: async () => preview() };
+  });
+  w.ctx.posting = posting;
+  await w.run('detected(1, posting)');
+  const pending = w.run("have(1, { label: 'SQL', answer: 'yes' })");
+  await entered;
+  await w.updated(1, { url: 'https://jobs.example.com/2' });
+  release();
+  await pending;
+  assert.equal(await w.run('getEntry(1)'), null);
 });
 
 test('opening the toolbar recomputes an unsaved job against the current app profile', async () => {

@@ -10,6 +10,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const EXTRACT = path.resolve(__dirname, '../../browser-extension/extract.js');
+const JOB_TITLE = path.resolve(__dirname, '../../browser-extension/vendor/jobTitle.js');
 let browser;
 let ctx;
 test.before(async () => {
@@ -22,6 +23,7 @@ async function read(url, html) {
   const p = await ctx.newPage();
   await p.route(url, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html }));
   await p.goto(url);
+  await p.addScriptTag({ path: JOB_TITLE });
   await p.addScriptTag({ path: EXTRACT });
   const out = await p.evaluate(() => globalThis.sproutExtract());
   await p.close();
@@ -76,6 +78,29 @@ test('no <h1>: the tab title gives the job and the company, without "Careers"', 
   const r = await read('https://jobs.northwind.example/p/9', `<html><head><title>Director, Technology Strategy - Northwind Careers</title></head><body><div class="posting">${DUTIES}</div></body></html>`);
   assert.equal(r.title, 'Director, Technology Strategy');
   assert.equal(r.company, 'Northwind');
+});
+
+test('a section heading in the title\'s place ("About this role") is not the job title', async () => {
+  const r = await read('https://jobs.fernwood.example/openings/314', `<html><head><title>Senior Data Analyst | Fernwood</title></head><body><main><h1>About this role</h1><p>Fernwood's analytics team supports every product line.</p>${DUTIES}</main></body></html>`);
+  assert.equal(r.title, 'Senior Data Analyst');
+});
+
+test('a known site whose title element is missing: its <h2> fallback skips section headings', async () => {
+  const r = await read('https://acme.wd5.myworkdayjobs.com/en-US/careers/job/Remote/Senior-Accountant_R123', `<html><head><title>Senior Accountant</title></head><body><h2>About this role</h2><div data-automation-id="jobPostingDescription"><h2>What you'll do</h2>${DUTIES}</div></body></html>`);
+  assert.equal(r.source, 'workday');
+  assert.equal(r.title, 'Senior Accountant');
+});
+
+test('nothing on the page names the job: no title rather than a heading', async () => {
+  const r = await read('https://jobs.fernwood.example/openings/315', `<html><head><title>Job Details</title></head><body><main><h1>Job Description</h1><h2>About this role</h2>${DUTIES}</main></body></html>`);
+  assert.equal(r.title, '');
+});
+
+test('list items read off the page keep their bullets, so the app counts them as requirements', async () => {
+  const r = await read('https://jobs.fernwood.example/openings/316', `<html><head><title>Accounting Manager | Fernwood</title></head><body><main><h1>Accounting Manager</h1><h2>Responsibilities</h2><ul><li>Lead month-end close for 4 entities</li><li>Own SOX compliance and internal controls testing</li></ul><h2>Qualifications</h2><ul><li>CPA required</li><li>Experience managing people</li><li>Experience with consolidations</li></ul><p>Benefits: medical, dental. Full-time, hybrid. 5+ years of experience. We are an equal opportunity employer.</p></main></body></html>`);
+  assert.match(r.text, /^- Experience managing people$/m);
+  assert.match(r.text, /^- CPA required$/m);
+  assert.match(r.text, /^Qualifications$/m, 'headings stay as they are');
 });
 
 test('button text ("Show more", "Apply now", "Save") stays out of the posting', async () => {

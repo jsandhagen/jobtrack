@@ -81,6 +81,25 @@ function readJson(req) {
  * @param {string} [opts.version]
  * @param {string} [opts.extensionVersion]  the extension that ships with this app
  */
+// A posting as the extension sent it, trimmed to sane sizes; null when it's
+// too short to be one.
+function cleanPostingBody(b) {
+  const text = String((b && b.text) || '').trim();
+  if (text.length < 80) return null;
+  return {
+    text: text.slice(0, 60000),
+    title: String(b.title || '').slice(0, 200),
+    company: String(b.company || '').slice(0, 200),
+    location: String(b.location || '').slice(0, 200),
+    url: /^https?:\/\//i.test(b.url || '') ? String(b.url).slice(0, 2000) : '',
+    salary: String(b.salary || '').slice(0, 200),
+    source: String(b.source || 'page').slice(0, 40),
+    auto: !!b.auto,
+    // The browser shows its own card, so the app's popup stays out of the way.
+    silent: !!b.silent,
+  };
+}
+
 function createBridge(opts) {
   const pending = new Map(); // requestId -> { status, token?, origin, expires }
 
@@ -140,23 +159,22 @@ function createBridge(opts) {
 
       if (url.pathname === '/posting' || url.pathname === '/preview') {
         const b = await readJson(req);
-        const text = String(b.text || '').trim();
-        if (text.length < 80) return send(res, 422, { error: "That doesn't look like a full job posting." });
-        const posting = {
-          text: text.slice(0, 60000),
-          title: String(b.title || '').slice(0, 200),
-          company: String(b.company || '').slice(0, 200),
-          location: String(b.location || '').slice(0, 200),
-          url: /^https?:\/\//i.test(b.url || '') ? String(b.url).slice(0, 2000) : '',
-          salary: String(b.salary || '').slice(0, 200),
-          source: String(b.source || 'page').slice(0, 40),
-          auto: !!b.auto,
-          // The browser shows its own card, so the app's popup stays out of the way.
-          silent: !!b.silent,
-        };
+        const posting = cleanPostingBody(b);
+        if (!posting) return send(res, 422, { error: "That doesn't look like a full job posting." });
         if (url.pathname === '/posting') return send(res, 200, await opts.onPosting(posting));
         if (!opts.onPreview) return send(res, 404, { error: 'Not found' });
         return send(res, 200, await opts.onPreview(posting));
+      }
+      // "Do you have it?" answered on the card, for a saved job (id) or one on the page (posting).
+      if (url.pathname === '/have') {
+        if (!opts.onHave) return send(res, 404, { error: 'Not found' });
+        const b = await readJson(req);
+        const label = String(b.label || '').trim().slice(0, 200);
+        if (!label || !['yes', 'no'].includes(b.answer)) return send(res, 400, { error: 'Answer yes or no.' });
+        const id = String(b.id || '');
+        const posting = id ? null : cleanPostingBody(b.posting || {});
+        if (!id && !posting) return send(res, 422, { error: "I can't find that job anymore. Try reloading the page." });
+        return send(res, 200, await opts.onHave({ label, answer: b.answer, option: b.option ? String(b.option).slice(0, 200) : '', id, posting }));
       }
       if (url.pathname === '/app') {
         if (!opts.onGet) return send(res, 404, { error: 'Not found' });
