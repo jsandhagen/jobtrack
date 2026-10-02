@@ -62,7 +62,8 @@ test('a weak resume scores low, grade D, and lists knockouts and tips', () => {
   assert.ok(r.score < 40, `score ${r.score}`);
   assert.equal(r.grade, 'D');
   assert.ok(r.knockouts.some((k) => k.startsWith('React')));
-  assert.ok(r.tips.some((t) => /Required skill not found/.test(t)));
+  assert.ok(r.tips.some((t) => /^Required: "react". If you've used it/i.test(t)));
+  assert.ok(!r.tips.some((t) => /not found|none found/.test(t)), 'tips say what to add, not what is missing');
   assert.ok(r.tips.some((t) => /email/.test(t)));
 });
 

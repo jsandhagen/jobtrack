@@ -3,6 +3,13 @@
 // the few things that matter most for this posting, says what Sprout already
 // fixed, and asks only for what Sprout can't know.
 //
+// Tone matters as much as accuracy here. Job searching already makes people
+// feel inadequate; these words should never add to it. Say what would help,
+// not what's missing; remember the software matches words literally, so a
+// gap is usually wording, not the person; and leave room for "and that's
+// fine" (postings ask for more than most hires have). The test in
+// test/ats.test.js keeps words like "missing" and "knockout" out.
+//
 // Each nudge: { id, tone, text, action? }
 //   tone: 'fixed' (Sprout can fix it), 'ask' (only you know), 'heads-up', 'tip'
 //   action: { type: 'fix-page' } (apply the page fixes Sprout can make),
@@ -128,7 +135,7 @@ function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
       ? 'This reads well to an applicant tracking system.' + (out.length ? ' A couple of small things could make it even stronger.' : '')
       : s >= 50
         ? 'A good start. These would help the most:'
-        : 'Keyword-wise this one is a stretch, and that\'s okay. Here is what matters most:';
+        : "The wording here is far from the posting's, and wording is the easiest thing to change. Here's what matters most:";
   const shown = out.slice(0, SHOWN);
   // Several things the optimizer would fix: one button, on the last of them.
   const viaOptimizer = shown.filter((x) => x.action && x.action.type === 'optimize');

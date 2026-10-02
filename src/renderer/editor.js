@@ -611,7 +611,7 @@ function checkPane(pc) {
     : `<p class="tray-hint">${icon('pencil', 13)} Click a bullet on the page to check it here.</p>`;
   const resumeCard = pc.total
     ? `<div class="tray-card"><h4><span>Resume check</span></h4>
-      <div class="qbar"><div><b>${pc.withResult} of ${pc.total}</b>show a result</div><div><b>${weak}</b>weak opener${weak === 1 ? '' : 's'}</div><div><b>${first && !first.ok ? '!' : '✓'}</b>best bullet first</div></div>
+      <div class="qbar"><div><b>${pc.withResult} of ${pc.total}</b>show a result</div><div><b>${weak}</b>opener${weak === 1 ? '' : 's'} to liven up</div><div><b>${first && !first.ok ? '!' : '✓'}</b>best bullet first</div></div>
       <ul class="qcheck">${pc.resume.map((c) => checkRow(c, `r:${c.id}`)).join('')}</ul>
       ${others.length ? `<div class="tray-role" style="margin-top:12px">Other bullets with tips (${others.length})</div>${others
         .slice(0, 10)
@@ -691,7 +691,7 @@ function jobPane() {
     let line;
     if (c.covered) line = shown.length === 1 ? `“${quote(shown[0].text, 70)}”` : shown.length ? `${shown.length} bullets show it` : 'Shown on the page';
     else if (c.skillsOnly) line = 'Only in your skills list. A bullet showing it is stronger.';
-    else line = from.length ? `Not on the page. ${from.length} bullet${from.length === 1 ? '' : 's'} in your bank show${from.length === 1 ? 's' : ''} it.` : 'Not on the page, and no bullet in your bank shows it.';
+    else line = from.length ? `Not on the page. ${from.length} bullet${from.length === 1 ? '' : 's'} in your bank show${from.length === 1 ? 's' : ''} it.` : "Not on the page yet. If you've done this, a short bullet about it will cover it.";
     let detail = '';
     if (open) {
       if (c.covered) detail = shown.length > 1 ? shown.map((s) => `<span class="src">“${quote(s.text, 80)}”</span>`).join('') : '';
@@ -714,14 +714,14 @@ function jobPane() {
   const gapRow = (g, i) => `<div class="jm-req gap ats-gap">
       <span class="m">${g.type === 'knockout' ? '!' : '○'}</span><b>“${esc(g.phrase)}”</b><span class="faint">${GAP_LABEL[g.type]}</span>
       <span class="src">${esc(g.why)}</span>
-      ${g.closest ? `<span class="src">Closest: “${quote(g.closest.text, 80)}”</span><span class="src"><button class="small ghost" data-gap-edit="${i}">Edit this bullet</button> <span class="faint">copies “${esc(g.phrase)}”</span></span>` : '<span class="src">No bullet on the page is close. If you have done this, add a bullet that says so.</span>'}
+      ${g.closest ? `<span class="src">Closest: “${quote(g.closest.text, 80)}”</span><span class="src"><button class="small ghost" data-gap-edit="${i}">Edit this bullet</button> <span class="faint">copies “${esc(g.phrase)}”</span></span>` : '<span class="src">Nothing on the page says this yet. If you\'ve done it, a short bullet will cover it.</span>'}
     </div>`;
-  const skillTip = /^(?:Required skill not found|Required: any one of|Use the posting's exact wording|Nice-to-have)/;
+  const skillTip = /^(?:Required: |Use the posting's exact wording|Nice to have: )/;
   const otherTips = info.ats.tips.filter((t) => !skillTip.test(t)).slice(0, 5);
   ed.gaps = gaps;
   return `${info.nudges ? `<div class="tray-card">${nudgeCard(info.nudges, { appId: ed.appId, compact: true })}</div>` : ''}
     ${gaps.length ? `<details class="tray-card tray-fold"><summary><h4><span>Words the screen looks for</span> <span class="n">${gaps.length}</span></h4></summary>
-      <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. Recruiters search an ATS for them. Use each only where it's true of you: the closest bullet is a place to start.</p>
+      <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. The software matches them literally, so it's about wording, not about you. Use each only where it's true of you: the closest bullet is a place to start.</p>
       ${gaps.map(gapRow).join('')}</details>` : ''}
     <div class="tray-card">
       <h4>What the posting asks for</h4>

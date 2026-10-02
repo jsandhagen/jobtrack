@@ -927,6 +927,7 @@ function nudgeCard(n, { appId, compact = false } = {}) {
   };
   return `<div class="nudges${compact ? ' compact' : ''}">
     ${n.headline ? `<div class="nudge-head">${mascotSvg(n.nudges.length ? 'curious' : 'proud', compact ? 34 : 44)}<p>${esc(n.headline)}</p></div>` : ''}
+    <p class="nudge-literal">${icon('search', 13)} ATS software matches words literally, so this is about the resume's wording, not about you.</p>
     ${n.fixed.map((f) => `<div class="nudge t-done"><span class="ni">${icon('check', 15)}</span><div><p>${esc(f)}</p></div></div>`).join('')}
     ${n.nudges.map((x) => `<div class="nudge t-${x.tone}"><span class="ni">${icon(NUDGE_ICON[x.tone] || 'check', 15)}</span><div><p>${esc(x.text)}</p>${act(x)}</div></div>`).join('')}
     ${n.more ? `<p class="faint nudge-more">${n.more === 1 ? 'One smaller thing is' : `${n.more} smaller things are`} in the details below, if you're curious.</p>` : ''}
@@ -985,7 +986,7 @@ function atsPanel(ats) {
   const kos = main.knockouts.length;
   return `<div class="card ats-card" id="atsCard">
     <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('chart', 22)} ATS check ${infoBtn('ats')}</h2>
-      <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Aim for 75–80%+.</p></div>
+      <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Around 75% is plenty.</p></div>
       ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
     ${nudgeCard(ats.nudges, { appId: ats.appId })}
@@ -994,7 +995,7 @@ function atsPanel(ats) {
       ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more', skillSteps ? window.SproutMascot.miniRing(skillSteps * 25, { segments: 4, color: barColor(skillSteps * 25) }) : '')}
       ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search", pctRing(main.strictKeywordRate))}
       ${stat('Smart keywords', main.normalizedKeywordRate === null ? null : main.normalizedKeywordRate + '%', 'Synonym-aware matches (AWS = Amazon Web Services), like iCIMS / SuccessFactors semantic matching', pctRing(main.normalizedKeywordRate))}
-      ${stat('Knockouts', kos, 'Required qualifications not found. Systems like Taleo can auto-filter on these', `<i class="ko ${kos ? 'warn' : 'ok'}">${icon(kos ? 'warn' : 'check', 15)}</i>`)}
+      ${stat('Required words to add', kos, "Required skills whose words aren't on the resume yet. Strict systems like Taleo can filter on these, so add the ones you have", `<i class="ko ${kos ? 'warn' : 'ok'}">${icon(kos ? 'heart' : 'check', 15)}</i>`)}
     </div>
     <div class="ats-bars">${COMPONENT_LABELS.filter(([k]) => main.components[k] !== null)
       .map(([k, label, hint]) => {
@@ -1002,7 +1003,7 @@ function atsPanel(ats) {
         return `<div class="ats-bar" title="${esc(hint)}"><span>${label}</span><div class="track"><i style="width:${v}%;background:${barColor(v)}"></i></div><b>${v}</b></div>`;
       })
       .join('')}</div>
-    ${main.knockouts.length ? `<div class="section-title">Required, and not found</div><div>${main.knockouts.map((k) => `<span class="chip grow">${esc(k)}</span>`).join('')}</div>` : ''}
+    ${main.knockouts.length ? `<div class="section-title">Required words the resume doesn't use yet</div><div>${main.knockouts.map((k) => `<span class="chip grow">${esc(k)}</span>`).join('')}</div>` : ''}
     ${main.tips.length ? `<div class="section-title">Every tip</div><ul class="tidy">${main.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
     </details>
     <p class="faint" style="margin:10px 0 0">An estimate based on how Workday, Taleo, iCIMS and resume scanners like Jobscan are documented to work. Vendors keep their exact formulas private, and many companies (e.g. on Greenhouse) have people read every resume, so write for humans first.</p>

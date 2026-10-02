@@ -18,8 +18,8 @@
         <p>Editing a resume doesn't change it. Use it to decide <b>whether to apply</b>.</p>`,
     },
     ats: {
-      title: 'ATS score: will this resume get through?',
-      short: `<p>Scores <b>one resume</b> the way applicant tracking systems (Workday, Taleo, iCIMS) read it: hard skills count most, then a clean, parse-ready format, the job title, years, education and keywords. The letter is a Workday-style A–D grade. Aim for 75–80%+; tailoring raises it.</p>`,
+      title: 'ATS score: how software reads this resume',
+      short: `<p>Scores <b>one resume</b> the way applicant tracking systems (Workday, Taleo, iCIMS) read it: hard skills count most, then a clean, parse-ready format, the job title, years, education and keywords. The letter is a Workday-style A–D grade. These systems match words <b>literally</b>, so the score is about the resume's wording, not about you. Around 75% is plenty; tailoring raises it.</p>`,
       body: `<p>Scores <b>one resume</b> (your current one, or the one tailored for this job) the way applicant tracking systems like Workday, Taleo and iCIMS read it.</p>
         <ul>
           <li>Hard skills 35% · parse-ready format 20%</li>
@@ -29,7 +29,8 @@
         <p class="faint">Parts that don't apply to a posting are left out and the rest re-weighted.</p>
         <p>The A–D grade works like Workday's: A = every basic qualification, most preferred ones and a score of 75+, B = every basic one, C = most basic ones, D = fewer.</p>
         <p class="faint">A list like "Python, R, or SAS" is one qualification that any of them meets; the strict keyword rate still checks every term word for word, as Taleo-style searches do.</p>
-        <p>It goes up as you tailor and edit. Aim for 75–80%+.</p>`,
+        <p>These systems match words literally: they don't know that Appian is a SaaS company or that you've done something under another name. So a lower score usually means different wording, not a lesser candidate, and that's the easiest thing to change.</p>
+        <p>It goes up as you tailor and edit. Around 75% is plenty.</p>`,
     },
   };
   const CONTRAST =

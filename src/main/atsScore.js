@@ -482,13 +482,13 @@ function atsScore(job, resumeText, opts = {}) {
   const tips = [];
   for (const u of screening.unanswered) tips.push(u);
   for (const m of skills.hard.missing.filter((m) => m.kind === 'required')) {
-    tips.push(m.anyOf ? `Required: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}; none found. Add whichever you have.` : `Required skill not found: "${m.term}". Add it if you have it.`);
+    tips.push(m.anyOf ? `Required: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}. If you've used one, add it in those words.` : `Required: "${m.term}". If you've used it, add it in those words.`);
   }
   for (const w of skills.wordingTips.slice(0, 4)) tips.push(`Use the posting's exact wording "${w.term}" at least once (strict systems like Taleo match literally).`);
   if (title && !title.exact) tips.push(`Include the job title "${job.title}" (e.g. in your headline) if it honestly describes you.`);
   if (education && education.score < 1) tips.push(`The posting asks for ${DEGREE_NAMES[education.need]}${education.equivalentOk ? ' or equivalent experience' : ''}; make your education easy to find.`);
   if (parse) for (const c of parse.checks) if (!c.ok) tips.push(c.tip);
-  for (const m of skills.hard.missing.filter((m) => m.kind !== 'required').slice(0, 3)) tips.push(m.anyOf ? `Nice-to-have: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}.` : `Nice-to-have not found: "${m.term}".`);
+  for (const m of skills.hard.missing.filter((m) => m.kind !== 'required').slice(0, 3)) tips.push(m.anyOf ? `Nice to have: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}.` : `Nice to have: "${m.term}".`);
 
   return {
     score,
@@ -549,7 +549,7 @@ function atsGaps(job, resumeText, bullets = []) {
   for (const m of r.missingSkills) {
     if (m.kind !== 'required' || INTERPERSONAL.has(m.skill) || SOFT_SKILLS.has(m.skill)) continue;
     const phrase = m.anyOf ? m.anyOf.join(' or ') : m.term;
-    gaps.push({ type: 'knockout', phrase, why: 'Required, and not on the page. Screens and recruiter searches look for these exact words: another form ("program-managed" for "program management") may not match.', closest: closest(m.anyOf ? m.anyOf[0] : m.term, skillByLabel(m.skill)) });
+    gaps.push({ type: 'knockout', phrase, why: 'Required. Searches look for these exact words, so another form ("program-managed" for "program management") may not match.', closest: closest(m.anyOf ? m.anyOf[0] : m.term, skillByLabel(m.skill)) });
   }
   // Industries ("bank" for financial services) are where you worked, not words to add.
   const INDUSTRIES = new Set(['Financial Services', 'Public Sector', 'Healthcare', 'Enterprise Software']);
