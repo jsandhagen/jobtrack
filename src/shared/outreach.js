@@ -474,11 +474,36 @@
     return (WARMTH[kind] || WARMTH.cold).label;
   }
 
-  const sameUrl = (a, b) => {
-    const u = (x) => linkedinProfileUrl(x).toLowerCase();
-    return !!u(a) && u(a) === u(b);
+  // Looking one person up in a list of thousands (your LinkedIn connections)
+  // happens for every person on a page, so each list is indexed once: by
+  // profile link, and by name and company. Rebuilt if the list is a new one
+  // or has changed length.
+  const indexes = new WeakMap();
+  function personIndex(list, kind, url) {
+    let all = indexes.get(list);
+    if (!all) indexes.set(list, (all = {}));
+    const have = all[kind];
+    if (have && have.length === list.length) return have;
+    const urls = new Map();
+    const names = new Map();
+    list.forEach((x, i) => {
+      const u = url(x.linkedinUrl);
+      if (u && !urls.has(u)) urls.set(u, i);
+      const co = norm(x.company);
+      if (kind === 'connection' && !co) return; // a connection matches by name only at a named company
+      const k = `${norm(x.name)}|${co}`;
+      if (!names.has(k)) names.set(k, i);
+    });
+    return (all[kind] = { length: list.length, urls, names });
+  }
+  const connectionUrl = (u) => linkedinProfileUrl(u).toLowerCase();
+  const isConnection = (c, connections) => {
+    if (!connections || !connections.length) return false;
+    const idx = personIndex(connections, 'connection', connectionUrl);
+    const u = connectionUrl(c.linkedinUrl);
+    const co = norm(c.company);
+    return (!!u && idx.urls.has(u)) || (!!co && idx.names.has(`${norm(c.name)}|${co}`));
   };
-  const isConnection = (c, connections) => (connections || []).some((x) => sameUrl(x.linkedinUrl, c.linkedinUrl) || (norm(x.name) === norm(c.name) && sameCompany(x.company, c.company)));
 
   // Everyone you could ask at a company, best first. People on your list
   // come with where things stand; connections not on your list yet can be
@@ -884,9 +909,16 @@
   }
 
   // Same person already saved: same profile link, or same name and company.
+  const contactUrl = (u) => clean(u).toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
   function findContact(contacts, c) {
-    const url = (u) => clean(u).toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
-    return (contacts || []).find((x) => (url(c.linkedinUrl) && url(x.linkedinUrl) === url(c.linkedinUrl)) || (norm(x.name) === norm(c.name) && norm(x.company) === norm(c.company))) || null;
+    if (!contacts || !contacts.length) return null;
+    const idx = personIndex(contacts, 'contact', contactUrl);
+    const u = contactUrl(c.linkedinUrl);
+    const byUrl = u ? idx.urls.get(u) : undefined;
+    const byName = idx.names.get(`${norm(c.name)}|${norm(c.company)}`);
+    // The first in the list that matches either way, as a plain search would find.
+    const i = byUrl === undefined ? byName : byName === undefined ? byUrl : Math.min(byUrl, byName);
+    return i === undefined ? null : contacts[i];
   }
 
   // ---------------- companies ----------------

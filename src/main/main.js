@@ -245,7 +245,9 @@ async function captureScreen(size) {
   const src = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
   const img = src.thumbnail;
   if (img.isEmpty()) return null;
-  if (full) return { png: img.toPNG(), image: img };
+  // The full shot stays an image: encoding a retina screenshot as PNG takes a
+  // noticeable moment on the main process, so it's done only if it's needed.
+  if (full) return { image: img, get png() { return img.toPNG(); } };
   // Normalise the thumbnail size so bitmap diffs compare like with like.
   const sized = img.resize({ width: size.width, height: size.height });
   return { bitmap: sized.toBitmap(), png: sized.toPNG() };
@@ -253,9 +255,9 @@ async function captureScreen(size) {
 
 // Read a job posting off a screenshot. Free OCR first; Claude only if the
 // settings allow it (and, for automatic scans, the monthly budget has room).
-async function readScreen(png, { force = false } = {}) {
+async function readScreen(shot, { force = false } = {}) {
   const s = store.getSettings();
-  let img = nativeImage.createFromBuffer(png);
+  let img = Buffer.isBuffer(shot) ? nativeImage.createFromBuffer(shot) : shot;
   let ocrResult = null;
   if (s.screenReader !== 'claude') {
     // Standard-resolution screens: enlarging 2x makes small text much more readable.
@@ -431,6 +433,27 @@ const pageScale = () => validScale(store.getSettings().pageScale) || 1;
 
 function scoreLocally(job) {
   return localFitScore(job, scoringDocuments(), store.getProfile());
+}
+
+// The free fit preview for postings found by careers checks and searches.
+// A posting already scored against the same documents and profile isn't
+// scored again: a check every 8 hours mostly finds the jobs it saw last time.
+const fitPreviews = new Map();
+function previewScorer({ clean = false } = {}) {
+  const docs = scoringDocuments();
+  if (!docs.length) return null;
+  const profile = store.getProfile();
+  const hash = (x) => require('crypto').createHash('sha1').update(x).digest('base64');
+  const library = hash(JSON.stringify([docs.map((d) => [d.kind, d.text]), profile, SCORER_VERSION, clean]));
+  return (job) => {
+    const key = `${library}|${hash([job.title, job.company, job.location, job.text].join('\u0000'))}`;
+    if (fitPreviews.has(key)) return fitPreviews.get(key);
+    const q = localFitScore(clean ? cleanPosting(job) : job, docs, profile);
+    const fit = { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
+    if (fitPreviews.size >= 5000) fitPreviews.delete(fitPreviews.keys().next().value);
+    fitPreviews.set(key, fit);
+    return fit;
+  };
 }
 
 // Should Claude take a closer look automatically? Default: only when asked.
@@ -1928,14 +1951,8 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
   roleSearching = true;
   try {
     minFit = Number(minFit) || 70;
-    const docs = scoringDocuments();
     const profile = store.getProfile();
-    const scoreJob = docs.length
-      ? (job) => {
-          const q = localFitScore(cleanPosting(job), docs, profile);
-          return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
-        }
-      : null;
+    const scoreJob = previewScorer({ clean: true });
     const settings = store.getSettings();
     sources = Array.isArray(sources) ? sources : (settings.roleSearch && settings.roleSearch.sources) || ['companies', ...jobBoards.DEFAULT_BOARDS];
     const keys = settings.jobBoardKeys || {};
@@ -1999,14 +2016,7 @@ async function checkCareers(ids, { manual = false } = {}) {
   broadcast('state-changed');
   const roles = outreach.splitList(store.getProfile().targetRoles);
   // A free fit preview for each matching job (no AI), once there's a resume to compare with.
-  const docs = scoringDocuments();
-  const profile = store.getProfile();
-  const scoreJob = docs.length
-    ? (job) => {
-        const q = localFitScore(job, docs, profile);
-        return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
-      }
-    : null;
+  const scoreJob = previewScorer();
   const fresh = [];
   const firstLooks = new Set(); // companies checked for the first time
   let checked = 0;

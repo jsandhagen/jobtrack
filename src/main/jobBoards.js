@@ -13,6 +13,7 @@
 // in the app, a fake in tests).
 
 const C = require('./careers');
+const { breather } = require('./breathe');
 
 const PER_BOARD = 100; // most jobs kept from one board
 
@@ -270,7 +271,9 @@ async function searchBoards({ role, place = '', remoteOnly = false, minFit = 70,
   );
 
   const results = [];
+  const breathe = breather();
   for (const j of seen.values()) {
+    await breathe();
     const { text = '', full, source, also, match, similarity, company, ...job } = j;
     let fit = null;
     if (scoreJob && text.length >= 80) {

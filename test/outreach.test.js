@@ -531,3 +531,22 @@ test('drafts use what you share from their LinkedIn profile when "in common" is 
   // Typed common ground still wins.
   assert.match(O.templateVars({ ...c, connection: 'ex-Deloitte' }, p).common, /worked at Deloitte/);
 });
+
+test('finding a person in a long list: same answers as a plain search, and a list that grows is read again', () => {
+  const O = require('../src/shared/outreach');
+  const list = [
+    { name: 'Ann Lee', company: 'Appian', linkedinUrl: '' },
+    { name: 'Bo Chen', company: 'Pega', linkedinUrl: 'https://www.linkedin.com/in/bo/' },
+    { name: 'Ann Lee', company: 'Appian Inc.', linkedinUrl: 'linkedin.com/in/ann' },
+  ];
+  assert.equal(O.findContact(list, { name: 'ann  lee', company: 'appian' }), list[0], 'first match, by name and company');
+  assert.equal(O.findContact(list, { name: 'Someone', company: 'X', linkedinUrl: 'http://linkedin.com/in/bo' }), list[1], 'by profile link');
+  assert.equal(O.findContact(list, { name: 'Cy', company: 'Pega' }), null);
+  list.push({ name: 'Cy', company: 'Pega' });
+  assert.equal(O.findContact(list, { name: 'Cy', company: 'Pega' }), list[3], 'added after the first lookup');
+  // A connection counts by link, or by name at the same named company.
+  const conns = [{ name: 'Dee', company: '', linkedinUrl: '' }, { name: 'Eve', company: 'Appian', linkedinUrl: '' }];
+  const at = (c) => O.peopleAt(c.company, { contacts: [c], connections: conns }).find((p) => p.contact).warmth;
+  assert.equal(at({ name: 'Eve', company: 'Appian' }), 'first');
+  assert.notEqual(at({ name: 'Dee', company: 'Appian' }), 'first', 'no company on the connection: not a match by name');
+});
