@@ -46,6 +46,18 @@ function newApp(p) {
   saved.set(app.id, app);
   return app;
 }
+// "Do you have it?": the Senior Accountant posting asks for a CPA and Big 4
+// audit experience; a yes adds 9 points, a no just stops asking.
+const answers = [];
+const declined = new Set();
+const ACCOUNTANT_ASKS = [
+  { label: 'CPA', ask: 'CPA', options: null, gain: 9 },
+  { label: 'one of NetSuite, SAP', ask: 'NetSuite or SAP', options: ['NetSuite', 'SAP'], gain: 4 },
+];
+function accountantQuick() {
+  const yes = answers.filter((a) => a.answer === 'yes').length;
+  return { ...quick, score: 61 + 9 * yes, label: 'Good potential', asks: ACCOUNTANT_ASKS.filter((a) => !declined.has(a.label) && !answers.some((x) => x.label === a.label && x.answer === 'yes')) };
+}
 const findSaved = (p) => [...saved.values()].find((a) => a.job.title === p.title && a.job.company === p.company);
 
 test.before(async () => {
@@ -57,7 +69,8 @@ test.before(async () => {
       previews.push(p);
       const dup = findSaved(p);
       if (dup) return card(dup, true);
-      return { saved: false, preview: { job: { title: p.title, company: p.company, location: p.location, url: p.url }, quick, ats: { before: { score: 72, grade: 'B', skillsMatch: 'Good' } } }, ...env };
+      const q = p.title === 'Senior Accountant' ? accountantQuick() : quick;
+      return { saved: false, preview: { job: { title: p.title, company: p.company, location: p.location, url: p.url }, quick: q, ats: { before: { score: 72, grade: 'B', skillsMatch: 'Good' } } }, ...env };
     },
     onPosting: async (p) => {
       postings.push(p);
@@ -71,6 +84,12 @@ test.before(async () => {
       const app = saved.get(id);
       if (action === 'resume-ats') Object.assign(app, { hasResume: true, resumeStatus: 'ready', resumeSource: 'ats', status: 'resume-ready', ats: { ...app.ats, after: { score: 88, grade: 'A' } } });
       return card(app);
+    },
+    onHave: async ({ label, answer, option, id, posting }) => {
+      answers.push({ label, answer, option, id, posting });
+      if (answer === 'no') declined.add(label);
+      const q = accountantQuick();
+      return { saved: false, preview: { job: { title: posting.title, company: posting.company, url: posting.url }, quick: q, ats: null }, ...env, answered: answer === 'yes' ? { label, answer, where: 'skills', value: option || label } : { label, answer } };
     },
     onOpen: () => {},
     onPerson: async (p) => {
@@ -253,6 +272,41 @@ test('company careers pages: finds the posting, leaves out menus and other openi
   for (const junk of ['Warehouse Associate', 'About us', 'Privacy']) assert.ok(!r.text.includes(junk), `leaked: ${junk}`);
   await waitFor(async () => (await cardText(p)).includes('Add this job to your saved jobs?'));
   assert.ok(!postings.some((x) => x.title === 'Senior Accountant'), 'not saved on its own');
+  await p.close();
+});
+
+test('"Do you have these?": a yes is recorded and the card re-scores; a no stops asking', async () => {
+  const p = await context.newPage();
+  await p.goto('https://careers.fabrikam.example/jobs/senior-accountant');
+  const text = await waitFor(async () => ((await cardText(p)).includes('Do you have these?') ? cardText(p) : null));
+  assert.match(text, /CPA\s*\+9/);
+  assert.match(text, /NetSuite or SAP/);
+  // Yes to the CPA.
+  assert.ok(
+    await inCard(p, function () {
+      const b = this.querySelector('.dock [data-act="have"][data-label="CPA"][data-answer="yes"]');
+      if (b) b.click();
+      return !!b;
+    })
+  );
+  const after = await waitFor(async () => ((await cardText(p)).includes('Your score went from 61 to 70') ? cardText(p) : null));
+  assert.match(after, /Added CPA to the skills in your bullet bank/);
+  assert.ok(!/CPA\s*\+9/.test(after), 'not asked again');
+  const yes = answers.find((a) => a.label === 'CPA');
+  assert.equal(yes.answer, 'yes');
+  assert.equal(yes.posting.title, 'Senior Accountant', 'a job not saved yet is re-scored from the page');
+  assert.ok(!postings.some((x) => x.title === 'Senior Accountant'), 'answering does not save the job');
+  // No to the other one: it goes away.
+  assert.ok(
+    await inCard(p, function () {
+      const b = this.querySelector('.dock [data-act="have"][data-answer="no"]');
+      if (b) b.click();
+      return !!b;
+    })
+  );
+  await waitFor(async () => !(await cardText(p)).includes('Do you have these?'));
+  assert.equal(answers.at(-1).answer, 'no');
+  assert.equal(answers.at(-1).label, 'one of NetSuite, SAP');
   await p.close();
 });
 

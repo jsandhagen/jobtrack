@@ -11,7 +11,9 @@
 //                              add them to your people, with what you share
 //   { error }                  something went wrong
 (() => {
-  if (globalThis.SproutCard) return;
+  // Already loaded, unless this is a newer copy put on the page after the extension updated.
+  const VERSION = chrome.runtime.getManifest().version;
+  if (globalThis.SproutCard && globalThis.SproutCard.version === VERSION) return;
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const seed = (s) => [...String(s || '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
@@ -56,6 +58,32 @@
 
   const chips = (list) => `<div class="chips">${list.map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')}</div>`;
   const note = (html, cls = '') => `<div class="note ${cls}">${html}</div>`;
+  // "Do you have these?": must-haves the posting asks for that your documents
+  // don't show, each with how much a yes would add to the free score. A yes
+  // adds it to your bullet bank and re-scores; a no stops asking about it.
+  function haveAsks(q) {
+    const asks = (q && q.asks) || [];
+    if (!asks.length) return '';
+    const btn = (label, answer, text, option, cls) =>
+      `<button class="${cls}" data-act="have" data-label="${esc(label)}" data-answer="${answer}"${option ? ` data-option="${esc(option)}"` : ''}>${esc(text)}</button>`;
+    const rows = asks
+      .map(
+        (a) => `<div class="have-row"><span class="have-q">${esc(a.ask)}</span><span class="have-gain" title="How much the free score would go up">+${a.gain}</span>
+        <span class="have-btns">${(a.options || []).length ? a.options.slice(0, 4).map((o) => btn(a.label, 'yes', o, o, 'soft')).join('') : btn(a.label, 'yes', 'I have it', '', 'soft')}${btn(a.label, 'no', 'No', '', 'ghost')}</span></div>`
+      )
+      .join('');
+    return `<div class="have"><div class="have-title">Do you have these? Your documents don't show them.</div>${rows}</div>`;
+  }
+
+  // After an answer: what changed.
+  function answeredNote(ui) {
+    const a = ui.answered;
+    if (!a || a.answer !== 'yes') return '';
+    const moved = a.was != null && a.now != null && a.now !== a.was ? ` Your score went from ${a.was} to <b>${a.now}</b>.` : '';
+    const where = a.where === 'skills' ? `Added <b>${esc(a.value)}</b> to the skills in your bullet bank.` : `Noted that you have ${esc(a.value)}. It counts toward your scores; add a bullet that shows it to put it on a resume.`;
+    return note(where + moved, 'good');
+  }
+
   const dealbreakers = (q) => (q.dealbreakers && q.dealbreakers.length ? note(`Heads up — ${esc(q.dealbreakers.join('; '))}.`, 'warn') : '');
 
   // Two ways to tailor: Spike optimizes your resume for ATS (free), Root has
@@ -76,6 +104,8 @@
       ${atsLine(ats && ats.before)}
       ${quick.headline ? `<div class="headline">${esc(quick.headline)}</div>` : ''}
       ${chips(quick.matchedSkills.slice(0, 6))}
+      ${answeredNote(ui)}
+      ${haveAsks(quick)}
       ${window.SproutInfo.fitDetails(quick)}
       ${dealbreakers(quick)}
       ${r.hasDocs ? '' : note('Add your resume to your library in Sprout so I can score you properly.')}
@@ -171,6 +201,8 @@
       ${atsLine(app.ats && app.ats.before, a && a.grade)}
       ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
       ${chips(a ? a.strengths.slice(0, 3) : app.quick.matchedSkills.slice(0, 6))}
+      ${a ? '' : answeredNote(ui)}
+      ${a || analyzing ? '' : haveAsks(app.quick)}
       ${window.SproutInfo.fitDetails(app.quick)}
       ${a ? '' : dealbreakers(app.quick)}
       ${errors.map((e) => note(esc(e), 'err')).join('')}
@@ -313,6 +345,24 @@
         ui.error = null;
         return show({ ...r.value, justSaved: !r.value.seen });
       }
+      if (action === 'have') {
+        const { label, answer, option } = btn.dataset;
+        const q = result.saved ? result.app.quick : result.preview.quick;
+        const was = q.score;
+        btn.closest('.have-row').querySelectorAll('button').forEach((b) => (b.disabled = true));
+        const r = await opts.send({ type: 'have', label, answer, option: option || '' });
+        if (dead) return;
+        if (!r.ok) {
+          ui.error = r.error;
+          return draw();
+        }
+        const keep = { justSaved: result.justSaved, seen: result.seen };
+        show({ ...r.value, ...keep });
+        const nq = r.value.saved ? r.value.app.quick : r.value.preview.quick;
+        ui.error = null;
+        ui.answered = { ...(r.value.answered || {}), answer, was, now: nq.score };
+        return draw();
+      }
       if (action === 'add-person' || action === 'open-person') {
         const person = action === 'add-person';
         if (btn && person) btn.innerHTML = '<span class="spinner"></span> Adding…';
@@ -391,5 +441,5 @@
     };
   }
 
-  globalThis.SproutCard = { mount, statusLine };
+  globalThis.SproutCard = { mount, statusLine, version: VERSION };
 })();

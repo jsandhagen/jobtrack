@@ -57,6 +57,17 @@
 .ats-compare { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; background: var(--sage-soft); border-radius: 12px; padding: 6px 12px; margin-bottom: 12px; }
 .ats-compare .was { color: var(--ink-faint); text-decoration: line-through; }
 .ask-claude { margin: 0 0 4px -6px; }
+
+/* "Do you have these?": missing must-haves that would move the score */
+.have { background: var(--surface-2); border-radius: 12px; padding: 8px 10px; margin: 0 0 10px; }
+.have-title { font-size: 12.5px; font-weight: 800; margin-bottom: 4px; }
+.have-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+.have-row:first-of-type { border-top: 0; }
+.have-q { flex: 1 1 140px; font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.have-gain { font-size: 11.5px; font-weight: 800; color: var(--sage-deep); white-space: nowrap; }
+.have-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+.have-btns button { padding: 3px 10px; font-size: 12px; min-height: 0; }
+.note.good { background: var(--sage-soft); }
 .pop .info-pop { user-select: text; }
 
 /* two ways to tailor: helpers peek over their buttons */

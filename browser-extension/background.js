@@ -64,7 +64,7 @@ async function call(path, body) {
   });
   const data = await r.json().catch(() => ({}));
   if (r.status === 401) throw Object.assign(new Error('Not connected to Sprout yet. Click the Sprout button in your toolbar to connect.'), { code: 'unpaired' });
-  if (r.status === 404 && /^\/(preview|app|action|person(\/add|\/open)?)$/.test(path) && !data.error) throw new Error('Update the Sprout app to use this.');
+  if (r.status === 404 && /^\/(preview|app|action|have|person(\/add|\/open)?)$/.test(path) && !data.error) throw new Error('Update the Sprout app to use this.');
   if (!r.ok) throw new Error(data.error || `Sprout said ${r.status}`);
   return data;
 }
@@ -170,6 +170,19 @@ async function action(id, act) {
   const result = cardResult(await call('/action', { id, action: act }));
   await updateSaved(result);
   return result;
+}
+
+// "Do you have it?" answered on the card: the app records it and re-scores
+// the job (a saved one by its id, one not saved yet from what the page showed).
+async function have(tabId, { label, answer, option }) {
+  const e = await getEntry(tabId);
+  if (!e || !e.posting || e.person) throw new Error("I can't find that job on the page anymore. Try reloading it.");
+  const saved = e.result && e.result.saved;
+  const d = await call('/have', saved ? { label, answer, option, id: e.result.app.id } : { label, answer, option, posting: e.posting });
+  const result = { ...cardResult(d), ...(saved ? { seen: e.result.seen } : {}) };
+  await setEntry(tabId, { ...e, result });
+  if (result.saved) await updateSaved(result);
+  return { ...result, answered: d.answered };
 }
 
 async function getSaved(id) {
@@ -332,6 +345,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       }
       case 'get':
         return getSaved(msg.id);
+      case 'have': {
+        const result = await have(tabId, msg);
+        if (!fromPage) tellTab(tabId, { type: 'update', result });
+        return result;
+      }
       case 'status': {
         const app = await findApp();
         const cfg = await getConfig();
@@ -365,6 +383,19 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     await chrome.tabs.sendMessage(t.id, { type: 'showCard' }, TOP);
   } catch {
     /* a page extensions can't touch (chrome://, the web store) */
+  }
+});
+
+// Installed, or reloaded after an update: pages already open still run the
+// old copy, which the browser cut off when the extension reloaded. Put the
+// new one on them so the card keeps working without reloading every tab.
+// Pages the extension may not touch (chrome://, the web store) just fail.
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+  if (reason !== 'install' && reason !== 'update') return;
+  const open = await chrome.tabs.query({}).catch(() => []);
+  for (const t of open) {
+    if (t.discarded || !/^https?:/.test(t.url || t.pendingUrl || 'https:')) continue;
+    chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true }, files: CONTENT_FILES }).catch(() => {});
   }
 });
 

@@ -1118,11 +1118,9 @@ async function renderApplication(id, { ifChanged = false } = {}) {
   $$('[data-have]', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
-        const bank = await S.getBank();
-        const skills = bank.skills || [];
-        if (!skills.some((x) => x.toLowerCase() === b.dataset.have.toLowerCase())) await S.updateBank({ skills: [...skills, b.dataset.have] });
-        await S.rescoreLocal(id);
-        toast(`Added ${b.dataset.have} to the skills in your bullet bank.`, 'good');
+        // Skills go into your bullet bank's skills; experience counts toward the score but stays off resumes.
+        const r = await S.haveIt(b.dataset.have, id);
+        toast(r.where === 'skills' ? `Added ${r.value} to the skills in your bullet bank.` : `Noted: you have ${r.value}. It counts toward your fit scores; add a bullet that shows it to put it on a resume.`, 'good', 5000);
       }, '…')
     )
   );

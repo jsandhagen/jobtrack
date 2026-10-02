@@ -14,8 +14,14 @@
 // iCIMS and embedded boards do), it only reads the posting and passes it to
 // the page around it, which shows the card.
 (() => {
-  if (globalThis.__sproutContent) return;
-  globalThis.__sproutContent = true;
+  // One copy per page. After the extension updates, background.js puts the
+  // new copy on pages that are already open; it takes over from the old one,
+  // which stops (see alive()) and whose card is removed.
+  const me = { version: chrome.runtime.getManifest().version };
+  const prev = globalThis.__sproutContent;
+  if (prev && prev.version === me.version) return;
+  globalThis.__sproutContent = me;
+  if (window === window.top) document.querySelectorAll('sprout-card').forEach((n) => n.remove());
 
   // Job boards and applicant-tracking systems: always worth a look.
   const JOB_SITES =
@@ -34,8 +40,14 @@
 
   const isProfilePage = () => /(^|\.)linkedin\.com$/.test(location.hostname) && location.pathname.startsWith('/in/');
 
-  // After the extension updates, this copy is cut off; the new one takes over on the next page load.
-  const alive = () => !!(chrome.runtime && chrome.runtime.id);
+  // After the extension updates, this copy is cut off (and a newer one may have taken over).
+  const alive = () => {
+    try {
+      return !!(chrome.runtime && chrome.runtime.id) && globalThis.__sproutContent === me;
+    } catch {
+      return false;
+    }
+  };
   const ask = (msg) => {
     try {
       return chrome.runtime.sendMessage(msg).then((r) => r || { ok: false, error: 'No response' }, (e) => ({ ok: false, error: e.message }));
@@ -320,6 +332,7 @@
 
   // ---------- messages from the extension ----------
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+    if (!alive()) return; // a newer copy answers
     if (msg.type === 'ping') return reply(true);
     if (msg.type === 'extract') {
       extractHere().then(reply, () => reply(null));

@@ -79,6 +79,9 @@ async function renderBankPage() {
         <textarea id="bankSummary" rows="3" placeholder="e.g. Frontend engineer who builds accessible, fast interfaces and the design systems behind them.">${esc(bank.summary || '')}</textarea></div>
       <div class="card"><h3>Skills & education</h3>
         <label>Skills (comma separated)</label><textarea id="bankSkills" rows="3">${esc((bank.skills || []).join(', '))}</textarea>
+        <label style="margin-top:10px">Experience you've confirmed (one per line)</label>
+        <p class="faint" style="margin:2px 0 4px">What you said you have when a posting asked. It counts toward your fit scores but isn't put on resumes by itself; add a bullet that shows it for that.</p>
+        <textarea id="bankConfirmed" rows="2" placeholder="e.g. experience managing people">${esc((bank.confirmed || []).join('\n'))}</textarea>
         <label style="margin-top:10px">Education (one per line: degree — school — year)</label>
         <textarea id="bankEdu" rows="2">${esc((bank.education || []).map((e) => [e.degree, e.school, e.dates].filter(Boolean).join(' — ')).join('\n'))}</textarea></div>
     </div>`;
@@ -167,6 +170,7 @@ async function renderBankPage() {
     })
   );
   $('#bankSummary', page).addEventListener('change', (e) => S.updateBank({ summary: e.target.value }).then(() => toast(say('saved'), 'good', 1500)));
+  $('#bankConfirmed', page).addEventListener('change', (e) => S.updateBank({ confirmed: e.target.value.split('\n') }).then(() => toast(say('saved'), 'good', 1500)));
   $('#bankSkills', page).addEventListener('change', (e) => S.updateBank({ skills: e.target.value.split(',') }).then(() => toast(say('saved'), 'good', 1500)));
   $('#bankEdu', page).addEventListener('change', (e) =>
     S.updateBank({

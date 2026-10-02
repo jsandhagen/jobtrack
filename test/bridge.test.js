@@ -139,6 +139,24 @@ test('the extension card: preview without saving, then act on a saved job', asyn
   await b.close();
 });
 
+test('"Do you have it?" answers: by job id or by the posting, yes or no, paired only', async () => {
+  const pair = { origin: EXT, token: 't0k3n' };
+  const had = [];
+  const { b, url } = await start({ getPairings: () => [pair], onHave: async (h) => (had.push(h), { saved: false, preview: {} }) });
+  const post = (body, token = 't0k3n') => fetch(url('/have'), { method: 'POST', headers: { Origin: EXT, 'X-Sprout-Token': token }, body: JSON.stringify(body) });
+  assert.equal((await post({ label: 'SQL', answer: 'yes', id: 'app1' })).status, 200);
+  assert.equal((await post({ label: 'one of AWS, GCP', answer: 'yes', option: 'GCP', posting })).status, 200);
+  assert.deepEqual(had[0], { label: 'SQL', answer: 'yes', option: '', id: 'app1', posting: null });
+  assert.equal(had[1].option, 'GCP');
+  assert.equal(had[1].posting.title, 'Engineer');
+  assert.equal((await post({ label: 'SQL', answer: 'maybe', id: 'app1' })).status, 400);
+  assert.equal((await post({ label: '', answer: 'yes', id: 'app1' })).status, 400);
+  assert.equal((await post({ label: 'SQL', answer: 'yes', posting: { text: 'short' } })).status, 422, 'no job to re-score');
+  assert.equal((await post({ label: 'SQL', answer: 'yes', id: 'app1' }, 'wrong')).status, 401);
+  assert.equal(had.length, 2);
+  await b.close();
+});
+
 test('an app without the card endpoints says so', async () => {
   const pair = { origin: EXT, token: 't0k3n' };
   const { b, url } = await start({ getPairings: () => [pair] });
