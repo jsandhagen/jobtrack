@@ -20,8 +20,10 @@ test('a result needs a real number: not a year, a quarter or a product name', ()
   for (const t of ['Joined in 2019 to lead reporting', 'Planned the Q3 roadmap', 'Moved jobs onto EC2 and S3', 'Won 1st place internally']) assert.ok(!RC.hasResult(t), t);
 });
 
-test('length: more than two lines, or a fragment, gets a tip', () => {
-  const long = 'Built and maintained a demand forecasting model in Python and SQL that cut stockouts by 18% across 40 regional warehouses, working closely with procurement, finance and the operations leadership team to roll it out region by region over two quarters while training analysts';
+test('length: up to three lines is fine; more than three, or a fragment, gets a tip', () => {
+  const three = 'Built and maintained a demand forecasting model in Python and SQL that cut stockouts by 18% across 40 regional warehouses, working closely with procurement, finance and the operations leadership team to roll it out region by region over two quarters while training analysts';
+  assert.ok(!failed(three).includes('length'));
+  const long = `${three} in every region, documenting the method, setting up weekly accuracy reviews with each regional lead, and handing the model over to the planning team with a runbook they still use today`;
   assert.ok(failed(long).includes('length'));
   assert.ok(failed('Cut costs 10%').includes('length'));
 });

@@ -26,6 +26,7 @@
 
 main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; background: radial-gradient(900px 420px at 100% -8%, color-mix(in srgb, var(--sage-soft) 70%, transparent), transparent 70%), radial-gradient(700px 360px at -10% 0%, color-mix(in srgb, var(--peach-soft) 55%, transparent), transparent 70%), var(--bg); background-attachment: local; }
 .page { max-width: 1080px; margin: 0 auto; }
+.page:has(#editorSlot) { max-width: none; }
 /* Sections rise in one after another when you open a page (not on in-place redraws: .settled). */
 .page > * { animation: fade 0.42s var(--ease) both; }
 .page > :nth-child(2) { animation-delay: 0.04s; }
@@ -124,11 +125,13 @@ main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; backg
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; align-items: end; }
 .form-grid .full { grid-column: 1 / -1; }
-.profile-grid { align-items: stretch; }
+.profile-grid { align-items: start; }
 .profile-card { display: flex; flex-direction: column; }
+/* Examples, not answers: a grey "Accenture, Deloitte" mustn't read as filled in. */
+.profile-card ::placeholder { font-style: italic; color: var(--ink-faint); opacity: 0.75; }
 .profile-card h2 .chip { margin: 0 0 0 auto; }
 .profile-card > .faint { margin-top: 0; }
-.profile-save { margin-top: auto; padding-top: 16px; }
+.profile-save { padding-top: 16px; }
 .toggle-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .toggle-row input[type="checkbox"] { margin-top: 4px; }
 .toggle-row:last-child { border-bottom: 0; }
@@ -256,20 +259,32 @@ details.more summary { cursor: pointer; font-weight: 700; color: var(--ink-soft)
 .app-card { margin-bottom: 12px; padding: 14px 18px; }
 .grid.sidebar-wide { grid-template-columns: minmax(0, 1fr) 380px; align-items: start; }
 @media (max-width: 1100px) { .grid.sidebar-wide { grid-template-columns: 1fr; } }
-.ed { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 16px; align-items: start; }
-@media (max-width: 1150px) { .ed { grid-template-columns: 1fr; } .ed-tray { position: static !important; max-height: none !important; } }
+.ed { display: grid; grid-template-columns: minmax(0, 1fr) minmax(350px, min(26vw, 480px)); gap: 16px; align-items: start; }
+.ed.narrow { grid-template-columns: minmax(0, 1fr); }
 .ed-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
 .ed-bar .ed-spacer { flex: 1 1 auto; }
 .ed-bar button { flex: none; }
 .ed-bar .chip { margin: 0; white-space: nowrap; flex: none; }
 .ed-bar .ed-len { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--ink-faint); flex: none; }
 .ed-bar .ed-len select { font-size: 12px; padding: 3px 6px; width: auto; }
+.ed-zoomctl { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.ed-zoomctl button { min-width: 28px; padding-left: 7px; padding-right: 7px; }
+#edZoomPct { min-width: 74px; font-variant-numeric: tabular-nums; }
+/* Side panel hidden: the page gets the whole width. */
+.ed.wide { grid-template-columns: minmax(0, 1fr); }
+.ed.wide .ed-tray { display: none; }
+.ed-tray-backdrop { display: none; }
+.ed-drawer-head { display: none; }
+.ed.narrow .ed-tray { display: none; }
+.ed.narrow.panel-open .ed-tray { display: flex; position: fixed; z-index: 1001; inset: 12px 12px 12px auto; width: min(440px, calc(100vw - 24px)); max-height: none; box-sizing: border-box; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); box-shadow: 0 18px 60px rgba(20, 24, 21, 0.28); }
+.ed.narrow.panel-open .ed-tray-backdrop { display: block; position: fixed; z-index: 1000; inset: 0; width: auto; height: auto; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: rgba(15, 20, 17, 0.38); box-shadow: none; transform: none; transition: none; cursor: default; }
+.ed.narrow.panel-open .ed-drawer-head { position: sticky; top: -12px; z-index: 4; display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; margin: -12px -12px 0; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--bg); }
 .mode-why { display: flex; align-items: center; gap: 5px; margin: 4px 0 0; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); }
 /* Measuring the page as it prints: no "+ add" rows or empty placeholders. */
 /* Measured as it prints: empty fields and placeholders ("Address | Phone") don't print. */
 .ed-page.measuring .rs-head > [data-path]:empty, .ed-page.measuring .rs-row:not(:has([data-path]:not(:empty))), .ed-page.measuring .rs-detail:not(:has([data-path]:not(:empty))),
 .ed-page.measuring .rs-add, .ed-page.measuring li[data-path]:empty, .ed-page.measuring .rs-sec:has(> .rs-summary:empty), .ed-page.measuring .ed-float, .ed-page.measuring .ed-grip { display: none !important; }
-.ed-desk { position: relative; background: #e9e5dd; border: 1px solid var(--line); border-radius: 18px; padding: 36px 12px 40px; display: flex; justify-content: center; box-shadow: inset 0 1px 3px rgba(60, 50, 30, 0.06); }
+.ed-desk { position: relative; background: #e9e5dd; border: 1px solid var(--line); border-radius: 18px; padding: 36px 12px 40px; display: flex; justify-content: safe center; overflow-x: auto; box-shadow: inset 0 1px 3px rgba(60, 50, 30, 0.06); }
 @media (prefers-color-scheme: dark) { .ed-desk { background: #161a18; } }
 .ed-hint { position: absolute; top: 9px; left: 12px; right: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 11.5px; font-weight: 700; color: var(--ink-faint); white-space: nowrap; overflow: hidden; pointer-events: none; }
 .ed-page { width: 8.5in; min-height: 11in; padding: 0.5in 1in 0.6in; position: relative; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 14px 40px rgba(0, 0, 0, 0.14); }
@@ -288,6 +303,7 @@ details.more summary { cursor: pointer; font-weight: 700; color: var(--ink-soft)
 .ed-page .rs-role:hover .rs-add, .ed-page .rs-skills:hover .rs-add, .ed-page .rs-edu:hover .rs-add, .ed-page .rs-sec:hover > .rs-add, .ed-page .rs-add:focus { opacity: 1; }
 .ed-page:not(:has(.rs-role)) .rs-add-role, .ed-page .rs-skills:not(:has(> .rs-skill)) .rs-add, .ed-page [data-sec="education"]:not(:has(.rs-edu)) > .rs-add { opacity: 1; }
 .ed-page li.lit { background: rgba(185, 169, 230, 0.28); }
+.ed-page li.has-reword { text-decoration: underline dotted rgba(63, 138, 97, 0.7); text-underline-offset: 3px; }
 .ed-page li.has-suggestion { text-decoration: underline wavy rgba(107, 90, 168, 0.55); text-underline-offset: 3px; }
 /* Bullet tools and the drag grip sit in the right margin, next to the bullet bin. */
 .ed-float, .ed-grip, .role-tools { position: absolute; font-family: var(--font); user-select: none; z-index: 2; }
@@ -351,6 +367,7 @@ button.mini-check:hover { transform: none; filter: brightness(0.98); }
 .qcheck .why { border: 0; background: none; box-shadow: none; padding: 0; font: 800 11.5px var(--font); color: var(--ink-faint); text-decoration: underline dotted; cursor: pointer; }
 .qcheck .why:hover { color: var(--sage-deep); transform: none; }
 .qcheck .fix { grid-column: 2 / 4; font-size: 12.5px; color: var(--ink-soft); line-height: 1.45; }
+.qcheck .fix button { max-width: 100%; white-space: normal; text-align: left; }
 .qcheck .expl { grid-column: 2 / 4; font-size: 12.5px; color: var(--ink-soft); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
 .qcheck .how { display: block; margin-top: 5px; color: var(--ink-faint); }
 .qbar { display: flex; gap: 6px; margin: 6px 0 4px; }
@@ -376,7 +393,9 @@ button.mini-check:hover { transform: none; filter: brightness(0.98); }
 .jm-bar b { text-align: right; font-variant-numeric: tabular-nums; }
 .jm-bar i { font-style: normal; font-size: 11px; }
 /* Each bullet's checks, in the left margin: ✓ or how many tips. */
-.ed-page li.rs-bullet[data-q]::after { content: attr(data-q); position: absolute; left: -22px; top: 1px; width: 15px; height: 15px; border-radius: 50%; font: 800 9.5px/15px var(--font); text-align: center; background: #fde9c8; color: #a0651c; pointer-events: none; }
+/* Each mark sits beside its own bullet (not the list), and doesn't take the bullet's hanging indent. */
+.ed-page li.rs-bullet { position: relative; }
+.ed-page li.rs-bullet[data-q]::after { content: attr(data-q); position: absolute; left: -22px; top: 1px; width: 15px; height: 15px; border-radius: 50%; font: 800 9.5px/15px var(--font); text-align: center; text-indent: 0; background: #fde9c8; color: #a0651c; pointer-events: none; }
 .ed-page li.rs-bullet[data-q='ok']::after { content: '✓'; background: #e3f0e7; color: #3f8a61; }
 .ed-page.measuring li.rs-bullet::after { display: none; }
 .modal-card.wide { width: min(880px, 100%); }
@@ -431,6 +450,12 @@ button.req:nth-child(even):hover { transform: rotate(2deg) translateY(-1px); }
 .tray-actions { display: flex; flex-direction: column; gap: 6px; }
 .tray-actions button { justify-content: center; }
 .sug-row { border-top: 1px dashed var(--line); padding: 6px 0; font-size: 13px; }
+/* A suggestion's before and after, with what changes marked. */
+.sug-row .dw-old { color: var(--ink-faint); }
+.sug-row .dw-new { margin-top: 2px; }
+.sug-row del { background: var(--rose-soft); color: var(--ink-soft); text-decoration: line-through; border-radius: 3px; padding: 0 2px; }
+.sug-row ins { background: var(--sage-soft); color: var(--ink); text-decoration: none; font-weight: 700; border-radius: 3px; padding: 0 2px; }
+.sug-row .inline { margin-top: 4px; }
 details.tray-card summary { cursor: pointer; }
 .ed-page .rs-detail span[data-path] { display: inline; min-width: 0; }
 
@@ -638,7 +663,8 @@ button.sts-card:disabled { opacity: .5; filter: grayscale(.5); }
 .mode-links button { margin-left: -8px; margin-right: 8px; }
 .mode-actions { display: flex; gap: 10px; flex: none; }
 .mode-actions .peek { width: 180px; }
-@media (max-width: 1100px) { .mode-strip { flex-direction: column; align-items: stretch; } .mode-actions .peek { flex: 1; width: auto; } }
+@media (max-width: 1100px) { .mode-actions .peek { width: 150px; } }
+@media (max-width: 900px) { .mode-strip { flex-direction: column; align-items: stretch; } .mode-actions .peek { flex: 1; width: auto; } }
 .ed-page.fresh { animation: fresh 1.6s ease; }
 @keyframes fresh { 0% { box-shadow: 0 0 0 0 rgba(98, 167, 127, 0.55), 0 14px 40px rgba(0, 0, 0, 0.14); } 40% { box-shadow: 0 0 0 10px rgba(98, 167, 127, 0.18), 0 14px 40px rgba(0, 0, 0, 0.14); } 100% { box-shadow: 0 0 0 0 rgba(98, 167, 127, 0), 0 1px 3px rgba(0, 0, 0, 0.12), 0 14px 40px rgba(0, 0, 0, 0.14); } }
 @media (prefers-reduced-motion: reduce) { .ed-page.fresh { animation: none; } }
@@ -1020,7 +1046,26 @@ p.way-next { display: flex; }
 .tray-fold > summary h4 { flex: 1; margin: 0; }
 .tray-fold[open] > summary { margin-bottom: 6px; }
 .tray-fold > summary h4 > span { display: inline-flex; align-items: center; gap: 6px; }
-.tray-fold .n { min-width: 17px; height: 17px; border-radius: 9px; background: var(--butter-soft); color: #a0651c; font-size: 10.5px; display: inline-grid; place-items: center; padding: 0 4px; }
+/* Job match tab: the top three lifts, then one obvious way into the full breakdown */
+.tray-card.lifts { border-color: var(--sage); }
+.nudge .ni.lift-n { font-weight: 900; font-size: 13px; color: var(--ink); }
+.tray-more-toggle { display: flex; align-items: center; gap: 10px; width: 100%; white-space: normal; padding: 11px 14px; background: var(--surface-2); border: 1px dashed var(--line-strong); border-radius: 14px; box-shadow: none; text-align: left; color: var(--ink); font: inherit; cursor: pointer; }
+.tray-more-toggle:hover { border-style: solid; transform: none; }
+.tray-more-toggle > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tray-more-toggle b { font-size: 13.5px; }
+.tray-more-toggle small { font-size: 12px; color: var(--ink-faint); font-weight: 700; }
+.tray-more-toggle i { flex: none; width: 8px; height: 8px; border-right: 2px solid var(--ink-soft); border-bottom: 2px solid var(--ink-soft); transform: translateY(-2px) rotate(45deg); transition: transform 0.15s; }
+.tray-more-toggle[aria-expanded='true'] i { transform: translateY(2px) rotate(-135deg); }
+@media (prefers-reduced-motion: reduce) { .tray-more-toggle i { transition: none; } }
+.tray-card h4 .n, .tray-fold .n { min-width: 17px; height: 17px; border-radius: 9px; background: var(--butter-soft); color: #a0651c; font-size: 10.5px; display: inline-grid; place-items: center; padding: 0 4px; }
 .nudge-literal { display: flex; align-items: center; gap: 6px; margin: -2px 2px 2px; font-size: 12px; color: var(--ink-faint); }
 .ats-plain { margin-top: 4px; font-size: 13px; color: var(--ink-soft); line-height: 1.4; max-width: 220px; }
 .show-more { display: flex; justify-content: center; margin: 12px 0 4px; }
+
+/* Bullet bank: a quiet "Move to…" menu rather than the role's full name on every bullet */
+.bb-move { width: auto; max-width: 9.5em; color: var(--ink-soft); }
+/* A short window (a 768px-tall laptop): Sprout's speech bubble gives way so
+   the theme switch and the status footer stay in view without scrolling. */
+@media (max-height: 820px) { .buddy .bubble { display: none; } .buddy { padding-top: 8px; } }
+/* An empty week says what will grow there, instead of a blank bed. */
+.week-empty { margin: 18px 0 -40px; text-align: center; font-size: 13px; }

@@ -246,6 +246,32 @@ class Store {
     this.save();
   }
 
+  // Fit scores saved before the grade-like scale (src/shared/fitScale.js):
+  // move each onto it once. Saved jobs' free and Claude scores, the fit
+  // previews on watched companies' jobs, and the "similar titles" threshold.
+  migrateFitScale({ toShown, SCALE }) {
+    let changed = false;
+    const move = (s) => {
+      if (!s || typeof s.score !== 'number' || s.scale === SCALE) return;
+      s.calibratedScore = s.calibratedScore ?? s.score;
+      s.score = toShown(s.score);
+      s.scale = SCALE;
+      changed = true;
+    };
+    for (const a of this.data.applications) (move(a.quick), move(a.analysis));
+    for (const c of this.data.companies) for (const j of c.jobs || []) move(j.fit);
+    const settings = this.data.settings;
+    if (settings.fitScale !== SCALE) {
+      for (const key of ['popupThreshold', 'claudeFitThreshold']) if (typeof settings[key] === 'number') settings[key] = toShown(settings[key]);
+      const rs = settings.roleSearch;
+      if (rs && typeof rs.minFit === 'number') rs.minFit = { 60: 75, 70: 80, 80: 90 }[rs.minFit] || toShown(rs.minFit);
+      settings.fitScale = SCALE;
+      changed = true;
+    }
+    if (changed) this.save();
+    return changed;
+  }
+
   // ---- application history ----
   listApplications() {
     return [...this.data.applications].sort((a, b) => b.createdAt.localeCompare(a.createdAt));

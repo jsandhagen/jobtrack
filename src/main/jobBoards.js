@@ -231,7 +231,7 @@ const slug = (s) => norm(s).replace(/ /g, '-') || 'unknown';
  *   results: { company:{id,name}, board:{ats:'jobboard', source}, job, match, similarity, fit, text, full, source },
  *   in the same shape as careers.searchRole's, each job listed once across boards.
  */
-async function searchBoards({ role, place = '', remoteOnly = false, minFit = 70, boards = [], keys = {}, fetchImpl, scoreJob = null, onProgress = () => {} } = {}) {
+async function searchBoards({ role, place = '', remoteOnly = false, minFit = 80, boards = [], keys = {}, fetchImpl, scoreJob = null, onProgress = () => {} } = {}) {
   role = String(role || '').trim();
   if (!role) throw new Error('Type the role to search for.');
   const ids = usableBoards(boards, keys);

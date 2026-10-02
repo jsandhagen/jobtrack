@@ -130,9 +130,12 @@
     sweat: '<path d="M79 46 q-3.5 5 0 7 q3.5 -2 0 -7z" fill="#a9d6f0" stroke="#86bddd" stroke-width="1"/>',
   };
 
+  // Fit scores, on the shown scale (src/shared/fitScale.js): one mood per
+  // label, so the words under a score agree with it (excellent; strong or
+  // good potential; a stretch).
   function moodForScore(score) {
-    if (score >= 80) return 'thrilled';
-    if (score >= 60) return 'happy';
+    if (score >= window.FitScale.BANDS.excellent) return 'thrilled';
+    if (score >= window.FitScale.BANDS.good) return 'happy';
     return 'cheer';
   }
 
@@ -281,9 +284,12 @@
     return pick(LINES[moodForScore(score)], seed);
   }
 
-  function scoreColor(score) {
-    if (score >= 65) return 'var(--band-hi)';
-    if (score >= 45) return 'var(--band-mid)';
+  // A fit score's band (src/shared/fitScale.js); other 0-100 scores, like
+  // ATS visibility where around 75 is plenty, keep the 65 / 45 bands.
+  function scoreColor(score, fit = false) {
+    const B = window.FitScale.BANDS;
+    if (score >= (fit ? B.strong : 65)) return 'var(--band-hi)';
+    if (score >= (fit ? B.good : 45)) return 'var(--band-mid)';
     return 'var(--band-lo)';
   }
 
@@ -298,7 +304,7 @@
     const r = (size - stroke) / 2;
     const c = 2 * Math.PI * r;
     const mid = size / 2;
-    const color = fixed || scoreColor(pct);
+    const color = fixed || scoreColor(pct, caption === 'fit');
     const shownNum = Math.round(shown ?? score);
     return `<div class="ring" style="width:${size}px;height:${size}px">
   <svg width="${size}" height="${size}" aria-hidden="true"><circle class="track" cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="color-mix(in srgb, ${color} 16%, var(--surface-2))" stroke-width="${stroke}"/>

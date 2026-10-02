@@ -70,7 +70,7 @@ function similarity(a, b) {
 }
 
 function skillTags(text) {
-  const t = lower(text);
+  const t = lower(withoutCollaborators(text));
   return Object.entries(SKILLS)
     .filter(([, ps]) => ps.some((p) => p.test(t)))
     .map(([name]) => name);
@@ -590,7 +590,7 @@ function writing(text) {
   return v;
 }
 
-// The writing checks' penalties alone (a weak opener, over two lines, "I"/"my"):
+// The writing checks' penalties alone (a weak opener, over three lines, "I"/"my"):
 // the result they'd credit is already in evidenceStrength.
 function writingPenalty(text) {
   const ok = Object.fromEntries(checkBullet(text).map((c) => [c.id, c.ok]));
@@ -609,7 +609,8 @@ function rankBullets(job, bank) {
       const exp = expById.get(b.experienceId);
       for (const text of [b.text, ...(b.variants || [])]) {
         // The role's title counts as context: a Frontend Engineer's bullets are evidence of "frontend".
-        const t = lower(`${text} \n${exp ? exp.title : ''}`);
+        // Competitors you studied aren't products you used.
+        const t = lower(`${withoutCollaborators(text)} \n${exp ? exp.title : ''}`);
         const covers = units.map((u) => ({ u, m: u.match(t) })).filter((x) => x.m > 0);
         const coverage = covers.reduce((s, { u, m }) => s + KIND_WEIGHT[u.kind] * m, 0);
         const words = tokens(text);
@@ -761,7 +762,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     // Bring a role up to its minimum with its strongest remaining bullets, room allowing.
     // Bullets in one role that open with the same verb read as one long list;
     // a different opener goes first when the two are close. A weakly written
-    // bullet ("Helped with…", three lines long) goes last: it's used only when
+    // bullet ("Helped with…", four lines long) goes last: it's used only when
     // the role has nothing better.
     const opener = (t) => (String(t).match(/[a-z]+/i) || [''])[0].toLowerCase();
     const sameOpener = (r) => picked.get(r.experienceId).some((x) => opener(x.text) === opener(r.text));

@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld('sprout', {
   roleFromBank: (appId, experienceId) => call('builder:roleFromBank', appId, experienceId),
   saveDefault: (kind, value) => call('builder:saveDefault', kind, value),
   polishBullets: (appId) => call('builder:polish', appId),
+  keepWording: (appId, keys) => call('builder:keepWording', appId, keys),
   bridgeRevoke: (origin) => call('bridge:revoke', origin),
   showExtensionFolder: () => call('bridge:showFolder'),
   updateStatus: () => call('update:status'),

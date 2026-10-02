@@ -18,14 +18,15 @@
 // Roles two or more levels below yours, in your own line of work, are capped
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
-const { SKILLS, RELATED, EMPLOYER_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 const { memoize } = require('./memo');
+const { toShown, SCALE: FIT_SCALE } = require('../shared/fitScale');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 21;
+const SCORER_VERSION = 22;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -55,6 +56,8 @@ function isDictionarySkill(term) {
 
 // "Strong programming skills" is shown by the languages you list, not the word.
 const LANGUAGE_SKILLS = ['JavaScript', 'TypeScript', 'Python', 'Java', 'Scala', 'C#', 'C++', 'Go', 'Rust', 'Ruby', 'PHP', 'Swift', 'Kotlin', 'SQL', 'R', 'SAS', 'MATLAB'];
+// Words around a market that only widen it: "adjacent technical B2B markets", "similar regulated industries".
+const LOOSE_MARKET_WORDS = /^(?:adjacent|related|similar|comparable|relevant|other|technical|regulated|markets?|industr(?:y|ies)|sectors?|spaces?|verticals?|ecosystems?)$/;
 const GENERIC_PROGRAMMING = /^(programming|coding|computer programming|software development)$/i;
 function showsProgramming(textLower) {
   return /\b(programming|coding)\b/.test(textLower) || LANGUAGE_SKILLS.some((s) => SKILLS[s].some((p) => p.test(textLower)));
@@ -106,7 +109,7 @@ const WORK_STYLE = /\b(?:basic |strong )?(?:math|mathematics|computer|typing|key
 function extractTerms(original, ignoreWords, ignoreText = '') {
   const found = new Set();
   const add = (t) => {
-    let words0 = t.replace(/^[\s,.;:()-]+|[\s,.;:()-]+$/g, '').split(/\s+/);
+    let words0 = t.replace(/^[\s,.;:()—–-]+|[\s,.;:()—–-]+$/g, '').split(/\s+/);
     // Trim qualifier words off the ends: "Current RN license" -> "RN".
     while (words0.length && EDGE_WORDS.has(lower(words0[0]))) words0.shift();
     while (words0.length && EDGE_WORDS.has(lower(words0[words0.length - 1]).replace(/[.,;:]$/, ''))) words0.pop();
@@ -117,6 +120,8 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     // "…at the project lead or managerial level": how senior, not a skill.
     if (/^levels?$/.test(words[words.length - 1])) return;
     if (/\d\s*\+?\s*(?:years?|yrs)\b/i.test(clean)) return; // "4+ years leading teams" is a years requirement
+    // A piece of a sentence, not a thing: "positioning shift often", "market where competitors".
+    if (/\b(?:actually|often|always|usually|really|where|when|while|whether)\b/.test(lower(clean))) return;
     // "regulatory expectations", "industry standards": what about them is the requirement, not the phrase.
     if (GENERIC_HEAD.test(lower(clean))) return;
     if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w) || TERM_ONLY_STOP.has(w))) return;
@@ -176,7 +181,14 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
   // Phrases after cue words
   const cue = /(?:experience (?:with|in|using)|track record (?:of|in)|knowledge of|proficien(?:t|cy) (?:in|with)|familiar(?:ity)? with|certifi(?:ed|cation) in|expertise in|skilled in|background in)\s+([^.;]+)/gi;
   for (const m of asWritten.matchAll(cue)) {
-    for (const part of m[1].split(/,|\band\b|\bor\b|\//i)) {
+    // "Track record of producing content that sales use — battlecards, decks":
+    // after a dash or colon come the examples; before it, a clause ("producing
+    // content…", "turning complex topics into stories") is no term to cut up.
+    const [head, ...rest] = m[1].split(/\s[—–]\s|:\s/);
+    const first = head.trim().split(/\s+/);
+    const clause = first.length > 1 && /^[a-z]+ing$/i.test(first[0]) && !isDictionarySkill(first[0]);
+    const listed = [...(clause ? [] : [head]), ...rest].join(', ');
+    for (const part of listed.split(/,|\band\b|\bor\b|\//i)) {
       const ws = part.trim().split(/\s+/);
       while (ws.length && (EDGE_WORDS.has(lower(ws[0])) || STOPWORDS.has(lower(ws[0])))) ws.shift();
       if (ws.filter((w) => !STOPWORDS.has(lower(w))).length > 4) continue; // a clause, not a term; don't cut it to a fragment
@@ -185,7 +197,8 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     }
   }
   // "SR" on its own is part of "SR 11-7".
-  return [...found].filter((t) => ![...found].some((u) => u.startsWith(`${t} `) && /^\d/.test(u.slice(t.length + 1))));
+  // "CDPs" and "CDP" from one line are one term.
+  return [...found].filter((t) => ![...found].some((u) => (u.startsWith(`${t} `) && /^\d/.test(u.slice(t.length + 1))) || (/s$/.test(t) && u === t.slice(0, -1))));
 }
 
 // ---------- seniority ----------
@@ -495,7 +508,8 @@ function readRequirementUnits(job) {
       let hit = null;
       for (const p of patterns) if ((hit = skillLine.match(p))) break;
       const employer = EMPLOYER_EVIDENCE[skill];
-      if (hit) found.push({ key: 's:' + skill, label: skill, skill, match: (t) => (patterns.some((p) => p.test(t)) || (employer && employer.test(t)) ? 1 : 0), index: mentionStart(hit), end: hit.index + hit[0].length });
+      const work = WORK_EVIDENCE[skill];
+      if (hit) found.push({ key: 's:' + skill, label: skill, skill, match: (t) => (patterns.some((p) => p.test(t)) || (employer && employer.test(t)) || (work && work.test(t)) ? 1 : 0), index: mentionStart(hit), end: hit.index + hit[0].length });
     }
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
@@ -539,7 +553,10 @@ function readRequirementUnits(job) {
             // Other forms of the same words: "unit testing" / "unit tests".
             const ts = stemmed(t);
             if (ts.includes(` ${stems.join(' ')} `)) return 0.9;
-            return words.length > 1 && stems.every((w) => ts.includes(` ${w} `)) ? 0.6 : 0;
+            if (words.length > 1 && stems.every((w) => ts.includes(` ${w} `))) return 0.6;
+            // "Adjacent technical B2B markets": any B2B market shows it.
+            const core = words.filter((w) => !LOOSE_MARKET_WORDS.test(w));
+            return core.length && core.length < words.length && core.every((w) => hasTerm(t, w)) ? 0.75 : 0;
           },
           ...pos,
         });
@@ -686,7 +703,7 @@ const documentSegments = memoize((kind, text, now) => {
         const w = ex.isProject ? 0.85 : recencyWeight(end, now);
         // The employer keeps its dates: a software vendor's name counts as an employer on a dated line.
         const body = [ex.title, [ex.organization, ex.dates].filter(Boolean).join(', '), ...ex.bullets.map((b) => b.text)].join('\n');
-        segs.push({ text: body, weight: w });
+        segs.push({ text: body, weight: w, role: !ex.isProject });
         // "Senior Consultant, Technology Strategy, Firm" parses the practice as the organization.
         // "Consultant, Office of the CTO, Appian" keeps the team with the title, so the organization is the employer.
         if (!ex.isProject && ex.title) titles.push({ title: ex.title, org: ex.organization || '', employer: ex.title.includes(','), weight: w });
@@ -1022,7 +1039,7 @@ function fitHeadline(f) {
   if (!gaps.length) return `${step}${cap(`You meet the must-haves${done}; ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown.`)}`;
   if (met / f.req.length < 0.3) return `This role leans on ${listOf(gaps.slice(0, 3))}, which your documents don't cover yet.`;
   const also = gaps.length === 1 && partial.length ? `, and ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown` : '';
-  return `${step}${cap(`You show ${met} of ${f.req.length} must-haves; ${gaps.length === 1 ? 'the one your documents don\'t cover yet is' : 'the ones your documents don\'t cover yet are'} ${listOf(gaps.slice(0, 2))}${also}.`)}`;
+  return `${step}${cap(`Your documents show ${met} of ${f.req.length} must-haves; ${gaps.length === 1 ? 'the one your documents don\'t cover yet is' : 'the ones your documents don\'t cover yet are'} ${listOf(gaps.slice(0, 2))}${also}.`)}`;
 }
 
 // ---------- the score ----------
@@ -1061,6 +1078,16 @@ function localFitScore(job, documents, profile = {}) {
     // Holding the license the title names ("Social Worker (LMSW)", "RN - ICU") is being in that profession.
     const titleLicense = (job.title || '').match(/\b(?:LMSW|LCSW|LPC|LMFT|RN|LPN|CNA|RDH|CPA|CMA|CCMA|EMT|PA-C|NP|PharmD|DPT|OTR)\b/);
     if (titleLicense && hasTerm(lib, titleLicense[0])) role = Math.max(role, 0.8);
+    // Doing the work the title is named for under another title ("Led competitive
+    // intelligence…" as a strategy consultant, for a Competitive Intelligence
+    // manager) is having done the role: the posting asks for that kind of
+    // experience, and a recent role's bullets name the title's own specialty, a
+    // two-word one. Not a broad word ("strategy", "consulting"), nor a skills list.
+    const asked = all.some((u) => u.functionKind && u.kind === 'required' && u.met >= 0.9);
+    const tw = lower(job.title).replace(NOT_LEVEL, ' ').split(/[^a-z0-9+#&]+/).filter((w) => w && !STOPWORDS.has(w) && titleLevel(w) === null);
+    const specialties = tw.slice(1).map((w, i) => [tw[i], w]).filter((pair) => pair.every((w) => w.length > 2 && !BROAD_KIND.has(kindStem(w)) && !DEPARTMENT_KIND.has(kindStem(w)) && !/^(?:technology|technical|business|digital|product|senior|manager|lead)$/.test(w)));
+    const done = asked && specialties.some((pair) => segs.some((s) => s.role && s.weight >= 0.9 && hasTerm(s.lower, pair.join(' '))));
+    if (done) role = Math.max(role, 0.8);
     // No titles parsed (notes, not a resume): fall back to the words anywhere.
     if (!titles.length && !targets.length) {
       const words = titleWords(job.title);
@@ -1180,7 +1207,7 @@ function localFitScore(job, documents, profile = {}) {
 
   const reasons = [];
   const concerns = [];
-  if (req.length) reasons.push(`You show ${Math.round(req.reduce((s, u) => s + u.met, 0))} of ${req.length} required qualifications`);
+  if (req.length) reasons.push(`Your documents show ${Math.round(req.reduce((s, u) => s + u.met, 0))} of ${req.length} required qualifications`);
   if (role !== null && role >= 0.8) reasons.push('The role lines up with your background and target roles');
   if (experience !== null && experience >= 1) reasons.push(`Your ~${haveYears} years cover the ${needYears}+ asked for`);
   if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`It's pitched at ${LEVEL_NAMES[postingLevel]} level, a step up from the ${LEVEL_NAMES[userLevel]}-level work your documents describe`);
@@ -1237,4 +1264,25 @@ function localFitScore(job, documents, profile = {}) {
   };
 }
 
-module.exports = { localFitScore, conjunctive, titleSimilarity: titleMatch, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, skippedEmployer, workMode, postingSalaryMax };
+// The score as shown: a little generous. Documents show less than people have
+// done, and the application, cover letter and interview are the chance to show
+// the rest, so a slight overestimate beats a discouraging underestimate.
+// localFitScore stays the calibrated estimate (the fit benchmarks hold it to
+// hand-judged bands); this lifts it most in the middle (50 -> 55, 76 -> 80),
+// little at the ends, and never past a screen (overqualified, stretch, a
+// missing license) or a dealbreaker.
+// Claude's checklist score is lifted the same way (claude.js), so a closer look doesn't read as a drop.
+const SHOWN_LIFT = 0.2;
+const generous = (score, cap = 100) => Math.max(score, Math.min(cap, Math.round(score + (SHOWN_LIFT * score * (100 - score)) / 100)));
+// The score people see: a little generous, then on the grade-like scale
+// (src/shared/fitScale.js). The label comes from the calibrated bands, which
+// the shown scale lines up with.
+function shownFit(q) {
+  if (!q || typeof q.score !== 'number') return q;
+  if (q.scale === FIT_SCALE) return q;
+  if ((q.dealbreakers || []).length) return { ...q, score: toShown(q.score), calibratedScore: q.score, scale: FIT_SCALE };
+  const lifted = generous(q.score, Math.min(100, ...(q.screens || []).map((s) => s.max)));
+  return { ...q, score: toShown(lifted), label: fitLabel(lifted), calibratedScore: q.score, scale: FIT_SCALE };
+}
+
+module.exports = { localFitScore, shownFit, generous, conjunctive, titleSimilarity: titleMatch, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, skippedEmployer, workMode, postingSalaryMax };

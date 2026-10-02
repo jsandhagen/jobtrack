@@ -110,7 +110,7 @@ async function run(btn, fn, busyText) {
 }
 
 function pillClass(score) {
-  return score >= 65 ? 'hi' : score >= 45 ? 'mid' : 'lo';
+  return score >= FitScale.BANDS.strong ? 'hi' : score >= FitScale.BANDS.good ? 'mid' : 'lo';
 }
 
 function timeAgo(iso) {
@@ -198,6 +198,7 @@ function weekCard(apps) {
       ${a ? `<path d="M20 ${top + 6}q-5.5-4-0.5-11 5.5 6.5 0.5 11z" fill="var(--lavender)" stroke="#6b5aa8" stroke-width="1.1"/>${a > 1 ? `<text x="30" y="${top + 4}" class="wcount">×${a}</text>` : ''}` : ''}</svg>`;
   };
   return `<div class="card week"><div class="growth-head"><h3 class="with-icon">${icon('clock', 20)} This week</h3><span class="faint">${checked} checked · ${applied} applied</span></div>
+    ${checked || applied ? '' : '<p class="week-empty faint">Nothing yet this week. Each job you check grows a sprout here.</p>'}
     <div class="week-bed">${days.map((x, i) => `<div class="wday ${i === 6 ? 'today' : ''}" title="${x.d.toLocaleDateString(undefined, { weekday: 'long' })}: ${x.checked} checked, ${x.applied} applied">${plant(x)}<span>${i === 6 ? 'Today' : x.d.toLocaleDateString(undefined, { weekday: 'short' })}</span></div>`).join('')}</div>
     <div class="week-key faint"><span>${icon('seedling', 13)} checked a role</span><span><i class="bud-dot"></i> applied</span></div></div>`;
 }
@@ -559,7 +560,7 @@ const views = {
 
   profile() {
     const p = state.profile;
-    const f = (k, label, ph, full) => `<div class="${full ? 'full' : ''}"><label>${label}</label><input data-k="${k}" value="${esc(p[k])}" placeholder="${ph}"></div>`;
+    const f = (k, label, ph, full) => `<div class="${full ? 'full' : ''}"><label>${label}</label><input data-k="${k}" value="${esc(p[k])}" placeholder="e.g. ${ph}"></div>`;
     const sel = (k, label, opts) =>
       `<div><label>${label}</label><select data-k="${k}"><option value="">Not answered</option>${opts.map(([v, l]) => `<option value="${v}" ${p[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
     const card = (ic, title, badge, intro, fields) => `<div class="card profile-card">
@@ -586,11 +587,11 @@ const views = {
           'target',
           'What you\'re looking for',
           private_,
-          'Your target roles shape the fit score. Postings that hit a dealbreaker are capped at 30 and labelled "Dealbreaker", so they don\'t pop up as good matches.',
-          `<div class="full"><label>Roles you are aiming for</label><textarea data-k="targetRoles" rows="2" style="min-height:0" placeholder="Frontend engineer, design engineer">${esc(p.targetRoles)}</textarea><small class="faint">Separate with commas. List every title you'd take: the same job goes by many names (Technology Strategy Manager, Strategy &amp; Operations Manager, Chief of Staff), and Find jobs looks for each one.</small></div>
+          'Your target roles shape the fit score. Postings that hit a dealbreaker are kept in the stretch range and labelled "Dealbreaker", so they don\'t pop up as good matches.',
+          `<div class="full"><label>Roles you are aiming for</label><textarea data-k="targetRoles" rows="2" style="min-height:0" placeholder="e.g. Frontend engineer, design engineer">${esc(p.targetRoles)}</textarea><small class="faint">Separate with commas. List every title you'd take: the same job goes by many names (Technology Strategy Manager, Strategy &amp; Operations Manager, Chief of Staff), and Find jobs looks for each one.</small></div>
           ${f('workModes', 'Work arrangements', 'remote, hybrid')}${f('minSalary', 'Minimum salary', '120000')}
           ${f('avoidKeywords', 'Skip postings that mention', 'commission only, night shift', true)}
-          <div class="full"><label>Employers to skip</label><textarea data-k="skipEmployers" rows="2" style="min-height:0" placeholder="Accenture, Deloitte, KPMG, PwC, EY, McKinsey, BCG, Booz Allen">${esc(p.skipEmployers)}</textarea><small class="faint">Separate with commas. Their postings read as a dealbreaker, Find jobs leaves them out, and the company finder won't suggest them. "Deloitte" also covers Deloitte Consulting. Use this rather than "consulting" above: in-house roles often ask for consulting experience.</small></div>`
+          <div class="full"><label>Employers to skip</label><textarea data-k="skipEmployers" rows="2" style="min-height:0" placeholder="e.g. Accenture, Deloitte, KPMG">${esc(p.skipEmployers)}</textarea><small class="faint">Separate with commas. Their postings read as a dealbreaker, Find jobs leaves them out, and the company finder won't suggest them. "Deloitte" also covers Deloitte Consulting. Use this rather than "consulting" above: in-house roles often ask for consulting experience.</small></div>`
         )}
         ${card(
           'shield',
@@ -917,14 +918,16 @@ function barColor(v) {
 // things worth doing, each with one button where Sprout can help. The full
 // breakdown stays one click away for anyone who wants it.
 const NUDGE_ICON = { fixed: 'sparkle', ask: 'chat', 'heads-up': 'warn', tip: 'check' };
+// A nudge's button(s); runNudge and the [data-have] handlers pick them up.
+function nudgeActs(x, appId) {
+  const a = x.action;
+  if (!a) return '';
+  if (a.type === 'have-skill') return `<div class="nudge-acts">${a.terms.map((t) => `<button class="small soft" data-have="${esc(t)}">I've used ${esc(t)}</button>`).join('')}</div>`;
+  return `<div class="nudge-acts"><button class="small soft" data-nudge="${esc(a.type)}" data-nudge-app="${esc(appId)}"${a.key ? ` data-key="${esc(a.key)}"` : ''}${a.term ? ` data-term="${esc(a.term)}"` : ''}>${esc(a.label || 'Do it')}</button></div>`;
+}
 function nudgeCard(n, { appId, compact = false } = {}) {
   if (!n || (!n.nudges.length && !n.fixed.length && !n.headline)) return '';
-  const act = (x) => {
-    const a = x.action;
-    if (!a) return '';
-    if (a.type === 'have-skill') return `<div class="nudge-acts">${a.terms.map((t) => `<button class="small soft" data-have="${esc(t)}">I've used ${esc(t)}</button>`).join('')}</div>`;
-    return `<div class="nudge-acts"><button class="small soft" data-nudge="${esc(a.type)}" data-nudge-app="${esc(appId)}"${a.key ? ` data-key="${esc(a.key)}"` : ''}${a.term ? ` data-term="${esc(a.term)}"` : ''}>${esc(a.label || 'Do it')}</button></div>`;
-  };
+  const act = (x) => nudgeActs(x, appId);
   return `<div class="nudges${compact ? ' compact' : ''}">
     ${n.headline ? `<div class="nudge-head">${mascotSvg(n.nudges.length ? 'curious' : 'proud', compact ? 34 : 44)}<p>${esc(n.headline)}</p></div>` : ''}
     <p class="nudge-literal">${icon(n.context ? 'chat' : 'search', 13)} ${n.context ? 'Your documents may not tell the whole story. Share more only if it applies; you can keep this resume as it is.' : "ATS software matches words literally, so this is about the resume's wording, not about you."}</p>
@@ -934,12 +937,50 @@ function nudgeCard(n, { appId, compact = false } = {}) {
   </div>`;
 }
 
+// "Ask if applicable" on the fit card: documents rarely tell the whole story,
+// so ask about what the fit is missing before it counts against you.
+function askBlock(a) {
+  const asks = a.contextAsks || [];
+  if (!asks.length) return '';
+  return `<div class="section-title">Ask if applicable</div>${nudgeCard({ context: true, headline: '', fixed: [], nudges: asks, more: 0 }, { appId: a.id, compact: true })}`;
+}
+
+// An example you add from the fit card: into your bullet bank, then the fit is read again.
+async function openFitContext(appId, key) {
+  const a = await S.getApplication(appId);
+  const suggestion = ((a && a.contextAsks) || []).find((s) => s.id === key);
+  if (!suggestion) return;
+  const bank = await S.getBank();
+  const roles = bank.experiences.filter((r) => !r.hidden && !r.isProject);
+  const card = openModal(`<h2>Add context (optional)</h2><p class="muted">${esc(suggestion.question)}</p>
+    <label for="contextRole">Which role was this part of?</label><select id="contextRole">${roles.map((r) => `<option value="${esc(r.id)}">${esc([r.title, r.organization].filter(Boolean).join(' · '))}</option>`).join('')}</select>
+    <label for="contextExample" style="margin-top:12px">Your example, in the words you'd use on a resume</label>
+    <textarea id="contextExample" rows="4" placeholder="What you did, your contribution, and the result. Keep the scope accurate."></textarea>
+    <p class="faint">I'll keep your wording in your bullet bank, count it toward this fit, and use it in resumes when it fits. For another role or additional years, <a href="#bank" id="contextBank">add the role and dates in your bullet bank</a>.</p>
+    <div class="inline" style="margin-top:14px"><button class="primary" id="contextSave" ${roles.length ? '' : 'disabled'}>Save and update the fit</button><button class="ghost" id="contextSkip">Not this one</button></div>`);
+  $('#contextSkip', card).addEventListener('click', closeModal);
+  $('#contextBank', card).addEventListener('click', closeModal);
+  $('#contextSave', card).addEventListener('click', () => run($('#contextSave', card), async () => {
+    const text = $('#contextExample', card).value.trim();
+    if (text.length < 10) throw new Error('Add a short example first, or skip this one.');
+    await S.addBullet({ experienceId: $('#contextRole', card).value, text, source: `Context you added for ${(a.job && a.job.title) || 'this application'}` });
+    const before = a.quick && a.quick.score;
+    const after = await S.rescoreLocal(appId);
+    closeModal();
+    const now = after && after.quick && after.quick.score;
+    const saved = typeof now === 'number' && typeof before === 'number' && now > before ? `Saved your example. The fit went from ${before} to ${now}.` : 'Saved your example to your bullet bank.';
+    // A resume made before this example doesn't have it yet; the next optimize puts it in.
+    toast(a.resumeHtml ? `${saved} Optimize your resume again to work it in.` : saved, 'good', 6000);
+    renderApplication(appId);
+  }, 'Saving…'));
+}
+
 // A nudge's button: fix the page, show a bullet, or go fill something in.
 async function runNudge(btn) {
   const id = btn.dataset.nudgeApp;
   const type = btn.dataset.nudge;
   const inEditor = !!btn.closest('#edTray');
-  if (type === 'add-context' && inEditor) return openResumeContext(btn.dataset.key);
+  if (type === 'add-context') return inEditor ? openResumeContext(btn.dataset.key) : openFitContext(id, btn.dataset.key);
   if (type === 'profile') return void (location.hash = '#profile');
   if (type === 'bank') return void (location.hash = '#bank');
   if (type === 'requirement') {
@@ -987,7 +1028,7 @@ function atsPanel(ats) {
   return `<div class="card ats-card" id="atsCard">
     <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('search', 22)} ATS visibility ${infoBtn('ats')}</h2>
       <p class="faint">How easily screening software finds ${a ? 'your tailored resume' : 'your current resume'} when recruiters search for this posting. It's about being found, not a judgement of you. Around 75% is plenty.</p></div>
-      ${delta ? `<span class="chip ${delta > 0 ? 'good' : ''}" style="font-size:13px">${delta > 0 ? `Easier to find than your current resume (+${delta})` : `A little harder to find than your current resume (${delta})`}</span>` : ''}</div>
+      ${delta === null ? '' : `<span class="chip ${delta >= 5 ? 'good' : ''}" style="font-size:13px">${delta >= 5 ? `Easier to find than your current resume (+${delta})` : delta <= -5 ? `A little harder to find than your current resume (${delta})` : 'About as easy to find as your current resume'}</span>`}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
     ${nudgeCard(ats.nudges, { appId: ats.appId })}
     <details class="ats-more"><summary class="section-title">See the full breakdown</summary>
@@ -1070,7 +1111,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Nice to have, not in your documents yet">＋ ${esc(s)} <em>(nice to have)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
 
-  const fitCard = `<div class="card">${sproutSays(analyzing ? 'thinking' : moodForScore(score), esc(analyzing ? 'Reading the posting closely…' : encouragement(score, a.id.charCodeAt(2))), 56, { svg: { cls: 'pettable' } })}${insight}${evidenceBlock(a)}${skills}
+  const fitCard = `<div class="card">${sproutSays(analyzing ? 'thinking' : moodForScore(score), esc(analyzing ? 'Reading the posting closely…' : encouragement(score, a.id.charCodeAt(2))), 56, { svg: { cls: 'pettable' } })}${insight}${askBlock(a)}${evidenceBlock(a)}${skills}
         ${q.requiredYears ? `<div class="section-title">Experience</div><p class="muted" style="margin:0">Posting asks for ~${q.requiredYears}+ years${q.estimatedYears !== null ? `; your documents span about ${q.estimatedYears}.` : '.'}</p>` : ''}
       </div>`;
 
@@ -1102,7 +1143,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
       <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
         <div class="muted" style="font-weight:700">${esc([a.job.company, a.job.location].filter(Boolean).join(' · '))}</div>
-        <div class="app-chips"><span class="chip ${label === 'Dealbreaker' ? 'warn' : score >= 65 ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${infoBtn('fit')}${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}</div>
+        <div class="app-chips"><span class="chip ${label === 'Dealbreaker' ? 'warn' : score >= FitScale.BANDS.strong ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${infoBtn('fit')}${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}</div>
         <div class="app-cheer">${esc(encouragement(score, a.id.charCodeAt(1)))}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:170px">
@@ -1386,7 +1427,7 @@ function trackingCard(a) {
     }
     <label style="margin-top:10px">Notes</label>
     <textarea id="appNotes" style="min-height:70px" placeholder="Recruiter name, referral, interview prep…">${esc(a.notes || '')}</textarea>
-    ${history.length > 1 ? `<div class="section-title">Timeline</div><ul class="timeline">${history.map((h) => `<li><b>${esc(STATUS_LABEL[h.status] || h.status)}</b><span>${fmtDate(h.at)}</span></li>`).join('')}</ul>` : ''}
+    ${history.length > 1 ? `<div class="section-title">Timeline</div><ul class="timeline">${history.map((h) => `<li><b>${esc(h.status === 'scored' ? 'Checked your fit' : STATUS_LABEL[h.status] || h.status)}</b><span>${fmtDate(h.at)}</span></li>`).join('')}</ul>` : ''}
   </div>`;
 }
 
@@ -1628,7 +1669,7 @@ const binders = {
       run(e.currentTarget, async () => {
         await S.updateSettings({
           claudeFitMode: $('#claudeFitMode').value,
-          claudeFitThreshold: Math.max(0, Math.min(100, parseInt($('#claudeFitThreshold').value, 10) || 65)),
+          claudeFitThreshold: Math.max(0, Math.min(100, parseInt($('#claudeFitThreshold').value, 10) || FitScale.BANDS.strong)),
           autoBudgetUsd: Math.max(0, parseFloat($('#autoBudgetUsd').value) || 0),
         });
         toast(say('saved'), 'good');

@@ -10,8 +10,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const FILES = ['buddyLines.js', 'icons.js', 'mascot.js', 'scoreInfo.js', 'theme.css'];
-const from = (f) => path.join(ROOT, 'src/renderer', f);
+const FILES = ['fitScale.js', 'buddyLines.js', 'icons.js', 'mascot.js', 'scoreInfo.js', 'theme.css'];
+const SHARED = new Set(['fitScale.js']); // from src/shared rather than src/renderer
+const from = (f) => path.join(ROOT, SHARED.has(f) ? 'src/shared' : 'src/renderer', f);
 const to = (f) => path.join(ROOT, 'browser-extension/vendor', f);
 
 function stale() {

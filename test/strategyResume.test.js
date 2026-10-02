@@ -8,6 +8,12 @@ const F = require('./fixtures/ctoOfficePersona');
 const DEEP = require('./fixtures/techStrategyDeep');
 const profile = { name: 'Jordan Avery', email: 'jordan@example.com', phone: '555-010-0100', location: 'Washington, DC' };
 const bankFor = (text) => B.mergeIntoBank(B.emptyBank(), B.parseResume(text)).bank;
+// The accomplishment in a summary: after the title-and-years lead, without "At Employer, ".
+const plain = (t) => String(t).replace(/\s*\([^)]*\)/g, '').replace(/[.!?]+$/, '').toLowerCase();
+const achievementOf = (summary) => plain(summary.split(/(?<=\.) /).slice(1).join(' ').replace(/^At [^,]+, /, ''));
+// Where it came from in your bank (any wording), and whether the page already says all of it.
+const sourceOf = (bank, summary) => bank.bullets.find((b) => [b.text, ...(b.variants || [])].some((t) => plain(t).includes(achievementOf(summary))));
+const repeatsPage = (doc) => doc.roles.flatMap((r) => r.bullets).some((b) => plain(doc.summary).includes(plain(b.text)));
 
 test('one-click strategy optimization leads with the work the target role actually needs', () => {
   const bank = bankFor(F.RESUMES.ctoOfficeStrategist);
@@ -23,7 +29,9 @@ test('one-click strategy optimization leads with the work the target role actual
   for (const [key, proof] of cases) {
     const out = B.optimizeResume({ profile, bank, job: F.POSTINGS[key] });
     assert.match(out.doc.roles[0].bullets[0].text, proof, key);
-    assert.match(out.doc.summary, proof, key + ' summary');
+    const source = sourceOf(bank, out.doc.summary);
+    assert.ok(source && achievementOf(out.doc.summary).length > 20, key + ': the summary quotes a documented accomplishment');
+    assert.ok(!repeatsPage(out.doc), key + ": the summary doesn't repeat a bullet on the page");
     assert.equal(out.pages, 1, key);
     assert.equal(R.measure(out.doc).pages, 1, key);
     assert.ok(out.doc.summary.split(/\s+/).length <= 75, key + ': concise summary');
@@ -34,7 +42,8 @@ test('required investment and transformation work outranks optional technical ex
   const bank = bankFor(F.RESUMES.ctoOfficeStrategist);
   const { doc } = B.optimizeResume({ profile, bank, job: F.POSTINGS.techStrategyManagerBig4 });
   assert.match(doc.roles[0].bullets[0].text, /due diligence|Evaluated.*vendors/);
-  assert.match(doc.summary, /At Deloitte Consulting, developed IT strategies, technology roadmaps and business cases/);
+  // The investment / transformation work, from the consulting role, without repeating its bullet.
+  assert.match(doc.summary, /At Deloitte Consulting, (?:developed IT strategies, technology roadmaps and business cases|assessed IT operating models and built cost models)/);
   assert.match(doc.roles.find((r) => /Deloitte/.test(r.organization)).bullets[0].text, /IT strategies|cost models/);
 });
 
@@ -46,8 +55,8 @@ test('a tailored summary replaces a generic imported summary without inventing a
     const out = B.optimizeResume({ profile, bank, job: F.POSTINGS[key] });
     assert.doesNotMatch(out.doc.summary, /Looking for opportunities|years in consulting|years in strategy/);
     assert.ok(out.doc.summary.startsWith(bank.experiences[0].title));
-    const achievement = out.doc.roles.flatMap((r) => r.bullets).find((b) => out.doc.summary.toLowerCase().includes(b.text.replace(/[.!?]+$/, '').toLowerCase()));
-    assert.ok(achievement, key + ': summary proof is on the page');
+    assert.ok(sourceOf(bank, out.doc.summary), key + ': the summary quotes an accomplishment from your bank');
+    assert.ok(!repeatsPage(out.doc), key + ": the summary doesn't repeat a bullet on the page");
     for (const role of out.doc.roles) {
       const source = bank.experiences.find((e) => e.id === role.experienceId);
       assert.equal(role.title, source.title);

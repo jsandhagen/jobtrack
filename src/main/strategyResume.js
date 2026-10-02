@@ -36,6 +36,17 @@ function strategyEvidence(focus, text) {
   return focus.filter((theme) => theme.evidence.test(text)).map(({ key, weight, proof }) => ({ key, weight: weight + (proof && proof.test(text) ? 6 : 0) }));
 }
 
+const words = (t) => new Set(String(t || '').toLowerCase().match(/[a-z0-9$%+]+/g) || []);
+const overlap = (a, b) => (a.size && b.size ? [...a].filter((w) => b.has(w)).length / Math.min(a.size, b.size) : 0);
+// What an accomplishment did, without how: up to " by …", "…, reviewing …" or a
+// parenthetical, so it reads as a line of summary rather than the bullet again.
+function mainClause(text) {
+  const t = String(text || '').replace(/[.!?]+$/, '').replace(/\s*\([^)]*\)/g, '');
+  const cut = t.search(/,\s+(?:by|while|\w+ing)\b|\s+by\s+\w+ing\b|\s+(?:used (?:in|by|for)|that|which)\s|;\s|\s+[—–-]\s+/);
+  const out = cut > 0 && t.slice(0, cut).split(/\s+/).length >= 5 ? t.slice(0, cut) : t;
+  return out.trim();
+}
+
 function strategySummary(job, doc, ranked) {
   if (!strategyFocus(job).length) return null;
   const current = doc.roles.find((r) => !r.isProject && r.title);
@@ -45,17 +56,32 @@ function strategySummary(job, doc, ranked) {
   const lead = `${current.title}${current.organization ? ` at ${current.organization}` : ''}${years >= 2 ? `, with ${years} years of experience` : ''}.`;
   const byId = new Map(ranked.map((b) => [b.id, b]));
   const proofLimit = Math.max(20, 75 - lead.split(/\s+/).length);
-  const proofs = doc.roles.flatMap((r) => r.bullets.map((b) => ({ ...b, role: r, rank: byId.get(b.bulletId) })))
-    .filter((b) => b.rank && b.rank.strategy.length && b.text.split(/\s+/).length <= proofLimit);
+  const roleOf = new Map(doc.roles.map((r) => [r.experienceId, r]));
+  const onPage = doc.roles.flatMap((r) => r.bullets.map((b) => ({ ...b, role: r, rank: byId.get(b.bulletId) })));
+  const pageIds = new Set(onPage.map((b) => b.bulletId).filter(Boolean));
+  // An accomplishment from the bank that the page doesn't show (or say in other words) adds to it.
+  const pageWords = onPage.map((b) => words(b.text));
+  const offPage = ranked
+    .filter((b) => !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6))
+    .map((b) => ({ bulletId: b.id, text: b.text, role: roleOf.get(b.experienceId), rank: b, offPage: true }));
+  // Best first: the title's own kind of work, then the current role, then the strongest.
   const primaryKeys = new Set(strategyFocus(job).filter((t) => t.primary).map((t) => t.key));
-  const primary = proofs.filter((b) => b.rank.strategy.some((t) => primaryKeys.has(t.key)));
-  const relevant = primary.length ? primary : proofs;
-  const recent = relevant.filter((b) => b.role === current);
-  const proof = (recent.length ? recent : relevant).sort((a, b) => b.rank.score - a.rank.score)[0];
+  const isPrimary = (b) => b.rank.strategy.some((t) => primaryKeys.has(t.key));
+  const order = (pool) => pool
+    .filter((b) => b.rank && b.rank.strategy.length && b.text.split(/\s+/).length <= proofLimit)
+    .sort((a, b) => isPrimary(b) - isPrimary(a) || (b.role === current) - (a.role === current) || b.rank.score - a.rank.score);
   // A verbatim, relevant accomplishment is stronger than a list of skills,
   // and cannot turn "supported" into "led" or borrow a metric from another job.
+  // One the page already shows isn't repeated whole: the summary keeps its
+  // main clause ("Led competitive intelligence for the CTO") and the bullet
+  // below gives the detail. One that has no shorter clause isn't used at all.
+  const fresh = order(offPage)[0];
+  const wordCount = (t) => String(t).replace(/\s*\([^)]*\)/g, '').split(/\s+/).filter(Boolean).length;
+  const shown = order(onPage).find((b) => wordCount(mainClause(b.text)) <= 0.8 * wordCount(b.text));
+  const proof = fresh && (!shown || isPrimary(fresh) || !isPrimary(shown)) ? fresh : shown;
   if (!proof) return lead;
-  const text = proof.text.replace(/[.!?]+$/, '');
+  // A long one reads as a second bullet up top: its main clause says enough.
+  const text = proof.offPage && wordCount(proof.text) <= 30 ? proof.text.replace(/[.!?]+$/, '') : mainClause(proof.text);
   const achievement = proof.role !== current && proof.role.organization
     ? `At ${proof.role.organization}, ${text.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())}`
     : text;

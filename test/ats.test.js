@@ -244,3 +244,48 @@ test('nudges: three at most, kind, and they ask only for what Sprout can’t kno
   // No page yet: the fix is the optimizer.
   assert.equal(atsNudges({ ats: r, job: SAAS_JOB, pageText: APPIAN, onPage: false }).nudges.find((x) => x.id.startsWith('industry:')).action.type, 'optimize');
 });
+
+test('postingRewords offers the posting\'s word for a skill a bullet shows in other words', () => {
+  const { postingRewords } = require('../src/main/atsScore');
+  const job = {
+    title: 'Backend Engineer',
+    text: `Requirements:
+- 3+ years with PostgreSQL and Amazon Web Services
+- Experience with CI/CD pipelines and Kubernetes
+- Machine learning a plus
+Preferred: deep learning experience`,
+  };
+  const doc = {
+    summary: 'Backend engineer.',
+    roles: [
+      {
+        bullets: [
+          { text: 'Moved billing from MySQL to Postgres, cutting query time 40%' },
+          { text: 'Ran services on AWS with k8s and automated deploys in Jenkins' },
+          { text: 'Trained PyTorch models and an ML ranking pipeline' },
+          { text: 'Partnered with distributed systems teams on reliability' },
+        ],
+      },
+    ],
+  };
+  const out = postingRewords(job, doc);
+  const by = new Map(out.map((w) => [w.b, w.text]));
+  // A spelling of the same name is replaced; anything else keeps your word beside theirs.
+  assert.equal(by.get(0), 'Moved billing from MySQL to PostgreSQL, cutting query time 40%');
+  assert.equal(by.get(1), 'Ran services on Amazon Web Services (AWS) with Kubernetes (k8s) and automated deploys in CI/CD (Jenkins)');
+  assert.equal(by.get(2), 'Trained deep learning (PyTorch) models and a machine learning (ML) ranking pipeline', 'the article follows the new word');
+  assert.ok(!by.has(3), 'an ordinary phrase is a writing job, not a word swap');
+  assert.ok(out.every((w) => w.from === doc.roles[0].bullets[w.b].text && w.why));
+  // Once the page says it, or you've turned it down, it isn't offered.
+  doc.summary = 'Backend engineer with PostgreSQL.';
+  assert.ok(!postingRewords(job, doc).some((w) => w.b === 0));
+  assert.ok(!postingRewords(job, doc, ['jenkins→CI/CD']).find((w) => w.b === 1).text.includes('Jenkins)'));
+});
+
+test('a phrase a skill was recognised from is not offered as a word to add', () => {
+  const job = { title: 'Competitive Intelligence Manager', text: 'Requirements\n- Run win/loss analysis and turn deal data into recommendations for executives\n- Experience with SQL and Excel' };
+  const resume = 'Experience\nStrategy Consultant, Appian\n- Advised senior leaders across Product and GTM on competitive positioning\n- Built dashboards in SQL and Excel';
+  const r = atsScore(job, resume);
+  assert.ok(!r.wordingTips.some((w) => /^for /i.test(w.term)), JSON.stringify(r.wordingTips));
+  assert.ok(!r.tips.some((t) => /"for executives"/i.test(t)));
+});

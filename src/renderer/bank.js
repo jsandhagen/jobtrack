@@ -29,7 +29,8 @@ async function renderBankPage() {
     bulletsByRole.get(b.experienceId).push(b);
   }
   const total = bank.bullets.length;
-  const roleOptions = (sel) => bank.experiences.map((e) => `<option value="${e.id}" ${e.id === sel ? 'selected' : ''}>${esc([e.title, e.organization].filter(Boolean).join(' · ') || 'Untitled role')}</option>`).join('');
+  // "Move to…" lists the other roles: the bullet's own is the card it sits in.
+  const roleOptions = (sel) => `<option value="" selected>Move to…</option>` + bank.experiences.filter((e) => e.id !== sel).map((e) => `<option value="${e.id}">${esc([e.title, e.organization].filter(Boolean).join(' · ') || 'Untitled role')}</option>`).join('');
 
   const bulletRow = (b) => `<div class="bb" data-bullet="${b.id}">
       <div class="bb-main">
@@ -42,7 +43,7 @@ async function renderBankPage() {
       </div>
       <div class="bb-actions">
         <button class="small ghost" data-addvar="${b.id}" title="Add another way of saying this">＋ wording</button>
-        <select class="small-select" data-move="${b.id}" title="Move to another role">${roleOptions(b.experienceId)}</select>
+        ${bank.experiences.length > 1 ? `<select class="small-select bb-move" data-move="${b.id}" title="Move to another role" aria-label="Move to another role">${roleOptions(b.experienceId)}</select>` : ''}
         <button class="small ghost" data-hide="${b.id}" title="${b.hidden ? 'Let auto-pick use this again' : 'Keep in the bank, but never auto-pick it'}">${b.hidden ? `${icon('eye', 14)} Unhide` : `${icon('eyeOff', 14)} Hide`}</button>
         <button class="small ghost danger" data-del="${b.id}">Delete</button>
       </div>
@@ -177,7 +178,7 @@ async function renderBankPage() {
       $('#mSave', card).addEventListener('click', () => run(null, async () => (await S.updateBullet(b.id, { addVariant: $('#mVar', card).value }), closeModal(), renderBankPage())));
     })
   );
-  $$('[data-move]', page).forEach((sel) => sel.addEventListener('change', () => S.updateBullet(sel.dataset.move, { experienceId: sel.value }).then(renderBankPage)));
+  $$('[data-move]', page).forEach((sel) => sel.addEventListener('change', () => sel.value && S.updateBullet(sel.dataset.move, { experienceId: sel.value }).then(renderBankPage)));
   $$('[data-hide]', page).forEach((btn) =>
     btn.addEventListener('click', async () => {
       const b = bank.bullets.find((x) => x.id === btn.dataset.hide);

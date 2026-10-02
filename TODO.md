@@ -15,8 +15,9 @@
 - [ ] **Semantic before/after diff.** Show changed wording, newly emphasized posting terms, and the reason/evidence behind each suggestion.
 - [ ] **Separate edit modes.** Distinguish Polish (wording only), Strengthen (find better documented evidence), Tailor (change emphasis), and Rebuild (replace with a stronger documented accomplishment).
 - [ ] **Replace “Use all” with review-first behavior.** Preserve the candidate-review model for AI changes and flag higher-risk edits.
-- [ ] **Broaden resume checks beyond numeric results.** Recognize impact through scope, adoption, ownership, decision influence, process improvement and business consequence; do not equate “has a number” with “has a result.”
+- [ ] **Separate quantified evidence from outcome checks.** A number alone (for example, team size) must not count as an impact; recognize qualitative outcomes such as adoption, decision influence, process improvement and business consequence. Never require or invent a metric when the documented result is qualitative.
 - [ ] **Distinguish weak from unquantified.** A strong ownership/accomplishment bullet without a metric should not automatically be treated as weak.
+- [ ] **DOCX export.** Add an editable Word document export that preserves the resume's section order, headings, role details and bullets.
 
 ## Fit score (`src/main/localFit.js`)
 

@@ -63,9 +63,9 @@
     },
     {
       id: 'length',
-      title: '1–2 lines',
-      why: 'Bullets are skimmed, not read. Past two lines the point gets lost, and very short ones don\'t say enough to count.',
-      how: 'Lines measured with the same font widths as the page count. Flags more than 2 lines, or fewer than 5 words.',
+      title: '1–3 lines',
+      why: 'Bullets are skimmed, not read. Past three lines the point gets lost, and very short ones don\'t say enough to count.',
+      how: 'Lines measured with the same font widths as the page count. Flags more than 3 lines, or fewer than 5 words.',
     },
     {
       id: 'voice',
@@ -131,7 +131,7 @@
     const n = lines(t);
     const w = t ? t.split(' ').length : 0;
     out.push(
-      n > 2
+      n > 3
         ? { id: 'length', ok: false, label: `${n} lines long`, fix: 'Cut it to the action and the result; move detail to another bullet or the interview.' }
         : w < 5
           ? { id: 'length', ok: false, label: 'Very short', fix: 'Add what you did and what came of it.' }
@@ -198,11 +198,15 @@
 
     const strength = (r, i) => ((covers[r] && covers[r][i]) || []).length * 2 + (hasResult(roles[r].bullets[i].text) ? 1 : 0);
     const weakFirst = [];
+    // A role by its employer ("Appian"), short enough for a button; by its
+    // title when you held two roles there.
+    const sameOrg = (o) => roles.filter((x) => x.organization === o).length > 1;
+    const roleName = (role) => (role.organization && !sameOrg(role.organization) ? role.organization : role.title || role.organization || 'a role');
     roles.forEach((role, r) => {
       const idx = (role.bullets || []).map((b, i) => i).filter((i) => String(role.bullets[i].text || '').trim());
       if (idx.length < 2) return;
       const best = idx.reduce((a, i) => (strength(r, i) > strength(r, a) ? i : a), idx[0]);
-      if (strength(r, best) > strength(r, idx[0])) weakFirst.push({ r, best, role: role.title || role.organization || 'a role' });
+      if (strength(r, best) > strength(r, idx[0])) weakFirst.push({ r, best, role: roleName(role) });
     });
     if (total)
       resume.push(

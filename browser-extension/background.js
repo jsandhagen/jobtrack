@@ -8,7 +8,7 @@
 // say so (/person/add).
 const PORTS = [47321, 47322, 47323, 47324, 47325];
 // Everything the card on the page needs, in load order (see manifest.json).
-const CONTENT_FILES = ['vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'extract.js', 'person.js', 'card.js', 'content.js'];
+const CONTENT_FILES = ['vendor/fitScale.js', 'vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'extract.js', 'person.js', 'card.js', 'content.js'];
 
 async function getConfig() {
   return chrome.storage.local.get({ port: null, token: '', autoSend: true });

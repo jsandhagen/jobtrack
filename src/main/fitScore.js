@@ -228,6 +228,12 @@ const EMPLOYER_NAMES = {
   'Low-Code / BPM': 'appian|pegasystems|pega|outsystems|mendix|unqork|uipath|blue prism|automation anywhere|nintex|quickbase|retool|bizagi|k2',
 };
 const EMPLOYER_EVIDENCE = Object.fromEntries(Object.entries(EMPLOYER_NAMES).map(([k, names]) => [k, employerLine(names)]));
+// Work that shows a skill without naming it: positioning, messaging and sales
+// enablement are marketing work. For the fit score only; a posting that says
+// "go-to-market" isn't asking for marketing, and an ATS search wants the word.
+const WORK_EVIDENCE = {
+  Marketing: /\b(?:product|competitive|market) positioning\b|\bpositioning (?:briefs?|statements?|maps?|frameworks?)\b|\bmessaging\b|\bgo-to-market\b|\bgtm\b|\bsales enablement\b|\bbattle ?cards?\b|\bdemand gen(?:eration)?\b/,
+};
 // The employer on a line of its own, as Sprout's template prints it (the dates sit on the title line).
 const EMPLOYER_HEADING = Object.fromEntries(Object.entries(EMPLOYER_NAMES).map(([k, names]) => [k, new RegExp(`^[ \\t]*(?:${names})(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\\.?[ \\t]*(?:[,|·–—-][^\\n]{0,40})?$`, 'm')]));
 
@@ -239,7 +245,14 @@ const SOFT_TERM_WORDS = new Set('operational excellence influencing influence in
 // resume counts as evidence of a skill (the ATS check still reads every word).
 const DEPT = '(?:sales|marketing|finance|legal|engineering|design|product|support|customer success|operations|hr|it|security|data|research|procurement)';
 const COLLABORATORS = new RegExp(`\\b(?:with|alongside|across|partner(?:ed|ing)? with|work(?:ed|ing)? with|collaborat(?:ed|ing) with)\\s+(?:the\\s+)?(?:[a-z]+\\s+)?${DEPT}(?:\\s*(?:,|and|&|\\/)\\s*(?:the\\s+)?${DEPT})*(?:\\s+(?:teams?|leaders|partners|stakeholders|orgs?|organi[sz]ations?))?\\b`, 'gi');
-const withoutCollaborators = (text) => String(text || '').replace(COLLABORATORS, 'with partner teams');
+// "Tracking competitor strategies (Microsoft, ServiceNow, etc.)", "competitive
+// analysis of Pega, ServiceNow and UiPath": products you studied or competed
+// with, not ones you used. Taken out the same way.
+const NAME = String.raw`[A-Z][\w.&+-]*(?:\s+[A-Z][\w.&+-]*)*`;
+const NAME_LIST = String.raw`${NAME}(?:\s*,\s*(?:and\s+|or\s+)?${NAME}|\s+(?:and|or)\s+${NAME})*(?:,?\s*etc\.?)?`;
+const COMPETITOR_LIST = new RegExp(String.raw`\b(competit\w*|rivals?)\b([^()\n.;]{0,40}?)\s*\([^)]*\)|\b((?:competitive (?:analysis|landscape|intelligence|positioning|review|research)|competitors?|rivals?)\s+(?:of|on|such as|including|like|vs\.?|versus|against))\s+${NAME_LIST}`, 'g');
+const withoutCompetitors = (text) => String(text || '').replace(COMPETITOR_LIST, (m, word, rest, lead) => (lead ? `${lead} competitors` : word + rest));
+const withoutCollaborators = (text) => withoutCompetitors(text).replace(COLLABORATORS, 'with partner teams');
 
 const RELATED_PAIRS = [
   ['Tableau', 'Power BI', 0.6], ['Tableau', 'Looker', 0.6], ['Power BI', 'Looker', 0.6],
@@ -323,7 +336,7 @@ const NEGATED_CUE = /\bnot (?:required|necessary|needed|a requirement|mandatory)
 const OPTIONAL_CUE = /\b(may include|not limited to|such as|e\.g\.|for example|other useful|also useful|one or more of|any of the following)/;
 // Lists whose items are alternatives without being optional: "projects
 // involving process frameworks: ITIL, ISO 20000, COBIT" asks for one of them.
-const ALTERNATIVES_CUE = new RegExp(`${OPTIONAL_CUE.source}|\\b(one or more (?:projects|engagements) involving|(?:frameworks?|tools|platforms|technologies|methodologies|certifications)\\s*:)`);
+const ALTERNATIVES_CUE = new RegExp(`${OPTIONAL_CUE.source}|\\b(one or more (?:projects|engagements) involving|(?:frameworks?|tools|platforms|technologies|methodologies|certifications)\\s*:)|\\s[—–]\\s(?=[^—–.;]*,[^—–.;]*,)`);
 
 // EEO, security-policy and recruiter notices: never qualifications.
 const BOILERPLATE_LINE =
@@ -712,6 +725,7 @@ module.exports = {
   RELATED,
   EMPLOYER_EVIDENCE,
   EMPLOYER_HEADING,
+  WORK_EVIDENCE,
   SOFT_TERM_WORDS,
   withoutCollaborators,
   SOFT_SKILLS,

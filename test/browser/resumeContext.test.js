@@ -52,6 +52,13 @@ test('context is optional; a confirmed example is saved to its role and used on 
     await page.waitForSelector('#edPage');
     if (!(await page.locator('[data-tab="job"]').isVisible())) await page.locator('#edWide').click();
     await page.locator('[data-tab="job"]').click();
+    // The tab leads with at most three ways to lift the score; the rest is one click away.
+    assert.ok((await page.locator('.lifts .nudge').count()) <= 3);
+    assert.equal(await page.locator('#jobMore').getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.getByText('How ATS visibility adds up').count(), 0);
+    await page.locator('#jobMore').click();
+    assert.equal(await page.getByText('How ATS visibility adds up').count(), 1);
+    await page.locator('#jobMore').click();
     await page.locator('[data-nudge="add-context"]').click();
     await page.locator('#contextSkip').click();
     assert.deepEqual(await page.evaluate(() => window.__contextTest.calls), []);

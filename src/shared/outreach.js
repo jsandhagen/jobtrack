@@ -987,7 +987,7 @@
   // (its first check has nothing "new", but all of it is new to you). Roles
   // with a dealbreaker, hidden ones and passed-on companies don't count.
   // `seen` ({ key: when }) leaves out ones you've already looked at or dismissed.
-  const STRONG_FIT = 65; // "Strong match" and up, the green fit pill
+  const STRONG_FIT = 80; // "Strong match" and up on the shown scale (src/shared/fitScale.js), the green fit pill
   function standoutJobs(companies, { now = Date.now(), days = 3, min = STRONG_FIT, seen = null } = {}) {
     const recent = (iso) => !!iso && now - Date.parse(iso) < days * 86400000;
     return (companies || [])

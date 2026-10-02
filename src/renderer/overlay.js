@@ -155,7 +155,7 @@ function render(payload) {
   else if (payload.mode === 'pair') content.innerHTML = pairView(payload);
   else content.innerHTML = messageView(payload);
   animateRings(content);
-  if (payload.mode === 'done' || (payload.mode === 'score' && !payload.analyzing && payload.app.analysis && payload.app.analysis.score >= 80)) confetti(pop);
+  if (payload.mode === 'done' || (payload.mode === 'score' && !payload.analyzing && payload.app.analysis && payload.app.analysis.score >= window.FitScale.BANDS.excellent)) confetti(pop);
   fit();
 }
 

@@ -10,17 +10,18 @@
 // - No platitudes ("every no is closer to a yes") and no ALL CAPS.
 // Loaded before mascot.js as a plain script.
 (function () {
-  // Fit-score reactions, by mood (see moodForScore).
+  // Fit-score reactions, by mood (see moodForScore). They sit next to the
+  // match label ("Strong match"), so none of them names a label of its own.
   const LINES = {
     thrilled: [
       'This one fits you really well.',
       'Oh, this is right up your alley.',
       'This reads a lot like your resume. Good sign.',
-      'Strong match. I have a good feeling about this one.',
+      'I have a good feeling about this one.',
       'You tick most of their boxes. Worth a look.',
     ],
     happy: [
-      'Good match. A little tailoring and it’ll shine.',
+      'A little tailoring and this one will shine.',
       "There's a lot of overlap with what you do.",
       'This one looks promising.',
       'Solid fit. Want me to tailor a resume?',

@@ -1346,7 +1346,7 @@ const DETAIL_BUDGET = 8;
 // neighbouring title is kept too when the free fit preview says it's a strong
 // match with no dealbreaker, as on By role. Up to SIMILAR_DETAIL_BUDGET of
 // them are read per check on boards that don't list descriptions.
-const SIMILAR_MIN_FIT = 70;
+const SIMILAR_MIN_FIT = 80; // "Strong match" on the shown scale (src/shared/fitScale.js)
 const SIMILAR_DETAIL_BUDGET = 4;
 
 async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), scoreJob = null } = {}) {
@@ -1500,7 +1500,7 @@ const ROLE_FIND_BUDGET = 15; // companies without a known board looked up per se
  *   results: { company, job, match, similarity, fit, text? }, exact titles first, then title
  *   matches, then similar titles with a high fit. `boards` holds boards found on the way (to save).
  */
-async function searchRole(companies, { role, place = '', remoteOnly = false, minFit = 70, fetchImpl, scoreJob = null, onProgress = () => {} } = {}) {
+async function searchRole(companies, { role, place = '', remoteOnly = false, minFit = 80, fetchImpl, scoreJob = null, onProgress = () => {} } = {}) {
   role = String(role || '').trim();
   if (!role) throw new Error('Type the role to search for.');
   const known = companies.filter((c) => c.status !== 'pass' && c.board && c.board.ats && c.board.ats !== 'none');

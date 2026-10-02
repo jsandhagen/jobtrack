@@ -23,7 +23,7 @@ const { Store } = require('./store');
 const { importFile, SUPPORTED } = require('./documents');
 const { isEvidenceDoc } = require('./sourceEvidence');
 const { analyzeLayout } = require('./layout');
-const { localFitScore, skippedEmployer, SCORER_VERSION } = require('./localFit');
+const { localFitScore, shownFit, skippedEmployer, SCORER_VERSION } = require('./localFit');
 const { cleanPosting } = require('./posting');
 const claude = require('./claude');
 const draft = require('./draft');
@@ -37,9 +37,12 @@ const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
-const { atsScore: readAts, atsGaps, libraryAtsScore } = require('./atsScore');
+const { atsScore: readAts, atsGaps, postingRewords, rewordTerms, libraryAtsScore } = require('./atsScore');
 const { memoize } = require('./memo');
 const { atsNudges } = require('./atsNudges');
+const { INTERPERSONAL, SOFT_SKILLS } = require('./fitScore');
+const fitScale = require('../shared/fitScale');
+const { contactFromResume, contactFromLibrary, contactPatch } = require('./contact');
 const { resumeEnhancements } = require('./resumeContext');
 const contextSuggestions = memoize(resumeEnhancements, { size: 30 });
 const outreach = require('../shared/outreach');
@@ -479,7 +482,7 @@ const validScale = (s) => (typeof s === 'number' && s >= 0.85 && s <= 1.3 ? Math
 const pageScale = () => validScale(store.getSettings().pageScale) || 1;
 
 function scoreLocally(job) {
-  return localFitScore(job, scoringDocuments(), store.getProfile());
+  return shownFit(localFitScore(job, scoringDocuments(), store.getProfile()));
 }
 
 // The free fit preview for postings found by careers checks and searches.
@@ -495,8 +498,8 @@ function previewScorer({ clean = false } = {}) {
   return (job) => {
     const key = `${library}|${hash([job.title, job.company, job.location, job.text].join('\u0000'))}`;
     if (fitPreviews.has(key)) return fitPreviews.get(key);
-    const q = localFitScore(clean ? cleanPosting(job) : job, docs, profile);
-    const fit = { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
+    const q = shownFit(localFitScore(clean ? cleanPosting(job) : job, docs, profile));
+    const fit = { score: q.score, scale: q.scale, calibratedScore: q.calibratedScore, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
     if (fitPreviews.size >= 5000) fitPreviews.delete(fitPreviews.keys().next().value);
     fitPreviews.set(key, fit);
     return fit;
@@ -587,12 +590,15 @@ function withAts(rec) {
   const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml), { profile: store.getProfile() }) : null;
   const bank = store.getBank();
   // Which bullet proves each requirement.
-  const evidence = bank.bullets.length ? rankBank(rec.job).evidence : [];
+  const ranked = bank.bullets.length ? rankBank(rec.job) : null;
+  const evidence = ranked ? ranked.evidence : [];
   // The few things worth doing, in plain words, for whichever resume is shown.
   const nudges = after
     ? atsNudges({ ats: after, job: rec.job, pageText: htmlToText(rec.resumeHtml), bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true })
     : atsNudges({ ats: before, job: rec.job, pageText: before ? evidenceDocs().map((d) => d.text).join('\n') : '', bank, onPage: false });
-  return { ...rec, ats: { before, after, nudges }, evidence };
+  // "Ask if applicable": what the fit is missing that you may have done but not written down.
+  const contextAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined }) : [];
+  return { ...rec, ats: { before, after, nudges }, evidence, contextAsks };
 }
 
 // Saved fit scores are snapshots. Recompute the ones an older scorer made
@@ -844,17 +850,31 @@ function safeFileName(s) {
 
 // Read bullets out of documents into the bank (free, no AI). Safe to repeat:
 // duplicates merge into existing bullets as alternative wordings.
-// Where you've worked and studied, from your resume, for Profile fields you
-// haven't filled in yet. Outreach uses them ("we both worked at Appian"), and
+// Your name and contact details, and where you've worked and studied, from
+// your resume, for Profile fields you haven't filled in yet. The header goes
+// on every resume, and outreach uses the rest ("we both worked at Appian");
 // most people never get round to typing them. Fields you've filled are left alone.
-function fillProfileFromResume(parsed) {
+function fillProfileFromResume(parsed, doc) {
   const profile = store.getProfile();
   const list = (xs) => [...new Map(xs.map((x) => String(x || '').trim()).filter((x) => x && x.length <= 60).map((x) => [x.toLowerCase(), x])).values()].slice(0, 6).join(', ');
   const patch = {};
   if (!String(profile.pastEmployers || '').trim()) patch.pastEmployers = list(parsed.experiences.filter((e) => !e.isProject && !bulletBank.isTeamName(e.organization)).map((e) => e.organization));
   if (!String(profile.schools || '').trim()) patch.schools = list((parsed.education || []).map((e) => e.school));
+  if (doc && doc.kind === 'resume') {
+    Object.assign(patch, contactPatch(profile, contactFromResume(doc.text)));
+  }
   for (const k of Object.keys(patch)) if (!patch[k]) delete patch[k];
   if (Object.keys(patch).length) store.updateProfile(patch);
+}
+
+// Once, for libraries imported before Profile filled itself in: your name and
+// contact details from your resumes, into the fields still empty. Only once,
+// so a field you clear on purpose stays clear.
+function fillContactOnce() {
+  if (store.getSettings().contactFilled) return;
+  const patch = contactPatch(store.getProfile(), contactFromLibrary(store.allDocuments()));
+  if (Object.keys(patch).length) store.updateProfile(patch);
+  store.updateSettings({ contactFilled: true });
 }
 
 function importBullets(docs) {
@@ -867,7 +887,7 @@ function importBullets(docs) {
       if (!isEvidenceDoc(d)) continue;
       const parsed = bulletBank.parseResume(d.text);
       if (!parsed.experiences.some((e) => e.bullets.length) && !(parsed.certifications || []).length) continue;
-      fillProfileFromResume(parsed);
+      fillProfileFromResume(parsed, d);
       const r = bulletBank.mergeIntoBank(b, parsed, { id: d.id, name: d.name });
       b = r.bank;
       added += r.added;
@@ -944,7 +964,9 @@ function builderState(rec) {
   const skillsText = doc.skills.join(', ').toLowerCase();
   const coverage = units.map((u) => {
     const byBullet = Math.max(0, ...pageTexts.map((t) => u.match(t))) >= 0.6;
-    return { key: u.key, label: u.label, kind: u.kind, covered: byBullet, skillsOnly: !byBullet && u.match(skillsText) >= 0.6 };
+    // Soft skills (communication, leadership) count, but they're never the first thing to fix.
+    const soft = (u.skills || []).length > 0 && u.skills.every((k) => INTERPERSONAL.has(k) || SOFT_SKILLS.has(k));
+    return { key: u.key, label: u.label, kind: u.kind, covered: byBullet, skillsOnly: !byBullet && u.match(skillsText) >= 0.6, soft };
   });
 
   const pageText = htmlToText(rec.resumeHtml || ResumeDoc.renderHtml(ResumeDoc.compact(doc)));
@@ -974,6 +996,10 @@ function builderState(rec) {
     coverage,
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 10), components: ats.components, gaps },
+    // The posting's words for skills the bullets show in other words, for you to confirm.
+    rewords: rec.job && rec.job.text ? postingRewords(rec.job, doc, rec.atsKeep || []) : [],
+    // ...and ones that need rewriting rather than a swap ("statistical" for "statistics"): Polish wording's job.
+    rewordTerms: rec.job && rec.job.text ? rewordTerms(rec.job, doc).map((t) => t.theirs) : [],
     nudges: rec.job && String(rec.job.text || '').trim() ? atsNudges({ ats, job: rec.job, pageText, bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true }) : null,
     enhancements: contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units }),
     // The posting's title, for the "role named up top" check.
@@ -1506,12 +1532,20 @@ function registerIpc() {
     else if (kind === 'education') store.updateBank((b) => void (b.education = (value || []).map((e) => ({ ...e, details: (e.lines || []).map((l) => (l.label ? `${l.label}: ${l.text}` : l.text)).join(' ') }))));
     broadcast('state-changed');
   });
+  // A rewording to the posting's words you'd rather not make: not offered again on this resume.
+  handle('builder:keepWording', (appId, keys) => {
+    const rec = getHost(appId);
+    if (!rec) return;
+    updateHost(appId, { atsKeep: [...new Set([...(rec.atsKeep || []), ...keys])].slice(-200) });
+  });
   handle('builder:polish', async (appId) => {
     const rec = getHost(appId);
     const doc = currentDoc(rec);
     const bullets = doc.roles.flatMap((r, ri) => r.bullets.filter((b) => b.text).map((b, bi) => ({ id: `${ri}:${bi}`, text: b.text, role: r.title })));
     if (!bullets.length) throw new Error('Add some bullets first.');
-    const { edits, rejected } = await claude.polishBullets(claudeClient(), { job: jobForClaude(rec), bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model });
+    // The posting's words for what the bullets show in other words, for Claude to work in where true.
+    const terms = rec.job && rec.job.text ? [...new Set(rewordTerms(rec.job, doc).map((t) => t.theirs))] : [];
+    const { edits, rejected } = await claude.polishBullets(claudeClient(), { job: jobForClaude(rec), bullets, documents: docsForPrompt(), profile: store.getProfile(), model: store.getSettings().model, terms });
     return { edits, rejected };
   });
   handle('bridge:status', () => ({
@@ -2019,11 +2053,11 @@ let lastRoleSearch = new Map();
 let roleSearching = false;
 const ROLE_RANK = { exact: 0, title: 1, similar: 2 };
 const normCo = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/\b(inc|llc|ltd|gmbh|corp|corporation|co|company|the)\b\.?/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
-async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, sources = null }) {
+async function searchRole({ role, place = '', remoteOnly = false, minFit = 80, sources = null }) {
   if (roleSearching) throw new Error('Already searching. Give me a moment.');
   roleSearching = true;
   try {
-    minFit = Number(minFit) || 70;
+    minFit = Number(minFit) || 80;
     const profile = store.getProfile();
     const scoreJob = previewScorer({ clean: true });
     const settings = store.getSettings();
@@ -2392,6 +2426,8 @@ if (process.argv.includes('--smoke-test')) {
     store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'), { deferSave: true });
     store.pruneChecked(); // checked jobs you never saved, not seen for a month
     store.repairBank(bulletBank.tidyBank); // the same job from two resumes, filed twice before roles were matched
+    store.migrateFitScale(fitScale); // fit scores saved before the grade-like scale
+    fillContactOnce(); // name and contact details for libraries imported before Profile filled itself in
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();
     applyTheme(store.getSettings().theme);

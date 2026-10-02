@@ -16,7 +16,7 @@
     {
       "matches": ["http://*/*", "https://*/*"],
       "exclude_matches": ["http://127.0.0.1/*", "http://localhost/*"],
-      "js": ["vendor/buddyLines.js", "vendor/icons.js", "vendor/mascot.js", "vendor/scoreInfo.js", "extract.js", "person.js", "card.js", "content.js"],
+      "js": ["vendor/fitScale.js", "vendor/buddyLines.js", "vendor/icons.js", "vendor/mascot.js", "vendor/scoreInfo.js", "extract.js", "person.js", "card.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": true
     }

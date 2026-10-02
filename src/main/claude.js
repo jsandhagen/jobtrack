@@ -5,7 +5,8 @@ const { betaZodOutputFormat } = require('@anthropic-ai/sdk/helpers/beta/zod');
 const { z } = require('zod');
 const { fitLabel } = require('./fitScore');
 const { gradeFromQualifications } = require('./atsScore');
-const { conjunctive } = require('./localFit');
+const { conjunctive, generous } = require('./localFit');
+const { toShown, SCALE: FIT_SCALE } = require('../shared/fitScale');
 const P = require('./prompts');
 const { isEvidenceDoc } = require('./sourceEvidence');
 const { quoteFound, checkRewrite, checkNewText, norm } = require('./grounding');
@@ -272,13 +273,17 @@ async function analyzeFit(client, { job, documents, profile, model, screens = []
   const keywords = out.keywords.filter((k) => postingNorm.includes(norm(k)));
   // The checklist judges the stated requirements; level, years and the kind
   // of job are screened the same way as the free score (localFit.js).
-  const checklist = scoreFromQualifications(qualifications);
+  // Shown a little generously, like the free score (see shownFit in localFit.js).
+  const checklist = generous(scoreFromQualifications(qualifications));
   const score = Math.min(checklist, ...screens.map((s) => s.max));
   return {
     ...out,
     qualifications,
     keywords,
-    score,
+    // Shown on the grade-like scale (src/shared/fitScale.js); the label and grade use the calibrated score.
+    score: toShown(score),
+    calibratedScore: score,
+    scale: FIT_SCALE,
     label: fitLabel(score),
     screened: score < checklist ? screens.filter((s) => s.max < checklist).map((s) => s.reason) : [],
     grade: gradeFromQualifications(qualifications, score),
@@ -306,14 +311,14 @@ async function generateResume(client, { job, documents, profile, analysis, ats, 
 
 // Light, fact-preserving edits. Anything that adds a number or named detail
 // the documents don't have is held back.
-async function polishBullets(client, { job, bullets, documents, profile, model }) {
+async function polishBullets(client, { job, bullets, documents, profile, model, terms = [] }) {
   const list = bullets.map((b) => `<bullet id="${P.escapeAttr(b.id)}" role="${P.escapeAttr(b.role)}">${b.text}</bullet>`).join('\n');
   const out = await structuredCall(client, {
     kind: 'polish',
     model,
     effort: 'medium',
     system: P.systemBlocks(documents, profile),
-    content: `${P.jobBlock(job)}\n\n<bullets>\n${list}\n</bullets>\n\n${P.TASKS.polish}`,
+    content: `${P.jobBlock(job)}\n\n<bullets>\n${list}\n</bullets>${terms.length ? `\n\n<posting_terms>${terms.map((t) => P.escapeAttr(t)).join('; ')}</posting_terms>` : ''}\n\n${P.TASKS.polish}`,
     schema: BulletEdits,
   });
   const library = libraryText(documents, profile);

@@ -125,3 +125,52 @@ test('working at a low-code vendor is low-code experience; a skill in the bank c
   const user = { kind: 'resume', text: 'Jordan Rivera\nEXPERIENCE\nAnalyst\nAcme Bank, 2019 - Present\n- Reviewed vendor demos including Appian and Pega\n- Wrote SQL reports' };
   assert.ok(!localFitScore(job, [user], {}).matchedSkills.includes('Low-Code / BPM'));
 });
+
+test('sentence pieces are not requirements; a domain list is one requirement', () => {
+  const posting = {
+    title: 'Product Marketing Manager, Competitive Intelligence',
+    company: 'Acme Data',
+    text: `What We're Looking For
+- 4-6 years in competitive intelligence, product marketing, or market research, ideally in B2B SaaS
+- Proven track record of producing content that sales and marketing actually use — battlecards, competitive decks, objection handling guides
+- Storytelling: Proficient in turning complex, technology-heavy topics into digestible, compelling stories that resonate with target audiences
+- Cross-functional fluency: has worked closely with sales (win/loss, deal support), product (roadmap and positioning input), and marketing (messaging, launches)
+- Domain fit: familiarity with data infrastructure, CDPs, MarTech, or adjacent technical B2B markets.
+Bonus If You Have
+- Experience in a high-growth or fast-moving market where competitors and positioning shift often.`,
+  };
+  const resume = `Sr. Technology Strategy Consultant, Office of the CTO — B2B SaaS company   Oct 2021 - Present
+- Liaison between the CTO and revenue teams across Sales, Marketing and Customer Success; field feedback into product roadmap and GTM strategy
+- Led competitive analysis and market research on rival platforms for executive reports and partner business reviews
+- Ran quarterly business reviews across seven strategic partnerships, forecasting partner revenue
+Consultant — advisory firm   Aug 2019 - Oct 2021
+- Built forecasting models and reporting in SQL and Power BI for Fortune 500 clients`;
+  const r = localFitScore(posting, [{ kind: 'resume', text: resume }]);
+  const labels = [...r.matchedSkills, ...r.partialSkills, ...r.missingSkills, ...r.matchedPreferred, ...r.missingPreferred];
+  for (const junk of ['actually use', 'turning', 'digestible', 'shift often', 'where competitors']) assert.ok(!labels.some((l) => l.includes(junk)), `"${junk}" read as a requirement: ${labels.join(' | ')}`);
+  assert.equal(labels.filter((l) => /\bCDP/.test(l) && !/^one of/.test(l)).length, 0, 'CDPs counted apart from its list');
+  assert.ok(r.score >= 45, `B2B SaaS strategist with competitive analysis scored ${r.score}`);
+
+  // Doing the job under another title: competitive intelligence, battlecards and
+  // positioning as a strategy consultant is the role, and positioning is marketing work.
+  const ci = resume.replace(
+    '- Led competitive analysis and market research on rival platforms for executive reports and partner business reviews',
+    '- Led competitive intelligence for the CTO, tracking competitor launches to produce battlecards, positioning briefs and objection handling guides\n- Prototyped messaging and sales enablement assets from win/loss trends and deal data'
+  );
+  const done = localFitScore(posting, [{ kind: 'resume', text: ci }]);
+  assert.ok(done.components.role >= 80, `role ${done.components.role}`);
+  assert.ok(done.matchedSkills.includes('Marketing'), done.matchedSkills.join(' | '));
+  assert.ok(done.score >= 65 && done.score > r.score, `competitive intelligence lead scored ${done.score}`);
+});
+
+test('the shown score leans generous, but not past a screen or a dealbreaker', () => {
+  const { shownFit } = require('../src/main/localFit');
+  const { toShown } = require('../src/shared/fitScale');
+  // Generous first (50 → 55), then on the grade-like shown scale.
+  assert.equal(shownFit({ score: 50, label: 'Good potential', screens: [], dealbreakers: [] }).score, toShown(55));
+  assert.equal(shownFit({ score: 76, label: 'Strong match', screens: [], dealbreakers: [] }).label, 'Excellent match');
+  assert.equal(shownFit({ score: 76, screens: [], dealbreakers: [] }).calibratedScore, 76);
+  assert.equal(shownFit({ score: 40, screens: [{ max: 40, reason: 'x' }], dealbreakers: [] }).score, toShown(40));
+  assert.equal(shownFit({ score: 30, screens: [], dealbreakers: ['Onsite'] }).score, toShown(30));
+  assert.equal(shownFit({ score: 100, screens: [], dealbreakers: [] }).score, 100);
+});

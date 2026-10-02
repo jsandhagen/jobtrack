@@ -304,9 +304,11 @@ test('analyzeFit scores from its own checklist, verifies every quote, and caches
   const res = await claude.analyzeFit(client, { job: { title: 'FE', text: POSTING }, documents: DOCS, profile: { name: 'Jordan' } });
   // A made-up quote drops "met" to "partial". Must-haves [1, 0.5] combine
   // conjunctively (0.4 × mean 0.75 + 0.6 × harmonic 0.667 = 0.70) and count
-  // 80%; the unmet nice-to-have adds nothing.
+  // 80%; the unmet nice-to-have adds nothing: 56, shown a little generously
+  // like the free score (56 + 0.2 × 56 × 44 / 100 = 61).
   assert.deepEqual(res.qualifications.map((x) => [x.status, x.verified]), [['met', true], ['partial', false], ['not_met', true]]);
-  assert.equal(res.score, 56);
+  assert.equal(res.calibratedScore, 61);
+  assert.equal(res.score, require('../src/shared/fitScale').toShown(61), 'shown on the grade-like scale');
   assert.deepEqual(res.keywords, ['React']); // Kubernetes isn't in the posting
   assert.ok(res.promptVersion);
   const req = client.requests[0];
@@ -327,7 +329,8 @@ test("analyzeFit holds Claude's checklist score to the free score's screens", as
   const q = (requirement, type, status, evidence_quote) => ({ requirement, type, status, evidence_quote });
   const out = { headline: 'Great', strengths: ['React'], gaps: [], talking_points: ['x'], keywords: [], job_title: 'FE', company: 'Acme', qualifications: [q('React and TypeScript', 'basic', 'met', 'Built a React + TypeScript design system')] };
   const res = await claude.analyzeFit(fakeClient(out), { job: { title: 'FE', text: POSTING }, documents: DOCS, profile: {}, screens: [{ max: 60, reason: 'You would likely be overqualified for this role' }] });
-  assert.equal(res.score, 60);
+  assert.equal(res.calibratedScore, 60);
+  assert.equal(res.score, require('../src/shared/fitScale').toShown(60));
   assert.equal(res.label, 'Good potential');
   assert.deepEqual(res.screened, ['You would likely be overqualified for this role']);
   // No screens: the checklist score stands.

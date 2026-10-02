@@ -257,14 +257,15 @@ The editor, PDF export, Markdown export and ATS check all render from this same 
   - **This bullet:** the requirements it proves, a one-line summary of its checks, other wordings from your bank, and saving your rewording back (*another wording* / *replace original*). New bullets can be added to the bank.
   - **Slot in a bullet:** drag from your bank onto the page, or click *+ Add*. Bank bullets show in the resume's typeface, with the requirements each one proves; each role lists its best four, with *Show more* for the rest. Roles not yet on the resume can be added here too.
   - **Take a bullet off:** drag it by its grip onto the side panel (or anywhere off the page), or click ✕. Bullets from your bank go back to *Slot in a bullet*.
-- **Check** (how well it's written). See [Resume checks](#resume-checks).
-  - The bullet you're editing, check by check, each with a fix and **Why?**: the reasoning, and exactly how Sprout measures it.
-  - **Resume check:** whether the summary names the role, whether each role leads with its strongest bullet (with a button to move it up), and how many bullets show a result. Below that, every other bullet with tips, each with *Go to it*.
-  - Claude's fact-check flags (*Check before sending*) and the optional *Polish wording* suggestions.
 - **Job match** (how well it fits this posting):
   - **What the posting asks for:** each requirement with its evidence: the bullet that proves it, "only in your skills list", or "not on the page" with the bank bullets that would prove it and *+ Add*. Tap one to highlight its bullets on the page.
   - **How the ATS match adds up:** a bar for each part of the score with its weight (hard skills 35%, format 20%, job title, years, education, other keywords 10% each, soft skills 5%), then what would raise it.
   - Make this resume's header, summary, skills or education the default for new resumes.
+- **Check** (how well it's written). See [Resume checks](#resume-checks).
+  - Claude's fact-check flags (*Check before sending*) and the optional *Polish wording* suggestions come first.
+  - The bullet you're editing, check by check, each with a fix and **Why?**: the reasoning, and exactly how Sprout measures it.
+  - **Resume check:** the page-wide checks it misses (whether the summary names the role, whether each role leads with its strongest bullet, with a button to move it up, how many bullets show a result), then the three bullets with the most tips, each with *Go to it*. **See every check** adds the checks it passes and up to ten bullets with tips, and stays open next time. The checks are the same either way; the tab just leads with where to start.
+  - The tab's badge counts things to look at: a bullet with three tips counts once.
 - **Optional Claude help:** *Polish wording* marks suggested rewordings with a wavy underline for you to accept or dismiss. *Write with Claude* fills the page from your bank. Any wording it couldn't trace to your documents is highlighted for you to check.
 
 #### Resume checks
@@ -404,7 +405,7 @@ Everything but the must-haves counts in full only when the must-haves are there.
 **4. Screens**, the way recruiters screen whatever else matches: well short of the years asked (under 30% / 50% / 80% of the minimum) or two levels up reads as a stretch; two levels below as overqualified; a quota-carrying or recruiting job you haven't done, or a product the title names that you don't show, caps it. A step up is strong at most, and "Excellent" means you meet the must-haves *and* have done the day-to-day work. Claude's deeper read is held to the same screens.
 
 - **Levels in titles.** Who a team serves isn't its level: "Manager, Strategy & Operations, Office of the CTO" is a manager's job, not the CTO's. "Manager" and "Senior Manager" are ranks for individual strategists and analysts as often as for people managers, so the years asked decide how senior they are (a "Senior Manager, Product Strategy" asking for 6+ years is one step up from a 7-year strategist, not two); Director and above stand as written.
-- **Dealbreakers** (Profile → work arrangement, minimum salary, "skip postings that mention…") cap the score at 30.
+- **Dealbreakers** (Profile → work arrangement, minimum salary, "skip postings that mention…") keep the score in the stretch range (30 on the calibrated scale, shown as 43).
 - **Employers to skip** (Profile): a list of companies you won't work for, such as consulting firms when you want an in-house role. Their postings are a dealbreaker, Find jobs leaves them out and the company finder doesn't suggest them. An entry covers the firm's units ("Deloitte" is also Deloitte Consulting LLP). It's matched on the employer's name, so in-house postings that ask for consulting experience aren't affected, which "skip postings that mention consulting" would do.
 - **Screening reads the job, not the layout.** A travel requirement counts wherever the posting prints it (often under "Bonus points"); only the line itself saying "preferred" makes it optional. A clearance with no level named ("subject to a government investigation", an IRS background investigation) is eligibility, which comes with U.S. citizenship, not an active Secret clearance.
 - **Jobs that need a move.** An in-person or hybrid job away from your Profile location (a table of metro areas, so McLean or Arlington is near Washington, DC and New York isn't) says you'd need to relocate, is a dealbreaker if you've said you won't, and is tagged *needs a move* on the job board. Postings that say remote is fine don't count.

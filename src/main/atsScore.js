@@ -68,6 +68,12 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// A term worth asking someone to put on their resume reads like a keyword
+// ("program management", "PostgreSQL"), not like the piece of a sentence a
+// skill was recognised from ("for executives", "worked directly with clients").
+const FRAGMENT = /^(?:for|to|with|the|a|an|and|or|of|in|on|by|from|at|as|work|works|working|worked|advise|advised|advising)\s|\s(?:for|to|with|the|a|an|and|or|of|in|on|by|from|at|as)$/i;
+const isKeyword = (term) => !!term && !FRAGMENT.test(String(term).trim());
+
 function containsTerm(haystack, term) {
   // word-ish boundaries that still work for terms like "c++" or ".net"
   return new RegExp(`(^|[^a-z0-9])${escapeRe(term)}($|[^a-z0-9])`).test(haystack);
@@ -143,7 +149,7 @@ function scoreSkills(jobSkills, resumeLower, resumeSkills) {
       for (const skill of have.filter((s) => u.skills.includes(s))) {
         bucket.matched.push({ skill, kind: u.kind });
         const term = u.terms[u.skills.indexOf(skill)];
-        if (!containsTerm(resumeLower, term)) wordingTips.push({ skill, term });
+        if (isKeyword(term) && !containsTerm(resumeLower, term)) wordingTips.push({ skill, term });
       }
     } else {
       bucket.missing.push({ skill: u.label, kind: u.kind, term: u.term, anyOf: u.skills.length > 1 ? u.terms : undefined });
@@ -568,6 +574,127 @@ function atsGaps(job, resumeText, bullets = []) {
   return { score: r.score, grade: r.grade, gaps };
 }
 
+// The posting's own word for a skill a bullet already shows in other words,
+// put into that bullet for you to confirm: "Postgres" → "PostgreSQL",
+// "AWS" → "Amazon Web Services (AWS)", "Jenkins" → "CI/CD (Jenkins)". Your
+// word stays unless it's only a spelling of theirs, so nothing new is claimed.
+// Bullets and summary are what's read: a skill only in the grid is worth
+// saying in context too. `keep`: rewordings you've turned down ("from→to").
+// Returns [{ r, b, from, text, changes: [{ yours, theirs }], why }].
+const REWORD_SKIP = new Set(['Financial Services', 'Public Sector', 'Healthcare', 'Enterprise Software']);
+const KIND_ORDER = { required: 0, neutral: 1, preferred: 2 };
+
+// Each skill the posting asks for that a bullet shows, but not in the
+// posting's words: the first bullet that shows it, and where.
+function* wordingCandidates(job, doc) {
+  const jobText = String((job && job.text) || '');
+  if (!jobText.trim() || !doc || !doc.roles) return;
+  const body = lower([doc.summary || '', ...doc.roles.flatMap((r) => (r.bullets || []).map((b) => b.text))].join('\n'));
+  const bullets = doc.roles.flatMap((role, r) => (role.bullets || []).map((bl, b) => ({ r, b, text: String(bl.text || '') })));
+  const skills = [...classifyJobSkills(jobText)].sort((x, y) => (KIND_ORDER[x[1].kind] ?? 1) - (KIND_ORDER[y[1].kind] ?? 1));
+  for (const [skill, { term }] of skills) {
+    if (SOFT_SKILLS.has(skill) || INTERPERSONAL.has(skill) || REWORD_SKIP.has(skill) || !SKILLS[skill]) continue;
+    const forms = [term, `${term}s`, term.replace(/s$/, '')];
+    if (forms.some((f) => f && containsTerm(body, f))) continue;
+    const theirs = postingCasing(jobText, term);
+    if (!theirs || theirs.split(/\s+/).length > 3 || !isKeyword(theirs)) continue;
+    const bl = bullets.find((x) => skillSpan(x.text, SKILLS[skill]));
+    if (bl) yield { bullet: bl, span: skillSpan(bl.text, SKILLS[skill]), theirs };
+  }
+}
+
+function postingRewords(job, doc, keep = []) {
+  const kept = new Set(keep.map(lower));
+  const edits = new Map(); // "r:b" -> [{ at, len, yours, theirs, out }]
+  let count = 0;
+  for (const { bullet: bl, span, theirs } of wordingCandidates(job, doc)) {
+    if (count >= 8) break;
+    const out = rewordSpan(span.text, theirs, span.at === 0);
+    if (!out || kept.has(lower(`${span.text}→${theirs}`))) continue;
+    const key = `${bl.r}:${bl.b}`;
+    const list = edits.get(key) || [];
+    if (list.some((e) => span.at < e.at + e.len && e.at < span.at + span.text.length)) continue;
+    list.push({ at: span.at, len: span.text.length, yours: span.text, theirs, out });
+    edits.set(key, list);
+    count++;
+  }
+  return [...edits].map(([key, list]) => {
+    const [r, b] = key.split(':').map(Number);
+    const from = doc.roles[r].bullets[b].text;
+    let text = from;
+    for (const e of [...list].sort((x, y) => y.at - x.at)) {
+      // "an ML pipeline" → "a machine learning (ML) pipeline"
+      const before = text.slice(0, e.at).replace(/(?<![A-Za-z])(a|an|A|An) $/,(m, art) => `${/^[aeiou]/i.test(e.out) ? art.replace(/^(a|A)$/, '$1n') : art.replace(/n$/, '')} `);
+      text = before + e.out + text.slice(e.at + e.len);
+    }
+    const changes = list.map(({ yours, theirs }) => ({ yours, theirs }));
+    const why = changes.map((c) => `The posting says “${c.theirs}”; this bullet says “${c.yours}”.`).join(' ');
+    return { r, b, from, text, changes, why };
+  });
+}
+
+// The posting's words a bullet shows in a form a swap can't fix
+// ("statistical models" for "statistics"): rewording those is a writing job,
+// for Claude's Polish wording. Returns [{ theirs, yours, r, b }].
+function rewordTerms(job, doc) {
+  const out = [];
+  for (const { bullet, span, theirs } of wordingCandidates(job, doc)) {
+    if (!rewordSpan(span.text, theirs, span.at === 0)) out.push({ theirs, yours: span.text, r: bullet.r, b: bullet.b });
+  }
+  return out.slice(0, 12);
+}
+
+// Where a skill shows in a bullet, as written ("Postgres" in "Moved billing to Postgres").
+function skillSpan(text, patterns) {
+  const l = lower(text);
+  for (const p of patterns) {
+    const m = l.match(p);
+    if (!m) continue;
+    const lead = m[0].match(/^(?:(?:in|with|and|or|using)\s+|[,/(]\s*)/);
+    const at = m.index + (lead ? lead[0].length : 0);
+    const tail = l.slice(m.index + m[0].length).match(/^[a-z0-9+#]*/)[0];
+    const len = m.index + m[0].length + tail.length - at;
+    const span = text.slice(at, at + len).trim();
+    if (!span || lower(span) !== l.slice(at, at + span.length)) continue;
+    return { at, text: span };
+  }
+  return null;
+}
+
+// How the posting writes a term, as most of its mentions do ("PostgreSQL",
+// "deep learning"), so a word that starts a posting's sentence isn't capitalised mid-bullet.
+function postingCasing(jobText, term) {
+  const counts = new Map();
+  for (const m of jobText.matchAll(new RegExp(`(?<![A-Za-z0-9])${escapeRe(term)}(?![A-Za-z0-9])`, 'gi'))) {
+    const before = jobText.slice(Math.max(0, m.index - 2), m.index);
+    const w = /^[A-Z][a-z]/.test(m[0]) && (/(?:^|[.!?:•\n-]\s*)$/.test(before) || m.index === 0) ? m[0].replace(/^./, (c) => c.toLowerCase()) : m[0];
+    counts.set(w, (counts.get(w) || 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+}
+
+// Your word, with the posting's: a spelling of the same name is replaced
+// ("React" → "React.js"), an acronym gets its long form ("Amazon Web Services
+// (AWS)"), and a named tool keeps its name beside the posting's broader word
+// ("CI/CD (Jenkins)"). Ordinary phrases are left alone: rewording those is a
+// writing job, and Polish wording with Claude does it.
+function rewordSpan(yours, theirs, atStart) {
+  const a = lower(yours).replace(/[\s-]+/g, ' ');
+  const b = lower(theirs).replace(/[\s-]+/g, ' ');
+  if (a === b || yours.split(/\s+/).length > 2) return null;
+  const cap = (s) => (atStart ? s.replace(/^[a-z]/, (c) => c.toUpperCase()) : s);
+  const [shortW, longW] = a.length <= b.length ? [a, b] : [b, a];
+  if (longW.startsWith(shortW) && /^(?:[.\s-]?js|ql|s|[^a-z]+)$/.test(longW.slice(shortW.length))) return cap(theirs);
+  const acro = (s) => /^[A-Z][A-Z0-9&+#./-]{1,5}$/.test(s);
+  const initials = (s) => lower(s).split(/[\s-]+/).filter((w) => !['of', 'and', 'the', '&'].includes(w)).map((w) => w[0]).join('');
+  if (acro(yours) && initials(theirs).length >= 2 && lower(yours).startsWith(initials(theirs))) return cap(`${theirs} (${yours})`);
+  if (acro(theirs) && initials(yours).length >= 2 && lower(theirs).startsWith(initials(yours))) return cap(`${yours} (${theirs})`);
+  // A named tool: capitalised mid-sentence, or written with symbols (".NET", "C#", "k8s").
+  const named = /[.#+/\d]/.test(yours) || (/^[A-Z]/.test(yours) && !atStart) || /[a-z][A-Z]/.test(yours) || acro(yours);
+  if (!named) return null;
+  return cap(`${theirs} (${yours})`);
+}
+
 // Score the user's existing library the way an ATS would see what they'd
 // submit today: their best single resume if they have one, else everything.
 function libraryAtsScore(job, documents, profile) {
@@ -588,4 +715,4 @@ function libraryAtsScore(job, documents, profile) {
 const degreeRequirements = memoize(readDegreeRequirements);
 const postingPhrases = memoize(readPostingPhrases);
 
-module.exports = { atsGaps, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };
+module.exports = { atsGaps, postingRewords, rewordTerms, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };

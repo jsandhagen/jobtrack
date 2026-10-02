@@ -15,6 +15,7 @@ let edPending = null;
 function showRequirement(key) {
   ed.tab = 'job';
   ed.filter = key;
+  if (key) setJobMore(true);
   saveTab();
   renderTray();
   highlightFilter();
@@ -37,10 +38,40 @@ const ed = {
       return 'bullets';
     }
   })(), // side panel tab: bullets | check | job
+  jobMore: (() => {
+    try {
+      return localStorage.getItem('sprout.edJobMore') === '1';
+    } catch {
+      return false;
+    }
+  })(), // Job match tab: the full breakdown is open
+  checkMore: (() => {
+    try {
+      return localStorage.getItem('sprout.edCheckMore') === '1';
+    } catch {
+      return false;
+    }
+  })(), // Check tab: every check and bullet with tips is showing
   why: new Set(), // checks whose "Why?" is open
   checks: null, // the latest ResumeCheck.checkResume result
   polish: new Map(), // "r:b" -> {text, why}
   held: [], // polish edits the fact checks held back: {id, text, why}
+  zoom: (() => {
+    try {
+      const z = parseFloat(localStorage.getItem('sprout.edZoom'));
+      return z >= 0.5 && z <= 2 ? z : 'fit';
+    } catch {
+      return 'fit';
+    }
+  })(), // 'fit' (page as wide as the window allows) or a scale
+  wide: (() => {
+    try {
+      return localStorage.getItem('sprout.edWide') === '1';
+    } catch {
+      return false;
+    }
+  })(), // side panel hidden for a bigger page
+  panelOpen: false, // side panel drawer on a narrow editor
   timer: null,
   dirty: false, // edits not sent yet
   saving: null,
@@ -289,7 +320,14 @@ async function switchMode(mode) {
   if (!done || ed.appId !== appId) return;
   await renderEditor(appId, ed.app);
   previewFresh();
-  if (mode === 'ats') toast(say('atsDone'), 'good', 3800, 'proud');
+  if (mode !== 'ats') return;
+  const n = liveRewords().length;
+  if (!n) return toast(say('atsDone'), 'good', 3800, 'proud');
+  ed.tab = 'job';
+  saveTab();
+  if (ed.wide) setWide(false);
+  else renderTray();
+  toast(`${n} bullet${n === 1 ? ' can' : 's can'} use the posting's words. Review ${n === 1 ? 'it' : 'them'} on Job match.`, 'good', 5000, 'proud');
 }
 
 document.addEventListener('click', (e) => {
@@ -306,6 +344,7 @@ async function renderEditor(appId, app) {
   if (ed.appId !== appId) {
     ed.polish = new Map();
     ed.held = [];
+    ed.panelOpen = false;
     ed.filter = null;
     ed.focus = null;
     ed.showAll = new Set();
@@ -327,7 +366,7 @@ async function renderEditor(appId, app) {
 
   slot.innerHTML = `
     ${modeBar(info)}
-    <div class="ed">
+    <div class="ed${ed.wide ? ' wide' : ''}${ed.panelOpen ? ' panel-open' : ''}">
       <div class="ed-main">
         <div class="ed-bar">
           <span class="ed-pages" id="edPages"></span>
@@ -338,6 +377,12 @@ async function renderEditor(appId, app) {
               <option value="1">1 page</option>
               <option value="2">Up to 2 pages</option>
             </select></label>
+          <span class="ed-zoomctl" role="group" aria-label="Page size">
+            <button class="small ghost" data-zoom="out" title="Smaller (Ctrl + scroll)" aria-label="Zoom out">−</button>
+            <button class="small ghost" data-zoom="fit" id="edZoomPct"></button>
+            <button class="small ghost" data-zoom="in" title="Bigger (Ctrl + scroll)" aria-label="Zoom in">+</button>
+          </span>
+          <button class="small ghost" id="edWide" aria-controls="edTray" aria-expanded="false"></button>
           <span class="ed-spacer"></span>
           <button class="ghost small" id="edCopy" title="${info.standalone ? 'Make a new resume starting from this one' : 'Keep this resume on your Resumes page to reuse or edit later'}">${icon('doc', 14)} ${info.standalone ? 'Duplicate' : 'Save to Resumes'}</button>
           <button class="soft small" id="edMd">Markdown</button>
@@ -345,6 +390,7 @@ async function renderEditor(appId, app) {
         </div>
         <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click to type · Enter = new bullet · ${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl+'}Z = undo · drag a bullet’s grip (right margin) to move it, or off the page to remove it</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
       </div>
+      <button class="ed-tray-backdrop" id="edTrayBackdrop" type="button" tabindex="-1" aria-label="Close resume tools"></button>
       <aside class="ed-tray" id="edTray"></aside>
     </div>`;
   renderPaper();
@@ -359,6 +405,7 @@ async function renderEditor(appId, app) {
   len.value = String((info.length && info.length.want) || 'auto');
   len.addEventListener('change', () => setLength(len.value));
   $('#edFit', slot).addEventListener('click', (e) => fitToPages(e.currentTarget, +e.currentTarget.dataset.pages));
+  wireZoom(slot);
   wirePaper();
   if (edPending) {
     const { filter } = edPending;
@@ -379,6 +426,13 @@ async function copyToResumes(btn) {
 }
 
 async function exportResume(btn, fmt) {
+  // A page with no name on it would go out with the "Your Name" placeholder (blank on export).
+  const h = ed.doc && ed.doc.header;
+  if (!(h && String(h.name || '').trim() && !/^your name$/i.test(String(h.name).trim()))) {
+    const ans = await askConfirm("This resume doesn't have your name or contact details at the top yet. Add them in Profile first?", 'Open Profile', { alt: 'Export anyway' });
+    if (ans === true) return void (location.hash = '#profile');
+    if (ans !== 'alt') return;
+  }
   await run(btn, async () => {
     if (!await saveNow()) return;
     const out = await S.exportDoc(ed.appId, 'resume', fmt, null);
@@ -419,15 +473,148 @@ function placeCaret(el, atEnd) {
   sel.addRange(range);
 }
 
-// Scale the page to fit beside the tray.
+// Scale the page: to fit beside the tray (up to actual size, or a little
+// bigger with the panel hidden), or the size you picked.
+const ZOOMS = [0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+
 function fitZoom() {
   const desk = document.getElementById('edDesk');
   const zoom = document.getElementById('edZoom');
   if (!desk || !zoom) return;
-  const z = Math.max(0.55, Math.min(1, (desk.clientWidth - 24) / (PAGE_W + 70)));
+  const slot = document.getElementById('editorSlot');
+  const root = slot && slot.querySelector('.ed');
+  // Side by side down to a 1000px editor (a 1366-1440px laptop window) with the
+  // page at about 75%: you click a bullet and see its tools. Narrower, the
+  // panel becomes a drawer over the page.
+  const narrow = !!slot && slot.clientWidth < 1000;
+  const drawerWasOpen = ed.panelOpen;
+  if (root) {
+    // Moving back to a wide layout returns the panel to its normal column.
+    if (!narrow && ed.panelOpen) ed.panelOpen = false;
+    root.classList.toggle('narrow', narrow);
+    root.classList.toggle('panel-open', narrow && ed.panelOpen);
+  }
+  const fit = Math.max(0.55, Math.min(ed.wide ? 1.5 : 1, (desk.clientWidth - 24) / (PAGE_W + 70)));
+  const z = ed.zoom === 'fit' ? fit : ed.zoom;
   zoom.style.zoom = z;
+  desk.classList.toggle('zoomed', z > fit + 0.001);
+  const pct = document.getElementById('edZoomPct');
+  if (pct) {
+    pct.textContent = ed.zoom === 'fit' ? `Fit · ${Math.round(z * 100)}%` : `${Math.round(z * 100)}%`;
+    pct.title = ed.zoom === 'fit' ? 'Sized to fit the window' : 'Fit the page to the window';
+  }
+  const wide = document.getElementById('edWide');
+  const tray = document.getElementById('edTray');
+  if (wide) wide.hidden = !narrow && !ed.wide && !!tray && tray.getBoundingClientRect().top >= desk.getBoundingClientRect().bottom - 1;
+  if (wide) {
+    wide.textContent = narrow ? (ed.panelOpen ? 'Hide panel' : 'Show panel') : (ed.wide ? 'Show panel' : 'Hide panel');
+    wide.title = narrow ? (ed.panelOpen ? 'Close resume tools' : 'Open resume tools') : (ed.wide ? 'Show the side panel again' : 'Hide the side panel for a bigger page');
+    wide.setAttribute('aria-expanded', String(narrow ? ed.panelOpen : !ed.wide));
+  }
+  if (tray) {
+    if (narrow && ed.panelOpen) {
+      tray.setAttribute('role', 'dialog');
+      tray.setAttribute('aria-modal', 'true');
+      tray.setAttribute('aria-label', 'Resume tools');
+    } else {
+      tray.removeAttribute('role');
+      tray.removeAttribute('aria-modal');
+      tray.removeAttribute('aria-label');
+    }
+  }
+  if (drawerWasOpen && !narrow) document.getElementById('edWide')?.focus();
 }
 window.addEventListener('resize', () => fitZoom());
+
+function setZoom(z) {
+  ed.zoom = z;
+  try {
+    localStorage.setItem('sprout.edZoom', String(z));
+  } catch {}
+  fitZoom();
+}
+
+function zoomStep(dir) {
+  const zoom = document.getElementById('edZoom');
+  const cur = (zoom && parseFloat(zoom.style.zoom)) || 1;
+  const next = dir > 0 ? ZOOMS.find((x) => x > cur + 0.01) : [...ZOOMS].reverse().find((x) => x < cur - 0.01);
+  if (next) setZoom(next);
+}
+
+function setWide(on) {
+  ed.wide = on;
+  ed.panelOpen = false;
+  try {
+    localStorage.setItem('sprout.edWide', on ? '1' : '0');
+  } catch {}
+  const el = document.querySelector('#editorSlot .ed');
+  if (el) el.classList.toggle('wide', on);
+  fitZoom();
+  if (!on) renderTray();
+}
+
+function setPanelOpen(on) {
+  if (!document.querySelector('#editorSlot .ed.narrow')) return;
+  ed.panelOpen = on;
+  const root = document.querySelector('#editorSlot .ed');
+  if (root) root.classList.toggle('panel-open', on);
+  fitZoom();
+  if (on) document.getElementById('edTrayClose')?.focus();
+  else document.getElementById('edWide')?.focus();
+}
+
+function wireZoom(slot) {
+  $$('[data-zoom]', slot).forEach((b) => b.addEventListener('click', () => (b.dataset.zoom === 'fit' ? setZoom('fit') : zoomStep(b.dataset.zoom === 'in' ? 1 : -1))));
+  $('#edWide', slot).addEventListener('click', () => {
+    if (document.querySelector('#editorSlot .ed.narrow')) setPanelOpen(!ed.panelOpen);
+    else setWide(!ed.wide);
+  });
+  $('#edTrayBackdrop', slot).addEventListener('click', () => setPanelOpen(false));
+  $('#edTray', slot).addEventListener('click', (e) => {
+    if (e.target.closest('#edTrayClose')) setPanelOpen(false);
+  });
+  // Ctrl + scroll (or a trackpad pinch) over the page, one step at a time.
+  let last = 0;
+  $('#edDesk', slot).addEventListener(
+    'wheel',
+    (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      if (e.timeStamp - last < 90) return;
+      last = e.timeStamp;
+      zoomStep(e.deltaY < 0 ? 1 : -1);
+    },
+    { passive: false }
+  );
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!ed.panelOpen || !document.querySelector('#editorSlot .ed.narrow')) return;
+  const tray = document.getElementById('edTray');
+  if (!tray) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    setPanelOpen(false);
+    return;
+  }
+  if (e.key !== 'Tab') return;
+  const focusable = [...tray.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => !el.hidden && el.getClientRects().length);
+  if (!focusable.length) {
+    e.preventDefault();
+    tray.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && (document.activeElement === first || !tray.contains(document.activeElement))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (document.activeElement === last || !tray.contains(document.activeElement))) {
+    e.preventDefault();
+    first.focus();
+  }
+});
 // Closing the window (Sprout stays in the tray): send the last keystrokes.
 window.addEventListener('beforeunload', () => ed.dirty && saveNow());
 
@@ -568,14 +755,16 @@ async function fitToPages(btn, pages) {
 // ---------- tray ----------
 //
 // Three rings up top (requirements shown, ATS visibility, strong bullets), then
-// three tabs: Bullets (edit and add), Check (how well it's written) and Job
-// match (how well it fits this posting, and the score behind it). The tray
+// three tabs: Bullets (edit and add), Job match (the three biggest ways to
+// lift the score, with how well it fits this posting and the score behind it
+// one click away) and Check (how well it's written, the same way: what needs
+// a look first, every passing check and bullet one click away). The tray
 // never switches tabs by itself.
 
 const TABS = [
   ['bullets', 'Bullets'],
-  ['check', 'Check'],
   ['job', 'Job match'],
+  ['check', 'Check'],
 ];
 
 const ATS_PARTS = [
@@ -631,7 +820,8 @@ function renderTray() {
   const req = info.coverage.filter((c) => c.kind !== 'preferred');
   const covered = req.filter((c) => c.covered).length;
   const flagged = ed.doc.roles.reduce((s, r) => s + r.bullets.filter((b) => b.flag).length, 0);
-  const tips = pc.tips + flagged + ed.polish.size;
+  // Things to look at, not every tip: a bullet with three tips is one.
+  const tips = pc.bullets.filter((x) => x.tips).length + pc.resume.filter((c) => !c.ok).length + flagged + ed.polish.size;
   const ring = window.SproutMascot.miniRing;
   const reqPct = req.length ? (covered / req.length) * 100 : 0;
   const strongPct = pc.total ? (pc.strong / pc.total) * 100 : 0;
@@ -639,7 +829,7 @@ function renderTray() {
     `<button data-tab-go="${go}" title="${title}"><div>${ring(pct, { color: barColor(pct), segments: segs, size: 30 })}<b>${big}</b></div><span>${label}</span></button>`;
   const head = `<div class="tray-top">
     <div class="tray-card tray-head"><div class="tray-score">
-      ${aimed ? tile('job', reqPct, req.length <= 12 ? req.length : 0, `${covered}/${req.length}`, 'requirements', 'Requirements a bullet on the page shows') : ''}
+      ${aimed ? tile('job', reqPct, req.length <= 12 ? req.length : 0, `${covered}/${req.length}`, 'must-haves shown', "Required qualifications a bullet on this page shows. The fit score counts what all your documents show, and ATS visibility counts the posting's exact words, so their numbers can differ.") : ''}
       ${aimed ? tile('job', info.ats.score, 0, `${info.ats.score}%`, 'ATS visibility', 'How easily screening software finds this resume when recruiters search for this posting') : ''}
       ${tile('check', strongPct, pc.total && pc.total <= 12 ? pc.total : 0, `${pc.strong}/${pc.total}`, 'strong bullets', 'Bullets that pass every check')}
     </div></div>
@@ -647,7 +837,7 @@ function renderTray() {
   </div>`;
   const pane = ed.tab === 'check' ? checkPane(pc) : ed.tab === 'job' ? jobPane() : bulletsPane(pc);
   const scroll = tray.scrollTop;
-  tray.innerHTML = head + pane;
+  tray.innerHTML = `<div class="ed-drawer-head"><b>Resume tools</b><button class="small ghost" id="edTrayClose" type="button">Close</button></div>` + head + pane;
   tray.scrollTop = scroll;
   wireTray();
 }
@@ -731,20 +921,36 @@ function checkPane(pc) {
   const others = pc.bullets.filter((x) => x.tips && x !== mine);
   const weak = pc.bullets.filter((x) => !x.checks[0].ok).length;
   const first = pc.resume.find((c) => c.id === 'first');
+  // Counts in every tile: roles whose strongest bullet isn't first.
+  const reorder = first && !first.ok ? (first.moves || []).length : 0;
   const bulletCard = mine
     ? `<div class="tray-card focus"><h4>This bullet</h4><p class="q">${esc(mine.text)}</p><ul class="qcheck">${mine.checks.map((c) => checkRow(c, `b:${c.id}`)).join('')}</ul></div>`
     : `<p class="tray-hint">${icon('pencil', 13)} Click a bullet on the page to check it here.</p>`;
+  // Up front: the checks the page misses and the three bullets with the most
+  // tips. Passing checks and the other bullets are one click away, so a long
+  // list of rules of thumb doesn't read as a long list of problems.
+  const open = ed.checkMore;
+  const misses = pc.resume.filter((c) => !c.ok);
+  const passes = pc.resume.filter((c) => c.ok);
+  const SHOW = 3;
+  const ranked = [...others].sort((a, b) => b.tips - a.tips || a.r - b.r || a.b - b.b);
+  const shown = open ? ranked.slice(0, 10) : ranked.slice(0, SHOW);
+  const hidden = passes.length + (others.length > SHOW ? Math.min(others.length, 10) - SHOW : 0);
+  const n = (k, one, many = `${one}s`) => (k ? `${k} ${k === 1 ? one : many}` : '');
+  const toggle = hidden
+    ? `<button class="tray-more-toggle" id="checkMore" type="button" aria-expanded="${open}">
+      <span><b>${open ? 'Show less' : 'See every check'}</b><small>${[n(passes.length, 'check passing', 'checks passing'), others.length > SHOW ? n(Math.min(others.length, 10) - SHOW, 'more bullet') : ''].filter(Boolean).join(' · ')}</small></span><i aria-hidden="true"></i></button>`
+    : '';
   const resumeCard = pc.total
     ? `<div class="tray-card"><h4><span>Resume check</span></h4>
-      <div class="qbar"><div><b>${pc.withResult} of ${pc.total}</b>show a result</div><div><b>${weak}</b>opener${weak === 1 ? '' : 's'} to liven up</div><div><b>${first && !first.ok ? '!' : '✓'}</b>best bullet first</div></div>
-      <ul class="qcheck">${pc.resume.map((c) => checkRow(c, `r:${c.id}`)).join('')}</ul>
-      ${others.length ? `<div class="tray-role" style="margin-top:12px">Other bullets with tips (${others.length})</div>${others
-        .slice(0, 10)
+      <div class="qbar"><div><b>${pc.withResult} of ${pc.total}</b>show a result</div><div><b>${weak}</b>opener${weak === 1 ? '' : 's'} to liven up</div><div><b>${reorder}</b>role${reorder === 1 ? '' : 's'} to reorder</div></div>
+      ${misses.length || open ? `<ul class="qcheck">${[...misses, ...(open ? passes : [])].map((c) => checkRow(c, `r:${c.id}`)).join('')}</ul>` : `<p class="muted" style="margin:8px 0 0">${icon('check', 14)} The page as a whole passes every check.</p>`}
+      ${others.length ? `<div class="tray-role" style="margin-top:12px">${open || others.length <= SHOW ? `Bullets with tips (${others.length})` : `Start with these (${SHOW} of ${others.length} bullets with tips)`}</div>${shown
         .map((x) => `<div class="tip-row"><span class="q">${quote(x.text)}</span><span class="faint">${esc(x.checks.filter((c) => !c.ok).map((c) => c.label.toLowerCase()).join(' · '))}</span><button class="small ghost" data-goto="${x.r}:${x.b}">Go to it</button></div>`)
         .join('')}` : pc.strong === pc.total ? `<p class="muted" style="margin:10px 0 0">${icon('sparkle', 14)} Every bullet passes every check.</p>` : ''}
-    </div>`
+    </div>${toggle}`
     : '';
-  return `${checksPanel()}${bulletCard}${resumeCard}${polishPanel()}
+  return `${checksPanel()}${polishPanel()}${bulletCard}${resumeCard}
     <p class="honest">Rules of thumb from how recruiters read, worked out on your computer. Not a score anyone screens you on, and you can ignore any of them. <a href="#" data-guide>What makes a resume work →</a></p>`;
 }
 
@@ -757,7 +963,8 @@ function checksPanel() {
   const notes = ed.info.notes || [];
   if (!flagged.length && !checks.length && !notes.length) return '';
   const n = flagged.length + checks.length;
-  return `<details class="tray-card checks" ${flagged.length ? 'open' : ''}>
+  // Open whenever there's something to check: the banner above the page sends you here.
+  return `<details class="tray-card checks" ${n ? 'open' : ''}>
     <summary><b>${n ? `${icon('search', 16)} Check before sending (${n})` : `${icon('note', 16)} Notes from Root`}</b></summary>
     ${flagged.length ? `<p class="faint" style="margin:6px 0">These bullets say something your documents don't show. Fix the wording, or confirm it's true.</p>` : ''}
     ${flagged
@@ -786,11 +993,62 @@ function polishPanel() {
       const [r, b] = key.split(':').map(Number);
       const cur = ed.doc.roles[r] && ed.doc.roles[r].bullets[b];
       if (!cur) return '';
-      return `<div class="sug-row"><div class="faint"><s>${esc(cur.text)}</s></div><div>${esc(s.text)}</div>
+      const d = diffWords(cur.text, s.text);
+      return `<div class="sug-row"><div class="dw-old">${d.before}</div><div class="dw-new">${d.after}</div>
         <div class="inline"><button class="small soft" data-sug-use="${key}">Use</button><button class="small ghost" data-sug-drop="${key}">Dismiss</button><span class="faint">${esc(s.why || '')}</span></div></div>`;
     })
     .join('');
   return `<div class="tray-card"><h4><span>${icon('sparkle', 16)} Suggestions (${ed.polish.size})</span> <button class="small ghost" id="sugAll">Use all</button></h4>${rows}</div>${held}`;
+}
+
+// What a suggestion takes out and puts in, word by word, so a change of one
+// term doesn't have to be found by reading both versions.
+function diffWords(a, b) {
+  const A = String(a || '').split(/(\s+)/);
+  const B = String(b || '').split(/(\s+)/);
+  const L = Array.from({ length: A.length + 1 }, () => new Array(B.length + 1).fill(0));
+  for (let i = A.length - 1; i >= 0; i--) for (let j = B.length - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  let before = '';
+  let after = '';
+  let i = 0;
+  let j = 0;
+  const mark = (tag, t) => (/^\s+$/.test(t) ? t : `<${tag}>${esc(t)}</${tag}>`);
+  while (i < A.length || j < B.length) {
+    if (i < A.length && j < B.length && A[i] === B[j]) (before += esc(A[i])), (after += esc(B[j])), i++, j++;
+    else if (j < B.length && (i >= A.length || L[i][j + 1] >= L[i + 1][j])) (after += mark('ins', B[j])), j++;
+    else (before += mark('del', A[i])), i++;
+  }
+  const join = (html, tag) => html.replace(new RegExp(`</${tag}>(\\s+)<${tag}>`, 'g'), '$1');
+  return { before: join(before, 'del'), after: join(after, 'ins') };
+}
+
+// Spike's rewordings to the posting's words that still fit the bullet as it reads now.
+function liveRewords() {
+  return ((ed.info && ed.info.rewords) || []).filter((w) => {
+    const bl = ed.doc.roles[w.r] && ed.doc.roles[w.r].bullets[w.b];
+    return bl && bl.text === w.from;
+  });
+}
+
+function rewordPanel() {
+  const list = liveRewords();
+  ed.rw = list;
+  const terms = (ed.info.rewordTerms || []).filter((t) => !list.some((w) => w.changes.some((c) => c.theirs === t)));
+  if (!list.length && !terms.length) return '';
+  const rows = list
+    .map((w, i) => {
+      const d = diffWords(w.from, w.text);
+      return `<div class="sug-row"><div class="dw-old">${d.before}</div><div class="dw-new">${d.after}</div><div class="faint">${esc(w.why)}</div>
+        <div class="inline"><button class="small soft" data-rw-use="${i}">Use</button><button class="small ghost" data-rw-keep="${i}">Keep mine</button><button class="small ghost" data-goto="${w.r}:${w.b}">Show me</button></div></div>`;
+    })
+    .join('');
+  const quoted = terms.map((t) => `“${esc(t)}”`).join(', ');
+  const rewrite = terms.length
+    ? `<div class="rw-more"><p class="faint" style="margin:0 0 6px">${list.length ? 'Also' : 'Bullets on the page'} show ${quoted} in other words, in a way a word swap can't fix.${state.hasApiKey ? " Claude can reword them to use the posting's words, and you approve each change." : " Edit those bullets to use the posting's words where they fit."}</p>
+      ${state.hasApiKey ? `<button class="soft small" id="edPolishJob" title="One Claude call; you approve each change">${icon('sparkle')} Reword with Claude</button>` : ''}</div>`
+    : '';
+  return `<div class="tray-card rw-card"><h4><span>${icon('target', 16)} The posting's words${list.length ? ` (${list.length})` : ''}</span></h4>
+    ${list.length ? `<p class="faint" style="margin:0 0 4px">These bullets already show what the posting asks for, in other words. Searches match the posting's words, so Spike suggests putting them in. Your own term stays in brackets unless it's just another spelling. Use each only if it's true of what you did.</p>${rows}` : ''}${rewrite}</div>`;
 }
 
 // ----- Job match: what the posting asks for, and the score behind it -----
@@ -834,7 +1092,8 @@ function jobPane() {
     .map(([k, label, w]) => `<div class="jm-bar"><span>${label} <i class="faint">${w}%</i></span><div><div style="width:${parts[k]}%;background:${barColor(parts[k])}"></div></div><b>${parts[k]}</b></div>`)
     .join('');
   // The posting's words the page doesn't say yet, each with the bullet closest to it.
-  const gaps = (info.ats.gaps || []).filter((g) => g.type !== 'search').concat((info.ats.gaps || []).filter((g) => g.type === 'search').slice(0, 4));
+  const offered = new Set(liveRewords().flatMap((w) => w.changes.map((c) => c.theirs.toLowerCase())));
+  const gaps = (info.ats.gaps || []).filter((g) => g.type !== 'search' && !(g.type === 'wording' && offered.has(g.phrase.toLowerCase()))).concat((info.ats.gaps || []).filter((g) => g.type === 'search').slice(0, 4));
   const GAP_LABEL = { knockout: 'required', wording: "posting's words", search: 'searched' };
   const gapRow = (g, i) => `<div class="jm-req gap ats-gap">
       <span class="m">${g.type === 'knockout' ? '!' : '○'}</span><b>“${esc(g.phrase)}”</b><span class="faint">${GAP_LABEL[g.type]}</span>
@@ -844,21 +1103,101 @@ function jobPane() {
   const skillTip = /^(?:Required: |Use the posting's exact wording|Nice to have: )/;
   const otherTips = info.ats.tips.filter((t) => !skillTip.test(t)).slice(0, 5);
   ed.gaps = gaps;
-  return `${(info.enhancements || []).length ? `<div class="tray-card">${nudgeCard({ context: true, headline: 'Want to strengthen this further?', fixed: [], nudges: info.enhancements, more: 0 }, { appId: ed.appId, compact: true })}</div>` : ''}${info.nudges ? `<div class="tray-card">${nudgeCard(info.nudges, { appId: ed.appId, compact: true })}</div>` : ''}
-    ${gaps.length ? `<details class="tray-card tray-fold"><summary><h4><span>Words the screen looks for</span> <span class="n">${gaps.length}</span></h4></summary>
+  ed.rw = liveRewords();
+  // Up top: the three things that would lift the score most. Everything
+  // else (the rest of the ideas, every requirement, the posting's words and
+  // how the score adds up) is one click away under the full breakdown.
+  const lifts = jobLifts(info, gaps, ed.rw);
+  const top = lifts.slice(0, 3);
+  const rest = lifts.slice(3);
+  const liftRow = (x, i) => `<div class="nudge t-${x.tone}"><span class="ni lift-n">${i == null ? icon(NUDGE_ICON[x.tone] || 'check', 15) : i + 1}</span><div><p>${x.text}</p>${x.acts}</div></div>`;
+  const fixed = (info.nudges && info.nudges.fixed) || [];
+  const liftCard = `<div class="tray-card lifts">
+    <h4>${top.length ? `${top.length === 1 ? 'The biggest way' : `The ${top.length} biggest ways`} to lift this score` : 'Nothing big left to lift'}</h4>
+    ${top.length
+      ? `<p class="faint" style="margin:0 0 8px">Screening software matches the posting's words literally, so these are about wording. Use each only where it's true of you.</p><div class="nudges compact">${top.map((x, i) => liftRow(x, i)).join('')}</div>`
+      : `<p class="faint" style="margin:0">${icon('sparkle', 14)} This page already shows what the posting asks for in its own words. The breakdown has the detail.</p>`}
+  </div>`;
+  const open = ed.jobMore;
+  const n = (k, one, many = `${one}s`) => (k ? `${k} ${k === 1 ? one : many}` : '');
+  const counts = [reqs.length && `${reqs.length} required`, prefs.length && `${prefs.length} nice-to-have`, n(gaps.length, 'posting word'), n(rest.length, 'more idea'), 'how the score adds up'].filter(Boolean).join(' · ');
+  const toggle = `<button class="tray-more-toggle" id="jobMore" type="button" aria-expanded="${open}">
+    <span><b>${open ? 'Hide the full breakdown' : 'See the full breakdown'}</b><small>${counts}</small></span><i aria-hidden="true"></i></button>`;
+  const details = !open
+    ? ''
+    : `${rest.length || fixed.length ? `<div class="tray-card"><h4>More ways to lift it</h4><div class="nudges compact">${fixed.map((f) => `<div class="nudge t-done"><span class="ni">${icon('check', 15)}</span><div><p>${esc(f)}</p></div></div>`).join('')}${rest.map((x) => liftRow(x)).join('')}</div></div>` : ''}
+    ${rewordPanel()}
+    ${gaps.length ? `<div class="tray-card"><h4><span>Words the screen looks for</span> <span class="n">${gaps.length}</span></h4>
       <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. The software matches them literally, so it's about wording, not about you. Use each only where it's true of you: the closest bullet is a place to start.</p>
-      ${gaps.map(gapRow).join('')}</details>` : ''}
+      ${gaps.map(gapRow).join('')}</div>` : ''}
     <div class="tray-card">
       <h4>What the posting asks for</h4>
       ${info.coverage.length ? `<div class="jm-legend"><span>✓ a bullet shows it</span><span>½ skills list only</span><span>○ not shown</span></div>${reqs.map(row).join('')}${prefs.map(row).join('')}<p class="faint" style="margin:8px 0 0">Tap one to highlight its bullets on the page, or to see bullets from your bank that would show it.</p>` : '<p class="muted" style="margin:0">Sprout couldn\'t find specific requirements in this posting.</p>'}
     </div>
-    <details class="tray-card tray-fold"><summary><h4><span>How ATS visibility adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4></summary>
+    <div class="tray-card"><h4><span>How ATS visibility adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4>
       ${bars || '<p class="muted" style="margin:0">No breakdown for this posting.</p>'}
       ${bars ? '<p class="faint" style="margin:6px 0 0">Parts that don\'t apply to this posting are left out and the rest re-weighted.</p>' : ''}
       ${otherTips.length ? `<div class="tray-role" style="margin-top:12px">Also</div><ul class="tidy" style="margin:4px 0 0">${otherTips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
       <p class="honest">Applicant tracking systems mostly rank and search; few reject on a match score alone. Use this to make sure the posting's words for skills you really have are on the page. <a href="#" data-guide>More →</a></p>
-    </details>
-    ${defaults}`;
+    </div>`;
+  return `${liftCard}${toggle}${details}${defaults}`;
+}
+
+// Every way the Job match tab knows to lift the score, biggest first: Sprout's
+// ATS nudges, rewordings waiting for a yes, required things a bullet in your
+// bank would cover, required words with a bullet close to saying them, and
+// context only you can add. Each is { rank, tone, text (html), acts (html) }.
+const LIFT_RANK = { 'heads-up': 100, fixed: 90, ask: 60, tip: 50 };
+const LIFT_RANK_BY_ID = { 'ask:skills': 70, degree: 45, 'screen:ask': 45, title: 40, years: 35 };
+function jobLifts(info, gaps, rewords) {
+  const out = [];
+  const n = info.nudges || { nudges: [], later: [] };
+  const nudges = [...n.nudges, ...(n.later || [])];
+  const keys = new Set(nudges.map((x) => x.action && x.action.key).filter(Boolean));
+  const said = nudges.map((x) => [x.text, ...((x.action && x.action.terms) || [])].join(' ')).join('\n').toLowerCase();
+  const acts = (x) => nudgeActs(x, ed.appId);
+  const button = (attrs, label) => `<div class="nudge-acts"><button class="small soft" ${attrs}>${label}</button></div>`;
+  nudges.forEach((x, i) => out.push({ rank: (LIFT_RANK_BY_ID[x.id] ?? LIFT_RANK[x.tone] ?? 50) - i / 100, tone: x.tone, text: esc(x.text), acts: acts(x) }));
+  if (rewords.length) {
+    const terms = [...new Set(rewords.flatMap((w) => w.changes.map((c) => c.theirs)))].slice(0, 3).map((t) => `“${esc(t)}”`);
+    const shown = terms.length <= 1 ? terms.join('') : `${terms.slice(0, -1).join(', ')} and ${terms[terms.length - 1]}`;
+    out.push({
+      rank: 85,
+      tone: 'fixed',
+      text: `${rewords.length === 1 ? 'A bullet already shows' : `${rewords.length} bullets already show`} ${shown} in other words. Using the posting's wording helps searches find ${rewords.length === 1 ? 'it' : 'them'}.`,
+      acts: button('data-job-more="rw-card"', rewords.length === 1 ? 'See the change' : `See the ${rewords.length} changes`),
+    });
+  }
+  const labels = [];
+  const bank = (key) => info.roles.flatMap((r) => (r.more || []).filter((m) => m.covers.includes(key)));
+  for (const c of info.coverage) {
+    if (c.kind === 'preferred' || c.covered || keys.has(c.key)) continue;
+    const from = bank(c.key);
+    if (!from.length) continue;
+    labels.push(c.label.toLowerCase());
+    out.push({
+      rank: c.soft ? 30 : 80,
+      tone: 'fixed',
+      text: `<b>${esc(c.label)}</b> is required${c.skillsOnly ? ' and only in your skills list.' : '.'} ${from.length === 1 ? 'A bullet' : `${from.length} bullets`} in your bank show${from.length === 1 ? 's' : ''} it, so slotting one in covers it.`,
+      acts: button(`data-nudge="requirement" data-nudge-app="${esc(ed.appId)}" data-key="${esc(c.key)}"`, from.length === 1 ? 'Show me the bullet' : 'Show me the bullets'),
+    });
+  }
+  gaps.forEach((g, i) => {
+    if (g.type !== 'knockout' || said.includes(g.phrase.toLowerCase())) return;
+    labels.push(g.phrase.toLowerCase());
+    out.push({
+      rank: g.closest ? 70 : 55,
+      tone: 'tip',
+      text: `The posting requires “${esc(g.phrase)}” and the page doesn't say it yet. ${g.closest ? "If it's true of you, your closest bullet is a good place for it." : "If you've done it, a short bullet will cover it."}`,
+      acts: g.closest ? button(`data-gap-edit="${i}"`, 'Edit the closest bullet') : '',
+    });
+  });
+  for (const x of info.enhancements || []) {
+    const topic = String(x.topic || '').toLowerCase();
+    if (topic && labels.some((l) => topic.includes(l) || l.includes(topic))) continue;
+    out.push({ rank: 45, tone: x.tone || 'ask', text: esc(x.text), acts: acts(x) });
+  }
+  return out.sort((a, b) => b.rank - a.rank);
 }
 
 function highlightFilter() {
@@ -888,6 +1227,8 @@ function markPage(pc) {
     if (!x) delete li.dataset.q;
     else li.dataset.q = x.tips ? String(x.tips) : 'ok';
   });
+  const rw = new Set(liveRewords().map((w) => `${w.r}:${w.b}`));
+  page.querySelectorAll('li.rs-bullet').forEach((li) => li.classList.toggle('has-reword', rw.has(`${li.dataset.role}:${li.dataset.bullet}`)));
 }
 
 // "What makes a resume work": everything the checks are based on, what they
@@ -998,6 +1339,19 @@ function wireTray() {
     })
   );
   $$('[data-guide]', tray).forEach((a) => a.addEventListener('click', (e) => (e.preventDefault(), openGuide())));
+  const checkMore = $('#checkMore', tray);
+  if (checkMore) checkMore.addEventListener('click', () => (setCheckMore(!ed.checkMore), renderTray()));
+  const more = $('#jobMore', tray);
+  if (more) more.addEventListener('click', () => (setJobMore(!ed.jobMore), renderTray()));
+  // A top-three idea whose detail is in the breakdown: open it there.
+  $$('[data-job-more]', tray).forEach((b) =>
+    b.addEventListener('click', () => {
+      setJobMore(true);
+      renderTray();
+      const el = $(`.${b.dataset.jobMore}`, tray);
+      if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    })
+  );
   // Go to the closest bullet with the posting's words on the clipboard; you decide the wording.
   $$('[data-gap-edit]', tray).forEach((btn) =>
     btn.addEventListener('click', () => {
@@ -1132,6 +1486,27 @@ function wireTray() {
   if (ds) ds.addEventListener('click', () => (ed.polish.delete(`${ed.focus.r}:${ed.focus.b}`), renderPaper(), renderTray()));
   $$('[data-sug-use]', tray).forEach((b) => b.addEventListener('click', () => (useSug(b.dataset.sugUse), renderPaper(), saveNow())));
   $$('[data-sug-drop]', tray).forEach((b) => b.addEventListener('click', () => (ed.polish.delete(b.dataset.sugDrop), renderPaper(), renderTray())));
+  $$('[data-rw-use]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const w = ed.rw[+btn.dataset.rwUse];
+      const bl = w && ed.doc.roles[w.r] && ed.doc.roles[w.r].bullets[w.b];
+      if (!bl) return;
+      remember();
+      bl.text = w.text;
+      renderPaper();
+      renderTray();
+      saveNow();
+    })
+  );
+  $$('[data-rw-keep]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const w = ed.rw[+btn.dataset.rwKeep];
+      if (!w) return;
+      ed.info.rewords = ed.info.rewords.filter((x) => x !== w);
+      S.keepWording(ed.appId, w.changes.map((c) => `${c.yours}→${c.theirs}`)).catch(() => {});
+      renderTray();
+    })
+  );
   $$('[data-clear-flag]', tray).forEach((btn) =>
     btn.addEventListener('click', () => {
       const [r, b] = btn.dataset.clearFlag.split(':').map(Number);
@@ -1144,8 +1519,7 @@ function wireTray() {
   );
   const all = $('#sugAll', tray);
   if (all) all.addEventListener('click', () => ([...ed.polish.keys()].forEach(useSug), renderPaper(), saveNow()));
-  const pol = $('#edPolish', tray);
-  if (pol)
+  $$('#edPolish, #edPolishJob', tray).forEach((pol) =>
     pol.addEventListener('click', () =>
       run(pol, async () => {
         if (!await saveNow()) return;
@@ -1153,11 +1527,14 @@ function wireTray() {
         ed.polish = new Map(edits.map((e) => [e.id, e]));
         ed.held = rejected || [];
         const heldMsg = ed.held.length ? ` (${ed.held.length} held back for adding facts)` : '';
-        toast(edits.length ? `${edits.length} suggestion${edits.length === 1 ? '' : 's'} — review them on the Check tab${heldMsg}` : `Your wording already fits this posting — nice!${heldMsg}`, 'good', 4000, edits.length ? 'happy' : 'proud');
+        toast(edits.length ? `${edits.length} suggestion${edits.length === 1 ? '' : 's'}, with the changes highlighted. Use or dismiss each one.${heldMsg}` : `Your wording already fits this posting — nice!${heldMsg}`, 'good', 4000, edits.length ? 'happy' : 'proud');
+        // The suggestions list is on the Check tab.
+        if (edits.length) (ed.tab = 'check'), saveTab();
         renderPaper();
         renderTray();
-      }, 'Polishing…')
-    );
+      }, pol.id === 'edPolishJob' ? 'Rewording…' : 'Polishing…')
+    )
+  );
   $$('[data-default]', tray).forEach((a) =>
     a.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1167,6 +1544,22 @@ function wireTray() {
       S.saveDefault(kind, value).then(() => toast(`New resumes will start with this ${kind}`, 'good'));
     })
   );
+}
+
+// The Job match tab's full breakdown, open or shut, for next time.
+function setJobMore(on) {
+  ed.jobMore = on;
+  try {
+    localStorage.setItem('sprout.edJobMore', on ? '1' : '0');
+  } catch {}
+}
+
+// The Check tab's full list, open or shut, for next time.
+function setCheckMore(on) {
+  ed.checkMore = on;
+  try {
+    localStorage.setItem('sprout.edCheckMore', on ? '1' : '0');
+  } catch {}
 }
 
 // The tab you were on, for next time.

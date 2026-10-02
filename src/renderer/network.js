@@ -1057,18 +1057,25 @@ const PAGE_SIZE = 30;
 const FIND_TABS = ['jobs', 'role', 'searches', 'companies', 'discover'];
 const board = { q: '', company: '', window: 'week', remote: false, showHidden: false, sort: 'new', minPay: 0, minFit: savedMinFit(), showUnscored: false, limit: PAGE_SIZE };
 // Remembered between sessions: a fit threshold is a standing preference.
+// A threshold saved before the grade-like fit scale (src/shared/fitScale.js) moves onto it once.
 function savedMinFit() {
   try {
-    return Number(localStorage.getItem('sprout.boardMinFit')) || 0;
+    const v = Number(localStorage.getItem('sprout.boardMinFit')) || 0;
+    if (!v || localStorage.getItem('sprout.boardMinFitScale') === String(FitScale.SCALE)) return v;
+    const moved = { 50: 65, 60: 75, 70: 80, 80: 90 }[v] || FitScale.toShown(v);
+    localStorage.setItem('sprout.boardMinFit', String(moved));
+    localStorage.setItem('sprout.boardMinFitScale', String(FitScale.SCALE));
+    return moved;
   } catch {
     return 0;
   }
 }
-const MIN_FITS_BOARD = [0, 50, 60, 70, 80];
+const MIN_FITS_BOARD = [0, 65, 75, 80, 90];
 function setMinFit(v) {
   board.minFit = v;
   try {
     localStorage.setItem('sprout.boardMinFit', String(v));
+    localStorage.setItem('sprout.boardMinFitScale', String(FitScale.SCALE));
   } catch {
     // remembering the threshold is only a nicety
   }
@@ -1351,7 +1358,7 @@ const MATCH_LABEL = {
   title: ['title match', 'The title contains every word of the role'],
   similar: ['similar title', 'A neighbouring title, shown because your fit is high'],
 };
-const MIN_FITS = [60, 70, 80];
+const MIN_FITS = [75, 80, 90];
 const roleSearch = { running: false, progress: null, result: null, error: '', keysOpen: false };
 
 function roleSearchPrefs() {
@@ -1360,7 +1367,7 @@ function roleSearchPrefs() {
     role: saved.role ?? (O.splitList(state.profile.targetRoles)[0] || ''),
     place: saved.place ?? (String(state.profile.location || '').split(/[·(]/)[0].trim()),
     remoteOnly: !!saved.remoteOnly,
-    minFit: saved.minFit || 70,
+    minFit: saved.minFit || 80,
     sources: Array.isArray(saved.sources) ? saved.sources : ['companies', ...(state.defaultJobBoards || [])],
   };
 }
@@ -1476,7 +1483,7 @@ function bindRoleTab() {
         role: $('#roleQ').value.trim(),
         place: $('#rolePlace').value.trim(),
         remoteOnly: $('#roleRemote').checked,
-        minFit: Number($('#roleMinFit').value) || 70,
+        minFit: Number($('#roleMinFit').value) || 80,
         sources: $$('.roleSrc').filter((x) => x.checked).map((x) => x.value),
       };
       if (!opts.role) return toast('Type the role to search for.', 'info');

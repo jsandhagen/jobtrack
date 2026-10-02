@@ -75,3 +75,20 @@ test('competitor names, reviewed launches and financial diligence do not turn in
   bank.skills.push('ServiceNow', 'M&A');
   assert.ok(B.pickSkills(target, bank).relevant.some((s) => /ServiceNow/i.test(s)), 'explicitly reported proficiency counts');
 });
+
+test('context asks about the fit’s real gaps, not words the work already shows', () => {
+  const source = 'Experience\nSr. Technology Strategy Consultant, Appian, Oct 2022 - Present\n- Led competitive intelligence for the CTO, producing battlecards, positioning briefs and objection handling guides\n- Prototyped messaging and sales enablement assets from win/loss trends and deal data\n- Advised Product and GTM leaders on competitive positioning';
+  const bank = B.mergeIntoBank(B.emptyBank(), B.parseResume(source)).bank;
+  const target = { title: 'Product Marketing Manager, Competitive Intelligence', text: "What We're Looking For\n- Proven track record of producing content that sales and marketing actually use — battlecards, competitive decks, objection handling guides\n- Domain fit: familiarity with data infrastructure, CDPs, MarTech, or adjacent technical B2B markets." };
+  const topics = resumeEnhancements({ bank, job: target, profile }).map((s) => s.topic);
+  assert.ok(!topics.some((t) => /^marketing$/i.test(t)), `positioning and messaging work is marketing: ${topics.join(' | ')}`);
+  assert.ok(topics.some((t) => /CDP/.test(t) && /MarTech/.test(t) && / or /.test(t)), topics.join(' | '));
+  assert.ok(resumeEnhancements({ bank, job: target, profile }).every((s) => !/Have you used/.test(s.question)));
+
+  // Answering it: the example goes on the resume under the role you picked, and the question is settled.
+  const text = 'Built a competitive comparison of customer data platforms and martech integrations, used by Sales in 30+ enterprise deals';
+  bank.bullets.push({ id: 'cdp-context', experienceId: bank.experiences[0].id, text, variants: [], source: { name: 'Context you added' } });
+  const out = B.optimizeResume({ bank, job: target, profile });
+  assert.ok(out.doc.roles[0].bullets.some((b) => b.bulletId === 'cdp-context'), 'the example is optimized into its role');
+  assert.ok(!resumeEnhancements({ bank, job: target, profile }).some((s) => /CDP/.test(s.topic)));
+});

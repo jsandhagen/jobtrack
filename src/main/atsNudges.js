@@ -40,10 +40,11 @@ function asWritten(jobText, term) {
  * @param {object} [p.bank]    the bullet bank (to tell "in your bank" from "nowhere")
  * @param {object[]} [p.fixes] what the ATS optimizer changed ({ kind, term, text })
  * @param {boolean} [p.onPage] true when `ats` is for a page Sprout can change
- * @returns {{ headline: string, fixed: string[], nudges: object[], more: number }}
+ * @returns {{ headline: string, fixed: string[], nudges: object[], more: number, later: object[] }}
+ *   `later`: the nudges past the first few, for a page that lists everything.
  */
 function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
-  if (!ats) return { headline: '', fixed: [], nudges: [], more: 0 };
+  if (!ats) return { headline: '', fixed: [], nudges: [], more: 0, later: [] };
   const jobText = String((job && job.text) || '');
   const bankText = bank ? lower([...(bank.skills || []), ...(bank.bullets || []).filter((b) => !b.hidden).flatMap((b) => [b.text, ...(b.variants || [])])].join('\n')) : '';
   const out = [];
@@ -95,7 +96,10 @@ function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
     out.push({
       id: `wording:${w.skill}`,
       tone: 'tip',
-      text: `You show ${w.skill} in your own words. Using the posting's wording, “${term}”, once helps strict systems like Taleo, which match words exactly.`,
+      // "You show Consulting… “Consulting”" says the same word twice: say what the page lacks instead.
+      text: lower(w.skill) === lower(term)
+        ? `The posting asks for “${term}”. Your page shows that work in other words but never says “${term}”; saying it once helps strict systems like Taleo, which match words exactly.`
+        : `You show ${w.skill} in your own words. Using the posting's wording, “${term}”, once helps strict systems like Taleo, which match words exactly.`,
       action: onPage ? { type: 'add-skill', term, label: `Add “${term}” to skills` } : null,
     });
   }
@@ -141,7 +145,7 @@ function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
   const viaOptimizer = shown.filter((x) => x.action && x.action.type === 'optimize');
   viaOptimizer.slice(0, -1).forEach((x) => delete x.action);
   if (viaOptimizer.length > 1) viaOptimizer[viaOptimizer.length - 1].action.label = `Fix ${viaOptimizer.length === 2 ? 'both' : 'these'} with the ATS optimizer`;
-  return { headline, fixed, nudges: shown, more: Math.max(0, out.length - SHOWN) };
+  return { headline, fixed, nudges: shown, more: Math.max(0, out.length - SHOWN), later: out.slice(SHOWN) };
 }
 
 module.exports = { atsNudges };

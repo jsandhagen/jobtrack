@@ -46,7 +46,7 @@ resumes.find((r) => r.id === 'legacy').builder = undefined;
 resumes.find((r) => r.id === 'legacy').resume = { name: '', contact: [], summary: 'Experienced strategist', experience: [], skills: [], education: [] };
 resumes.find((r) => r.id === 'stale').builder.doc.header = { name: 'J. Avery', line1: 'Remote', line2: 'custom@example.com' };
 fs.writeFileSync(path.join(dir, 'jobtrack.json'), JSON.stringify({
-  settings: { clipboardWatch: false }, profile: { name: 'Jordan Avery', email: 'j@example.com' },
+  settings: { clipboardWatch: false, contactFilled: true }, profile: { name: 'Jordan Avery', email: 'j@example.com' },
   bank, documents, applications, resumes,
 }));
 process.env.JOBTRACK_DATA_DIR = dir;
