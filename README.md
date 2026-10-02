@@ -229,7 +229,7 @@ Every resume uses **one template** (`src/shared/resumeDoc.js`), a classic Word/G
 - Centred 20pt bold name, with centred contact lines underneath.
 - Bold capitalised section headings over a heavy rule: *Professional Summary, Relevant Work Experience, Projects, Relevant Skills, Education*.
 - For each job, "**Employer** … **City, ST**" on one line and "**Title** … Dates" on the next, then ● bullets with a hanging indent.
-- A three-column ● skills grid.
+- A ● skills grid, three across in equal columns. If one skill is too long for a third of the page, the grid goes two across, and long names wrap inside their own column instead of squeezing the others.
 - Page breaks keep a role's header rows with its first bullet and a heading with what follows, and never split a bullet. The editor's page-break guides follow the same rules.
 - Education as school and location, degree and date, then bold-labelled lines such as "**Relevant Courses:** …".
 
@@ -237,7 +237,11 @@ The editor, PDF export, Markdown export and ATS check all render from this same 
 
 **Editing** (each application's *Resume* tab):
 - Click anywhere on the page to type: name, contact lines, summary, employers, titles, dates, bullets, skills, education. Headings are editable too.
-- **Enter** starts a new bullet (or skill). **Backspace** on an empty one removes it.
+- Bullets and skills work like a word processor: **Enter** splits one at the caret (at the end, it starts a new one), **Backspace** at the start joins it to the one above, **Delete** at the end joins the next one, and Backspace on an empty one removes it. Enter in any other field moves on to the next one.
+- The arrow keys move between lines across the whole page, as if it were one document.
+- **Paste** is plain text. Several lines pasted into a bullet become separate bullets, with their ●, - or 1. dropped. A list pasted into a skill ("dbt, Snowflake, Looker") becomes separate skills.
+- **Ctrl+Z / ⌘Z** undoes any change on the page: typing, splitting, joining, moving, removing or pasting. **Ctrl+Shift+Z** or **Ctrl+Y** redoes it.
+- Edits save as you type. The page isn't redrawn under you while you type, even when that first save adds a checked job to your applications. Leaving the page or closing the window right after typing still saves the last keystrokes.
 - Every bullet has a drag grip in the right margin when you hover it, on the side nearest the bullet bank. The bullet you're editing also gets ▲▼ · ⇄ other wordings · ✕ beside its grip. Hover a role for ✕ / ▲.
 - The "+ add a bullet / role / skill / line" links sit in the left margin, so the page on screen is laid out exactly as it prints.
 - Dashed page-break guides and a page counter show the length exactly as it will print (the editor's "+ add" rows and empty placeholders such as "Address | Phone" don't count).
@@ -274,6 +278,7 @@ Free, instant and worked out on your computer (`src/shared/resumeCheck.js`), upd
 | Role named up top | The first glance lands on the top third | The posting's title (less "Senior", "II"…) in your summary or contact lines |
 | Strongest proof first | The first bullet in each role is the one most likely to be read | Requirements each bullet proves, then whether it shows a result |
 | Most bullets show a result | Outcomes separate you from others with the same title | At least half the bullets pass "A result or number" |
+| Short skills | A skills list is scanned in a second; a list packed into one skill reads as clutter | A skill over two lines when two across, a word too long for its column, or 3+ skills in one (split at commas, semicolons or slashes). *Split* makes them separate skills in one click |
 
 **What makes a resume work** (linked from the Check and Job match tabs) explains that a resume is read twice: searched by software (most ATS rank rather than reject, so use the posting's words for skills you really have) and skimmed by a person (top third, first bullets, results). It lists every check and what the checks can't tell you. **What's working for you** compares interview rates across the tailored resumes you've sent (ATS-optimized, Claude-written, baseline, and with more or fewer strong bullets). It stays hidden until you've sent 10, because with fewer the numbers would mostly be luck. When you mark a job applied, Sprout records which kind of resume went out and how many of its bullets passed every check.
 

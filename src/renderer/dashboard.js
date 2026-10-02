@@ -1038,7 +1038,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';
   };
 
-  const html = `
+  const head = `
     <div class="card app-card"><div class="app-head">${scoreRing(score, 84)}
       <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
@@ -1062,14 +1062,25 @@ async function renderApplication(id, { ifChanged = false } = {}) {
       <button class="${appTab === 'letter' ? 'on' : ''}" data-tab="letter">${icon('letter', 17)} Cover letter</button>
       <button class="${appTab === 'posting' ? 'on' : ''}" data-tab="posting">${icon('news', 17)} Posting</button>
       <button class="${appTab === 'tracking' ? 'on' : ''}" data-tab="tracking">${icon('send', 17)} Tracking${followUpDue(a) ? ` ${icon('clock', 15, 'due-ic')}` : ''}</button>
-    </div>
-    <div id="tabBody">${tabBody()}</div>`;
+    </div>`;
+  const body = tabBody();
+  const html = `<div id="appHead">${head}</div><div id="tabBody">${body}</div>`;
   if (ifChanged && page.dataset.shown === id && page._html === html) return page._ready;
+  // The editor is open and only the top of the page changed (an autosave just
+  // saved a checked job, "2m ago" ticked over): redraw just that, so the page
+  // you're typing on isn't rebuilt under you.
+  if (ifChanged && page.dataset.shown === id && page._body === body && document.getElementById('editorSlot') && $('#appHead', page)) {
+    $('#appHead', page).innerHTML = head;
+    page._html = html;
+    wireHead($('#appHead', page), a, id, unsaved);
+    return page._ready;
+  }
   // The page fades in once; redrawing the same job (a tab, Claude finishing,
   // a status change) mustn't blank it and fade it back in.
   page.classList.toggle('settled', page.dataset.shown === id);
   page.innerHTML = html;
   page._html = html;
+  page._body = body;
   page.dataset.shown = id;
   refreshResumeProgress(page);
   animateRings(page);
@@ -1085,36 +1096,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     });
   }
 
-  $$('[data-tab]', page).forEach((b) =>
-    b.addEventListener('click', () => {
-      appTab = b.dataset.tab;
-      renderApplication(id);
-    })
-  );
-  const saveBtn = $('#saveApp', page);
-  if (saveBtn)
-    saveBtn.addEventListener('click', () =>
-      run(saveBtn, async () => {
-        await S.saveApplication(id);
-        toast('Saved to your applications.', 'good');
-        renderApplication(id);
-      }),
-    );
-  const statusSel = $('#statusSel', page);
-  if (statusSel) statusSel.addEventListener('change', (e) => {
-    if (e.target.value === 'applied' && !a.appliedAt) return openApplyModal(a);
-    const st = e.target.value;
-    S.updateApplication(id, { status: st }).then(() => {
-      if (st === 'offer') celebrate(say('offer'));
-      else if (st === 'interviewing') celebrate(say('interviewing'), 'cheer');
-      else if (st === 'rejected') toast(say('rejected'), 'info', 6500, 'hug');
-      else if (st === 'skipped') toast(say('skipped'), 'good', 3800, 'proud');
-      else toast('Status updated', 'good');
-    });
-  });
-  const ma = $('#markApplied', page);
-  if (ma) ma.addEventListener('click', () => openApplyModal(a));
-  $('#editJob', page).addEventListener('click', () => openEditJobModal(a));
+  wireHead($('#appHead', page), a, id, unsaved);
   $$('[data-have]', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
@@ -1145,11 +1127,6 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     });
   const link = $('#jobLink', page);
   if (link) link.addEventListener('click', (e) => (e.preventDefault(), S.openExternal(a.job.url)));
-  $('#delApp', page).addEventListener('click', async () => {
-    if (!(await askConfirm(unsaved ? 'Forget this job?' : 'Delete this application?', unsaved ? 'Forget' : 'Delete'))) return;
-    await S.removeApplication(id);
-    location.hash = unsaved ? '#check' : '#applications';
-  });
   const genLetter = async () => {
     const p = S.generateCoverLetter(id);
     renderApplication(id);
@@ -1171,6 +1148,45 @@ async function renderApplication(id, { ifChanged = false } = {}) {
   );
   page._ready = editorReady;
   return editorReady;
+}
+
+// The job's header card and tabs (also redrawn on their own, under an open editor).
+function wireHead(head, a, id, unsaved) {
+  $$('[data-tab]', head).forEach((b) =>
+    b.addEventListener('click', () => {
+      appTab = b.dataset.tab;
+      renderApplication(id);
+    })
+  );
+  const saveBtn = $('#saveApp', head);
+  if (saveBtn)
+    saveBtn.addEventListener('click', () =>
+      run(saveBtn, async () => {
+        await S.saveApplication(id);
+        toast('Saved to your applications.', 'good');
+        renderApplication(id);
+      }),
+    );
+  const statusSel = $('#statusSel', head);
+  if (statusSel) statusSel.addEventListener('change', (e) => {
+    if (e.target.value === 'applied' && !a.appliedAt) return openApplyModal(a);
+    const st = e.target.value;
+    S.updateApplication(id, { status: st }).then(() => {
+      if (st === 'offer') celebrate(say('offer'));
+      else if (st === 'interviewing') celebrate(say('interviewing'), 'cheer');
+      else if (st === 'rejected') toast(say('rejected'), 'info', 6500, 'hug');
+      else if (st === 'skipped') toast(say('skipped'), 'good', 3800, 'proud');
+      else toast('Status updated', 'good');
+    });
+  });
+  const ma = $('#markApplied', head);
+  if (ma) ma.addEventListener('click', () => openApplyModal(a));
+  $('#editJob', head).addEventListener('click', () => openEditJobModal(a));
+  $('#delApp', head).addEventListener('click', async () => {
+    if (!(await askConfirm(unsaved ? 'Forget this job?' : 'Delete this application?', unsaved ? 'Forget' : 'Delete'))) return;
+    await S.removeApplication(id);
+    location.hash = unsaved ? '#check' : '#applications';
+  });
 }
 
 // ---------------- updates ----------------
@@ -1692,8 +1708,8 @@ function route({ ifChanged = false } = {}) {
   const [name, id] = (location.hash.slice(1) || 'home').split('/');
   const v = views[name] ? name : 'home';
   $$('.side a', document).forEach((a) => a.classList.toggle('active', a.dataset.view === v || (v === 'application' && a.dataset.view === 'applications') || (v === 'resume' && a.dataset.view === 'resumes')));
-  // Leaving a saved resume: keep the last few keystrokes.
-  if (currentResumeId && (v !== 'resume' || id !== currentResumeId) && ed.appId === currentResumeId) saveNow();
+  // Leaving a resume (saved or an application's): keep the last few keystrokes.
+  if (ed.dirty && ed.appId && id !== ed.appId) saveNow();
   currentResumeId = v === 'resume' ? id : null;
   if (v !== 'application' || id !== currentAppId) {
     if (v === 'application') appTab = openTab || 'auto';

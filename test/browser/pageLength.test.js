@@ -51,6 +51,27 @@ test('the length estimate matches the browser to within a line', async () => {
   }
 });
 
+test('long skills: the estimate still matches and the columns stay even', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 624, height: 1000 } });
+    for (const extra of [['Cross-functional stakeholder management and executive communication'], ['AWS/Kubernetes/Terraform/CloudFormation/Datadog', 'Microsoft Power BI (DAX, Power Query, M)']]) {
+      const doc = makeDoc(3, 4, 7);
+      doc.skills.push(...extra);
+      const css = ResumeDoc.CSS.replace(/"Times New Roman", Tinos, /, '');
+      await page.setContent(`<style>html,body{margin:0} ${css}</style><div class="rs-page">${ResumeDoc.renderBody(ResumeDoc.compact(doc))}</div>`);
+      const real = (await page.$eval('.rs-body', (el) => el.getBoundingClientRect().height)) * 0.75;
+      const est = ResumeDoc.measure(doc);
+      assert.ok(Math.abs(est.height - real) <= est.lineHeight, `${extra[0]}: estimated ${est.height.toFixed(0)}pt, browser ${real.toFixed(0)}pt`);
+      const widths = await page.$$eval('.rs-skills > li', (els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
+      assert.equal(new Set(widths).size, 1, `columns: ${widths.join(', ')}`);
+      assert.equal(await page.$eval('.rs-page', (el) => el.scrollWidth), 624);
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 test('a resume the optimizer sized to one page prints on one page', async () => {
   const pdfParse = require('pdf-parse/lib/pdf-parse.js');
   const { selectBullets, buildDoc } = require('../../src/main/bullets');

@@ -100,6 +100,12 @@
       why: 'Outcomes are what separate you from other candidates who held the same title. Aim for at least half your bullets to show one.',
       how: 'The share of bullets on the page that pass "A result or number".',
     },
+    {
+      id: 'skills',
+      title: 'Short skills',
+      why: 'The skills list is scanned in a second. A few words per skill keeps the grid even and easy to read, and a list packed into one skill reads as clutter. ATS search each skill word for word either way, so splitting a list loses nothing.',
+      how: 'Flags a skill that runs past two lines when the grid is two across, has a word too long to fit its column, or packs three or more skills into one (split at commas, semicolons or slashes).',
+    },
   ];
 
   /**
@@ -209,6 +215,21 @@
         withResult * 2 >= total
           ? { id: 'results', ok: true, label: `${withResult} of ${total} bullets show a result` }
           : { id: 'results', ok: false, label: `Only ${withResult} of ${total} bullets show a result`, fix: 'Add an outcome to the bullets marked in the margin, starting with your most recent role.' }
+      );
+
+    // Skills that make the grid uneven: too long, or a list packed into one.
+    const skills = ((doc && doc.skills) || []).map((x) => String(x || '').trim());
+    const long = [];
+    skills.forEach((text, i) => {
+      if (!text || !ResumeDoc || !ResumeDoc.splitSkill) return;
+      const parts = ResumeDoc.splitSkill(text);
+      if (parts.length >= 3 || ResumeDoc.skillTooLong(text)) long.push({ i, text, parts: parts.length > 1 ? parts : null });
+    });
+    if (skills.some(Boolean))
+      resume.push(
+        long.length
+          ? { id: 'skills', ok: false, label: long.length === 1 ? `Long skill: "${long[0].text.length > 40 ? `${long[0].text.slice(0, 38)}…` : long[0].text}"` : `${long.length} long skills`, fix: 'Keep each skill to a few words. Split a list into separate skills.', long }
+          : { id: 'skills', ok: true, label: 'Skills are short and even' }
       );
 
     return { bullets, resume, strong, total, withResult, tips: bullets.reduce((s, x) => s + x.tips, 0) + resume.filter((c) => !c.ok).length };
