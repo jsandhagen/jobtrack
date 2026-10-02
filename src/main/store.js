@@ -22,6 +22,9 @@ const DEFAULT_SETTINGS = {
   // Resume length for the free ATS optimizer: 'auto' (one page, two only when
   // it shows more of what the posting asks for), 1, or 2 (up to two pages).
   resumePages: 'auto',
+  // How tall the resume editor's page draws on this computer against Sprout's
+  // estimate (fonts differ a little between systems). Set by the editor.
+  pageScale: 1,
   // How to read job postings off the screen: 'ocr' (free, on this computer),
   // 'ocr-then-claude' (free first, Claude only if that finds nothing), or 'claude'.
   screenReader: 'ocr',
@@ -67,11 +70,17 @@ const DEFAULT_PROFILE = {
 const LISTS = ['contacts', 'companies', 'searches', 'templates', 'connections'];
 
 class Store {
-  constructor(dir) {
+  // deferSave: write once after a burst of changes (the app) rather than after
+  // each one; call flush() before quitting.
+  constructor(dir, { deferSave = false } = {}) {
     this.dir = dir;
+    this.deferSave = deferSave;
+    this.saveTimer = null;
     fs.mkdirSync(dir, { recursive: true });
     this.file = path.join(dir, 'jobtrack.json');
     this.data = this._load();
+    // Bumped whenever the library changes, so scores read from it can be kept until then.
+    this.documentsVersion = 0;
   }
 
   _load() {
@@ -100,7 +109,17 @@ class Store {
     };
   }
 
+  // The whole file is rewritten each time, which gets slow with a big library
+  // and many jobs, so a burst of changes (rescoring every job, a careers
+  // check) is written once.
   save() {
+    if (!this.deferSave) return this.flush();
+    if (!this.saveTimer) this.saveTimer = setTimeout(() => this.flush(), 250);
+  }
+
+  flush() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
     const tmp = this.file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
     fs.renameSync(tmp, this.file);
@@ -134,6 +153,7 @@ class Store {
     return [...this.data.documents].sort((a, b) => a.addedAt.localeCompare(b.addedAt) || a.id.localeCompare(b.id));
   }
   addDocument({ name, kind, text, sourcePath, layout }) {
+    this.documentsVersion++;
     const doc = {
       id: crypto.randomUUID(),
       name,
@@ -148,6 +168,7 @@ class Store {
     return { ...doc, chars: text.length };
   }
   updateDocument(id, patch) {
+    this.documentsVersion++;
     const doc = this.data.documents.find((d) => d.id === id);
     if (!doc) return null;
     Object.assign(doc, patch);
@@ -155,6 +176,7 @@ class Store {
     return doc;
   }
   removeDocument(id) {
+    this.documentsVersion++;
     this.data.documents = this.data.documents.filter((d) => d.id !== id);
     this.save();
   }
@@ -259,6 +281,25 @@ class Store {
   }
 
   // ---- bullet bank ----
+  // Merge the same job filed twice (bullets.tidyBank) and point every saved
+  // resume (and its undo copy) at the role and bullet that remain.
+  repairBank(tidy) {
+    const { bank, roles, bullets } = tidy(this.data.bank);
+    if (!roles.size) return 0;
+    this.data.bank = bank;
+    const fix = (doc) => {
+      for (const r of (doc && doc.roles) || []) {
+        if (roles.has(r.experienceId)) r.experienceId = roles.get(r.experienceId);
+        for (const b of r.bullets || []) if (bullets.has(b.bulletId)) b.bulletId = bullets.get(b.bulletId);
+      }
+    };
+    for (const rec of [...this.data.applications, ...this.data.resumes]) {
+      fix(rec.builder && rec.builder.doc);
+      fix(rec.builderPrev && rec.builderPrev.doc);
+    }
+    this.save();
+    return roles.size;
+  }
   getBank() {
     return this.data.bank;
   }

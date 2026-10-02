@@ -9,12 +9,13 @@ const { SKILLS } = require('./fitScore');
  * Ids for the prompt: roles R1…, bullets B1… (stable for one request).
  * @returns {{roles: object[], roleById: Map, bulletById: Map}}
  */
-function promptIds(bank, docRoles) {
+// `experiences`: the roles Claude may use (default: all of them).
+function promptIds(bank, docRoles, experiences = bank.experiences) {
   const roleById = new Map();
   const bulletById = new Map();
   const expToRole = new Map();
   let b = 0;
-  const roles = bank.experiences.map((e, i) => {
+  const roles = experiences.map((e, i) => {
     const id = `R${i + 1}`;
     roleById.set(id, e);
     expToRole.set(e.id, id);

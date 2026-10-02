@@ -16,7 +16,12 @@
 // or failing that, the links to its postings.
 //
 // Every network call goes through the fetch passed in (Electron's net.fetch
-// in the app, a fake in tests).
+// in the app, a fake in tests). Some careers sites draw their jobs with
+// JavaScript (Atlassian's), so the raw page has none. When the fetch has a
+// `render(url)` too (the app's hidden browser window), such a page is loaded
+// the way a browser would and read after its scripts have run.
+
+const { breather } = require('./breathe');
 
 const ATS_LABEL = {
   greenhouse: 'Greenhouse',
@@ -379,6 +384,24 @@ async function getText(fetchImpl, url, accept = 'text/html') {
   return { text: await res.text(), url: res.url || url };
 }
 
+// The page after its scripts have run, or null when there's no renderer.
+async function getRendered(fetchImpl, url) {
+  if (!fetchImpl || typeof fetchImpl.render !== 'function') return null;
+  try {
+    const page = await fetchImpl.render(url);
+    return page && page.text ? page : null;
+  } catch {
+    return null;
+  }
+}
+
+// Big employers whose careers sites hide their board from a plain read.
+// `site` boards here are read with the renderer.
+const KNOWN_BOARDS = {
+  autodesk: () => board('workday', 'autodesk', { host: 'autodesk.wd1.myworkdayjobs.com', site: 'Ext' }),
+  atlassian: () => board('site', 'https://www.atlassian.com/company/careers/all-jobs', { render: true }),
+};
+
 // ---------------- reading jobs ----------------
 
 // A date as ISO text. Seconds or milliseconds since 1970, or date text.
@@ -639,7 +662,7 @@ async function rawJobs(b, fetchImpl, { searchTerms = [], now = Date.now() } = {}
       });
     }
     case 'site': {
-      const page = await getText(fetchImpl, b.token);
+      const page = (b.render && (await getRendered(fetchImpl, b.token))) || (await getText(fetchImpl, b.token));
       const jobs = siteJobs(page.text, page.url);
       // Nothing there anymore (the site moved its jobs, or now draws them
       // with JavaScript): look for its jobs again.
@@ -972,10 +995,17 @@ async function jobDetail(b, job, fetchImpl) {
   try {
     const page = await getText(fetchImpl, job.url);
     const fromPage = descriptionFromPage(page.text);
-    if (fromPage.length > text.length) return fromPage;
+    if (fromPage.length > text.length) text = fromPage;
   } catch {
     // keep what the API gave
   }
+  // A site whose pages are drawn by scripts: read the posting the same way.
+  if (text.length < 80 && b.render) {
+    const page = await getRendered(fetchImpl, job.url);
+    const fromPage = page ? descriptionFromPage(page.text) : '';
+    if (fromPage.length > text.length) text = fromPage;
+  }
+  if (text) return text;
   if (!text && apiErr) throw apiErr;
   return text;
 }
@@ -1199,7 +1229,11 @@ async function findBoard(company, fetchImpl) {
       if (err.transient) unreachable = err;
       // fall through to guessing
     }
+    const found = await renderedBoard(fetchImpl, link);
+    if (found) return found;
   }
+  const known = KNOWN_BOARDS[slugsFor(company.name)[0]];
+  if (known) return { ...known(), guessed: true };
   let answered = false;
   const slugs = slugsFor(company.name);
   for (const slug of slugs) {
@@ -1232,6 +1266,23 @@ async function findBoard(company, fetchImpl) {
         // no such site, or nothing there: try the next
       }
     }
+  }
+  return null;
+}
+
+// A careers page whose jobs (or the link to its board) are drawn by scripts.
+async function renderedBoard(fetchImpl, url) {
+  const page = await getRendered(fetchImpl, url);
+  if (!page) return null;
+  const b = atsOnPage(page);
+  if (b) return { ...b, via: 'page' };
+  if (siteJobs(page.text, page.url).length) return { ...board('site', page.url, { render: true }), via: 'page' };
+  for (const next of listingLinks(page.text, page.url).slice(0, 2)) {
+    const p = await getRendered(fetchImpl, next);
+    if (!p) continue;
+    const nb = atsOnPage(p);
+    if (nb) return { ...nb, via: 'page' };
+    if (siteJobs(p.text, p.url).length) return { ...board('site', p.url, { render: true }), via: 'page' };
   }
   return null;
 }
@@ -1337,7 +1388,9 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
     .slice(0, KEEP);
   let budget = DETAIL_BUDGET;
   const jobs = [];
+  const breathe = breather();
   for (const j of kept) {
+    await breathe();
     const { text: listed, ...job } = j;
     const prev = before.get(j.id) || {};
     let text = listed;
@@ -1365,6 +1418,7 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
     let similarBudget = SIMILAR_DETAIL_BUDGET;
     for (const j of all) {
       if (jobs.length >= KEEP) break;
+      await breathe();
       if (matched.has(j.id) || !roles.some((r) => (classifyTitle(j.title, r) || {}).match === 'similar')) continue;
       const { text: listed, ...job } = j;
       const prev = before.get(j.id) || {};
@@ -1464,7 +1518,9 @@ async function searchRole(companies, { role, place = '', remoteOnly = false, min
       if (!b) return;
       if (!co.board) boards[co.id] = b;
       const jobs = await listJobs(b, fetchImpl, { searchTerms: SEARCHED.has(b.ats) ? terms : [] });
+      const breathe = breather(); // a big employer lists thousands of jobs
       for (const j of jobs) {
+        await breathe();
         const c = classifyTitle(j.title, role);
         if (c && locationFits(j.location, place, remoteOnly)) candidates.push({ company: co, board: b, job: j, ...c });
       }
@@ -1484,7 +1540,9 @@ async function searchRole(companies, { role, place = '', remoteOnly = false, min
   const rank = { exact: 0, title: 1, similar: 2 };
   candidates.sort((a, b) => (b.match === 'similar') - (a.match === 'similar') || b.similarity - a.similarity);
   let budget = ROLE_DETAIL_BUDGET;
+  const breathe = breather();
   for (const c of candidates) {
+    await breathe();
     let text = c.job.text || '';
     if (!text && scoreJob && budget > 0) {
       budget--;

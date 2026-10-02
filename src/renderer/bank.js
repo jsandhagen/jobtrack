@@ -8,6 +8,7 @@ let bankSearch = '';
 
 views.bank = () => `<div class="page" id="bankPage"><div class="empty"><span class="spinner"></span></div></div>`;
 binders.bank = () => renderBankPage();
+refreshers.bank = () => renderBankPage();
 
 function autoGrow(el) {
   el.style.height = 'auto';
@@ -49,9 +50,9 @@ async function renderBankPage() {
       const bullets = bank.bullets.filter((b) => b.experienceId === e.id && match(b));
       if (q && !bullets.length) return '';
       return `<div class="card role-card">
-        <div class="role-head"><div><h3 style="margin:0">${esc(e.title || 'Untitled role')}${e.isProject ? ' <span class="chip tiny">project</span>' : ''}</h3>
+        <div class="role-head"><div><h3 style="margin:0">${esc(e.title || 'Untitled role')}${e.isProject ? ' <span class="chip tiny">project</span>' : ''}${e.hidden ? ' <span class="chip tiny">left off resumes</span>' : ''}</h3>
           <div class="muted">${esc([e.organization, e.location, e.dates].filter(Boolean).join(' · '))}</div></div>
-          <div class="inline"><button class="small ghost" data-editrole="${e.id}">${icon('pencil', 14)} Edit</button>${bank.bullets.some((b) => b.experienceId === e.id) ? '' : `<button class="small ghost danger" data-delrole="${e.id}">Delete</button>`}</div></div>
+          <div class="inline"><button class="small ghost" data-hiderole="${e.id}" title="${e.hidden ? 'Let Sprout put this role on resumes again' : 'Never put this role on a resume (internships, a job you don\'t want to show). Its bullets stay here.'}">${e.hidden ? 'Use on resumes' : 'Leave off resumes'}</button><button class="small ghost" data-editrole="${e.id}">${icon('pencil', 14)} Edit</button>${bank.bullets.some((b) => b.experienceId === e.id) ? '' : `<button class="small ghost danger" data-delrole="${e.id}">Delete</button>`}</div></div>
         ${bullets.map(bulletRow).join('') || '<p class="faint">No bullets yet.</p>'}
         <div class="bb-new"><textarea rows="1" placeholder="+ Write a new bullet for this role… (start with a verb: Led, Built, Reduced…)" data-newfor="${e.id}"></textarea><button class="small soft" data-addto="${e.id}">Add</button></div>
       </div>`;
@@ -107,6 +108,12 @@ async function renderBankPage() {
   if (sug) sug.addEventListener('click', (e) => run(e.currentTarget, async () => openSuggestModal(await S.suggestBullets(), bank), 'Reading your documents…'));
   $('#addRole', page).addEventListener('click', () => openRoleModal({}));
   $$('[data-editrole]', page).forEach((b) => b.addEventListener('click', () => openRoleModal(bank.experiences.find((e) => e.id === b.dataset.editrole))));
+  $$('[data-hiderole]', page).forEach((b) =>
+    b.addEventListener('click', () => {
+      const e = bank.experiences.find((x) => x.id === b.dataset.hiderole);
+      run(b, async () => (await S.saveRole({ id: e.id, hidden: !e.hidden }), renderBankPage()));
+    })
+  );
   $$('[data-delrole]', page).forEach((b) => b.addEventListener('click', () => run(null, async () => (await S.deleteRole(b.dataset.delrole), renderBankPage()))));
   $$('.bb-text', page).forEach((t) => t.addEventListener('change', () => S.updateBullet(t.dataset.id, { text: t.value }).then(() => toast(say('saved'), 'good', 1500))));
   $$('.bb-var', page).forEach((t) =>

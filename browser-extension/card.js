@@ -51,7 +51,7 @@
     const g = grade || before.grade;
     return `<div class="ats-line" data-info-host title="Estimated applicant-tracking-system match for your current resume">
       <span class="grade g-${esc(g)}">${esc(g)}</span>
-      <span>ATS match for your current resume: <b>${before.score}%</b>${before.skillsMatch ? ` · skills ${esc(before.skillsMatch.toLowerCase())}` : ''}</span>${info('ats')}</div>`;
+      <span>ATS visibility of your current resume: <b>${before.score}%</b>${before.skillsMatch ? ` · skills ${esc(before.skillsMatch.toLowerCase())}` : ''}</span>${info('ats')}</div>`;
   }
 
   const chips = (list) => `<div class="chips">${list.map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')}</div>`;
@@ -76,6 +76,7 @@
       ${atsLine(ats && ats.before)}
       ${quick.headline ? `<div class="headline">${esc(quick.headline)}</div>` : ''}
       ${chips(quick.matchedSkills.slice(0, 6))}
+      ${window.SproutInfo.fitDetails(quick)}
       ${dealbreakers(quick)}
       ${r.hasDocs ? '' : note('Add your resume to your library in Sprout so I can score you properly.')}
       ${ui.error ? note(esc(ui.error), 'err') : ''}
@@ -170,6 +171,7 @@
       ${atsLine(app.ats && app.ats.before, a && a.grade)}
       ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
       ${chips(a ? a.strengths.slice(0, 3) : app.quick.matchedSkills.slice(0, 6))}
+      ${window.SproutInfo.fitDetails(app.quick)}
       ${a ? '' : dealbreakers(app.quick)}
       ${errors.map((e) => note(esc(e), 'err')).join('')}
       ${footer}`;
@@ -196,7 +198,7 @@
     return `<div class="center">${M().helperSvg(claude ? 'claude' : 'ats', 'thrilled', 88)}
       <h3>Your ${claude ? 'Claude' : 'ATS'} resume is ready!</h3>
       <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${at}. Give it a quick read, tweak anything you like, and export to PDF.</p>
-      ${after ? `<div class="ats-compare">ATS match ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${after.score}%</b> <span class="grade g-${esc(after.grade)}">${esc(after.grade)}</span></div>` : ''}
+      ${after ? `<div class="ats-compare">ATS visibility ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${after.score}%</b></div>` : ''}
       <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="back">Back</button></div></div>`;
   }
 
@@ -220,6 +222,8 @@
   function mount(pop, opts) {
     pop.innerHTML = `${opts.closeButton === false ? '' : '<button class="ghost close" data-act="close" title="Close" aria-label="Close">✕</button>'}<div class="card-body"></div>`;
     const body = pop.querySelector('.card-body');
+    // Opening the score breakdown changes the card's height.
+    body.addEventListener('toggle', () => opts.onChange && opts.onChange(), true);
     let result = null;
     let ui = { work: null, done: null, error: null };
     let pollTimer = null;

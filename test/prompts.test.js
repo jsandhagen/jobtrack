@@ -210,6 +210,46 @@ test('the library block orders documents by kind and keeps writing samples separ
   assert.match(P.SYSTEM, /# Using every document/);
 });
 
+test('bullets repeated across resume versions go to Claude once, and can still be quoted', () => {
+  const v2 = LIBRARY.replace('Shipped JavaScript apps for 30+ clients', 'Shipped JavaScript apps for 30+ clients in retail and travel');
+  const docs = [
+    { name: 'resume.pdf', kind: 'resume', text: LIBRARY },
+    { name: 'resume v2.pdf', kind: 'resume', text: v2 },
+    { name: 'resume copy.pdf', kind: 'resume', text: LIBRARY },
+  ];
+  const block = P.libraryBlock(docs, {});
+  const facts = block.slice(block.indexOf('<candidate_documents>'), block.indexOf('</candidate_documents>'));
+  assert.equal(facts.split('Built a React + TypeScript design system used by 40 engineers').length - 1, 1, 'given once');
+  assert.match(facts, /in retail and travel/, 'what differs between versions is kept');
+  assert.match(facts, /<document name="resume v2.pdf" kind="resume">\nFrontend Engineer, Bloom Labs, 2020 - Present\nWeb Developer/, 'role lines stay for context');
+  assert.match(P.TASKS.resume, /12 to 16 bullets/, 'a length budget, so the app does not have to cut');
+  assert.match(facts, /<document name="resume copy.pdf" kind="resume">\n\(the same text as "resume.pdf"\)/);
+  assert.match(facts, /given once, in the first document that has it/);
+  // The fact check still reads every document in full.
+  assert.ok(G.quoteFound('Built a React + TypeScript design system used by 40 engineers', claude.libraryText(docs, {})));
+  // One document: nothing changes.
+  assert.doesNotMatch(P.libraryBlock(DOCS, {}), /given once/);
+});
+
+test('a repeated bullet that wraps onto a second line is left out whole, never half', () => {
+  const a = 'Analyst, Acme, 2019 - 2021\n• Built the loan-level credit model used by the risk committee to set\nreserve levels across 4 portfolios\n• Cut month-end close from 8 days to 5 with Excel templates';
+  const b = 'Analyst, Acme, 2019 - 2021\n• Presented quarterly portfolio reviews to the chief risk officer\n• Built the loan-level credit model used by the risk committee to set\nreserve levels across 4 portfolios\n• Cut month-end close from 8 days to 5 with Excel templates\nAn unclear next line';
+  const block = P.libraryBlock([{ name: 'a', kind: 'resume', text: a }, { name: 'b', kind: 'resume', text: b }], {});
+  const second = block.slice(block.indexOf('<document name="b"'));
+  assert.doesNotMatch(second, /reserve levels/, 'the wrapped piece goes with its bullet');
+  assert.match(second, /chief risk officer\n/, 'and is not glued onto the bullet before it');
+  // Where a bullet ends is unclear: it stays.
+  assert.match(second, /Cut month-end close/);
+});
+
+test('the resume prompt gives Claude a free hand with content, inside the layout and the facts', () => {
+  assert.match(P.TASKS.resume, /starting point, not a limit/);
+  assert.match(P.TASKS.resume, /merge two bullets/);
+  assert.match(P.TASKS.resume, /truthfulness rules above still apply/);
+  assert.match(P.TASKS.resume, /layout is fixed/);
+  assert.doesNotMatch(P.TASKS.resume, /except for small edits/);
+});
+
 test('writing samples never count as facts', async () => {
   // Not in the fact-check corpus…
   assert.doesNotMatch(claude.libraryText([SAMPLE, ...DOCS], {}), /release checklist/);

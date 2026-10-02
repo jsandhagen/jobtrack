@@ -14,6 +14,7 @@ function on(channel, cb) {
 
 contextBridge.exposeInMainWorld('sprout', {
   getState: () => call('state:get'),
+  getSettings: () => call('settings:get'),
   updateSettings: (patch) => call('settings:update', patch),
   updateProfile: (patch) => call('profile:update', patch),
   setApiKey: (key) => call('apikey:set', key),
@@ -43,6 +44,7 @@ contextBridge.exposeInMainWorld('sprout', {
   removeApplication: (id) => call('app:remove', id),
   generateResume: (id) => call('app:resume', id),
   atsResume: (id) => call('app:atsResume', id),
+  fixPage: (id, opts) => call('builder:fixPage', id, opts),
   baselineResume: (id) => call('builder:baseline', id),
   undoResume: (id) => call('builder:undo', id),
   generateCoverLetter: (id) => call('app:coverLetter', id),
@@ -81,7 +83,8 @@ contextBridge.exposeInMainWorld('sprout', {
   deleteRole: (id) => call('bank:deleteRole', id),
   suggestBullets: () => call('bank:suggest'),
   getEditor: (appId) => call('builder:get', appId),
-  fitEditor: (appId, pages) => call('builder:fit', appId, pages),
+  fitEditor: (appId, pages, scale, again) => call('builder:fit', appId, pages, scale, again),
+  calibratePage: (scale) => call('builder:calibrate', scale),
   saveEditor: (appId, doc) => call('builder:save', appId, doc),
   autoEditor: (appId) => call('builder:auto', appId),
   roleFromBank: (appId, experienceId) => call('builder:roleFromBank', appId, experienceId),
@@ -96,6 +99,8 @@ contextBridge.exposeInMainWorld('sprout', {
 
   onStateChanged: (cb) => on('state-changed', cb),
   onAppUpdated: (cb) => on('app-updated', cb),
+  onResumeProgress: (cb) => on('resume-progress', cb),
+  resumeProgress: (appId) => call('resume:progress', appId),
   onToast: (cb) => on('toast', cb),
   onNavigate: (cb) => on('navigate', cb),
   onUpdateStatus: (cb) => on('update-status', cb),

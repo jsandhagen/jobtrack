@@ -33,7 +33,7 @@ main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; backg
 .page > :nth-child(4) { animation-delay: 0.12s; }
 .page > :nth-child(5) { animation-delay: 0.16s; }
 .page > :nth-child(n + 6) { animation-delay: 0.2s; }
-.settled .page > * { animation: none; }
+.settled .page > *, .page.settled > * { animation: none; }
 @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
 .page-head > .inline { flex-wrap: nowrap; flex: none; margin-top: 4px; }
@@ -207,8 +207,7 @@ details[open] > summary::before { transform: rotate(90deg); }
 .timeline li { position: relative; display: flex; justify-content: space-between; font-size: 12.5px; padding: 3px 0 3px 8px; }
 .timeline li::before { content: ""; position: absolute; left: -19px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--sage); box-shadow: 0 0 0 3px var(--surface); }
 .timeline li span { color: var(--ink-faint); }
-.mini-bars { display: grid; gap: 5px; margin: 10px 0 2px; }
-.mini-bars .ats-bar { grid-template-columns: 118px 1fr 28px; }
+.chip .have-skill { margin-left: 4px; padding: 0 7px; min-height: 0; font-size: 11.5px; font-weight: 800; border-radius: 99px; background: var(--surface); color: var(--sage-deep); border: 1px solid var(--line-strong); box-shadow: none; }
 .center { text-align: center; }
 .center .sprout { margin: 0 auto; display: block; }
 .status.rejected { background: var(--peach-soft); color: #b8653e; }
@@ -266,6 +265,8 @@ details.more summary { cursor: pointer; font-weight: 700; color: var(--ink-soft)
 .ed-bar .ed-len select { font-size: 12px; padding: 3px 6px; width: auto; }
 .mode-why { display: flex; align-items: center; gap: 5px; margin: 4px 0 0; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); }
 /* Measuring the page as it prints: no "+ add" rows or empty placeholders. */
+/* Measured as it prints: empty fields and placeholders ("Address | Phone") don't print. */
+.ed-page.measuring .rs-head > [data-path]:empty, .ed-page.measuring .rs-row:not(:has([data-path]:not(:empty))), .ed-page.measuring .rs-detail:not(:has([data-path]:not(:empty))),
 .ed-page.measuring .rs-add, .ed-page.measuring li[data-path]:empty, .ed-page.measuring .rs-sec:has(> .rs-summary:empty), .ed-page.measuring .ed-float, .ed-page.measuring .ed-grip { display: none !important; }
 .ed-desk { position: relative; background: #e9e5dd; border: 1px solid var(--line); border-radius: 18px; padding: 36px 12px 40px; display: flex; justify-content: center; box-shadow: inset 0 1px 3px rgba(60, 50, 30, 0.06); }
 @media (prefers-color-scheme: dark) { .ed-desk { background: #161a18; } }
@@ -974,7 +975,7 @@ p.way-next { display: flex; }
 /* Theme: swatches in the sidebar and in Settings → Appearance. */
 .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14); }
 .swatch.light { background: linear-gradient(135deg, #ffffff 50%, #faf2e6 50%); }
-.swatch.green { background: linear-gradient(135deg, #e2f2e7 50%, #62a77f 50%); }
+.swatch.green { background: linear-gradient(135deg, #c4e1cc 50%, #62a77f 50%); }
 .swatch.dark { background: linear-gradient(135deg, #232a26 50%, #8fd0a6 50%); }
 .swatch.system { background: linear-gradient(135deg, #ffffff 50%, #232a26 50%); }
 .theme-switch { display: flex; align-items: center; gap: 2px; margin-top: 8px; padding: 4px 6px; font-size: 12px; font-weight: 700; color: var(--ink-faint); }
@@ -989,3 +990,36 @@ p.way-next { display: flex; }
 .theme-pick .swatch { width: 22px; height: 22px; }
 .theme-pick b { display: block; font-size: 13.5px; color: var(--ink); }
 .theme-pick small { display: block; font-size: 12px; color: var(--ink-soft); font-weight: 600; line-height: 1.3; }
+
+/* Claude's progress on a resume */
+.rprog { width: min(420px, 90%); margin: 14px auto 6px; text-align: left; }
+.rprog-bar { height: 10px; border-radius: 99px; background: var(--surface-2); overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
+.rprog-bar i { display: block; height: 100%; width: 3%; border-radius: 99px; background: linear-gradient(90deg, var(--sage), var(--sage-deep)); transition: width 0.9s var(--ease); }
+.rprog-text { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 13px; color: var(--ink-soft); }
+.rprog-text b { color: var(--ink); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .rprog-bar i { transition: none; } }
+
+/* Sprout's nudges on the ATS check: a few kind words instead of a wall of misses */
+.nudges { display: grid; gap: 8px; margin: 14px 0 6px; }
+.nudges.compact { margin: 0; }
+.nudge-head { display: flex; align-items: center; gap: 10px; }
+.nudge-head p { margin: 0; font-weight: 700; color: var(--ink-soft); line-height: 1.4; }
+.nudge { display: flex; gap: 10px; align-items: flex-start; border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.45; background: var(--butter-soft); }
+.nudge p { margin: 0; }
+.nudge .ni { flex: none; width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--ink-soft); }
+.nudge.t-done, .nudge.t-fixed { background: var(--sage-soft); }
+.nudge.t-done .ni, .nudge.t-fixed .ni { color: var(--sage-deep); }
+.nudge.t-ask { background: var(--lavender-soft); }
+.nudge.t-heads-up { background: var(--peach-soft); }
+.nudge-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.nudge-more { margin: 2px 4px 0; font-size: 12px; }
+.ats-more { margin-top: 10px; }
+.ats-more > summary { cursor: pointer; }
+.tray-fold > summary { display: flex; align-items: center; }
+.tray-fold > summary h4 { flex: 1; margin: 0; }
+.tray-fold[open] > summary { margin-bottom: 6px; }
+.tray-fold > summary h4 > span { display: inline-flex; align-items: center; gap: 6px; }
+.tray-fold .n { min-width: 17px; height: 17px; border-radius: 9px; background: var(--butter-soft); color: #a0651c; font-size: 10.5px; display: inline-grid; place-items: center; padding: 0 4px; }
+.nudge-literal { display: flex; align-items: center; gap: 6px; margin: -2px 2px 2px; font-size: 12px; color: var(--ink-faint); }
+.ats-plain { margin-top: 4px; font-size: 13px; color: var(--ink-soft); line-height: 1.4; max-width: 220px; }
+.show-more { display: flex; justify-content: center; margin: 12px 0 4px; }

@@ -58,6 +58,7 @@ function scoreView({ app, analyzing, noDocs, noKey }) {
     ${atsLine(app)}
     ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
     <div class="chips">${chips}</div>
+    ${window.SproutInfo.fitDetails(app.quick)}
     ${footer}`;
 }
 
@@ -78,7 +79,7 @@ function atsLine(app) {
   const grade = (app.analysis && app.analysis.grade) || b.grade;
   return `<div class="ats-line" data-info-host title="Estimated applicant-tracking-system match for your current resume">
     <span class="grade g-${grade}">${grade}</span>
-    <span>ATS match for your current resume: <b>${b.score}%</b>${b.skillsMatch ? ` · skills ${esc(b.skillsMatch.toLowerCase())}` : ''}</span>${window.SproutInfo.infoBtn('ats')}</div>`;
+    <span>ATS visibility of your current resume: <b>${b.score}%</b>${b.skillsMatch ? ` · skills ${esc(b.skillsMatch.toLowerCase())}` : ''}</span>${window.SproutInfo.infoBtn('ats')}</div>`;
 }
 
 function workingView({ app, engine, what }) {
@@ -87,8 +88,17 @@ function workingView({ app, engine, what }) {
   return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thinking', 88)}
     <h3>${letter ? 'Root is writing your cover letter…' : claude ? 'Root is writing with Claude…' : 'Spike is picking your bullets…'}</h3>
     <p class="muted">${claude ? `${letter ? 'Writing to' : 'Tailoring your resume for'} <b>${esc(app.job.title)}</b>. This usually takes under a minute. Keep browsing if you like.` : `Matching your best experience to <b>${esc(app.job.title)}</b>.`}</p>
-    <span class="spinner" style="color: var(--sage)"></span></div>`;
+    ${claude && !letter ? `<div class="rprog" data-rprog="${esc(app.id)}"><div class="rprog-bar"><i></i></div><div class="rprog-text"><span data-rprog-label>Starting…</span><b data-rprog-pct></b></div></div>` : '<span class="spinner" style="color: var(--sage)"></span>'}</div>`;
 }
+
+// Claude's progress on a resume (see the app's resume page for the same bar).
+window.sprout.onResumeProgress((p) => {
+  const el = document.querySelector(`[data-rprog="${CSS.escape(p.appId)}"]`);
+  if (!el) return;
+  el.querySelector('.rprog-bar i').style.width = `${p.pct}%`;
+  el.querySelector('[data-rprog-label]').textContent = `${p.label}…`;
+  el.querySelector('[data-rprog-pct]').textContent = `${p.pct}%`;
+});
 
 function doneView({ app, engine, what }) {
   const claude = engine !== 'ats';
@@ -100,7 +110,7 @@ function doneView({ app, engine, what }) {
   return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thrilled', 88)}
     <h3>Your ${claude ? 'Claude' : 'ATS'} resume is ready!</h3>
     <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${app.job.company ? ` at ${esc(app.job.company.replace(/\.$/, ''))}` : ''}. Give it a quick read, tweak anything you like, and export to PDF.</p>
-    ${app.ats && app.ats.after ? `<div class="ats-compare">ATS match ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${app.ats.after.score}%</b> <span class="grade g-${app.ats.after.grade}">${app.ats.after.grade}</span></div>` : ''}
+    ${app.ats && app.ats.after ? `<div class="ats-compare">ATS visibility ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${app.ats.after.score}%</b></div>` : ''}
     <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="dismiss-quiet">Later</button></div></div>`;
 }
 
@@ -150,6 +160,8 @@ function render(payload) {
 }
 
 window.SproutInfo.wire({ inline: true, onToggle: fit });
+// Opening the score breakdown changes the card's height (toggle doesn't bubble).
+content.addEventListener('toggle', fit, true);
 
 content.addEventListener('click', (e) => {
   // Poke Sprout and it says something nice.
@@ -174,6 +186,6 @@ document.getElementById('close').addEventListener('click', () => window.sprout.o
 window.sprout.onOverlayShow(render);
 
 // The theme chosen in Settings → Appearance (Green tints the light look).
-const applyTheme = () => window.sprout.getState().then((s) => (document.documentElement.dataset.theme = (s && s.settings && s.settings.theme) || 'light'), () => {});
+const applyTheme = () => window.sprout.getSettings().then((s) => (document.documentElement.dataset.theme = (s && s.theme) || 'light'), () => {});
 applyTheme();
 window.sprout.onStateChanged(applyTheme);

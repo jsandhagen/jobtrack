@@ -36,7 +36,9 @@ const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
-const { atsScore, atsGaps, libraryAtsScore } = require('./atsScore');
+const { atsScore: readAts, atsGaps, libraryAtsScore } = require('./atsScore');
+const { memoize } = require('./memo');
+const { atsNudges } = require('./atsNudges');
 const outreach = require('../shared/outreach');
 const finder = require('../shared/finder');
 const careers = require('./careers');
@@ -243,7 +245,9 @@ async function captureScreen(size) {
   const src = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
   const img = src.thumbnail;
   if (img.isEmpty()) return null;
-  if (full) return { png: img.toPNG(), image: img };
+  // The full shot stays an image: encoding a retina screenshot as PNG takes a
+  // noticeable moment on the main process, so it's done only if it's needed.
+  if (full) return { image: img, get png() { return img.toPNG(); } };
   // Normalise the thumbnail size so bitmap diffs compare like with like.
   const sized = img.resize({ width: size.width, height: size.height });
   return { bitmap: sized.toBitmap(), png: sized.toPNG() };
@@ -251,9 +255,9 @@ async function captureScreen(size) {
 
 // Read a job posting off a screenshot. Free OCR first; Claude only if the
 // settings allow it (and, for automatic scans, the monthly budget has room).
-async function readScreen(png, { force = false } = {}) {
+async function readScreen(shot, { force = false } = {}) {
   const s = store.getSettings();
-  let img = nativeImage.createFromBuffer(png);
+  let img = Buffer.isBuffer(shot) ? nativeImage.createFromBuffer(shot) : shot;
   let ocrResult = null;
   if (s.screenReader !== 'claude') {
     // Standard-resolution screens: enlarging 2x makes small text much more readable.
@@ -410,8 +414,46 @@ function scoringDocuments() {
   return bankText.trim() ? [...docs, { kind: 'bank', text: bankText }] : docs;
 }
 
+// ATS reads are kept until the posting, the page, the library or the profile
+// changes: the applications list shows one for every job, and with a dozen
+// resumes in the library each takes a while.
+const jobKey = (job) => [job.title, job.company, job.location, job.text].map((x) => x || '').join('\u0000');
+const libraryAts = memoize((job) => libraryAtsScore(job, evidenceDocs(), store.getProfile()), {
+  size: 1000,
+  key: (job) => `${store.documentsVersion}\u0000${JSON.stringify(store.getProfile())}\u0000${jobKey(job)}`,
+});
+const atsScore = memoize(readAts, {
+  size: 1000,
+  key: (job, text, opts = {}) => `${jobKey(job)}\u0000${text}\u0000${JSON.stringify(opts)}`,
+});
+
+// The editor's page against the length estimate on this computer (see builder:calibrate).
+const validScale = (s) => (typeof s === 'number' && s >= 0.85 && s <= 1.3 ? Math.round(s * 1000) / 1000 : null);
+const pageScale = () => validScale(store.getSettings().pageScale) || 1;
+
 function scoreLocally(job) {
   return localFitScore(job, scoringDocuments(), store.getProfile());
+}
+
+// The free fit preview for postings found by careers checks and searches.
+// A posting already scored against the same documents and profile isn't
+// scored again: a check every 8 hours mostly finds the jobs it saw last time.
+const fitPreviews = new Map();
+function previewScorer({ clean = false } = {}) {
+  const docs = scoringDocuments();
+  if (!docs.length) return null;
+  const profile = store.getProfile();
+  const hash = (x) => require('crypto').createHash('sha1').update(x).digest('base64');
+  const library = hash(JSON.stringify([docs.map((d) => [d.kind, d.text]), profile, SCORER_VERSION, clean]));
+  return (job) => {
+    const key = `${library}|${hash([job.title, job.company, job.location, job.text].join('\u0000'))}`;
+    if (fitPreviews.has(key)) return fitPreviews.get(key);
+    const q = localFitScore(clean ? cleanPosting(job) : job, docs, profile);
+    const fit = { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
+    if (fitPreviews.size >= 5000) fitPreviews.delete(fitPreviews.keys().next().value);
+    fitPreviews.set(key, fit);
+    return fit;
+  };
 }
 
 // Should Claude take a closer look automatically? Default: only when asked.
@@ -493,27 +535,43 @@ async function analyzeApp(appId, { popup = false, keepTitle = true } = {}) {
 // Computed on read so it stays current as the library or the resume is edited.
 function withAts(rec) {
   if (!rec) return rec;
-  const before = libraryAtsScore(rec.job, evidenceDocs(), store.getProfile());
+  const before = libraryAts(rec.job);
   const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml), { profile: store.getProfile() }) : null;
   const bank = store.getBank();
   // Which bullet proves each requirement.
   const evidence = bank.bullets.length ? bulletBank.rankBullets(rec.job, bank).evidence : [];
-  return { ...rec, ats: { before, after }, evidence };
+  // The few things worth doing, in plain words, for whichever resume is shown.
+  const nudges = after
+    ? atsNudges({ ats: after, job: rec.job, pageText: htmlToText(rec.resumeHtml), bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true })
+    : atsNudges({ ats: before, job: rec.job, pageText: before ? evidenceDocs().map((d) => d.text).join('\n') : '', bank, onPage: false });
+  return { ...rec, ats: { before, after, nudges }, evidence };
 }
 
 // Saved fit scores are snapshots. Recompute the ones an older scorer made
 // (offline and free), after the same cleanup new postings get: site chrome
 // removed, and a real title / company / location where the text names one
 // (jobs saved as "About the job" get their title back).
+// One job at a time between other work, so the window and clicks stay
+// responsive while a scorer update rescores everything.
 function refreshLocalScores() {
-  for (const rec of store.listApplications()) {
-    if (!rec.job || !rec.job.text) continue;
-    if (rec.quick && rec.quick.version === SCORER_VERSION) continue;
-    // Clean postings saved before cleanup existed; keep what was captured.
-    const clean = cleanPosting(rec.job);
-    const job = { ...rec.job, ...clean, rawText: rec.job.rawText || (clean.text !== rec.job.text ? rec.job.text : undefined) };
-    store.updateApplication(rec.id, { job, quick: scoreLocally(job) });
-  }
+  const stale = store.listApplications().filter((rec) => rec.job && rec.job.text && !(rec.quick && rec.quick.version === SCORER_VERSION));
+  if (!stale.length) return Promise.resolve(0);
+  return new Promise((resolve) => {
+    const next = () => {
+      const rec = stale.shift();
+      const cur = rec && store.getApplication(rec.id);
+      if (cur) {
+        // Clean postings saved before cleanup existed; keep what was captured.
+        const clean = cleanPosting(cur.job);
+        const job = { ...cur.job, ...clean, rawText: cur.job.rawText || (clean.text !== cur.job.text ? cur.job.text : undefined) };
+        store.updateApplication(cur.id, { job, quick: scoreLocally(job) });
+      }
+      if (stale.length) return void setImmediate(next);
+      broadcast('state-changed');
+      resolve(true);
+    };
+    setImmediate(next);
+  });
 }
 
 // The resume editor works on an application's resume or on one of your own
@@ -550,37 +608,91 @@ async function makeResume(appId) {
     if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add them on the Bullet bank page first.");
     const profile = store.getProfile();
     const documents = docsForPrompt();
-    const ids = draft.promptIds(bank, currentDoc(rec).roles);
+    // Internships stay off once there's real work to show (see resumeExperiences).
+    const ids = draft.promptIds(bank, currentDoc(rec).roles, bulletBank.resumeExperiences(bank, rec.job));
     const job = jobForClaude(rec);
-    const out = await claude.generateResume(claudeClient(), {
-      job,
-      documents,
-      profile,
-      analysis: rec.analysis,
-      ats: libraryAtsScore(rec.job, evidenceDocs(), store.getProfile()),
-      roles: ids.roles,
-      picked: ids.picked,
-      model: store.getSettings().model,
-    });
+    const progress = resumeProgress(appId);
+    let out;
+    try {
+      out = await claude.generateResume(claudeClient(), {
+        job,
+        documents,
+        profile,
+        analysis: rec.analysis,
+        ats: libraryAts(rec.job),
+        roles: ids.roles,
+        picked: ids.picked,
+        model: store.getSettings().model,
+        onProgress: progress.update,
+      });
+    } finally {
+      progress.stop();
+    }
+    progress.checking();
     let { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
     const prev = rec.builder && rec.builder.doc;
     if (prev && prev.header && prev.header.name) doc.header = prev.header;
     // Keep Claude's draft within the length you chose (it's asked for one page, but can run over).
-    const limit = String(store.getSettings().resumePages) === '1' ? 1 : 2;
-    if (ResumeDoc.measure(doc).pages > limit) {
-      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit);
+    // On Auto, a second page with only a few lines on it is a spill-over: back to one.
+    const want = String(store.getSettings().resumePages);
+    const spill = ResumeDoc.measure(doc, { scale: pageScale() });
+    const limit = want === '1' || (want !== '2' && spill.pages === 2 && spill.lastPageFill < 0.3) ? 1 : 2;
+    if (!ResumeDoc.fits(doc, limit, { scale: pageScale() })) {
+      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit, { scale: pageScale() });
       doc = fit.doc;
       const n = fit.removed.length;
       if (n) notes = [...notes, `Took off ${n} of the weakest bullet${n === 1 ? '' : 's'} so it fits on ${limit === 1 ? 'one page' : 'two pages'}.`];
     }
-    saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
+    resumeProgressNow.delete(appId);
+    saveDoc(appId, doc, { resumeSource: 'claude', atsFit: null, resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
     hostUpdated(updated);
     return updated;
   } catch (err) {
+    resumeProgressNow.delete(appId);
     hostUpdated(updateHost(appId, { resumeStatus: 'error', resumeError: err.message }));
     throw err;
   }
+}
+
+// How far along Claude is with a resume, for the progress bar: reading
+// (thinking, before it writes) creeps from 4% to about 30% over a minute;
+// writing fills 30–92% as the draft arrives (a one-page draft is about 5,000
+// characters); checking every fact against the documents takes it to 96%.
+// Sent at most four times a second; the page shows the latest.
+const resumeProgressNow = new Map();
+function resumeProgress(appId) {
+  const started = Date.now();
+  let phase = 'thinking';
+  let chars = 0;
+  let last = 0;
+  const send = (force) => {
+    const now = Date.now();
+    if (!force && now - last < 250) return;
+    last = now;
+    const t = (now - started) / 1000;
+    const pct =
+      phase === 'thinking' ? 4 + 26 * (1 - Math.exp(-t / 25)) : phase === 'writing' ? 30 + 62 * Math.min(1, chars / 5000) : 96;
+    const label =
+      phase === 'thinking'
+        ? 'Reading your documents and the posting'
+        : phase === 'writing'
+          ? 'Writing your summary and bullets'
+          : 'Checking every fact against your documents';
+    const p = { appId, pct: Math.round(pct), label, seconds: Math.round(t) };
+    resumeProgressNow.set(appId, p);
+    broadcast('resume-progress', p);
+  };
+  const timer = setInterval(() => send(true), 1000);
+  send(true);
+  return {
+    update: (p) => {
+      if (p.phase === 'writing') (phase = 'writing'), (chars = p.chars);
+      send(false);
+    },
+    stop: () => clearInterval(timer),
+    checking: () => ((phase = 'checking'), send(true)),
+  };
 }
 
 // Every job starts from the baseline (your bank as it stands). ATS mode
@@ -595,7 +707,7 @@ function makeBaseline(appId) {
   if (!rec) throw new Error('That resume no longer exists.');
   const doc = bulletBank.baselineDoc({ profile: store.getProfile(), bank: store.getBank(), job: rec.job });
   if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
-  saveDoc(appId, doc, { resumeSource: 'baseline', builderPrev: undoPoint(rec) });
+  saveDoc(appId, doc, { resumeSource: 'baseline', atsFit: null, builderPrev: undoPoint(rec) });
   hostUpdated(getHost(appId));
 }
 
@@ -621,9 +733,19 @@ function makeAtsResume(appId) {
   const profile = store.getProfile();
   const header = rec.builder && rec.builder.doc ? rec.builder.doc.header : undefined;
   // Sized to the page: the template is measured as bullets go in.
-  const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages });
-  const { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
-  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, atsFit: { pages: sel.pages, why: sel.why }, builderPrev: undoPoint(rec) });
+  const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages, scale: pageScale() });
+  let { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
+  // What a keyword search would miss but the facts support, fixed on the page:
+  // an industry the employer proves ("SaaS" for Appian), and the posting's
+  // words beside yours in the skills grid ("Amazon Web Services (AWS)").
+  const industry = bulletBank.addIndustryWords(doc, rec.job).added;
+  const reworded = bulletBank.pickSkills(rec.job, bank).reworded;
+  if (!ResumeDoc.fits(doc, sel.pages, { scale: pageScale() })) doc = bulletBank.fitDocToPages(doc, rec.job, bank, sel.pages, { scale: pageScale() }).doc;
+  const fixes = [
+    ...industry.map((x) => ({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` })),
+    ...reworded.map((x) => ({ kind: 'wording', term: x.to, text: `Wrote “${x.to}” in your skills, so a search for the posting's words finds it.` })),
+  ];
+  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, atsFit: { pages: sel.pages, why: sel.why, fixes }, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
   hostUpdated(updated);
   return updated;
@@ -789,10 +911,11 @@ function builderState(rec) {
     otherRoles: bulletBank
       .orderedExperiences(bank)
       .filter((e) => !inDoc.has(e.id))
-      .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
+      .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, hidden: !!e.hidden, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
     coverage,
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 10), components: ats.components, gaps },
+    nudges: rec.job && String(rec.job.text || '').trim() ? atsNudges({ ats, job: rec.job, pageText, bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true }) : null,
     // The posting's title, for the "role named up top" check.
     jobTitle: (rec.job && rec.job.title) || '',
     bankSize: bank.bullets.length,
@@ -836,6 +959,10 @@ const pickQuick = (q) => ({
   confidence: q.confidence,
   matchedSkills: (q.matchedSkills || []).slice(0, 8),
   dealbreakers: q.dealbreakers || [],
+  // For the card's breakdown.
+  components: q.components || null,
+  partialSkills: (q.partialSkills || []).slice(0, 8),
+  missingSkills: (q.missingSkills || []).slice(0, 8),
 });
 const pickAts = (a) => (a ? { score: a.score, grade: a.grade, skillsMatch: a.skillsMatch || '' } : null);
 const cardEnv = () => ({ hasDocs: evidenceDocs().length > 0, hasKey: !!getApiKey() });
@@ -1014,7 +1141,7 @@ async function startBridge() {
         preview: {
           job: { title: job.title, company: job.company, location: job.location, url: job.url },
           quick: pickQuick(quick),
-          ats: { before: pickAts(libraryAtsScore(job, evidenceDocs(), store.getProfile())) },
+          ats: { before: pickAts(libraryAts(job)) },
         },
         ...cardEnv(),
       };
@@ -1096,6 +1223,8 @@ function registerIpc() {
     finder: store.getFinder(),
     finderRunning,
   }));
+  // Just the settings, for windows that only need the theme (the whole state reads every job).
+  handle('settings:get', () => ({ ...store.getSettings(), bridgePairings: undefined }));
   handle('settings:update', (patch) => applySettings(patch));
   handle('profile:update', (patch) => {
     const p = store.updateProfile(patch);
@@ -1211,7 +1340,7 @@ function registerIpc() {
   handle('bank:saveRole', (role) => {
     let saved;
     store.updateBank((b) => {
-      const fields = pick(role, ['title', 'organization', 'location', 'dates', 'isProject']);
+      const fields = pick(role, ['title', 'organization', 'location', 'dates', 'isProject', 'hidden']);
       if (fields.dates !== undefined) {
         const [start, end] = String(fields.dates).split(/\s*(?:-|–|—|to)\s*/);
         Object.assign(fields, { start: start || '', end: end || '' });
@@ -1273,12 +1402,19 @@ function registerIpc() {
     makeAtsResume(appId);
     return builderState(getHost(appId));
   });
+  // The editor reports how its page draws against the estimate; building and
+  // trimming use it. Saved quietly: nothing on screen depends on it.
+  handle('builder:calibrate', (scale) => {
+    const s = validScale(scale);
+    if (s && Math.abs(s - pageScale()) >= 0.003) store.updateSettings({ pageScale: s });
+  });
   // Trim the page to one or two pages, weakest bullets first (undoable).
-  handle('builder:fit', (appId, pages) => {
+  // `again`: another pass of the same trim, which Undo takes back with the first.
+  handle('builder:fit', (appId, pages, scale, again) => {
     const rec = getHost(appId);
     if (!rec) throw new Error('That resume no longer exists.');
-    const out = bulletBank.fitDocToPages(currentDoc(rec), rec.job, store.getBank(), pages === 2 ? 2 : 1);
-    if (out.removed.length || out.skills.length || out.roles.length) saveDoc(appId, out.doc, { builderPrev: undoPoint(rec) });
+    const out = bulletBank.fitDocToPages(currentDoc(rec), rec.job, store.getBank(), pages === 2 ? 2 : 1, { scale: validScale(scale) || pageScale() });
+    if (out.removed.length || out.skills.length || out.roles.length) saveDoc(appId, out.doc, again && rec.builderPrev ? {} : { builderPrev: undoPoint(rec) });
     hostUpdated(getHost(appId));
     return { ...builderState(getHost(appId)), trimmed: { bullets: out.removed, skills: out.skills, roles: out.roles, pages: out.pages } };
   });
@@ -1316,7 +1452,9 @@ function registerIpc() {
     store.updateSettings({ bridgePairings: (store.getSettings().bridgePairings || []).filter((p) => p.origin !== origin) });
     broadcast('state-changed');
   });
-  handle('bridge:showFolder', () => shell.openPath(extensionDir()));
+  // Highlights the folder in its parent rather than opening it, since Load unpacked wants the folder itself.
+  handle('bridge:showFolder', () => shell.showItemInFolder(extensionDir()));
+  handle('resume:progress', (appId) => resumeProgressNow.get(appId) || null);
   handle('update:status', () => updater.status());
   handle('update:check', () => updater.check());
   handle('update:install', () => updater.install());
@@ -1471,7 +1609,7 @@ function registerIpc() {
     const days = Number(store.getSettings().followUpDays) || 7;
     const appliedAt = info.appliedAt ? new Date(info.appliedAt).toISOString() : new Date().toISOString();
     const followUpAt = info.followUpAt === '' ? null : info.followUpAt ? new Date(info.followUpAt).toISOString() : new Date(Date.parse(appliedAt) + days * 86400000).toISOString();
-    const best = libraryAtsScore(rec.job, evidenceDocs(), store.getProfile());
+    const best = libraryAts(rec.job);
     // For "What's working for you": which kind of resume went out, and how
     // many of its bullets passed every resume check.
     const doc = rec.builder && rec.builder.doc;
@@ -1555,6 +1693,26 @@ function registerIpc() {
   });
   handle('app:resume', (id) => makeResume(id));
   handle('app:atsResume', (id) => makeAtsResume(id));
+  // The fixes a nudge offers: industry words the employer proves ("SaaS" for
+  // Appian), or the posting's word for a skill you show, added to the skills grid.
+  handle('builder:fixPage', (id, { addSkill } = {}) => {
+    const rec = getHost(id);
+    if (!rec) throw new Error('That resume no longer exists.');
+    const doc = JSON.parse(JSON.stringify(currentDoc(rec)));
+    const fixes = [];
+    const term = String(addSkill || '').trim().slice(0, 60);
+    if (term) {
+      if (!doc.skills.some((x) => x.toLowerCase() === term.toLowerCase())) doc.skills.unshift(term);
+      fixes.push({ kind: 'wording', term, text: `Added “${term}” to your skills, in the posting's words.` });
+    } else {
+      for (const x of bulletBank.addIndustryWords(doc, rec.job).added) fixes.push({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` });
+    }
+    if (fixes.length) {
+      saveDoc(id, doc, { atsFit: { ...(rec.atsFit || {}), fixes: [...((rec.atsFit && rec.atsFit.fixes) || []), ...fixes] }, builderPrev: undoPoint(rec) });
+      hostUpdated(getHost(id));
+    }
+    return builderState(getHost(id));
+  });
   handle('builder:baseline', (id) => (makeBaseline(id), builderState(getHost(id))));
   handle('builder:undo', (id) => (undoResume(id), builderState(getHost(id))));
   handle('app:coverLetter', (id) => makeCoverLetter(id));
@@ -1736,6 +1894,48 @@ function employerSummary(c) {
 
 const netFetch = (url, opts) => net.fetch(url, opts); // Chromium's network stack honours system proxies
 
+// Careers pages that draw their jobs with JavaScript (Atlassian's) are loaded
+// in a hidden window and read once their links stop changing. One at a time,
+// in a session of its own (no cookies shared with Sprout), with nothing able
+// to open windows or download.
+const RENDER_TIMEOUT_MS = 30000;
+let renderQueue = Promise.resolve();
+function renderPage(url) {
+  const job = renderQueue.then(() => renderNow(url));
+  renderQueue = job.catch(() => {});
+  return job;
+}
+async function renderNow(url) {
+  if (!/^https?:\/\//i.test(url)) throw new Error('Not a web page');
+  const win = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    webPreferences: { partition: 'careers-render', sandbox: true, contextIsolation: true, nodeIntegration: false, images: false, backgroundThrottling: false },
+  });
+  win.webContents.setAudioMuted(true);
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  if (!renderNow.wired) (renderNow.wired = true), win.webContents.session.on('will-download', (e) => e.preventDefault());
+  const started = Date.now();
+  try {
+    await Promise.race([win.loadURL(url), new Promise((_, no) => setTimeout(() => no(new Error('The careers page took too long to load.')), RENDER_TIMEOUT_MS))]);
+    // Wait for the job list: the page's links stop changing for a couple of seconds.
+    let last = -1;
+    let stableSince = Date.now();
+    while (Date.now() - started < RENDER_TIMEOUT_MS) {
+      await new Promise((r) => setTimeout(r, 500));
+      const n = await win.webContents.executeJavaScript('document.links.length');
+      if (n !== last) (last = n), (stableSince = Date.now());
+      else if (Date.now() - stableSince >= 2000) break;
+    }
+    const text = await win.webContents.executeJavaScript('document.documentElement.outerHTML');
+    return { text, url: win.webContents.getURL() || url };
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+netFetch.render = renderPage;
+
 // Check the careers sites of watched companies (all of them, or `ids`) for
 // jobs matching your target roles, and say so when new ones appear.
 let careersChecking = false;
@@ -1751,14 +1951,8 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
   roleSearching = true;
   try {
     minFit = Number(minFit) || 70;
-    const docs = scoringDocuments();
     const profile = store.getProfile();
-    const scoreJob = docs.length
-      ? (job) => {
-          const q = localFitScore(cleanPosting(job), docs, profile);
-          return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
-        }
-      : null;
+    const scoreJob = previewScorer({ clean: true });
     const settings = store.getSettings();
     sources = Array.isArray(sources) ? sources : (settings.roleSearch && settings.roleSearch.sources) || ['companies', ...jobBoards.DEFAULT_BOARDS];
     const keys = settings.jobBoardKeys || {};
@@ -1776,7 +1970,7 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
       boardIds.length ? jobBoards.searchBoards({ ...opts, boards: boardIds, keys, onProgress: (p) => ((progress.boards = p), tell()) }) : { results: [], searched: [], failed: [] },
     ]);
     // Boards found along the way are worth keeping.
-    for (const [id, board] of Object.entries(mine.boards)) store.saveItem('companies', { id, board });
+    for (const [id, board] of Object.entries(mine.boards)) if (stillWatched(id)) store.saveItem('companies', { id, board });
     // A job board posting from a company you watch belongs to that company
     // (its logo, your people there), and is left out if its careers board already listed it.
     const watched = new Map(store.list('companies').map((c) => [normCo(c.name), c]));
@@ -1808,6 +2002,9 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
 }
 
 const CAREERS_EVERY = 8 * 60 * 60 * 1000;
+// A check or search takes a while; a company removed meanwhile stays removed
+// (saving its results would bring it back as a nameless entry).
+const stillWatched = (id) => store.list('companies').some((c) => c.id === id);
 function checkCareersIfDue() {
   const last = Date.parse(store.getSettings().careersCheckedAt || '') || 0;
   if (Date.now() - last >= CAREERS_EVERY) checkCareers().catch(() => {});
@@ -1822,14 +2019,7 @@ async function checkCareers(ids, { manual = false } = {}) {
   broadcast('state-changed');
   const roles = outreach.splitList(store.getProfile().targetRoles);
   // A free fit preview for each matching job (no AI), once there's a resume to compare with.
-  const docs = scoringDocuments();
-  const profile = store.getProfile();
-  const scoreJob = docs.length
-    ? (job) => {
-        const q = localFitScore(job, docs, profile);
-        return { score: q.score, label: q.label, confidence: q.confidence || null, dealbreakers: (q.dealbreakers || []).slice(0, 2), ...(q.away ? { away: q.away } : {}) };
-      }
-    : null;
+  const scoreJob = previewScorer();
   const fresh = [];
   const firstLooks = new Set(); // companies checked for the first time
   let checked = 0;
@@ -1839,12 +2029,13 @@ async function checkCareers(ids, { manual = false } = {}) {
       if (ids ? !ids.includes(co.id) : co.status === 'pass') continue;
       try {
         const r = await careers.checkCompany(co, { fetchImpl: netFetch, roles, scoreJob });
+        if (!stillWatched(co.id)) continue; // removed while it was being checked
         store.saveItem('companies', { id: co.id, ...r.patch });
         for (const j of r.fresh) fresh.push({ company: co, job: j });
         if (r.firstLook) firstLooks.add(co.id);
         checked++;
       } catch (err) {
-        store.saveItem('companies', { id: co.id, lastCheckedAt: new Date().toISOString(), checkError: err.name === 'TimeoutError' ? 'The careers site took too long to answer.' : err.message });
+        if (stillWatched(co.id)) store.saveItem('companies', { id: co.id, lastCheckedAt: new Date().toISOString(), checkError: err.name === 'TimeoutError' ? 'The careers site took too long to answer.' : err.message });
         failed++;
       }
       broadcast('state-changed');
@@ -2029,10 +2220,8 @@ function summarizeApp(a) {
     statusHistory: a.statusHistory || [],
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
-    atsBefore: (() => {
-      const b = libraryAtsScore(a.job, evidenceDocs(), store.getProfile());
-      return b ? b.score : null;
-    })(),
+    // Shown only beside a tailored resume ("ATS 61→74%"), so only worked out then.
+    atsBefore: a.resumeHtml ? (libraryAts(a.job) || {}).score ?? null : null,
     atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml), { profile: store.getProfile() }).score : null,
     hasResume: !!a.resume,
     hasPage: !!(a.builder && a.builder.doc),
@@ -2129,14 +2318,11 @@ if (process.argv.includes('--smoke-test')) {
   app.on('second-instance', () => createDashboard());
 
   app.whenReady().then(() => {
-    store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
+    store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'), { deferSave: true });
     store.pruneChecked(); // checked jobs you never saved, not seen for a month
+    store.repairBank(bulletBank.tidyBank); // the same job from two resumes, filed twice before roles were matched
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();
-    // First run with the bullet bank: fill it from the resumes already in the library.
-    if (!store.getBank().bullets.length && store.allDocuments().length) importBullets(store.allDocuments());
-    backfillLayouts().catch(() => {});
-    refreshLocalScores();
     applyTheme(store.getSettings().theme);
     createDashboard();
     createOverlay();
@@ -2161,6 +2347,19 @@ if (process.argv.includes('--smoke-test')) {
     powerMonitor.on('resume', () => setTimeout(checkCareersIfDue, 60 * 1000));
     startBridge();
     startUpdates();
+    // Slower housekeeping once the window is up: first run with the bullet bank
+    // fills it from the resumes already in the library; a scorer update rescores
+    // saved jobs (a slice at a time); old imports get their layout checked.
+    const toFill = store.getBank().bullets.length ? [] : store.allDocuments();
+    const housekeeping = () => {
+      if (toFill.length) {
+        importBullets([toFill.shift()]); // one document per slice
+        if (!toFill.length) broadcast('state-changed');
+        return void setImmediate(housekeeping);
+      }
+      refreshLocalScores().then(() => backfillLayouts()).catch(() => {});
+    };
+    setTimeout(housekeeping, 1500); // after the first screen has loaded
   });
 
   // Keep running in the tray so detection keeps working after the dashboard closes.
@@ -2168,7 +2367,12 @@ if (process.argv.includes('--smoke-test')) {
     if (!tray) app.quit();
   });
   app.on('activate', () => createDashboard());
+  // Changes are written shortly after they happen; write any still waiting.
+  const flushStore = () => store && store.saveTimer && store.flush();
+  app.on('before-quit', flushStore);
+  process.on('exit', flushStore);
   app.on('will-quit', () => {
+    flushStore();
     globalShortcut.unregisterAll();
     if (bridge) bridge.close();
     if (watcher) watcher.stopAll();

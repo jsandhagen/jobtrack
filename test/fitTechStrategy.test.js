@@ -68,7 +68,7 @@ test('a product the title names is a requirement, and missing it caps the fit', 
   const r = fit('techStrategyConsultant', 'workdayConsultant');
   assert.ok(r.missingSkills.includes('Workday'), r.missingSkills.join(', '));
   assert.ok(r.score <= 40, `score ${r.score}`);
-  assert.ok(r.concerns.some((c) => /title names Workday/.test(c)), r.concerns.join(' | '));
+  assert.ok(r.concerns.some((c) => /title centres on Workday/.test(c)), r.concerns.join(' | '));
   // Ordinary title words (Technology, Risk, Audit) are not products: no cap.
-  assert.ok(!fit('techStrategyConsultant', 'itAuditConsultant').concerns.some((c) => /title names/.test(c)));
+  assert.ok(!fit('techStrategyConsultant', 'itAuditConsultant').concerns.some((c) => /title centres on/.test(c)));
 });

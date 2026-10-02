@@ -47,8 +47,21 @@ function contactLine(c) {
   return [c.title, c.company].filter(Boolean).join(' · ') || 'No title or company yet';
 }
 
+// Open roles by company, worked out once per refresh of the app's state
+// (every person row asks, so a scan of every job per person added up).
+const rolesIndex = new WeakMap();
 function openRolesAt(company) {
-  return state.applications.filter((a) => ['scored', 'resume-ready', 'applied', 'interviewing'].includes(a.status) && O.sameCompany(a.job.company, company));
+  let idx = rolesIndex.get(state.applications);
+  if (!idx) {
+    idx = new Map();
+    for (const a of state.applications) {
+      if (!['scored', 'resume-ready', 'applied', 'interviewing'].includes(a.status)) continue;
+      const k = O.companyKey(a.job.company);
+      if (k) idx.set(k, [...(idx.get(k) || []), a]);
+    }
+    rolesIndex.set(state.applications, idx);
+  }
+  return idx.get(O.companyKey(company)) || [];
 }
 
 // The way-in line on a company card works from the keyboard too.
@@ -117,6 +130,9 @@ document.addEventListener('click', (e) => {
 
 let peopleFilter = 'all';
 let peopleSearch = '';
+// How many people the list shows; "Show more" raises it, and a new filter or search starts over.
+const PEOPLE_PAGE = 50;
+let peopleLimit = PEOPLE_PAGE;
 const PEOPLE_FILTERS = [
   ['all', 'All', () => true],
   ['to-reach', 'Not contacted', (c) => c.status === 'to-reach' || !c.status],
@@ -229,7 +245,7 @@ function myPeopleTab(st) {
       <input data-live id="peopleSearch" type="search" placeholder="Search name, company, school…" value="${esc(peopleSearch)}" autocomplete="off">
       ${shared.map(([k, label, , fn]) => `<label class="check-label" title="People you share ${k === 'alumni' ? 'a school' : 'an employer'} with"><input type="checkbox" data-pshared="${k}" ${peopleShared === k ? 'checked' : ''}> ${label} <span class="faint">${cs.filter(fn).length}</span></label>`).join('')}
     </div>
-    ${shown.length ? `<div class="list">${shown.map(contactRow).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 72)}<h3>Nobody here</h3><p>No one matches ${filtered ? 'these filters' : 'this filter'}. <a href="#" id="peopleClear">Show everyone</a></p></div>`}`;
+    ${shown.length ? `<div class="list">${shown.slice(0, peopleLimit).map(contactRow).join('')}</div>${shown.length > peopleLimit ? `<div class="show-more"><button class="soft" id="peopleMore">Show ${Math.min(PEOPLE_PAGE, shown.length - peopleLimit)} more <span class="faint">of ${shown.length - peopleLimit}</span></button></div>` : ''}` : `<div class="card empty">${mascotSvg('curious', 72)}<h3>Nobody here</h3><p>No one matches ${filtered ? 'these filters' : 'this filter'}. <a href="#" id="peopleClear">Show everyone</a></p></div>`}`;
 }
 
 function findPeopleTab() {
@@ -385,14 +401,17 @@ binders.people = () => {
 };
 
 function bindMyPeople() {
-  $$('[data-pfilter]').forEach((b) => b.addEventListener('click', () => ((peopleFilter = b.dataset.pfilter), route())));
-  $$('[data-pshared]').forEach((b) => b.addEventListener('change', () => ((peopleShared = b.checked ? b.dataset.pshared : ''), route())));
+  $$('[data-pfilter]').forEach((b) => b.addEventListener('click', () => ((peopleFilter = b.dataset.pfilter), (peopleLimit = PEOPLE_PAGE), route())));
+  $$('[data-pshared]').forEach((b) => b.addEventListener('change', () => ((peopleShared = b.checked ? b.dataset.pshared : ''), (peopleLimit = PEOPLE_PAGE), route())));
   const clear = $('#peopleClear');
-  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), (peopleFilter = 'all'), (peopleShared = ''), (peopleSearch = ''), route()));
+  if (clear) clear.addEventListener('click', (e) => (e.preventDefault(), (peopleFilter = 'all'), (peopleShared = ''), (peopleSearch = ''), (peopleLimit = PEOPLE_PAGE), route()));
+  const more = $('#peopleMore');
+  if (more) more.addEventListener('click', () => ((peopleLimit += PEOPLE_PAGE), route()));
   const search = $('#peopleSearch');
   if (search)
     search.addEventListener('input', () => {
       peopleSearch = search.value;
+      peopleLimit = PEOPLE_PAGE;
       route();
       const el = $('#peopleSearch');
       el.focus();

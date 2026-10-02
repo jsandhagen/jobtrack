@@ -62,7 +62,8 @@ test('a weak resume scores low, grade D, and lists knockouts and tips', () => {
   assert.ok(r.score < 40, `score ${r.score}`);
   assert.equal(r.grade, 'D');
   assert.ok(r.knockouts.some((k) => k.startsWith('React')));
-  assert.ok(r.tips.some((t) => /Required skill not found/.test(t)));
+  assert.ok(r.tips.some((t) => /^Required: "react". If you've used it/i.test(t)));
+  assert.ok(!r.tips.some((t) => /not found|none found/.test(t)), 'tips say what to add, not what is missing');
   assert.ok(r.tips.some((t) => /email/.test(t)));
 });
 
@@ -183,4 +184,63 @@ test('ATS treats an "or" list as one qualification but still counts each keyword
   const unmet = atsScore(job, 'SQL only', { checkFormatting: false });
   assert.deepEqual(unmet.knockouts, ['one of Python, Java, C++ (posting says "python / java / c++")']);
   assert.deepEqual(unmet.missingSkills.find((m) => m.anyOf).anyOf, ['python', 'java', 'c++']);
+});
+
+// ---- gentle nudges and the fixes Sprout makes itself ----
+
+const { atsNudges } = require('../src/main/atsNudges');
+const bulletBank = require('../src/main/bullets');
+const SAAS_JOB = {
+  title: 'Strategy Manager',
+  company: 'Acme',
+  text: 'About us\nWe are a fast-growing SaaS company.\nRequirements\n- 5+ years in strategy or consulting at a SaaS company\n- Experience with Kubernetes\n- Strong SQL skills and AWS',
+};
+const APPIAN = 'Jordan Avery\nExperience\nTechnology Strategy Consultant, Appian, Jul 2022 – Present\n- Wrote SQL analyses of product usage for the CTO\nAnalyst, Deloitte Consulting, Aug 2017 – Jun 2022\n- Built cost models in Excel for CIO clients\nSkills\nSQL, Excel, Amazon Web Services';
+
+test('an industry your employer proves is a word to add, not a missing qualification', () => {
+  const r = atsScore(SAAS_JOB, APPIAN);
+  assert.deepEqual(r.fixable.map((f) => [f.skill, f.employer]), [['Enterprise Software', 'Appian']]);
+  assert.ok(!r.knockouts.some((k) => /enterprise software|saas/i.test(k)));
+  assert.ok(r.knockouts.some((k) => /kubernetes/i.test(k)), 'a skill nobody can infer is still required');
+});
+
+test('the employer is recognised in Sprout’s own layout too (name on its own line), not in a passing mention', () => {
+  const page = 'Jordan Avery\nPROFESSIONAL SUMMARY\nStrategist.\nRELEVANT WORK EXPERIENCE\nTechnology Strategy Consultant Jul 2022 – Present\nAppian\n- Wrote SQL analyses of product usage';
+  assert.deepEqual(atsScore(SAAS_JOB, page).fixable.map((f) => f.employer), ['Appian']);
+  const mention = 'Jordan\nAnalyst, Deloitte, 2019 – 2022\n- Presented at Appian World on SQL tooling';
+  assert.deepEqual(atsScore(SAAS_JOB, mention).fixable, []);
+});
+
+test('the optimizer says the industry once in your own summary, and gives the posting’s words beside yours', () => {
+  const doc = { summary: 'Strategist who turns research into roadmaps.', roles: [{ organization: 'Appian', title: 'Consultant', dates: 'Jul 2022 – Present', bullets: [] }], skills: [] };
+  assert.equal(bulletBank.addIndustryWords(doc, SAAS_JOB).added[0].term, 'SaaS');
+  assert.equal(doc.summary, 'Strategist who turns research into roadmaps. SaaS experience at Appian.');
+  assert.equal(bulletBank.addIndustryWords(doc, SAAS_JOB).added.length, 0, 'once');
+  const named = { summary: 'Consultant at Appian who builds roadmaps.', roles: doc.roles, skills: [] };
+  bulletBank.addIndustryWords(named, SAAS_JOB);
+  assert.equal(named.summary, 'Consultant at Appian (SaaS) who builds roadmaps.');
+  // Not for an employer the list doesn't know.
+  const other = { summary: 'Analyst.', roles: [{ organization: 'Deloitte Consulting', dates: '2017 – 2022', bullets: [] }], skills: [] };
+  assert.equal(bulletBank.addIndustryWords(other, SAAS_JOB).added.length, 0);
+  const skills = bulletBank.pickSkills({ text: 'Requirements\n- AWS experience required' }, { skills: ['Amazon Web Services'], bullets: [], experiences: [] });
+  assert.deepEqual(skills.relevant, ['Amazon Web Services (AWS)']);
+  assert.deepEqual(skills.reworded, [{ from: 'Amazon Web Services', to: 'Amazon Web Services (AWS)' }]);
+});
+
+test('nudges: three at most, kind, and they ask only for what Sprout can’t know', () => {
+  const r = atsScore(SAAS_JOB, APPIAN);
+  const n = atsNudges({ ats: r, job: SAAS_JOB, pageText: APPIAN, bank: { skills: [], bullets: [] }, onPage: true });
+  assert.ok(n.nudges.length <= 3 && n.headline);
+  const industry = n.nudges.find((x) => x.id.startsWith('industry:'));
+  assert.match(industry.text, /SaaS/);
+  assert.equal(industry.action.type, 'fix-page');
+  const ask = n.nudges.find((x) => x.id === 'ask:skills');
+  assert.deepEqual(ask.action, { type: 'have-skill', terms: ['Kubernetes'] });
+  assert.doesNotMatch(n.nudges.map((x) => x.text).join(' '), /knockout|not found|missing/i, 'no cold wording');
+  // What Sprout fixed shows while it's still on the page.
+  const fixes = [{ term: 'SaaS', text: 'Added “SaaS” to your summary.' }];
+  assert.deepEqual(atsNudges({ ats: r, job: SAAS_JOB, pageText: APPIAN + '\nSaaS experience at Appian.', fixes }).fixed, ['Added “SaaS” to your summary.']);
+  assert.deepEqual(atsNudges({ ats: r, job: SAAS_JOB, pageText: APPIAN, fixes }).fixed, [], 'gone once you take it out');
+  // No page yet: the fix is the optimizer.
+  assert.equal(atsNudges({ ats: r, job: SAAS_JOB, pageText: APPIAN, onPage: false }).nudges.find((x) => x.id.startsWith('industry:')).action.type, 'optimize');
 });

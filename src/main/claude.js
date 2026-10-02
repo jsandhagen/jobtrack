@@ -84,7 +84,7 @@ const ResumeDraft = z.object({
         bullets: z.array(
           z.object({
             text: z.string().describe('The bullet: action verb first, one accomplishment, at most two printed lines (about 190 characters), numbers only as documented.'),
-            from_bullet: z.string().describe('The id of the bank bullet this is based on (e.g. "B7"), or "" for a new bullet written from the documents.'),
+            from_bullet: z.string().describe('The id of the bank bullet this is mostly built on (e.g. "B7"), even when heavily rewritten or merged with another; "" for a bullet written from the other documents.'),
             source_quote: z.string().describe('For a new bullet (from_bullet ""): shortest verbatim excerpt from the documents supporting its key fact. Otherwise "".'),
           })
         ),
@@ -169,8 +169,11 @@ const FoundCompanies = z.object({
 
 // ---------- calls ----------
 
-async function structuredCall(client, { kind, model, effort, system, content, schema, maxTokens = 16000 }) {
-  const response = await client.beta.messages.parse({
+// With `onProgress`, the call streams and reports how far the answer has got:
+// { phase: 'thinking' } until Claude starts writing, then { phase: 'writing',
+// chars } as the structured answer arrives (callers turn that into a bar).
+async function structuredCall(client, { kind, model, effort, system, content, schema, maxTokens = 16000, onProgress }) {
+  const body = {
     model: model || DEFAULT_MODEL,
     max_tokens: maxTokens,
     betas: [FALLBACK_BETA],
@@ -178,7 +181,20 @@ async function structuredCall(client, { kind, model, effort, system, content, sc
     output_config: { effort, format: betaZodOutputFormat(schema) },
     ...(system ? { system } : {}),
     messages: [{ role: 'user', content }],
-  });
+  };
+  let response;
+  if (onProgress) {
+    const stream = client.beta.messages.stream(body);
+    let chars = 0;
+    onProgress({ phase: 'thinking' });
+    stream.on('text', (delta) => {
+      chars += delta.length;
+      onProgress({ phase: 'writing', chars });
+    });
+    response = await stream.finalMessage();
+  } else {
+    response = await client.beta.messages.parse(body);
+  }
   if (usageListener && response.usage) {
     const served = response.model || model || DEFAULT_MODEL;
     usageListener({ kind, model: served, usage: response.usage, cost: estimateCost(served, response.usage) });
@@ -274,10 +290,11 @@ async function analyzeFit(client, { job, documents, profile, model, screens = []
  * Draft a resume. `roles` and `picked` come from draft.promptIds(); the
  * caller turns the result into an editor document with draft.draftToDoc().
  */
-async function generateResume(client, { job, documents, profile, analysis, ats, roles, picked, model }) {
+async function generateResume(client, { job, documents, profile, analysis, ats, roles, picked, model, onProgress }) {
   const out = await structuredCall(client, {
     kind: 'resume',
     model,
+    onProgress,
     effort: 'high',
     system: P.systemBlocks(documents, profile),
     content: [P.jobBlock(job), P.roleListBlock(roles), P.pickedBlock(picked), P.fitBlock(analysis), P.atsBlock(job, ats), P.TASKS.resume].filter(Boolean).join('\n\n'),

@@ -22,6 +22,7 @@ const { SKILLS, RELATED, EMPLOYER_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborator
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
+const { memoize } = require('./memo');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
 const SCORER_VERSION = 21;
@@ -42,6 +43,8 @@ function hasTerm(textLower, term) {
 function stem(w) {
   return w.replace(/(ing|ed|es|s)$/, '').replace(/(ment|ation)$/, '');
 }
+// A text's words as stems, padded with spaces for phrase lookups.
+const stemmed = memoize((t) => ` ${(t.match(/[a-z0-9+#]+/g) || []).map(stem).join(' ')} `, { size: 2000 });
 // Every skill pattern, extended to the whole word, for blanking known skills out of a line.
 const SKILL_BLANKERS = Object.values(SKILLS).flatMap((ps) => ps.map((p) => new RegExp(p.source + '[a-z]*', 'gi')));
 const blankSkills = (text, filler) => SKILL_BLANKERS.reduce((t, re) => t.replace(re, filler), text);
@@ -390,9 +393,10 @@ const KIND_SYNONYMS = [
 const canonicalKind = (t) => KIND_SYNONYMS.reduce((x, [re, to]) => x.replace(re, to), t);
 const DEPARTMENT_KIND = new Set(['marketing', 'sales', 'recruiting', 'accounting', 'audit', 'legal', 'design', 'clinical', 'construction', 'nursing'].map((w) => w.replace(/(?:ing|s)$/, '')).concat(['marketing', 'sales', 'recruiting', 'accounting', 'audit', 'legal', 'design', 'clinical', 'construction', 'nursing']));
 const BROAD_KIND = new Set(['strategy', 'management', 'consulting', 'operations', 'planning', 'development', 'leadership'].map(kindStem));
+// Every resume line is tokenised for each kind of experience a posting asks for.
+const tokens = memoize((t) => (canonicalKind(t).match(/[a-z0-9][a-z0-9+#&-]*/g) || []).map(kindStem), { size: 5000 });
 function kindMatch(alts) {
   const stems = alts.map((ws) => canonicalKind(ws.join(' ')).split(/\s+/).map(kindStem));
-  const tokens = (t) => (canonicalKind(t).match(/[a-z0-9][a-z0-9+#&-]*/g) || []).map(kindStem);
   // A shorter form matches a longer one only when it's distinctive (engine / engineer).
   const hasIn = (toks) => (s) => toks.some((x) => x === s || (Math.min(x.length, s.length) >= 5 && (x.startsWith(s) || s.startsWith(x))));
   return (t) => {
@@ -421,7 +425,10 @@ function kindMatch(alts) {
 // What the posting asks for, as a list of units, each able to say how well a
 // piece of text (your whole library, or a single resume bullet) covers it.
 // Shared by the fit score and the bullet bank so they agree.
-function requirementUnits(job) {
+// Read once per posting: the fit score, the ATS view and the bullet bank all
+// ask for the same posting's units, again on every redraw.
+const requirementUnits = memoize(readRequirementUnits, { size: 200, key: (job) => [job.title, job.company, job.location, job.text].map((x) => x || '').join('\u0000') });
+function readRequirementUnits(job) {
   const lines = requirementLines(job.text);
   const hasRequiredSection = lines.some((l) => l.kind === 'required');
   const ignoreWords = new Set([...lower(job.company).split(/\W+/), ...lower(job.title).split(/\W+/)].filter(Boolean));
@@ -530,7 +537,7 @@ function requirementUnits(job) {
             // "CPR/BLS": either one.
             if (/\//.test(term) && term.split('/').some((x) => x.trim().length > 1 && hasTerm(t, x.trim()))) return 1;
             // Other forms of the same words: "unit testing" / "unit tests".
-            const ts = ` ${(t.match(/[a-z0-9+#]+/g) || []).map(stem).join(' ')} `;
+            const ts = stemmed(t);
             if (ts.includes(` ${stems.join(' ')} `)) return 0.9;
             return words.length > 1 && stems.every((w) => ts.includes(` ${w} `)) ? 0.6 : 0;
           },
@@ -665,13 +672,14 @@ function recencyWeight(end, now) {
 }
 const DOC_WEIGHT = { bank: 0.85, project: 0.85, recommendation: 0.8, certification: 0.9, transcript: 0.7, 'cover-letter': 0.7 };
 
-function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
+// One document's evidence. A library of a dozen resumes is read against every
+// posting, so each document is parsed once, not once per posting.
+const documentSegments = memoize((kind, text, now) => {
   const { parseResume } = require('./bullets'); // lazy: bullets.js requires this module
   const segs = [];
   const titles = [];
-  for (const d of documents) {
-    const text = d.text || '';
-    if (d.kind === 'resume' || !d.kind) {
+  {
+    if (kind === 'resume' || !kind) {
       const r = parseResume(text);
       for (const ex of r.experiences) {
         const end = /present|current|now|today/i.test(ex.end || '') ? now : yearFrom(ex.end) ?? yearFrom(ex.dates);
@@ -697,10 +705,23 @@ function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
       const parsed = r.experiences.reduce((n, ex) => n + ex.bullets.reduce((m, b) => m + b.text.length, 0), 0) + r.skills.join(', ').length + r.summary.length;
       segs.push({ text, weight: parsed / Math.max(1, text.length) >= 0.4 ? 0.7 : 0.9 });
     } else {
-      segs.push({ text, weight: DOC_WEIGHT[d.kind] ?? 0.75 });
+      segs.push({ text, weight: DOC_WEIGHT[kind] ?? 0.75 });
     }
   }
   return { segs: segs.map((s) => ({ ...s, lower: lower(withoutCollaborators(s.text)) })), titles };
+}, { size: 200 });
+
+function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
+  const segs = new Map();
+  const titles = [];
+  for (const d of documents) {
+    const one = documentSegments(d.kind || '', d.text || '', now);
+    // The same text in several resumes is the same evidence: keep its best weight
+    // (callers adjust weights, so each call gets its own copies).
+    for (const s of one.segs) if (!segs.has(s.text) || segs.get(s.text).weight < s.weight) segs.set(s.text, { ...s });
+    titles.push(...one.titles);
+  }
+  return { segs: [...segs.values()], titles };
 }
 // What a title says you can do, the way LinkedIn and Eightfold infer skills
 // from job titles: partial credit only (a resume that says it still counts
@@ -975,14 +996,14 @@ const plain = (label) =>
     .replace(/^(associate|bachelor's|master's) degree in ([^,]+?)(?:,.*)? or (?:another|a) (.*) field$/, '$1 degree in $2 or another $3 field')
     .replace(/^(associate|bachelor's|master's) degree (in .{40,})$/, '$1 degree in the field asked for');
 function fitHeadline(f) {
-  if (f.breakers.length) return `Dealbreaker: ${f.breakers[0].replace(/^./, (c) => c.toLowerCase())}.`;
-  if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, and that's not work your documents show.`;
-  if (f.missingCore.length) return `The title names ${listOf(f.missingCore)}, which your documents don't show — that's the job's core.`;
-  if (f.missingFunction) return `A different line of work: it asks for ${plain(f.missingFunction.label)}, which your documents don't show.`;
-  if (f.missingCredential) return `It requires ${plain(f.missingCredential.label)}, which your documents don't show — applications are screened on it.`;
+  if (f.breakers.length) return `Heads up: ${f.breakers[0].replace(/^./, (c) => c.toLowerCase())}, one of the things you said you'd rather avoid.`;
+  if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, a different line of work from what your documents describe.`;
+  if (f.missingCore.length) return `The title centres on ${listOf(f.missingCore)}, which your documents don't mention yet.`;
+  if (f.missingFunction) return `A different line of work: it asks for ${plain(f.missingFunction.label)}, which isn't in your documents yet.`;
+  if (f.missingCredential) return `It requires ${plain(f.missingCredential.label)}. If you have it, add it to your documents: applications are screened on it.`;
   const years = f.needYears !== null && f.haveYears !== null ? `it asks for ${f.needYears}+ years; you have about ${Math.round(f.haveYears)}.` : '';
-  if (f.stretch) return `A stretch: this is ${/^[aeio]/.test(LEVEL_NAMES[f.postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[f.postingLevel]}-level role and your experience reads as ${LEVEL_NAMES[f.userLevel]}.${years ? ` It${years.slice(2)}` : ''}`;
-  if (f.shortYears) return `A stretch on experience: ${years}`;
+  if (f.stretch) return `A stretch, but worth a look: this is ${/^[aeio]/.test(LEVEL_NAMES[f.postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[f.postingLevel]}-level role and your documents read as ${LEVEL_NAMES[f.userLevel]}-level.${years ? ` It${years.slice(2)}` : ''}`;
+  if (f.shortYears) return `A stretch on years, which postings often flex on: ${years}`;
   if (f.overqualified) return `You'd likely be overqualified: this is an earlier-career version of what you already do.`;
   // The kind of experience and the degree come first, then by how sure we are it's a requirement.
   const rank = (u) => (u.gate || /degree|^PhD/.test(u.label) ? 2 : u.weight);
@@ -996,12 +1017,12 @@ function fitHeadline(f) {
   const step = f.stepUp ? 'A step up from where you are: ' : '';
   const cap = (x) => (step ? x.replace(/^./, (c) => c.toLowerCase()) : x);
   if (f.thin) return "There isn't enough in this posting to judge the fit; paste the full description for a real read.";
-  if (!f.req.length) return f.score >= 65 ? 'Your background lines up with this role.' : f.score >= 45 ? 'Some of your background carries over to this role.' : 'Little of this role shows in your documents.';
+  if (!f.req.length) return f.score >= 65 ? 'Your background lines up with this role.' : f.score >= 45 ? 'Some of your background carries over to this role.' : "Not much of this role shows in your documents yet.";
   if (!gaps.length && !partial.length) return `${step}${cap(`You meet ${f.req.length === 1 ? 'the must-have' : f.req.length === 2 ? 'both must-haves' : `all ${f.req.length} must-haves`}${done}.`)}${f.dutyGap ? ' The day-to-day work would be new, though.' : ''}`;
   if (!gaps.length) return `${step}${cap(`You meet the must-haves${done}; ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown.`)}`;
-  if (met / f.req.length < 0.3) return `This role needs ${listOf(gaps.slice(0, 3))}, which your documents don't show.`;
+  if (met / f.req.length < 0.3) return `This role leans on ${listOf(gaps.slice(0, 3))}, which your documents don't cover yet.`;
   const also = gaps.length === 1 && partial.length ? `, and ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown` : '';
-  return `${step}${cap(`You show ${met} of ${f.req.length} must-haves; the ${gaps.length === 1 ? 'gap is' : 'main gaps are'} ${listOf(gaps.slice(0, 2))}${also}.`)}`;
+  return `${step}${cap(`You show ${met} of ${f.req.length} must-haves; ${gaps.length === 1 ? 'the one your documents don\'t cover yet is' : 'the ones your documents don\'t cover yet are'} ${listOf(gaps.slice(0, 2))}${also}.`)}`;
 }
 
 // ---------- the score ----------
@@ -1162,23 +1183,23 @@ function localFitScore(job, documents, profile = {}) {
   if (req.length) reasons.push(`You show ${Math.round(req.reduce((s, u) => s + u.met, 0))} of ${req.length} required qualifications`);
   if (role !== null && role >= 0.8) reasons.push('The role lines up with your background and target roles');
   if (experience !== null && experience >= 1) reasons.push(`Your ~${haveYears} years cover the ${needYears}+ asked for`);
-  if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`This is a ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}`);
+  if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`It's pitched at ${LEVEL_NAMES[postingLevel]} level, a step up from the ${LEVEL_NAMES[userLevel]}-level work your documents describe`);
   if (overqualified) concerns.push(levelsBelow >= 2 ? `This looks like an earlier-career (${LEVEL_NAMES[postingLevel]}-level) role, and your experience reads as ${LEVEL_NAMES[userLevel]}. You'd likely be overqualified, so it may undersell you` : `It asks for up to ${rangeTop} years and you have about ${Math.round(haveYears)}. You'd likely be overqualified, so it may undersell you`);
-  if (experience !== null && experience < 0.8) concerns.push(`Asks for ${needYears}+ years; your documents show about ${haveYears ?? 'unclear'}`);
+  if (experience !== null && experience < 0.8) concerns.push(haveYears === null || haveYears === undefined ? `Asks for ${needYears}+ years; dates on your roles would let me count yours` : `Asks for ${needYears}+ years and your documents show about ${haveYears}; year counts are often flexible`);
   concerns.push(...screening.unanswered);
   // Problems with what was captured (cut-off description, a list of jobs).
   concerns.unshift(...(job.warnings || []));
   if (otherFunction) concerns.unshift(`This is a ${otherFunction} role (${otherFunction === 'sales' ? 'a quota, closing deals' : 'filling requisitions, sourcing candidates'}), and your documents don't show ${otherFunction} work`);
   if (dutyGap) concerns.push(`${req.every((u) => u.met >= 0.5) ? 'You meet what it asks for, but much' : 'Much'} of the day-to-day work (${neutral.filter((u) => u.met < 0.5).slice(0, 3).map((u) => u.label).join(', ')}) isn't in your documents yet`);
   const missingProducts = all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label);
-  if (missingCore.length) concerns.push(`The title names ${(missingProducts.length ? missingProducts : missingCore).join(', ')}, which your documents don't show`);
+  if (missingCore.length) concerns.push(`The title centres on ${(missingProducts.length ? missingProducts : missingCore).join(', ')}, which your documents don't mention yet`);
   const missingReq = req.filter((u) => u.met < 0.5).map((u) => u.label);
 
   // One sentence to decide by, most decisive fact first.
   const headline = documents.length
     ? fitHeadline({ breakers, otherFunction, missingFunction, missingCredential, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
     : '';
-  if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
+  if (missingReq.length) concerns.push(`Not in your documents yet: ${missingReq.slice(0, 6).join(', ')}`);
 
   return {
     score,
