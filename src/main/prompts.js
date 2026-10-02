@@ -21,7 +21,7 @@ const { voiceProfile } = require('./voice');
 // bullets from anything in the documents) inside the fixed layout and the
 // truthfulness rules; the page goes to the most relevant roles. Repeated
 // bullets across documents are sent once.
-const PROMPT_VERSION = '2026-10-02.3';
+const PROMPT_VERSION = '2026-10-02.4';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -163,7 +163,7 @@ The goal is one page that makes the candidate's fit for this specific posting ob
 
 Roles (<role_list>):
 - Every role in the list is real and comes from the candidate's documents. Refer to roles only by their role_id. Include every job-type role in the list so the work history has no unexplained gaps, in the order given (most recent first); include a project only when it shows something the posting asks for. The list already leaves out roles the candidate doesn't want on a resume, such as internships once they have two years of other work; don't bring those back from the documents. A role that ended more than ten years ago and shows nothing the posting asks for may be left out, so the page goes to recent, relevant work.
-- Spend the page where it proves the most: the roles that best show what this posting asks for get the most bullets (up to 6 or 7), older or less relevant roles 1 to 3. Fill one page with the strongest material rather than aiming for a count.
+- Spend the page where it proves the most: the roles that best show what this posting asks for get the most bullets (up to 6 or 7), older or less relevant roles 1 to 3. One page holds about 12 to 16 bullets in all; stay within that, because a page that runs over is cut back by the app's keyword ranking, which can drop the bullets you chose most carefully.
 
 Bullets — you have a free hand with the content, as long as every fact is the candidate's:
 - <picked_bullets> is what is on the candidate's page now. Treat it as a starting point, not a limit. Build the strongest page for this posting from everything available: any bullet in <role_list>, and evidence anywhere in the candidate documents — other versions of their resume, project write-ups, reviews, cover letters, notes. Swap out a picked bullet whenever something else proves more of what this posting asks for.
@@ -292,12 +292,18 @@ function docXml(d) {
   return `<document name="${escapeAttr(d.name)}" kind="${escapeAttr(d.kind || 'other')}">\n${d.text}\n</document>`;
 }
 
-// Someone with a dozen versions of one resume has most lines a dozen times.
+// Someone with a dozen versions of one resume has most bullets a dozen times.
 // Each bullet goes to Claude once, in the first document that has it: later
-// documents leave out bullets (and long lines) already given word for word.
-// Nothing is lost, the prompt is far shorter, and Claude reads the
-// differences between versions instead of the same lines again.
+// documents leave out bullets already given word for word. Nothing is lost,
+// the prompt is far shorter, and Claude reads the differences between
+// versions instead of the same lines again.
+// A bullet is its marked line plus the lines it wraps onto (PDFs keep the
+// wrap). It is left out only when it clearly ends — at a blank line, the next
+// bullet, a dated line or a heading — so a wrapped piece is never left behind
+// to read as part of another bullet. Prose isn't touched.
 const LIST_MARK = /^\s*(?:[-•*▪●◦‣∙·–—]|\d+[.)])\s+/;
+const WRAPPED = /^\s*[a-z0-9(&,;$%]/;
+const HEADING = /^\s*#*\s*(?:(?:professional |relevant |work )?experience|employment|education|skills|technical skills|projects|summary|profile|certifications?|licen[sc]es|awards|publications|volunteer(?:ing)?|languages|interests)\b[^.]{0,30}$/i;
 function withoutRepeats(docs) {
   const seen = new Set();
   const texts = new Map();
@@ -307,14 +313,25 @@ function withoutRepeats(docs) {
     const same = texts.get(text.trim());
     if (same && text.trim()) return { ...d, text: `(the same text as "${same}")` };
     texts.set(text.trim(), d.name);
-    const kept = text.split('\n').filter((l) => {
-      const key = l.replace(LIST_MARK, '').replace(/\s+/g, ' ').trim().toLowerCase();
-      if (key.length < 25 || !(LIST_MARK.test(l) || key.length >= 100)) return true;
-      if (seen.has(key)) return (dropped++, false);
-      seen.add(key);
-      return true;
-    });
-    return kept.length === text.split('\n').length ? d : { ...d, text: kept.join('\n') };
+    const lines = text.split('\n');
+    const keep = lines.map(() => true);
+    for (let i = 0; i < lines.length; i++) {
+      if (!LIST_MARK.test(lines[i])) continue;
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() && !LIST_MARK.test(lines[j]) && WRAPPED.test(lines[j])) j++;
+      const next = lines[j];
+      const ends = next === undefined || !next.trim() || LIST_MARK.test(next) || /\b(?:19|20)\d{2}\b/.test(next) || HEADING.test(next);
+      const key = lines.slice(i, j).join(' ').replace(LIST_MARK, '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (key.length >= 25) {
+        if (!seen.has(key)) seen.add(key);
+        else if (ends) {
+          for (let k = i; k < j; k++) keep[k] = false;
+          dropped++;
+        }
+      }
+      i = j - 1;
+    }
+    return keep.every(Boolean) ? d : { ...d, text: lines.filter((_, k) => keep[k]).join('\n') };
   });
   return { docs: out, dropped };
 }
