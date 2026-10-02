@@ -372,6 +372,8 @@ async function renderResumePage(id) {
     return;
   }
   const hasText = !!(r.job.text || '').trim();
+  page.classList.toggle('settled', page.dataset.shown === id); // fade in once, not on every redraw
+  page.dataset.shown = id;
   page.innerHTML = `
     <div class="card app-card"><div class="app-head" style="align-items:flex-start">
       <div class="grow">
@@ -1032,7 +1034,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}${peopleAtCard(a)}</div>`;
     if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel(a.ats) : '<div></div>'}${fitCard}</div>`;
     if (appTab === 'letter') return letterBody();
-    if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
+    if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3>${resumeProgressHtml(a.id)}<p class="faint">It'll open right here in the editor. You can keep using Sprout meanwhile.</p></div>`;
     return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';
   };
 
@@ -1063,9 +1065,13 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     </div>
     <div id="tabBody">${tabBody()}</div>`;
   if (ifChanged && page.dataset.shown === id && page._html === html) return page._ready;
+  // The page fades in once; redrawing the same job (a tab, Claude finishing,
+  // a status change) mustn't blank it and fade it back in.
+  page.classList.toggle('settled', page.dataset.shown === id);
   page.innerHTML = html;
   page._html = html;
   page.dataset.shown = id;
+  refreshResumeProgress(page);
   animateRings(page);
   // The editor loads its own data; callers can await it to act on the new page.
   const editorReady = appTab === 'resume' && !busyResume ? renderEditor(id, a) : null;
@@ -1258,6 +1264,33 @@ async function renderExtensionCard() {
       renderExtensionCard();
     })
   );
+}
+
+// ---------------- Claude's progress on a resume ----------------
+
+// A bar that fills as Claude reads, writes and checks a resume. The markup
+// is the same every time (so redraws of the page don't flash); the numbers
+// are filled in from the latest update, here and as more arrive.
+const resumeProgressNow = new Map();
+function resumeProgressHtml(id) {
+  return `<div class="rprog" data-rprog="${esc(id)}"><div class="rprog-bar"><i></i></div><div class="rprog-text"><span data-rprog-label>Starting…</span><b data-rprog-pct></b></div></div>`;
+}
+function paintResumeProgress(p) {
+  if (!p) return;
+  for (const el of document.querySelectorAll(`[data-rprog="${CSS.escape(p.appId)}"]`)) {
+    el.querySelector('.rprog-bar i').style.width = `${p.pct}%`;
+    el.querySelector('[data-rprog-label]').textContent = `${p.label}…`;
+    el.querySelector('[data-rprog-pct]').textContent = `${p.pct}%`;
+  }
+}
+S.onResumeProgress((p) => (resumeProgressNow.set(p.appId, p), paintResumeProgress(p)));
+// After a redraw: show where it's got to (asking the app if this window missed it).
+async function refreshResumeProgress(root) {
+  for (const el of (root || document).querySelectorAll('[data-rprog]')) {
+    const id = el.dataset.rprog;
+    const p = resumeProgressNow.get(id) || (await S.resumeProgress(id).catch(() => null));
+    if (p) resumeProgressNow.set(id, p), paintResumeProgress(p);
+  }
 }
 
 // ---------------- tracking ----------------

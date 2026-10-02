@@ -97,6 +97,8 @@ contextBridge.exposeInMainWorld('sprout', {
 
   onStateChanged: (cb) => on('state-changed', cb),
   onAppUpdated: (cb) => on('app-updated', cb),
+  onResumeProgress: (cb) => on('resume-progress', cb),
+  resumeProgress: (appId) => call('resume:progress', appId),
   onToast: (cb) => on('toast', cb),
   onNavigate: (cb) => on('navigate', cb),
   onUpdateStatus: (cb) => on('update-status', cb),

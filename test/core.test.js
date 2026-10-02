@@ -338,3 +338,46 @@ test('output schemas convert to JSON schema for structured outputs', () => {
     assert.equal(fmt.schema.additionalProperties, false, name);
   }
 });
+
+test('a resume from Claude streams, reporting reading then writing for the progress bar', async () => {
+  const claude = require('../src/main/claude');
+  const handlers = {};
+  let body = null;
+  const client = {
+    beta: {
+      messages: {
+        stream: (p) => {
+          body = p;
+          return {
+            on: (ev, fn) => ((handlers[ev] = fn), undefined),
+            finalMessage: async () => {
+              for (const d of ['{"summary":', '"x"', '}']) handlers.text(d);
+              return { stop_reason: 'end_turn', parsed_output: { summary: 'x' }, usage: { input_tokens: 1, output_tokens: 1 } };
+            },
+          };
+        },
+        parse: async () => assert.fail('should stream when asked for progress'),
+      },
+    },
+  };
+  const seen = [];
+  const out = await claude.generateResume(client, { job: { title: 'X', text: 'Requirements\n- SQL' }, documents: [], profile: {}, roles: [], picked: [], onProgress: (p) => seen.push(p) });
+  assert.equal(out.summary, 'x');
+  assert.equal(seen[0].phase, 'thinking');
+  assert.deepEqual(seen.slice(1).map((p) => p.chars), [11, 14, 15]);
+  assert.ok(body.output_config && body.output_config.format, 'still asks for the structured format');
+  assert.equal(body.fallbacks, 'default');
+});
+
+test('repairing the bank points saved resumes at the merged role and bullet', () => {
+  const { tidyBank } = require('../src/main/bullets');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-'));
+  const s = new Store(dir);
+  s.updateBank(() => ({ experiences: [{ id: 'x', title: 'Consultant', organization: 'Appian', start: '2022', end: 'Present' }, { id: 'y', title: 'Consultant', organization: 'Appian Corporation', start: '2022', end: 'Present' }], bullets: [{ id: 'b1', experienceId: 'x', text: 'Led technical due diligence on 3 acquisition targets', variants: [] }, { id: 'b2', experienceId: 'y', text: 'Led technical due diligence on three acquisition targets', variants: [] }], education: [], skills: [], summary: '' }));
+  const app = s.addApplication({ job: { title: 'X', text: 'x' }, builder: { doc: { roles: [{ experienceId: 'y', bullets: [{ bulletId: 'b2', text: 'Led technical due diligence on three acquisition targets' }] }] } } });
+  assert.equal(s.repairBank(tidyBank), 1);
+  const doc = new Store(dir).getApplication(app.id).builder.doc;
+  assert.equal(doc.roles[0].experienceId, 'x');
+  assert.equal(doc.roles[0].bullets[0].bulletId, 'b1');
+  assert.equal(s.repairBank(tidyBank), 0, 'nothing left to merge');
+});

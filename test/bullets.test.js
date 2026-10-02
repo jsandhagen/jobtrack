@@ -203,28 +203,33 @@ const { buildDoc, pickSkills, fitDocToPages } = require('../src/main/bullets');
 function bigBank({ years = 12, extra = [], strongRoles = 2, perRole = 3, roles = 6 } = {}) {
   const bank = emptyBank();
   const now = new Date().getFullYear();
-  const filler = [
-    'Partnered with product managers to plan quarterly roadmaps and cut scope creep by 20%',
-    'Ran weekly demos for 12 stakeholders and turned feedback into prioritized backlog items',
-    'Wrote onboarding guides that brought new hires to their first shipped change in 5 days',
-    'Reviewed 300+ pull requests a year, focusing on readability and test coverage',
-    'Organized a quarterly hack week that produced 3 features later shipped to customers',
-    'Reduced flaky CI failures by 60% by isolating slow integration tests into a nightly job',
-  ];
-  const strong = [
+  // Each role's own accomplishments: no two say the same thing (the
+  // optimizer never puts two near-identical bullets on a page).
+  const VERBS = ['Partnered with', 'Ran', 'Wrote', 'Reviewed', 'Organized', 'Reduced', 'Mentored', 'Planned', 'Hosted', 'Drafted', 'Tracked', 'Trimmed'];
+  const OBJS = ['quarterly roadmaps', 'weekly demos', 'onboarding guides', 'pull requests', 'hack weeks', 'flaky CI jobs', 'interview loops', 'release notes', 'incident reviews', 'sprint retros', 'vendor contracts', 'support rotations', 'design critiques', 'budget forecasts', 'office hours', 'hiring plans'];
+  const WHO = ['product managers', 'new hires', 'support agents', 'sales engineers', 'finance partners', 'the platform group', 'regional leads', 'customer advisors'];
+  const GAIN = ['cutting scope creep by 20%', 'saving 5 hours a week', 'lifting satisfaction to 4.6 of 5', 'halving review time', 'shipping 3 extra features', 'trimming costs by $40K', 'raising retention by 8%', 'clearing a 90-ticket backlog'];
+  const filler = (i, j) => `${VERBS[(i * 5 + j) % VERBS.length]} ${OBJS[(i * 6 + j) % OBJS.length]} with ${WHO[(i * 3 + j) % WHO.length]}, ${GAIN[(i * 7 + j * 3) % GAIN.length]}`;
+  const STRONG = [
     'Built a React and TypeScript design system documented in Storybook, used by 40 engineers',
     'Designed GraphQL and REST APIs for the checkout flow serving 2M monthly users',
     'Cut page load time 35% with code splitting, caching and React Server Components',
     'Led accessibility audits to WCAG 2.1 AA across 14 React screens with the design team',
     'Migrated the marketing site to Next.js, raising Lighthouse performance scores from 62 to 95',
     'Wrote TypeScript types for 80 REST API endpoints, catching 30 bugs before release',
+    'Shipped a Storybook visual regression suite that stopped 25 UI bugs reaching production',
+    'Rebuilt the account settings flow in React with a GraphQL client cache, halving load errors',
+    'Introduced TypeScript strict mode across 300 modules, removing a class of runtime crashes',
+    'Created reusable React form components with built-in WCAG checks for 6 product teams',
+    'Moved state management to GraphQL subscriptions, making dashboards update in under a second',
+    'Set up Storybook docs and Jest tests for the component library, lifting coverage to 90%',
   ];
   for (let i = 0; i < roles; i++) {
     const end = i === 0 ? 'Present' : String(now - Math.round((i * years) / roles));
     const start = String(now - Math.round(((i + 1) * years) / roles));
     const e = { id: `e${i}`, title: i % 2 ? 'Frontend Engineer' : 'Senior Frontend Engineer', organization: `Company ${i}`, location: 'Portland, OR', start, end, dates: `${start} – ${end}` };
     bank.experiences.push(e);
-    const texts = [...(i < strongRoles ? strong.slice(0, perRole).map((s) => `${s} (team ${i})`) : []), ...filler.map((f) => `${f} at Company ${i}`), ...(extra[i] || [])];
+    const texts = [...(i < strongRoles ? Array.from({ length: perRole }, (_, j) => STRONG[(i * perRole + j) % STRONG.length]) : []), ...Array.from({ length: 6 }, (_, j) => filler(i, j)), ...(extra[i] || [])];
     texts.forEach((text, j) => bank.bullets.push({ id: `b${i}-${j}`, experienceId: e.id, text, variants: [] }));
   }
   bank.skills = ['JavaScript', 'TypeScript', 'React', 'GraphQL', 'Storybook', 'Figma', 'Jest', 'Git', 'CSS', 'Node.js', 'Docker', 'Kubernetes', 'Python', 'Go', 'Redis', 'Kafka', 'Terraform'];
@@ -288,7 +293,7 @@ test('a second page only when it earns it: a required skill one page has no room
   const sel1 = selectBullets(job, many, { profile: PROFILE, pages: 1 });
   assert.equal(pagesOf(job, many, sel1.roles).pages, 1);
   assert.ok(sel1.roles.length < 20 && sel1.roles[0].experienceId === 'e0');
-  assert.match(sel1.why, /oldest roles/);
+  assert.match(sel1.why, /oldest roles|over 10 years ago/);
   // Without that requirement, the same bank stays on one page.
   assert.equal(selectBullets(POSTINGS.seniorFrontend, bigBank({ years: 8 }), { profile: PROFILE }).pages, 1);
 });
@@ -394,4 +399,26 @@ test('a role you leave off stays off; a page holds at most 16 bullets', () => {
   for (const b of many.bullets) b.text = b.text.split(' ').slice(0, 6).join(' ');
   const s = selectBullets(POSTINGS.seniorFrontend, many, { profile: PROFILE, pages: 1 });
   assert.ok(s.roles.reduce((n, r) => n + r.bullets.length, 0) <= 16);
+});
+
+test('the same job from two resumes is one role, whatever each calls the employer and dates', () => {
+  const { tidyBank, sameRole } = require('../src/main/bullets');
+  const a = 'EXPERIENCE\nAppian Corporation Reston, VA\nTechnology Strategy Consultant July 2022 - Present\n● Ran the annual technology planning cycle for the CTO organization, tracking OKRs across 6 teams\n';
+  const b = 'EXPERIENCE\nAppian Reston, VA\nTechnology Strategy Consultant, Office of the CTO 2022 - Present\n● Ran the annual technology planning cycle for the CTO organization, tracking OKRs across 6 teams.\n● Led technical due diligence on 3 acquisition targets\n';
+  let bank = mergeIntoBank(emptyBank(), parseResume(a), {}).bank;
+  bank = mergeIntoBank(bank, parseResume(b), {}).bank;
+  assert.equal(bank.experiences.length, 1);
+  assert.equal(bank.bullets.length, 2);
+  // Different jobs at one employer stay apart; so do the same title at two employers.
+  assert.ok(!sameRole({ title: 'Data Analyst', organization: 'Northwind', start: '2018', end: '2020' }, { title: 'Senior Data Analyst', organization: 'Northwind Inc.', start: '2020', end: 'Present' }));
+  assert.ok(!sameRole({ title: 'Analyst', organization: 'Deloitte', start: '2019' }, { title: 'Analyst', organization: 'Accenture', start: '2019' }));
+  assert.ok(sameRole({ title: 'Analyst', organization: 'Deloitte', start: '2019', end: '2021' }, { title: 'Analyst, Technology Strategy', organization: 'Deloitte Consulting LLP', start: 'August 2019', end: 'June 2021' }));
+  // A bank filed before this: merged, with where each copy went.
+  const old = { ...emptyBank(), experiences: [{ id: 'x', title: 'Consultant', organization: 'Appian', start: '2022', end: 'Present', dates: '2022 – Present' }, { id: 'y', title: 'Consultant', organization: 'Appian Corporation', start: 'July 2022', end: 'Present', dates: 'July 2022 – Present' }], bullets: [{ id: 'b1', experienceId: 'x', text: 'Led technical due diligence on 3 acquisition targets', variants: [] }, { id: 'b2', experienceId: 'y', text: 'Led technical due diligence on three acquisition targets', variants: [] }, { id: 'b3', experienceId: 'y', text: 'Set up 4 technology partnerships with AI vendors', variants: [] }] };
+  const t = tidyBank(old);
+  assert.equal(t.bank.experiences.length, 1);
+  assert.equal(t.roles.get('y'), 'x');
+  assert.equal(t.bullets.get('b2'), 'b1');
+  assert.deepEqual(t.bank.bullets.map((x) => x.id), ['b1', 'b3']);
+  assert.equal(t.bank.experiences[0].dates, 'July 2022 – Present');
 });

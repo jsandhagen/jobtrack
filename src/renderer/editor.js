@@ -145,7 +145,10 @@ async function switchMode(mode) {
     const p = S.generateResume(appId);
     const slot = document.getElementById('editorSlot');
     if (ed.app) renderApplication(appId); // shows Root at work
-    else if (slot) slot.innerHTML = `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
+    else if (slot) {
+      slot.innerHTML = `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3>${resumeProgressHtml(appId)}<p class="faint">It'll open right here in the editor.</p></div>`;
+      refreshResumeProgress(slot);
+    }
     const ok = await run(null, () => p.then(() => true));
     if (ed.app) await renderApplication(appId);
     else if (ed.appId === appId) await renderEditor(appId, null);

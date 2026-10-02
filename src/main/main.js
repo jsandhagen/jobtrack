@@ -557,16 +557,24 @@ async function makeResume(appId) {
     // Internships stay off once there's real work to show (see resumeExperiences).
     const ids = draft.promptIds(bank, currentDoc(rec).roles, bulletBank.resumeExperiences(bank, rec.job));
     const job = jobForClaude(rec);
-    const out = await claude.generateResume(claudeClient(), {
-      job,
-      documents,
-      profile,
-      analysis: rec.analysis,
-      ats: libraryAtsScore(rec.job, evidenceDocs(), store.getProfile()),
-      roles: ids.roles,
-      picked: ids.picked,
-      model: store.getSettings().model,
-    });
+    const progress = resumeProgress(appId);
+    let out;
+    try {
+      out = await claude.generateResume(claudeClient(), {
+        job,
+        documents,
+        profile,
+        analysis: rec.analysis,
+        ats: libraryAtsScore(rec.job, evidenceDocs(), store.getProfile()),
+        roles: ids.roles,
+        picked: ids.picked,
+        model: store.getSettings().model,
+        onProgress: progress.update,
+      });
+    } finally {
+      progress.stop();
+    }
+    progress.checking();
     let { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
     const prev = rec.builder && rec.builder.doc;
     if (prev && prev.header && prev.header.name) doc.header = prev.header;
@@ -581,14 +589,56 @@ async function makeResume(appId) {
       const n = fit.removed.length;
       if (n) notes = [...notes, `Took off ${n} of the weakest bullet${n === 1 ? '' : 's'} so it fits on ${limit === 1 ? 'one page' : 'two pages'}.`];
     }
+    resumeProgressNow.delete(appId);
     saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
     hostUpdated(updated);
     return updated;
   } catch (err) {
+    resumeProgressNow.delete(appId);
     hostUpdated(updateHost(appId, { resumeStatus: 'error', resumeError: err.message }));
     throw err;
   }
+}
+
+// How far along Claude is with a resume, for the progress bar: reading
+// (thinking, before it writes) creeps from 4% to about 30% over a minute;
+// writing fills 30–92% as the draft arrives (a one-page draft is about 5,000
+// characters); checking every fact against the documents takes it to 96%.
+// Sent at most four times a second; the page shows the latest.
+const resumeProgressNow = new Map();
+function resumeProgress(appId) {
+  const started = Date.now();
+  let phase = 'thinking';
+  let chars = 0;
+  let last = 0;
+  const send = (force) => {
+    const now = Date.now();
+    if (!force && now - last < 250) return;
+    last = now;
+    const t = (now - started) / 1000;
+    const pct =
+      phase === 'thinking' ? 4 + 26 * (1 - Math.exp(-t / 25)) : phase === 'writing' ? 30 + 62 * Math.min(1, chars / 5000) : 96;
+    const label =
+      phase === 'thinking'
+        ? 'Reading your documents and the posting'
+        : phase === 'writing'
+          ? 'Writing your summary and bullets'
+          : 'Checking every fact against your documents';
+    const p = { appId, pct: Math.round(pct), label, seconds: Math.round(t) };
+    resumeProgressNow.set(appId, p);
+    broadcast('resume-progress', p);
+  };
+  const timer = setInterval(() => send(true), 1000);
+  send(true);
+  return {
+    update: (p) => {
+      if (p.phase === 'writing') (phase = 'writing'), (chars = p.chars);
+      send(false);
+    },
+    stop: () => clearInterval(timer),
+    checking: () => ((phase = 'checking'), send(true)),
+  };
 }
 
 // Every job starts from the baseline (your bank as it stands). ATS mode
@@ -1337,6 +1387,7 @@ function registerIpc() {
   });
   // Highlights the folder in its parent rather than opening it, since Load unpacked wants the folder itself.
   handle('bridge:showFolder', () => shell.showItemInFolder(extensionDir()));
+  handle('resume:progress', (appId) => resumeProgressNow.get(appId) || null);
   handle('update:status', () => updater.status());
   handle('update:check', () => updater.check());
   handle('update:install', () => updater.install());
@@ -2193,6 +2244,7 @@ if (process.argv.includes('--smoke-test')) {
   app.whenReady().then(() => {
     store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
     store.pruneChecked(); // checked jobs you never saved, not seen for a month
+    store.repairBank(bulletBank.tidyBank); // the same job from two resumes, filed twice before roles were matched
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();
     // First run with the bullet bank: fill it from the resumes already in the library.

@@ -262,6 +262,25 @@ class Store {
   }
 
   // ---- bullet bank ----
+  // Merge the same job filed twice (bullets.tidyBank) and point every saved
+  // resume (and its undo copy) at the role and bullet that remain.
+  repairBank(tidy) {
+    const { bank, roles, bullets } = tidy(this.data.bank);
+    if (!roles.size) return 0;
+    this.data.bank = bank;
+    const fix = (doc) => {
+      for (const r of (doc && doc.roles) || []) {
+        if (roles.has(r.experienceId)) r.experienceId = roles.get(r.experienceId);
+        for (const b of r.bullets || []) if (bullets.has(b.bulletId)) b.bulletId = bullets.get(b.bulletId);
+      }
+    };
+    for (const rec of [...this.data.applications, ...this.data.resumes]) {
+      fix(rec.builder && rec.builder.doc);
+      fix(rec.builderPrev && rec.builderPrev.doc);
+    }
+    this.save();
+    return roles.size;
+  }
   getBank() {
     return this.data.bank;
   }

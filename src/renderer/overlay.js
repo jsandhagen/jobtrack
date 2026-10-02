@@ -88,8 +88,17 @@ function workingView({ app, engine, what }) {
   return `<div class="center">${helperSvg(claude ? 'claude' : 'ats', 'thinking', 88)}
     <h3>${letter ? 'Root is writing your cover letter…' : claude ? 'Root is writing with Claude…' : 'Spike is picking your bullets…'}</h3>
     <p class="muted">${claude ? `${letter ? 'Writing to' : 'Tailoring your resume for'} <b>${esc(app.job.title)}</b>. This usually takes under a minute. Keep browsing if you like.` : `Matching your best experience to <b>${esc(app.job.title)}</b>.`}</p>
-    <span class="spinner" style="color: var(--sage)"></span></div>`;
+    ${claude && !letter ? `<div class="rprog" data-rprog="${esc(app.id)}"><div class="rprog-bar"><i></i></div><div class="rprog-text"><span data-rprog-label>Starting…</span><b data-rprog-pct></b></div></div>` : '<span class="spinner" style="color: var(--sage)"></span>'}</div>`;
 }
+
+// Claude's progress on a resume (see the app's resume page for the same bar).
+window.sprout.onResumeProgress((p) => {
+  const el = document.querySelector(`[data-rprog="${CSS.escape(p.appId)}"]`);
+  if (!el) return;
+  el.querySelector('.rprog-bar i').style.width = `${p.pct}%`;
+  el.querySelector('[data-rprog-label]').textContent = `${p.label}…`;
+  el.querySelector('[data-rprog-pct]').textContent = `${p.pct}%`;
+});
 
 function doneView({ app, engine, what }) {
   const claude = engine !== 'ats';

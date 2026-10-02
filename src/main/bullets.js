@@ -2,6 +2,7 @@
 // under the role it belongs to, so resumes can be assembled from the ones
 // that fit a posting best. Everything here is offline and free.
 const crypto = require('crypto');
+const { overlap, checkBullet } = require('../shared/resumeCheck');
 const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
@@ -389,11 +390,76 @@ function emptyBank() {
   return { experiences: [], bullets: [], education: [], skills: [], summary: '' };
 }
 
+// An employer as resumes name it differently: "Appian" / "Appian Corporation",
+// "Deloitte" / "Deloitte Consulting LLP".
+const LEGAL = /\b(?:inc|incorporated|corp|corporation|co|company|llc|llp|lp|ltd|limited|plc|gmbh|ag|sa|holdings)\b\.?/g;
+const orgKey = (s) => norm(String(s || '').replace(/&/g, ' and ')).replace(/\./g, ' ').replace(LEGAL, ' ').replace(/\s+/g, ' ').trim();
+function sameOrg(a, b) {
+  const x = orgKey(a);
+  const y = orgKey(b);
+  return !!x && !!y && (x === y || y.startsWith(`${x} `) || x.startsWith(`${y} `));
+}
+// When a role ended: a year, 'now' for a current role, or null.
+const endKey = (e) => (/present|current|now|today/i.test(e.end || e.dates || '') ? 'now' : yearOf(e.end) || null);
+
+// The same job in two resumes: same employer and either the same title or
+// the same start year (and end, or a close title), however each resume
+// words the employer and dates ("July 2022 – Present" / "2022 – Present").
 function sameRole(a, b) {
-  const k = (e) => `${norm(e.title)}|${norm(e.organization)}`;
-  if (k(a) === k(b)) return true;
-  // Same employer and overlapping dates, title reworded between resumes.
-  return norm(a.organization) && norm(a.organization) === norm(b.organization) && yearOf(a.start) && yearOf(a.start) === yearOf(b.start);
+  if (!!a.isProject !== !!b.isProject) return false;
+  if (a.isProject) return norm(a.title) === norm(b.title) && orgKey(a.organization) === orgKey(b.organization);
+  if (!sameOrg(a.organization, b.organization)) {
+    // One resume didn't name the employer: same title and start year.
+    const oneUnnamed = !orgKey(a.organization) !== !orgKey(b.organization);
+    return oneUnnamed && !!norm(a.title) && norm(a.title) === norm(b.title) && !!yearOf(a.start) && yearOf(a.start) === yearOf(b.start);
+  }
+  if (norm(a.title) && norm(a.title) === norm(b.title)) return true;
+  const start = yearOf(a.start) || yearOf(a.dates);
+  if (!start || start !== (yearOf(b.start) || yearOf(b.dates))) return false;
+  return endKey(a) === endKey(b) || similarity(a.title || '', b.title || '') >= 0.5;
+}
+
+/**
+ * Repair a bank built before roles were matched across resumes: the same job
+ * filed twice ("Appian" and "Appian Corporation"), each with copies of the
+ * same bullets. Merges each duplicate role into the first, its bullets into
+ * the first's (a near-duplicate becomes another wording). Returns the bank
+ * and where each removed role and bullet went, to update resumes that use them.
+ * @returns {{bank: object, roles: Map<string,string>, bullets: Map<string,string>}}
+ */
+function tidyBank(bank) {
+  const b = JSON.parse(JSON.stringify(bank || emptyBank()));
+  const roles = new Map();
+  const bullets = new Map();
+  const keep = [];
+  for (const e of b.experiences) {
+    const into = keep.find((k) => sameRole(k, e));
+    if (!into) {
+      keep.push(e);
+      continue;
+    }
+    roles.set(e.id, into.id);
+    // Fill in what the first copy lacks; prefer full month dates.
+    for (const k of ['location', 'dates', 'start', 'end']) if (!into[k] || (e[k] && String(e[k]).length > String(into[k]).length && yearOf(e[k]) === yearOf(into[k]))) into[k] = e[k] || into[k];
+    if (e.hidden) into.hidden = true;
+  }
+  if (!roles.size) return { bank: b, roles, bullets };
+  b.experiences = keep;
+  const out = [];
+  for (const x of b.bullets) {
+    const exp = roles.get(x.experienceId) || x.experienceId;
+    const pool = out.filter((y) => y.experienceId === exp);
+    const dup = pool.find((y) => [y.text, ...(y.variants || [])].some((v) => similarity(v, x.text) >= SAME_BULLET));
+    if (dup) {
+      for (const v of [x.text, ...(x.variants || [])]) if (![dup.text, ...(dup.variants || [])].some((w) => norm(w) === norm(v))) dup.variants = [...(dup.variants || []), v];
+      dup.uses = (dup.uses || 0) + (x.uses || 0);
+      bullets.set(x.id, dup.id);
+      continue;
+    }
+    out.push({ ...x, experienceId: exp });
+  }
+  b.bullets = out;
+  return { bank: b, roles, bullets };
 }
 
 /**
@@ -464,6 +530,20 @@ function recencyBonus(exp) {
  * Score every bullet (and each of its alternative wordings) for a posting.
  * @returns {{ranked: object[], units: object[], evidence: object[]}}
  */
+// How well a bullet is written, by the Check tab's own bullet checks: a
+// result counts most; a duty-style opener ("Responsible for", "Helped"),
+// more than two lines or a bare fragment, and "I"/"my" count against it.
+// So the optimizer picks, and words, bullets the checks won't flag.
+const writingCache = new Map();
+function writing(text) {
+  if (writingCache.has(text)) return writingCache.get(text);
+  const ok = Object.fromEntries(checkBullet(text).map((c) => [c.id, c.ok]));
+  const v = (ok.result ? 0.8 : 0) + (ok.opener ? 0 : -0.6) + (ok.length ? 0 : -0.5) + (ok.voice ? 0 : -0.4);
+  if (writingCache.size > 5000) writingCache.clear();
+  writingCache.set(text, v);
+  return v;
+}
+
 function rankBullets(job, bank) {
   const units = bulletUnits(job);
   const jobTerms = [...significantTerms(job.text).entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => stem(t));
@@ -480,7 +560,7 @@ function rankBullets(job, bank) {
         const coverage = covers.reduce((s, { u, m }) => s + KIND_WEIGHT[u.kind] * m, 0);
         const words = tokens(text);
         const vocab = Math.min(5, jobTerms.filter((j) => words.has(j)).length) * 0.35;
-        const score = coverage + vocab + (isQuantified(text) ? 0.8 : 0) + recencyBonus(exp);
+        const score = coverage + vocab + writing(text) + recencyBonus(exp);
         if (!best || score > best.score) best = { text, score, covers: covers.map(({ u, m }) => ({ key: u.key, label: u.label, kind: u.kind, m })) };
       }
       return { id: b.id, experienceId: b.experienceId, ...best, isVariant: best.text !== b.text };
@@ -556,6 +636,16 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
   const height = (picked, shown) => ResumeDoc.measure({ ...shell, roles: docRoles(asRoles(picked, shown), expById) }, { scale }).height;
   const { pageHeight, lineHeight } = ResumeDoc.measure(shell, { scale });
 
+  // A bullet the Check tab would flag for how it's written.
+  const weak = (r) => writing(r.text) < 0;
+  // On a long career, a role that ended over 10 years ago and shows nothing
+  // the posting asks for (a retail job before a data career) is left off:
+  // the page is worth more to recent, relevant work.
+  const nowYear = new Date().getFullYear();
+  const years = careerYears(bank);
+  const relevant = new Set(ranked.filter((r) => r.covers.some((c) => c.m >= 0.6 && c.kind !== 'preferred')).map((r) => r.experienceId));
+  const stale = (e) => years >= 8 && !e.isProject && endKey(e) !== 'now' && nowYear - (endKey(e) || nowYear) > 10 && !relevant.has(e.id);
+
   function fill(n) {
     const room = n * pageHeight - lineHeight; // a line spare for page-break slack
     // A page holds about 12-16 bullets a reader will take in; past that each
@@ -571,7 +661,13 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     let count = 0;
     const shown = new Set(); // roles on the page
     const dropped = []; // older roles with no room left
+    const unrelated = []; // old roles that show nothing this posting asks for
+    // Two bullets that say much the same thing (the same accomplishment from
+    // two resumes, or listed under two roles) never share a page: the
+    // stronger one, ranked first, keeps its place. Same rule as the Check tab.
+    const repeats = (r) => [...picked.values()].some((list) => list.some((x) => overlap(x.text, r.text) >= 0.6));
     const fits = (r) => {
+      if (repeats(r)) return false;
       const fresh = !shown.has(r.experienceId);
       shown.add(r.experienceId);
       picked.get(r.experienceId).push(r);
@@ -591,18 +687,28 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     // Every role keeps at least one bullet, so the timeline has no holes;
     // the oldest roles go when even that doesn't fit.
     for (const e of exps) {
-      const top = pool.find((r) => r.experienceId === e.id);
-      if (dropped.length) dropped.push(e);
+      const top = pool.find((r) => r.experienceId === e.id && !repeats(r));
+      if (stale(e)) unrelated.push(e);
+      else if (dropped.length) dropped.push(e);
       else if (top && fits(top)) take(top);
       else if (!top && !e.isProject) {
         shown.add(e.id); // a job with no bullets still shows on the timeline
         if (height(picked, shown) > room) shown.delete(e.id), dropped.push(e);
       } else if (top) dropped.push(e);
     }
+    // Roles left off stay off: nothing later tops them up.
+    for (const e of [...unrelated, ...dropped]) for (let k = pool.length - 1; k >= 0; k--) if (pool[k].experienceId === e.id) pool.splice(k, 1);
     // Bring a role up to its minimum with its strongest remaining bullets, room allowing.
+    // Bullets in one role that open with the same verb read as one long list;
+    // a different opener goes first when the two are close. A weakly written
+    // bullet ("Helped with…", three lines long) goes last: it's used only when
+    // the role has nothing better.
+    const opener = (t) => (String(t).match(/[a-z]+/i) || [''])[0].toLowerCase();
+    const sameOpener = (r) => picked.get(r.experienceId).some((x) => opener(x.text) === opener(r.text));
+    const varied = (list) => list.map((r, k) => ({ r, k: k + (sameOpener(r) ? 2.5 : 0) + (weak(r) ? 6 : 0) })).sort((a, b) => a.k - b.k).map((x) => x.r);
     const topUp = (e, i) => {
       const min = roleMinimum(e, i);
-      for (const r of pool.filter((x) => x.experienceId === e.id)) {
+      for (const r of varied(pool.filter((x) => x.experienceId === e.id))) {
         if (picked.get(e.id).length >= min) break;
         if (fits(r)) take(r);
       }
@@ -616,7 +722,8 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
       const open = pool.filter((r) => picked.get(r.experienceId).length < limits.get(r.experienceId)).map((r) => ({ r, gain: gainOf(r) }));
       // Per line of page, but a second line is free: a bullet with room for its result reads better than a one-line task.
       const cost = (r) => 1 + 0.2 * Math.max(0, lines.get(r.id) - 2);
-      const worth = open.filter((x) => x.gain >= 0.9).sort((a, b) => b.gain / cost(b.r) - a.gain / cost(a.r));
+      const value = (x) => (x.gain / cost(x.r)) * (sameOpener(x.r) ? 0.8 : 1) * (weak(x.r) ? 0.5 : 1);
+      const worth = open.filter((x) => x.gain >= 0.9).sort((a, b) => value(b) - value(a));
       const next = worth.find((x) => fits(x.r));
       if (!next) {
         // What a second page could add: relevant bullets out of room, or over this page's per-role limit.
@@ -639,7 +746,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     const padLimit = (id) => (count >= SOLID ? limits.get(id) : roleLimits2.get(id));
     for (const r of [...pool].sort((a, b) => b.score - a.score)) {
       if (count >= cap || height(picked, shown) >= target) break;
-      if (r.score < 0.8 || picked.get(r.experienceId).length >= padLimit(r.experienceId)) continue;
+      if (r.score < 0.8 || weak(r) || picked.get(r.experienceId).length >= padLimit(r.experienceId)) continue;
       if (fits(r)) take(r);
     }
     // Still thin (a short library): an accomplishment that proves nothing in
@@ -648,12 +755,12 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     // with a result: a one-line task like "Ran weekly reports" is filler).
     for (const r of [...pool].sort((a, b) => b.score - a.score)) {
       if (count >= cap || height(picked, shown) >= target) break;
-      if (!shown.has(r.experienceId) || (count >= SOLID && !isQuantified(r.text)) || picked.get(r.experienceId).length >= padLimit(r.experienceId)) continue;
+      if (!shown.has(r.experienceId) || weak(r) || (count >= SOLID && !isQuantified(r.text)) || picked.get(r.experienceId).length >= padLimit(r.experienceId)) continue;
       if (fits(r)) take(r);
     }
     const roles = asRoles(picked, shown);
     const m = ResumeDoc.measure({ ...shell, roles: docRoles(roles, expById) }, { scale });
-    return { roles, pages: m.pages, fill: m.lastPageFill, short: dropped.length > 0, dropped: dropped.length, left, leftLines: left.reduce((s, r) => s + lines.get(r.id), 0) };
+    return { roles, pages: m.pages, fill: m.lastPageFill, short: dropped.length > 0, dropped: dropped.length, unrelated: unrelated.map((e) => e.title || e.organization), left, leftLines: left.reduce((s, r) => s + lines.get(r.id), 0) };
   }
 
   const want = pages === 1 || pages === '1' ? 1 : pages === 2 || pages === '2' ? 2 : 'auto';
@@ -683,6 +790,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     else why = 'Fits on one page; the bullets left out add nothing new for this posting.';
   }
   if (pick.pages === 1 && pick !== one) why = 'Fits on one page.';
+  if (pick.unrelated && pick.unrelated.length) why += ` Left off ${pick.unrelated.length === 1 ? `${pick.unrelated[0]}, from over 10 years ago,` : `${pick.unrelated.length} roles from over 10 years ago`} since ${pick.unrelated.length === 1 ? 'it shows' : 'they show'} nothing this posting asks for (add ${pick.unrelated.length === 1 ? 'it' : 'them'} back from the side panel).`;
   if (pick.dropped) why += ` Left off your ${pick.dropped === 1 ? 'oldest role' : `${pick.dropped} oldest roles`} to make room (add ${pick.dropped === 1 ? 'it' : 'them'} back from the side panel).`;
   return { roles: pick.roles, coverage: coverageOf(units, pick.roles, bank), pages: pick.pages, fill: pick.fill, why };
 }
@@ -705,6 +813,17 @@ function docRoles(roles, expById) {
 // experience the posting asks for that you have, and the skills it names that
 // your bullets prove. Recruiters skim it first; an ATS search reads it like
 // any other line. Edit it like any other part of the page.
+// The roles that count toward "N years of experience" for this posting: the
+// resume's roles (no internships or roles you left off) less old ones that
+// show nothing it asks for.
+function relevantExperiences(bank, job) {
+  const exps = resumeExperiences(bank, job);
+  const { ranked } = rankBullets(job, bank);
+  const relevant = new Set(ranked.filter((r) => r.covers.some((c) => c.m >= 0.6 && c.kind !== 'preferred')).map((r) => r.experienceId));
+  const now = new Date().getFullYear();
+  return exps.filter((e) => !e.isProject && (endKey(e) === 'now' || now - (endKey(e) || now) <= 10 || relevant.has(e.id)));
+}
+
 function atsSummary(job, bank) {
   const text = String((job && job.text) || '');
   const current = orderedExperiences(bank).find((e) => !e.isProject && e.title);
@@ -715,7 +834,9 @@ function atsSummary(job, bank) {
   // technology isn't years "in process management".
   const workText = lower(withoutCollaborators([...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n')));
   const listed = lower((bank.skills || []).join('\n'));
-  const years = Math.floor(careerYears(bank));
+  // Years in the kind of work this resume shows: not internships, and not an
+  // old role in another line of work (the retail job before a data career).
+  const years = Math.floor(careerYears({ experiences: relevantExperiences(bank, job) }));
   // The phrase itself, other word forms allowed ("technology strategies"), not its words scattered about.
   const phraseRe = (phrase) => new RegExp(`\\b${phrase.split(' ').map((w) => escapeRe(w.replace(/(?:ies|s)$/, ''))).join('[a-z]*\\s+')}`);
   // A field you worked in: in your roles and bullets, not part of a longer name
@@ -1075,6 +1196,8 @@ module.exports = {
   skillTags,
   orderedExperiences,
   resumeExperiences,
+  tidyBank,
+  sameRole,
   isInternship,
   splitHeader,
   atsSummary,
