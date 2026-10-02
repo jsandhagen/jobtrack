@@ -17,7 +17,7 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
+const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, EMPLOYER_EVIDENCE, EMPLOYER_HEADING, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
 const { memoize } = require('./memo');
@@ -444,7 +444,21 @@ function atsScore(job, resumeText, opts = {}) {
   const preferred = hardUnits.filter((u) => u.kind === 'preferred');
   let basicMet = basic.filter((u) => u.met).length;
   let basicTotal = basic.length;
-  const knockouts = basic.filter((u) => !u.met).map((u) => `${u.label} (posting says "${u.term}")`);
+  // "SaaS" asked for, and the resume has years at Appian: a recruiter knows,
+  // a keyword search doesn't. Still unmatched (that's how the systems work),
+  // but it's a word to add, not a qualification missing.
+  const fixable = [];
+  for (const u of hardUnits.filter((x) => !x.met)) {
+    for (const skill of u.skills) {
+      const m = EMPLOYER_EVIDENCE[skill] && (resumeLower.match(EMPLOYER_EVIDENCE[skill]) || resumeLower.match(EMPLOYER_HEADING[skill]));
+      if (!m) continue;
+      const employer = m[0].replace(/(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\.?\s*[,|·–—-]?\s*(?:[a-z]+\.? )?(?:19|20)\d{2}$/, '').replace(/\s*[,|·–—-].*$/, '').trim();
+      fixable.push({ skill, term: u.terms[u.skills.indexOf(skill)], employer: resumeText.match(new RegExp(employer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))?.[0] || employer, kind: u.kind });
+      u.implied = true;
+      break;
+    }
+  }
+  const knockouts = basic.filter((u) => !u.met && !u.implied).map((u) => `${u.label} (posting says "${u.term}")`);
   if (education) {
     basicTotal++;
     if (education.score >= 0.5) basicMet++;
@@ -486,6 +500,10 @@ function atsScore(job, resumeText, opts = {}) {
     basic: { met: basicMet, total: basicTotal },
     preferred: { met: preferredMet, total: preferred.length },
     knockouts,
+    fixable,
+    experience: experience ? { need: experience.need, have: experience.have, met: experience.score >= 0.8 } : null,
+    education: education ? { need: DEGREE_NAMES[education.need], met: education.score >= 0.5, equivalentOk: !!education.equivalentOk } : null,
+    titleExact: title ? !!title.exact : null,
     screening,
     matchedSkills: [...skills.hard.matched, ...skills.soft.matched].map((m) => m.skill),
     missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),

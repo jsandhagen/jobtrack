@@ -8,6 +8,20 @@
 const PAGE_W = 816; // 8.5in at 96 css px/in
 const PX_IN = 96;
 
+// Set by a nudge on the Fit & ATS tab: open the Job match tab on this requirement.
+let edPending = null;
+
+// Open the Job match tab on one requirement, with its bullets from your bank.
+function showRequirement(key) {
+  ed.tab = 'job';
+  ed.filter = key;
+  saveTab();
+  renderTray();
+  highlightFilter();
+  const el = document.querySelector(`#edTray [data-filter="${CSS.escape(key)}"]`);
+  if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
 const ed = {
   appId: null,
   app: null,
@@ -227,6 +241,11 @@ async function renderEditor(appId, app) {
   len.addEventListener('change', () => setLength(len.value));
   $('#edFit', slot).addEventListener('click', (e) => fitToPages(e.currentTarget, +e.currentTarget.dataset.pages));
   wirePaper();
+  if (edPending) {
+    const { filter } = edPending;
+    edPending = null;
+    showRequirement(filter);
+  }
 }
 
 // A new saved resume from the one on screen (an application's, or a duplicate of a saved one).
@@ -700,19 +719,20 @@ function jobPane() {
   const skillTip = /^(?:Required skill not found|Required: any one of|Use the posting's exact wording|Nice-to-have)/;
   const otherTips = info.ats.tips.filter((t) => !skillTip.test(t)).slice(0, 5);
   ed.gaps = gaps;
-  return `${gaps.length ? `<div class="tray-card"><h4><span>Words the screen looks for</span></h4>
-      <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. Recruiters search an ATS for them, and a required one can screen you out. Use each only where it's true of you: the closest bullet is a place to start.</p>
-      ${gaps.map(gapRow).join('')}</div>` : ''}
+  return `${info.nudges ? `<div class="tray-card">${nudgeCard(info.nudges, { appId: ed.appId, compact: true })}</div>` : ''}
+    ${gaps.length ? `<details class="tray-card tray-fold"><summary><h4><span>Words the screen looks for</span> <span class="n">${gaps.length}</span></h4></summary>
+      <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. Recruiters search an ATS for them. Use each only where it's true of you: the closest bullet is a place to start.</p>
+      ${gaps.map(gapRow).join('')}</details>` : ''}
     <div class="tray-card">
       <h4>What the posting asks for</h4>
       ${info.coverage.length ? `<div class="jm-legend"><span>✓ a bullet shows it</span><span>½ skills list only</span><span>○ not shown</span></div>${reqs.map(row).join('')}${prefs.map(row).join('')}<p class="faint" style="margin:8px 0 0">Tap one to highlight its bullets on the page, or to see bullets from your bank that would show it.</p>` : '<p class="muted" style="margin:0">Sprout couldn\'t find specific requirements in this posting.</p>'}
     </div>
-    <div class="tray-card"><h4><span>How the ATS match adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4>
+    <details class="tray-card tray-fold"><summary><h4><span>How the ATS match adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4></summary>
       ${bars || '<p class="muted" style="margin:0">No breakdown for this posting.</p>'}
       ${bars ? '<p class="faint" style="margin:6px 0 0">Parts that don\'t apply to this posting are left out and the rest re-weighted.</p>' : ''}
       ${otherTips.length ? `<div class="tray-role" style="margin-top:12px">Also</div><ul class="tidy" style="margin:4px 0 0">${otherTips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
       <p class="honest">Applicant tracking systems mostly rank and search; few reject on a match score alone. Use this to make sure the posting's words for skills you really have are on the page. <a href="#" data-guide>More →</a></p>
-    </div>
+    </details>
     ${defaults}`;
 }
 
@@ -793,6 +813,18 @@ function gotoBullet(r, b) {
 }
 
 function wireTray() {
+  // "I've used it" on a nudge: into your bank's skills, then the tray reads it again.
+  $$('#edTray [data-have]', document).forEach((b) =>
+    b.addEventListener('click', () =>
+      run(b, async () => {
+        const bank = await S.getBank();
+        const skills = bank.skills || [];
+        if (!skills.some((x) => x.toLowerCase() === b.dataset.have.toLowerCase())) await S.updateBank({ skills: [...skills, b.dataset.have] });
+        toast(`Added ${b.dataset.have} to the skills in your bullet bank. Optimize again to put it on this page.`, 'good', 5000);
+        await saveNow();
+      }, '…')
+    )
+  );
   const tray = document.getElementById('edTray');
   $$('[data-tab]', tray).forEach((b) => b.addEventListener('click', () => ((ed.tab = b.dataset.tab), saveTab(), renderTray(), (tray.scrollTop = 0))));
   $$('[data-tab-go]', tray).forEach((b) => b.addEventListener('click', () => ((ed.tab = b.dataset.tabGo), saveTab(), renderTray(), (tray.scrollTop = 0))));

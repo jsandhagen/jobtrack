@@ -947,6 +947,7 @@ function pickSkills(job, bank, { max = 15 } = {}) {
   const listed = (bank.skills || []).filter((s) => String(s).trim());
   const bankText = lower(withoutCollaborators([listed.join(', '), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text)].join('\n')));
   const keys = new Set();
+  const reworded = []; // { from, to }: your word with the posting's alongside
   const found = []; // {name, rank, mentions, pos}
   const add = (name, kind, mentions, term) => {
     // "Roadmap" next to "Roadmaps" or "Product roadmap" says it twice.
@@ -967,7 +968,17 @@ function pickSkills(job, bank, { max = 15 } = {}) {
     // Your words or the posting's, never a label you didn't write ("IT Portfolio Management" for "planning cycle").
     const own = listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s))));
     const label = gridWords(skill).every((w) => bankText.includes(w)) ? skill : null;
-    const name = mine || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : own || label);
+    let name = mine || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : own || label);
+    // Your short form and the posting's long one ("AWS" / "Amazon Web Services"), or the
+    // other way round: strict systems search the posting's words, so the grid says both.
+    if (name && name === own) {
+      const theirs = postingWording(jobText, term, skill);
+      const short = (w) => /^[A-Z][A-Z0-9&+#./-]{1,5}$/.test(w);
+      if ((short(own) || short(theirs)) && norm(theirs) !== norm(own) && theirs.length + own.length <= 30) {
+        name = short(own) ? `${theirs} (${own})` : `${own} (${theirs})`;
+        reworded.push({ from: own, to: name });
+      }
+    }
     if (name) add(name, kind, mentions, term);
   }
   // Your own listed skills the posting names outside the skills dictionary ("Storybook", "HIPAA").
@@ -990,7 +1001,45 @@ function pickSkills(job, bank, { max = 15 } = {}) {
     if (tags.length && tags.every((t) => keys.has(t))) continue;
     other.push(s);
   }
-  return { relevant, other, all: [...relevant, ...other] };
+  return { relevant, other, all: [...relevant, ...other], reworded: reworded.filter((r) => relevant.includes(r.to)) };
+}
+
+// Industries an ATS can't read from an employer's name: the posting asks for
+// "SaaS" and the page has years at Appian, which a recruiter knows is SaaS and
+// a keyword search doesn't. Said once in the summary — after the employer's
+// name if the summary names them, or as a short closing sentence.
+// Returns the doc (changed in place) and what was added.
+function addIndustryWords(doc, job) {
+  const jobText = String((job && job.text) || '');
+  if (!jobText.trim() || !doc) return { doc, added: [] };
+  const jobSkills = classifyJobSkills(jobText);
+  const pageLower = lower([doc.summary, ...(doc.roles || []).flatMap((r) => [`${r.title}, ${r.organization}, ${r.dates}`, ...(r.bullets || []).map((b) => b.text)]), (doc.skills || []).join(', ')].join('\n'));
+  const byEmployer = new Map(); // employer -> [term]
+  const added = [];
+  for (const [skill, re] of Object.entries(EMPLOYER_EVIDENCE)) {
+    if (!jobSkills.has(skill) || SKILLS[skill].some((p) => p.test(pageLower))) continue;
+    const role = (doc.roles || []).find((r) => !r.isProject && r.organization && re.test(lower(`${r.organization}, ${r.dates || ''}`)));
+    if (!role) continue;
+    const term = postingWording(jobText, jobSkills.get(skill).term, skill);
+    if ([...byEmployer.values()].flat().some((t) => norm(t) === norm(term))) continue;
+    byEmployer.set(role.organization, [...(byEmployer.get(role.organization) || []), term]);
+    added.push({ skill, term, employer: role.organization });
+  }
+  for (const [employer, terms] of byEmployer) {
+    const ts = terms.map((t, i) => (i ? t.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()) : t));
+    const words = ts.length > 1 ? `${ts.slice(0, -1).join(', ')} and ${ts[ts.length - 1]}` : ts[0];
+    const summary = String(doc.summary || '');
+    const at = summary.toLowerCase().indexOf(employer.toLowerCase());
+    if (at >= 0 && !summary.slice(at + employer.length).startsWith(' (')) {
+      doc.summary = `${summary.slice(0, at + employer.length)} (${words})${summary.slice(at + employer.length)}`;
+    } else if (summary.trim()) {
+      const lead = words.replace(/^[a-z]/, (c) => c.toUpperCase());
+      doc.summary = `${summary.trim().replace(/[^.!?]$/, '$&.')} ${lead} experience at ${employer}.`;
+    } else {
+      doc.summary = `${words.replace(/^[a-z]/, (c) => c.toUpperCase())} experience at ${employer}.`;
+    }
+  }
+  return { doc, added };
 }
 
 // "postgresql" as the posting writes it ("PostgreSQL").
@@ -1121,7 +1170,8 @@ function fitDocToPages(doc, job, bank, pages = 1, { skills = true, scale = 1 } =
   const over = () => !ResumeDoc.fits(d, pages, { scale });
 
   const jobLower = lower((job && job.text) || '');
-  const asked = new Set(pickSkills(job || { text: '' }, bank || emptyBank()).relevant.map(norm));
+  const picked = pickSkills(job || { text: '' }, bank || emptyBank());
+  const asked = new Set([...picked.relevant, ...picked.reworded.map((r) => r.from)].map(norm));
   const relevantSkill = (s) => asked.has(norm(s)) || hasWord(jobLower, lower(s)) || units.some((u) => u.match(lower(s)) >= 1);
   while (skills && over() && d.skills.length > 9) {
     const i = d.skills.map((s, k) => ({ s, k })).reverse().find(({ s }) => !relevantSkill(s));
@@ -1181,6 +1231,7 @@ function linkDocToBank(doc, bank) {
 module.exports = {
   buildDoc,
   pickSkills,
+  addIndustryWords,
   fitDocToPages,
   baselineDoc,
   linkDocToBank,

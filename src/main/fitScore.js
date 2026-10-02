@@ -222,11 +222,14 @@ const SKILLS = {
 // keyword search for "enterprise software" (or "low-code") won't find "Appian".
 // The vendor's name followed by role dates: "Appian, 2019", "Pega | Jan 2021".
 const employerLine = (names) => new RegExp(`\\b(?:${names})(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\\.?\\s*[,|·–—-]?\\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.? )?(?:19|20)\\d{2}\\b`);
-const EMPLOYER_EVIDENCE = {
-  'Enterprise Software': employerLine('appian|pegasystems|servicenow|salesforce|workday|oracle|sap|microsoft|adobe|atlassian|snowflake|databricks|uipath|outsystems|mendix|hubspot|zendesk|datadog|mongodb|okta|docusign|autodesk|palantir|veeva|guidewire|celonis|informatica|confluent|gitlab|twilio|intuit|vmware|splunk|elastic|unqork|blue prism|automation anywhere'),
+const EMPLOYER_NAMES = {
+  'Enterprise Software': 'appian|pegasystems|servicenow|salesforce|workday|oracle|sap|microsoft|adobe|atlassian|snowflake|databricks|uipath|outsystems|mendix|hubspot|zendesk|datadog|mongodb|okta|docusign|autodesk|palantir|veeva|guidewire|celonis|informatica|confluent|gitlab|twilio|intuit|vmware|splunk|elastic|unqork|blue prism|automation anywhere',
   // Low-code and process-automation vendors: everyone there works on a low-code platform.
-  'Low-Code / BPM': employerLine('appian|pegasystems|pega|outsystems|mendix|unqork|uipath|blue prism|automation anywhere|nintex|quickbase|retool|bizagi|k2'),
+  'Low-Code / BPM': 'appian|pegasystems|pega|outsystems|mendix|unqork|uipath|blue prism|automation anywhere|nintex|quickbase|retool|bizagi|k2',
 };
+const EMPLOYER_EVIDENCE = Object.fromEntries(Object.entries(EMPLOYER_NAMES).map(([k, names]) => [k, employerLine(names)]));
+// The employer on a line of its own, as Sprout's template prints it (the dates sit on the title line).
+const EMPLOYER_HEADING = Object.fromEntries(Object.entries(EMPLOYER_NAMES).map(([k, names]) => [k, new RegExp(`^[ \\t]*(?:${names})(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\\.?[ \\t]*(?:[,|·–—-][^\\n]{0,40})?$`, 'm')]));
 
 // Words of soft-skill phrases ("operational excellence", "influencing senior leaders"): a resume can't show them, so they're neither requirements nor keywords.
 const SOFT_TERM_WORDS = new Set('operational excellence influencing influence influential senior leaders leadership leader stakeholders stakeholder relationships relationship trusted trust building ownership owning owner ambiguity ambiguous fast-paced environments environment initiative independently thinking strategic strategically mindset growth mindset curiosity curious collaborative collaboration interpersonal executive presence judgment high integrity humility passion passionate self-starter self-motivated motivated proactive accountability accountable empathy resilience adaptable adaptability agility agile-minded attention detail team player excellent strong effective effectively ability able skills skill drive driven results-oriented outcomes customer-obsessed bias action'.split(' '));
@@ -708,6 +711,7 @@ module.exports = {
   SKILLS,
   RELATED,
   EMPLOYER_EVIDENCE,
+  EMPLOYER_HEADING,
   SOFT_TERM_WORDS,
   withoutCollaborators,
   SOFT_SKILLS,

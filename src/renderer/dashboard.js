@@ -913,6 +913,60 @@ function barColor(v) {
   return v >= 75 ? 'var(--band-hi)' : v >= 50 ? 'var(--band-mid)' : 'var(--band-lo)';
 }
 
+// Sprout's take on the ATS check: what it already fixed, then at most three
+// things worth doing, each with one button where Sprout can help. The full
+// breakdown stays one click away for anyone who wants it.
+const NUDGE_ICON = { fixed: 'sparkle', ask: 'heart', 'heads-up': 'warn', tip: 'check' };
+function nudgeCard(n, { appId, compact = false } = {}) {
+  if (!n || (!n.nudges.length && !n.fixed.length && !n.headline)) return '';
+  const act = (x) => {
+    const a = x.action;
+    if (!a) return '';
+    if (a.type === 'have-skill') return `<div class="nudge-acts">${a.terms.map((t) => `<button class="small soft" data-have="${esc(t)}">I've used ${esc(t)}</button>`).join('')}</div>`;
+    return `<div class="nudge-acts"><button class="small soft" data-nudge="${esc(a.type)}" data-app="${esc(appId)}"${a.key ? ` data-key="${esc(a.key)}"` : ''}${a.term ? ` data-term="${esc(a.term)}"` : ''}>${esc(a.label || 'Do it')}</button></div>`;
+  };
+  return `<div class="nudges${compact ? ' compact' : ''}">
+    ${n.headline ? `<div class="nudge-head">${mascotSvg(n.nudges.length ? 'curious' : 'proud', compact ? 34 : 44)}<p>${esc(n.headline)}</p></div>` : ''}
+    ${n.fixed.map((f) => `<div class="nudge t-done"><span class="ni">${icon('check', 15)}</span><div><p>${esc(f)}</p></div></div>`).join('')}
+    ${n.nudges.map((x) => `<div class="nudge t-${x.tone}"><span class="ni">${icon(NUDGE_ICON[x.tone] || 'check', 15)}</span><div><p>${esc(x.text)}</p>${act(x)}</div></div>`).join('')}
+    ${n.more ? `<p class="faint nudge-more">${n.more === 1 ? 'One smaller thing is' : `${n.more} smaller things are`} in the details below, if you're curious.</p>` : ''}
+  </div>`;
+}
+
+// A nudge's button: fix the page, show a bullet, or go fill something in.
+async function runNudge(btn) {
+  const id = btn.dataset.app;
+  const type = btn.dataset.nudge;
+  const inEditor = !!btn.closest('#edTray');
+  if (type === 'profile') return void (location.hash = '#profile');
+  if (type === 'bank') return void (location.hash = '#bank');
+  if (type === 'requirement') {
+    if (inEditor) return showRequirement(btn.dataset.key); // editor.js
+    edPending = { tab: 'job', filter: btn.dataset.key }; // editor.js picks it up
+    appTab = 'resume';
+    return renderApplication(id);
+  }
+  if (type === 'optimize') {
+    const ok = await run(btn, () => S.atsResume(id).then(() => true), 'Optimizing…');
+    if (!ok) return;
+    appTab = 'resume';
+    await renderApplication(id);
+    return toast(say('atsDone'), 'good', 3800, 'proud');
+  }
+  if (type === 'fix-page' || type === 'add-skill') {
+    if (inEditor) await saveNow(); // editor.js: keep what you typed
+    const ok = await run(btn, () => S.fixPage(id, type === 'add-skill' ? { addSkill: btn.dataset.term } : {}).then(() => true), '…');
+    if (!ok) return;
+    if (inEditor && ed.appId === id) await renderEditor(id, ed.app);
+    else await renderApplication(id);
+    toast(type === 'add-skill' ? `Added “${btn.dataset.term}” to your skills.` : 'Done. It’s in your summary now.', 'good');
+  }
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-nudge]');
+  if (b) (e.preventDefault(), runNudge(b));
+});
+
 function atsPanel(ats) {
   const b = ats.before;
   const a = ats.after;
@@ -934,6 +988,8 @@ function atsPanel(ats) {
       <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Aim for 75–80%+.</p></div>
       ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
+    ${nudgeCard(ats.nudges, { appId: ats.appId })}
+    <details class="ats-more"><summary class="section-title">See the full breakdown</summary>
     <div class="ats-stats">
       ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more', skillSteps ? window.SproutMascot.miniRing(skillSteps * 25, { segments: 4, color: barColor(skillSteps * 25) }) : '')}
       ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search", pctRing(main.strictKeywordRate))}
@@ -946,8 +1002,9 @@ function atsPanel(ats) {
         return `<div class="ats-bar" title="${esc(hint)}"><span>${label}</span><div class="track"><i style="width:${v}%;background:${barColor(v)}"></i></div><b>${v}</b></div>`;
       })
       .join('')}</div>
-    ${main.knockouts.length ? `<div class="section-title">Possible knockouts</div><div>${main.knockouts.map((k) => `<span class="chip grow">${icon('warn', 14)} ${esc(k)}</span>`).join('')}</div>` : ''}
-    ${main.tips.length ? `<details ${a ? '' : 'open'}><summary class="section-title" style="cursor:pointer">How to raise it (${main.tips.length})</summary><ul class="tidy">${main.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>` : ''}
+    ${main.knockouts.length ? `<div class="section-title">Required, and not found</div><div>${main.knockouts.map((k) => `<span class="chip grow">${esc(k)}</span>`).join('')}</div>` : ''}
+    ${main.tips.length ? `<div class="section-title">Every tip</div><ul class="tidy">${main.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+    </details>
     <p class="faint" style="margin:10px 0 0">An estimate based on how Workday, Taleo, iCIMS and resume scanners like Jobscan are documented to work. Vendors keep their exact formulas private, and many companies (e.g. on Greenhouse) have people read every resume, so write for humans first.</p>
   </div>`;
 }
@@ -1032,7 +1089,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
   const tabBody = () => {
     if (appTab === 'posting') return `<div class="posting-text card">${esc(a.job.text)}</div>`;
     if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}${peopleAtCard(a)}</div>`;
-    if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel(a.ats) : '<div></div>'}${fitCard}</div>`;
+    if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel({ ...a.ats, appId: a.id }) : '<div></div>'}${fitCard}</div>`;
     if (appTab === 'letter') return letterBody();
     if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3>${resumeProgressHtml(a.id)}<p class="faint">It'll open right here in the editor. You can keep using Sprout meanwhile.</p></div>`;
     return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';

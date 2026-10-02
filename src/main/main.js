@@ -38,6 +38,7 @@ const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
 const { atsScore: readAts, atsGaps, libraryAtsScore } = require('./atsScore');
 const { memoize } = require('./memo');
+const { atsNudges } = require('./atsNudges');
 const outreach = require('../shared/outreach');
 const finder = require('../shared/finder');
 const careers = require('./careers');
@@ -516,7 +517,11 @@ function withAts(rec) {
   const bank = store.getBank();
   // Which bullet proves each requirement.
   const evidence = bank.bullets.length ? bulletBank.rankBullets(rec.job, bank).evidence : [];
-  return { ...rec, ats: { before, after }, evidence };
+  // The few things worth doing, in plain words, for whichever resume is shown.
+  const nudges = after
+    ? atsNudges({ ats: after, job: rec.job, pageText: htmlToText(rec.resumeHtml), bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true })
+    : atsNudges({ ats: before, job: rec.job, pageText: before ? evidenceDocs().map((d) => d.text).join('\n') : '', bank, onPage: false });
+  return { ...rec, ats: { before, after, nudges }, evidence };
 }
 
 // Saved fit scores are snapshots. Recompute the ones an older scorer made
@@ -604,7 +609,7 @@ async function makeResume(appId) {
       if (n) notes = [...notes, `Took off ${n} of the weakest bullet${n === 1 ? '' : 's'} so it fits on ${limit === 1 ? 'one page' : 'two pages'}.`];
     }
     resumeProgressNow.delete(appId);
-    saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
+    saveDoc(appId, doc, { resumeSource: 'claude', atsFit: null, resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
     hostUpdated(updated);
     return updated;
@@ -667,7 +672,7 @@ function makeBaseline(appId) {
   if (!rec) throw new Error('That resume no longer exists.');
   const doc = bulletBank.baselineDoc({ profile: store.getProfile(), bank: store.getBank(), job: rec.job });
   if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
-  saveDoc(appId, doc, { resumeSource: 'baseline', builderPrev: undoPoint(rec) });
+  saveDoc(appId, doc, { resumeSource: 'baseline', atsFit: null, builderPrev: undoPoint(rec) });
   hostUpdated(getHost(appId));
 }
 
@@ -694,8 +699,18 @@ function makeAtsResume(appId) {
   const header = rec.builder && rec.builder.doc ? rec.builder.doc.header : undefined;
   // Sized to the page: the template is measured as bullets go in.
   const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages, scale: pageScale() });
-  const { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
-  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, atsFit: { pages: sel.pages, why: sel.why }, builderPrev: undoPoint(rec) });
+  let { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
+  // What a keyword search would miss but the facts support, fixed on the page:
+  // an industry the employer proves ("SaaS" for Appian), and the posting's
+  // words beside yours in the skills grid ("Amazon Web Services (AWS)").
+  const industry = bulletBank.addIndustryWords(doc, rec.job).added;
+  const reworded = bulletBank.pickSkills(rec.job, bank).reworded;
+  if (!ResumeDoc.fits(doc, sel.pages, { scale: pageScale() })) doc = bulletBank.fitDocToPages(doc, rec.job, bank, sel.pages, { scale: pageScale() }).doc;
+  const fixes = [
+    ...industry.map((x) => ({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` })),
+    ...reworded.map((x) => ({ kind: 'wording', term: x.to, text: `Wrote “${x.to}” in your skills, so a search for the posting's words finds it.` })),
+  ];
+  saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, atsFit: { pages: sel.pages, why: sel.why, fixes }, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
   hostUpdated(updated);
   return updated;
@@ -865,6 +880,7 @@ function builderState(rec) {
     coverage,
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 10), components: ats.components, gaps },
+    nudges: rec.job && String(rec.job.text || '').trim() ? atsNudges({ ats, job: rec.job, pageText, bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true }) : null,
     // The posting's title, for the "role named up top" check.
     jobTitle: (rec.job && rec.job.title) || '',
     bankSize: bank.bullets.length,
@@ -1642,6 +1658,26 @@ function registerIpc() {
   });
   handle('app:resume', (id) => makeResume(id));
   handle('app:atsResume', (id) => makeAtsResume(id));
+  // The fixes a nudge offers: industry words the employer proves ("SaaS" for
+  // Appian), or the posting's word for a skill you show, added to the skills grid.
+  handle('builder:fixPage', (id, { addSkill } = {}) => {
+    const rec = getHost(id);
+    if (!rec) throw new Error('That resume no longer exists.');
+    const doc = JSON.parse(JSON.stringify(currentDoc(rec)));
+    const fixes = [];
+    const term = String(addSkill || '').trim().slice(0, 60);
+    if (term) {
+      if (!doc.skills.some((x) => x.toLowerCase() === term.toLowerCase())) doc.skills.unshift(term);
+      fixes.push({ kind: 'wording', term, text: `Added “${term}” to your skills, in the posting's words.` });
+    } else {
+      for (const x of bulletBank.addIndustryWords(doc, rec.job).added) fixes.push({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` });
+    }
+    if (fixes.length) {
+      saveDoc(id, doc, { atsFit: { ...(rec.atsFit || {}), fixes: [...((rec.atsFit && rec.atsFit.fixes) || []), ...fixes] }, builderPrev: undoPoint(rec) });
+      hostUpdated(getHost(id));
+    }
+    return builderState(getHost(id));
+  });
   handle('builder:baseline', (id) => (makeBaseline(id), builderState(getHost(id))));
   handle('builder:undo', (id) => (undoResume(id), builderState(getHost(id))));
   handle('app:coverLetter', (id) => makeCoverLetter(id));
