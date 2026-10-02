@@ -22,7 +22,7 @@ const { isEvidenceDoc, isFictionalSample } = require('./sourceEvidence');
 // bullets from anything in the documents) inside the fixed layout and the
 // truthfulness rules; the page goes to the most relevant roles. Repeated
 // bullets across documents are sent once.
-const PROMPT_VERSION = '2026-10-02.7';
+const PROMPT_VERSION = '2026-10-02.8';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -296,20 +296,51 @@ function docXml(d) {
 
 // Someone with a dozen versions of one resume has most bullets a dozen times.
 // Each bullet goes to Claude once, in the first document that has it: later
-// documents leave out bullets already given word for word. Nothing is lost,
-// the prompt is far shorter, and Claude reads the differences between
-// versions instead of the same lines again.
+// documents leave out bullets already given — word for word, or reworded
+// without adding anything (same numbers, nearly all the same words). Nothing
+// factual is lost, the prompt is far shorter, and Claude reads the
+// differences between versions instead of the same lines again.
 // A bullet is its marked line plus the lines it wraps onto (PDFs keep the
 // wrap). It is left out only when it clearly ends — at a blank line, the next
 // bullet, a dated line or a heading — so a wrapped piece is never left behind
-// to read as part of another bullet. Prose isn't touched.
+// to read as part of another bullet. A prose paragraph (a summary, a cover
+// letter's stock opening) is left out only when it repeats an earlier one in
+// full.
 const LIST_MARK = /^\s*(?:[-•*▪●◦‣∙·–—]|\d+[.)])\s+/;
 const WRAPPED = /^\s*[a-z0-9(&,;$%]/;
 const HEADING = /^\s*#*\s*(?:(?:professional |relevant |work )?experience|employment|education|skills|technical skills|projects|summary|profile|certifications?|licen[sc]es|awards|publications|volunteer(?:ing)?|languages|interests)\b[^.]{0,30}$/i;
+const STOP = new Set('the and for with from that this into over across using used via our their its all per was were who which while within'.split(' '));
+// A reworded bullet counts as a repeat when this share of its words is in the
+// earlier one and every number in it is too.
+const NEAR_SHARE = 0.85;
+const simplify = (s) => s.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9%$+.]+/g, ' ').replace(/\.(?!\d)/g, ' ').replace(/\s+/g, ' ').trim();
+const numbersIn = (s) => s.match(/\d[\d,.]*(?:%|\+|k|m|x)?/g) || [];
+const wordsIn = (s) => [...new Set(s.split(' ').filter((w) => w.length > 2 && !/^\d/.test(w) && !STOP.has(w)))];
+
 function withoutRepeats(docs) {
   const seen = new Set();
+  const kept = []; // { words: Set, numbers: Set } for each bullet given so far
+  const byWord = new Map(); // word -> indices into kept
+  const paragraphs = new Set();
   const texts = new Map();
   let dropped = 0;
+  const repeatOf = (key) => {
+    if (seen.has(key)) return true;
+    const words = wordsIn(key);
+    const numbers = numbersIn(key);
+    if (words.length < 4) return false;
+    const overlap = new Map();
+    for (const w of words) for (const k of byWord.get(w) || []) overlap.set(k, (overlap.get(k) || 0) + 1);
+    for (const [k, n] of overlap) {
+      if (n / words.length >= NEAR_SHARE && numbers.every((x) => kept[k].numbers.has(x))) return true;
+    }
+    return false;
+  };
+  const remember = (key) => {
+    seen.add(key);
+    const k = kept.push({ numbers: new Set(numbersIn(key)) }) - 1;
+    for (const w of wordsIn(key)) byWord.set(w, [...(byWord.get(w) || []), k]);
+  };
   const out = docs.map((d) => {
     const text = String(d.text || '');
     const same = texts.get(text.trim());
@@ -323,9 +354,9 @@ function withoutRepeats(docs) {
       while (j < lines.length && lines[j].trim() && !LIST_MARK.test(lines[j]) && WRAPPED.test(lines[j])) j++;
       const next = lines[j];
       const ends = next === undefined || !next.trim() || LIST_MARK.test(next) || /\b(?:19|20)\d{2}\b/.test(next) || HEADING.test(next);
-      const key = lines.slice(i, j).join(' ').replace(LIST_MARK, '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const key = simplify(lines.slice(i, j).join(' ').replace(LIST_MARK, ''));
       if (key.length >= 25) {
-        if (!seen.has(key)) seen.add(key);
+        if (!repeatOf(key)) remember(key);
         else if (ends) {
           for (let k = i; k < j; k++) keep[k] = false;
           dropped++;
@@ -333,30 +364,75 @@ function withoutRepeats(docs) {
       }
       i = j - 1;
     }
-    return keep.every(Boolean) ? d : { ...d, text: lines.filter((_, k) => keep[k]).join('\n') };
+    // Prose paragraphs: runs of unmarked lines between blank lines.
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      let j = i;
+      while (j < lines.length && lines[j].trim()) j++;
+      const block = lines.slice(i, j);
+      if (!block.some((l) => LIST_MARK.test(l))) {
+        const key = simplify(block.join(' '));
+        if (key.length >= 120) {
+          if (paragraphs.has(key)) {
+            for (let k = i; k < j; k++) keep[k] = false;
+            dropped++;
+          } else paragraphs.add(key);
+        }
+      }
+      i = j;
+    }
+    return keep.every(Boolean) ? d : { ...d, text: lines.filter((_, k) => keep[k]).join('\n').replace(/\n{3,}/g, '\n\n') };
   });
   return { docs: out, dropped };
 }
 
-function libraryBlock(documents, profile = {}) {
+// A ceiling on the documents sent with every call (about 40k tokens), so a
+// very large library can't make each call expensive. Documents go in by
+// priority — resumes first, as ordered below — and any that don't fit are
+// named in the prompt but left out; the fact checks still read them in full.
+const LIBRARY_CHAR_BUDGET = 160000;
+
+function withinBudget(docs, budget = LIBRARY_CHAR_BUDGET) {
+  let used = 0;
+  const kept = [];
+  const left = [];
+  for (const d of docs) {
+    const size = docXml(d).length;
+    if (used + size <= budget) {
+      kept.push(d);
+      used += size;
+    } else if (!kept.length) {
+      // Even the first document alone is over: send its beginning.
+      kept.push({ ...d, text: `${d.text.slice(0, budget - 200)}\n(cut short here: the rest of this document is left out to keep the prompt short)` });
+      used = budget;
+    } else left.push(d);
+  }
+  return { docs: kept, left };
+}
+
+function libraryBlock(documents, profile = {}, budget = LIBRARY_CHAR_BUDGET) {
   const all = documents || [];
   const samples = all.filter((d) => d.kind === 'writing-sample');
-  const { docs: evidence, dropped } = withoutRepeats(
+  const { docs: unique, dropped } = withoutRepeats(
     all
       .filter(isEvidenceDoc)
       .map((d, i) => ({ d, i, k: KIND_ORDER.indexOf(KIND_ORDER.includes(d.kind) ? d.kind : 'other') }))
       .sort((a, b) => a.k - b.k || a.i - b.i)
       .map((x) => x.d)
   );
-  const repeatNote = dropped ? '(A bullet that appears word for word in several documents is given once, in the first document that has it; later documents leave it out.)\n\n' : '';
+  const { docs: evidence, left } = withinBudget(unique, budget);
+  const repeatNote = dropped ? '(A bullet or paragraph that appears in several documents — word for word, or reworded with the same facts — is given once, in the first document that has it; later documents leave it out.)\n\n' : '';
+  const leftNote = left.length ? `\n\n(The library is large, so these lower-priority documents are left out of this prompt: ${left.map((d) => `"${d.name}"`).join(', ')}.)` : '';
   const profileLines = PROFILE_KEYS.filter((k) => profile[k] && String(profile[k]).trim())
     .map((k) => `${k}: ${String(profile[k]).trim()}`)
     .join('\n');
+  // Writing samples only teach the voice: a few are plenty.
+  const voiceSamples = withinBudget(samples, Math.round(budget / 8)).docs;
   const voice = voiceProfile(all.filter((d) => !isFictionalSample(d)));
   return [
     `<candidate_profile>\n${profileLines || '(not filled in)'}\n</candidate_profile>`,
-    `<candidate_documents>\n${repeatNote}${evidence.map(docXml).join('\n\n') || '(no documents uploaded)'}\n</candidate_documents>`,
-    `<writing_samples>\n${samples.map(docXml).join('\n\n') || '(none — take the voice from their cover letters and other prose, if any)'}\n</writing_samples>`,
+    `<candidate_documents>\n${repeatNote}${evidence.map(docXml).join('\n\n') || '(no documents uploaded)'}${leftNote}\n</candidate_documents>`,
+    `<writing_samples>\n${voiceSamples.map(docXml).join('\n\n') || '(none — take the voice from their cover letters and other prose, if any)'}\n</writing_samples>`,
     `<voice_profile>\n${voice || '(not enough of their writing to measure)'}\n</voice_profile>`,
   ].join('\n\n');
 }
@@ -441,4 +517,4 @@ function finderBlock({ prefs = {}, profile = {}, exclude = [], lookup = [], size
     .join('\n\n');
 }
 
-module.exports = { PROMPT_VERSION, SYSTEM, TASKS, systemBlocks, libraryBlock, jobBlock, roleListBlock, pickedBlock, atsBlock, fitBlock, finderBlock, escapeAttr };
+module.exports = { PROMPT_VERSION, SYSTEM, TASKS, systemBlocks, libraryBlock, LIBRARY_CHAR_BUDGET, jobBlock, roleListBlock, pickedBlock, atsBlock, fitBlock, finderBlock, escapeAttr };
