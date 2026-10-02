@@ -298,6 +298,14 @@ test('"Do you have these?": a yes is recorded and the card re-scores; a no stops
   assert.equal(yes.answer, 'yes');
   assert.equal(yes.posting.title, 'Senior Accountant', 'a job not saved yet is re-scored from the page');
   assert.ok(!postings.some((x) => x.title === 'Senior Accountant'), 'answering does not save the job');
+  // The detailed breakdown opens and closes, and is remembered.
+  assert.ok(!/Your fit/.test(after), 'folded away at first');
+  assert.ok(await clickCard(p, 'details'));
+  const open = await waitFor(async () => ((await cardText(p)).includes('Your fit') ? cardText(p) : null));
+  assert.match(open, /Must-haves/i);
+  assert.equal(await sw.evaluate(() => chrome.storage.local.get('details').then((v) => v.details)), true);
+  assert.ok(await clickCard(p, 'details'));
+  await waitFor(async () => !(await cardText(p)).includes('Your fit'));
   // No to the other one: it goes away.
   assert.ok(
     await inCard(p, function () {

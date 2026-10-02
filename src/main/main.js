@@ -969,10 +969,33 @@ const pickQuick = (q, job) => ({
   components: q.components || null,
   partialSkills: (q.partialSkills || []).slice(0, 8),
   missingSkills: (q.missingSkills || []).slice(0, 8),
+  // For the card's detailed breakdown.
+  matchedPreferred: (q.matchedPreferred || []).slice(0, 8),
+  missingPreferred: (q.missingPreferred || []).slice(0, 8),
+  reasons: (q.reasons || []).slice(0, 4),
+  concerns: (q.concerns || []).filter((c) => !/^Not found in your documents/.test(c)).slice(0, 4),
+  requiredYears: q.requiredYears ?? null,
+  estimatedYears: q.estimatedYears ?? null,
   // "Do you have it?" for the missing must-haves that would move the score.
   asks: missingAsks(job, q),
 });
-const pickAts = (a) => (a ? { score: a.score, grade: a.grade, skillsMatch: a.skillsMatch || '' } : null);
+const pickAts = (a) =>
+  a
+    ? {
+        score: a.score,
+        grade: a.grade,
+        skillsMatch: a.skillsMatch || '',
+        // For the card's detailed breakdown.
+        basis: a.basis || '',
+        components: a.components || null,
+        basic: a.basic || null,
+        preferred: a.preferred || null,
+        strictKeywordRate: a.strictKeywordRate ?? null,
+        normalizedKeywordRate: a.normalizedKeywordRate ?? null,
+        knockouts: (a.knockouts || []).slice(0, 6),
+        tips: (a.tips || []).slice(0, 4),
+      }
+    : null;
 const cardEnv = () => ({ hasDocs: evidenceDocs().length > 0, hasKey: !!getApiKey() });
 
 // A job on the page, scored for the browser's card without saving it (the card asks first).

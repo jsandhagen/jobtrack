@@ -75,10 +75,12 @@
     return t.charAt(0).toUpperCase() + t.slice(1);
   }
   // "Accounting" beside "Accounting experience" says the same thing twice.
+  const distinct = (list) => {
+    const shown = list.map((s) => plain(s).toLowerCase());
+    return list.filter((s, i) => !shown.some((o, j) => j !== i && o.startsWith(shown[i] + ' ')));
+  };
   function chips(list) {
-    const shown = list.map((s) => ({ s, t: plain(s) }));
-    const kept = shown.filter(({ t }) => !shown.some((o) => o.t !== t && o.t.toLowerCase().startsWith(t.toLowerCase() + ' ')));
-    return `<div class="chips">${kept.map(({ s, t }) => `<span class="chip good" title="${esc(s)}">✓ ${esc(t)}</span>`).join('')}</div>`;
+    return `<div class="chips">${distinct(list).map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(plain(s))}</span>`).join('')}</div>`;
   }
   const note = (html, cls = '') => `<div class="note ${cls}">${html}</div>`;
   // "Do you have these?": must-haves the posting asks for that your documents
@@ -109,6 +111,80 @@
     return note(where + moved + hint, 'good');
   }
 
+  // ---------- detailed breakdown ----------
+  // The card's short version, opened up: what the dashboard's Fit & ATS tab
+  // shows, in the card's width. Open or closed is remembered for every card.
+  let detailsOpen = false;
+  try {
+    chrome.storage.local.get({ details: false }).then((v) => (detailsOpen = !!v.details), () => {});
+  } catch {
+    /* no storage here */
+  }
+  const band = (v) => (v >= 75 ? 'var(--band-hi)' : v >= 50 ? 'var(--band-mid)' : 'var(--band-lo)');
+  const bars = (rows) =>
+    rows.length
+      ? `<div class="fit-bars">${rows.map(([l, v, hint]) => `<div class="fit-bar"${hint ? ` title="${esc(hint)}"` : ''}><span>${esc(l)}</span><div class="track"><i style="width:${v}%;background:${band(v)}"></i></div><b>${v}</b></div>`).join('')}</div>`
+      : '';
+  const ATS_PARTS = [
+    ['hardSkills', 'Hard skills', 'Required skills count most'],
+    ['parseability', 'Parse-ready', 'Contact info, standard headings, dates, length'],
+    ['title', 'Job title', 'The posting\'s title on your resume'],
+    ['experience', 'Years', 'Years shown vs. years asked'],
+    ['education', 'Education', 'Degree level vs. what is asked'],
+    ['keywords', 'Keywords', 'The posting\'s other wording'],
+    ['softSkills', 'Soft skills', 'Counted lightly'],
+  ];
+  // 'Audit & Controls (posting says "sox")' -> 'Audit & Controls ("SOX" in the posting)'.
+  const knockout = (k) => String(k).replace(/\s*\(posting says "([^"]+)"\)/, (_m, w) => ` ("${w.length <= 4 ? w.toUpperCase() : w}" in the posting)`);
+  const tag = (s, cls, mark, title) => `<span class="chip ${cls}"${title ? ` title="${esc(title)}"` : ''}>${mark} ${esc(plain(s))}</span>`;
+
+  function breakdown(q, ats) {
+    if (!q) return '';
+    const toggle = `<button class="ghost small details-toggle" data-act="details" aria-expanded="${detailsOpen}">${detailsOpen ? '▾' : '▸'} Detailed breakdown</button>`;
+    if (!detailsOpen) return toggle;
+    const list = (items, cls) => (items.length ? `<ul class="bd-list ${cls}">${items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : '');
+    const must = [
+      ...distinct(q.matchedSkills || []).map((s) => tag(s, 'good', '✓')),
+      ...(q.partialSkills || []).map((s) => tag(s, '', '~', 'Partly shown: a related skill, an older role or a skills-list mention')),
+      ...(q.missingSkills || []).map((s) => tag(s, 'grow', '＋', 'Not in your documents')),
+    ];
+    const nice = [...(q.matchedPreferred || []).map((s) => tag(s, 'good', '✓')), ...(q.missingPreferred || []).map((s) => tag(s, '', '＋', 'Not in your documents'))];
+    const c = q.components || {};
+    const fitRows = [
+      ['Must-haves', c.required],
+      ['Preferred', c.preferred],
+      ['Role match', c.role],
+      ['Experience', c.experience],
+      ['Seniority', c.seniority],
+      ['Domain', c.domain],
+    ].filter(([, v]) => v !== null && v !== undefined);
+    const years = q.requiredYears && !(q.reasons || []).concat(q.concerns || []).some((r) => /\byears?\b/.test(r)) ? `<p class="bd-note">Asks for ${q.requiredYears}+ years${q.estimatedYears != null ? `; your documents show about ${q.estimatedYears}` : ''}.</p>` : '';
+    const fit = `<div class="bd-h">Your fit</div>
+      ${list(q.reasons || [], 'good')}${list(q.concerns || [], 'warn')}
+      ${bars(fitRows)}
+      ${must.length ? `<div class="bd-sub">Must-haves</div><div class="chips">${must.join('')}</div>` : ''}
+      ${nice.length ? `<div class="bd-sub">Nice-to-haves</div><div class="chips">${nice.join('')}</div>` : ''}
+      ${years}`;
+    let vis = '';
+    if (ats && ats.components) {
+      const stat = (label, value) => (value === null || value === undefined ? '' : `<div class="bd-stat"><b>${esc(value)}</b><span>${esc(label)}</span></div>`);
+      // The screen-outs are listed already; the rest of the advice.
+      const tips = (ats.tips || []).filter((t) => !/^Required (?:skill not found|: any one of)/.test(t));
+      const atsRows = ATS_PARTS.filter(([k]) => ats.components[k] !== null && ats.components[k] !== undefined).map(([k, l, hint]) => [l, ats.components[k], hint]);
+      vis = `<div class="bd-h">Resume visibility${ats.basis ? ` <span>${esc(ats.basis)}</span>` : ''}</div>
+        <div class="bd-stats">
+          ${ats.basic && ats.basic.total ? stat('Basic quals', `${ats.basic.met}/${ats.basic.total}`) : ''}
+          ${ats.preferred && ats.preferred.total ? stat('Preferred', `${ats.preferred.met}/${ats.preferred.total}`) : ''}
+          ${stat('Exact keywords', ats.strictKeywordRate === null ? null : ats.strictKeywordRate + '%')}
+          ${stat('Smart keywords', ats.normalizedKeywordRate === null ? null : ats.normalizedKeywordRate + '%')}
+        </div>
+        ${bars(atsRows)}
+        ${(ats.knockouts || []).length ? `<div class="bd-sub">Could screen it out</div>${list(ats.knockouts.map(knockout), 'warn')}` : ''}
+        ${tips.length ? `<div class="bd-sub">To raise it</div>${list(tips, 'tips')}` : ''}`;
+    }
+    return `${toggle}<div class="breakdown">${fit}${vis}</div>`;
+  }
+
   const dealbreakers = (q) => (q.dealbreakers && q.dealbreakers.length ? note(`Heads up — ${esc(q.dealbreakers.join('; '))}.`, 'warn') : '');
 
   // Two ways to tailor: Spike optimizes your resume for ATS (free), Root has
@@ -131,7 +207,7 @@
       ${chips(quick.matchedSkills.slice(0, 6))}
       ${answeredNote(ui)}
       ${haveAsks(quick)}
-      ${window.SproutInfo.fitDetails(quick)}
+      ${breakdown(quick, ats && ats.before)}
       ${dealbreakers(quick)}
       ${r.hasDocs ? '' : note('Add your resume to your library in Sprout so I can score you properly.')}
       ${ui.error ? note(esc(ui.error), 'err') : ''}
@@ -228,7 +304,7 @@
       ${chips(a ? a.strengths.slice(0, 3) : app.quick.matchedSkills.slice(0, 6))}
       ${a ? '' : answeredNote(ui)}
       ${a || analyzing ? '' : haveAsks(app.quick)}
-      ${window.SproutInfo.fitDetails(app.quick)}
+      ${breakdown(app.quick, app.ats && (app.ats.after || app.ats.before))}
       ${a ? '' : dealbreakers(app.quick)}
       ${errors.map((e) => note(esc(e), 'err')).join('')}
       ${footer}`;
@@ -375,6 +451,15 @@
         }
         ui.error = null;
         return show({ ...r.value, justSaved: !r.value.seen });
+      }
+      if (action === 'details') {
+        detailsOpen = !detailsOpen;
+        try {
+          chrome.storage.local.set({ details: detailsOpen }).catch(() => {});
+        } catch {
+          /* no storage here */
+        }
+        return draw();
       }
       if (action === 'have') {
         const { label, answer, option } = btn.dataset;
