@@ -457,6 +457,19 @@ function recencyBonus(exp) {
   return age <= 0 ? 0.6 : age <= 3 ? 0.35 : age <= 7 ? 0.1 : 0;
 }
 
+// Evidence strength rewards accomplishments that show consequence, scope or ownership
+// without requiring a number. This keeps the optimizer from treating "has a keyword"
+// as equivalent to "proves the candidate can do the work".
+function evidenceStrength(text) {
+  const t = lower(text);
+  let score = 0;
+  if (/(?:\b\d[\d,.]*%?|\$\s?\d|\b(?:doubled|tripled|halved|reduced|increased|improved|saved|grew|cut|raised|lowered|accelerated|shortened|expanded|delivered)\b)/.test(t)) score += 0.8;
+  if (/(?:\b(?:used by|serving|supporting|across|for|with)\s+\d|\b(?:customers|users|clients|employees|engineers|teams|stakeholders|accounts|locations|offices|business units)\b)/.test(t)) score += 0.45;
+  if (/\b(?:launched|built|designed|developed|implemented|created|migrated|automated|owned|led|managed|drove|delivered|established|introduced|rebuilt)\b/.test(t)) score += 0.3;
+  if (/\b(?:product|platform|system|model|process|program|initiative|framework|strategy|pipeline|application|service)\b/.test(t)) score += 0.2;
+  return Math.min(1.5, score);
+}
+
 /**
  * Score every bullet (and each of its alternative wordings) for a posting.
  * @returns {{ranked: object[], units: object[], evidence: object[]}}
@@ -477,10 +490,11 @@ function rankBullets(job, bank) {
         const coverage = covers.reduce((s, { u, m }) => s + KIND_WEIGHT[u.kind] * m, 0);
         const words = tokens(text);
         const vocab = Math.min(5, jobTerms.filter((j) => words.has(j)).length) * 0.35;
-        const score = coverage + vocab + (isQuantified(text) ? 0.8 : 0) + recencyBonus(exp);
+        const evidence = evidenceStrength(text);
+        const score = coverage + vocab + evidence + recencyBonus(exp);
         if (!best || score > best.score) best = { text, score, covers: covers.map(({ u, m }) => ({ key: u.key, label: u.label, kind: u.kind, m })) };
       }
-      return { id: b.id, experienceId: b.experienceId, ...best, isVariant: best.text !== b.text };
+      return { id: b.id, experienceId: b.experienceId, ...best, evidenceStrength: evidenceStrength(best.text), isVariant: best.text !== b.text };
     })
     .sort((a, b) => b.score - a.score);
 
@@ -1033,6 +1047,7 @@ module.exports = {
   coverageOf,
   buildResume,
   similarity,
+  evidenceStrength,
   skillTags,
   orderedExperiences,
   splitHeader,
