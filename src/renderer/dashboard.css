@@ -33,7 +33,7 @@ main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; backg
 .page > :nth-child(4) { animation-delay: 0.12s; }
 .page > :nth-child(5) { animation-delay: 0.16s; }
 .page > :nth-child(n + 6) { animation-delay: 0.2s; }
-.settled .page > * { animation: none; }
+.settled .page > *, .page.settled > * { animation: none; }
 @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
 .page-head > .inline { flex-wrap: nowrap; flex: none; margin-top: 4px; }
@@ -265,6 +265,8 @@ details.more summary { cursor: pointer; font-weight: 700; color: var(--ink-soft)
 .ed-bar .ed-len select { font-size: 12px; padding: 3px 6px; width: auto; }
 .mode-why { display: flex; align-items: center; gap: 5px; margin: 4px 0 0; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); }
 /* Measuring the page as it prints: no "+ add" rows or empty placeholders. */
+/* Measured as it prints: empty fields and placeholders ("Address | Phone") don't print. */
+.ed-page.measuring .rs-head > [data-path]:empty, .ed-page.measuring .rs-row:not(:has([data-path]:not(:empty))), .ed-page.measuring .rs-detail:not(:has([data-path]:not(:empty))),
 .ed-page.measuring .rs-add, .ed-page.measuring li[data-path]:empty, .ed-page.measuring .rs-sec:has(> .rs-summary:empty), .ed-page.measuring .ed-float, .ed-page.measuring .ed-grip { display: none !important; }
 .ed-desk { position: relative; background: #e9e5dd; border: 1px solid var(--line); border-radius: 18px; padding: 36px 12px 40px; display: flex; justify-content: center; box-shadow: inset 0 1px 3px rgba(60, 50, 30, 0.06); }
 @media (prefers-color-scheme: dark) { .ed-desk { background: #161a18; } }
@@ -988,3 +990,11 @@ p.way-next { display: flex; }
 .theme-pick .swatch { width: 22px; height: 22px; }
 .theme-pick b { display: block; font-size: 13.5px; color: var(--ink); }
 .theme-pick small { display: block; font-size: 12px; color: var(--ink-soft); font-weight: 600; line-height: 1.3; }
+
+/* Claude's progress on a resume */
+.rprog { width: min(420px, 90%); margin: 14px auto 6px; text-align: left; }
+.rprog-bar { height: 10px; border-radius: 99px; background: var(--surface-2); overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
+.rprog-bar i { display: block; height: 100%; width: 3%; border-radius: 99px; background: linear-gradient(90deg, var(--sage), var(--sage-deep)); transition: width 0.9s var(--ease); }
+.rprog-text { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 13px; color: var(--ink-soft); }
+.rprog-text b { color: var(--ink); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .rprog-bar i { transition: none; } }

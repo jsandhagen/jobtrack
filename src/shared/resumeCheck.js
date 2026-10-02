@@ -216,5 +216,5 @@
 
   const ALL = Object.fromEntries([...BULLET_CHECKS, ...RESUME_CHECKS].map((c) => [c.id, c]));
 
-  return { checkBullet, checkResume, hasResult, BULLET_CHECKS, RESUME_CHECKS, CHECKS: ALL, WEAK_OPENERS };
+  return { checkBullet, checkResume, hasResult, overlap, BULLET_CHECKS, RESUME_CHECKS, CHECKS: ALL, WEAK_OPENERS };
 });

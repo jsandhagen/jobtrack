@@ -298,12 +298,13 @@ document.addEventListener('keydown', (e) => {
 // Yes/no questions in the page, never window.confirm(): in Electron a native
 // dialog can leave text boxes unable to take typing until the window is
 // refocused. Its own layer, so it can sit over an open modal. Resolves true/false.
-function askConfirm(message, okLabel = 'OK') {
+// Resolves true (OK), false (Cancel), or 'alt' for the optional third choice.
+function askConfirm(message, okLabel = 'OK', { alt } = {}) {
   return new Promise((resolve) => {
     const back = document.createElement('div');
     back.className = 'modal confirm-modal';
     back.innerHTML = `<div class="modal-card card" role="alertdialog" aria-modal="true"><p style="margin:0 0 16px;font-weight:600">${esc(message)}</p>
-      <div class="inline" style="justify-content:flex-end"><button class="ghost" data-ans="no">Cancel</button><button class="primary" data-ans="yes">${esc(okLabel)}</button></div></div>`;
+      <div class="inline" style="justify-content:flex-end"><button class="ghost" data-ans="no">Cancel</button>${alt ? `<button class="soft" data-ans="alt">${esc(alt)}</button>` : ''}<button class="primary" data-ans="yes">${esc(okLabel)}</button></div></div>`;
     const was = document.activeElement;
     const done = (yes) => {
       document.removeEventListener('keydown', onKey, true);
@@ -319,7 +320,7 @@ function askConfirm(message, okLabel = 'OK') {
     };
     back.addEventListener('click', (e) => {
       const b = e.target.closest('[data-ans]');
-      if (b || e.target === back) done(!!b && b.dataset.ans === 'yes');
+      if (b || e.target === back) done(b && b.dataset.ans === 'alt' ? 'alt' : !!b && b.dataset.ans === 'yes');
     });
     document.addEventListener('keydown', onKey, true);
     document.body.appendChild(back);
@@ -371,6 +372,8 @@ async function renderResumePage(id) {
     return;
   }
   const hasText = !!(r.job.text || '').trim();
+  page.classList.toggle('settled', page.dataset.shown === id); // fade in once, not on every redraw
+  page.dataset.shown = id;
   page.innerHTML = `
     <div class="card app-card"><div class="app-head" style="align-items:flex-start">
       <div class="grow">
@@ -951,7 +954,10 @@ function atsPanel(ats) {
 
 // ---------------- application detail ----------------
 
-async function renderApplication(id) {
+// `ifChanged`: an update from the app. Redraw only if the page would look
+// different, so an autosave or a background change doesn't rebuild the
+// editor under you (that redraw is what flickered).
+async function renderApplication(id, { ifChanged = false } = {}) {
   const a = await S.getApplication(id).catch(() => null);
   const page = document.getElementById('appPage');
   if (!page) return;
@@ -1028,11 +1034,11 @@ async function renderApplication(id) {
     if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}${peopleAtCard(a)}</div>`;
     if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel(a.ats) : '<div></div>'}${fitCard}</div>`;
     if (appTab === 'letter') return letterBody();
-    if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
+    if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3>${resumeProgressHtml(a.id)}<p class="faint">It'll open right here in the editor. You can keep using Sprout meanwhile.</p></div>`;
     return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';
   };
 
-  page.innerHTML = `
+  const html = `
     <div class="card app-card"><div class="app-head">${scoreRing(score, 84)}
       <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
@@ -1058,6 +1064,14 @@ async function renderApplication(id) {
       <button class="${appTab === 'tracking' ? 'on' : ''}" data-tab="tracking">${icon('send', 17)} Tracking${followUpDue(a) ? ` ${icon('clock', 15, 'due-ic')}` : ''}</button>
     </div>
     <div id="tabBody">${tabBody()}</div>`;
+  if (ifChanged && page.dataset.shown === id && page._html === html) return page._ready;
+  // The page fades in once; redrawing the same job (a tab, Claude finishing,
+  // a status change) mustn't blank it and fade it back in.
+  page.classList.toggle('settled', page.dataset.shown === id);
+  page.innerHTML = html;
+  page._html = html;
+  page.dataset.shown = id;
+  refreshResumeProgress(page);
   animateRings(page);
   // The editor loads its own data; callers can await it to act on the new page.
   const editorReady = appTab === 'resume' && !busyResume ? renderEditor(id, a) : null;
@@ -1155,6 +1169,7 @@ async function renderApplication(id) {
       }, 'Saving…')
     )
   );
+  page._ready = editorReady;
   return editorReady;
 }
 
@@ -1249,6 +1264,33 @@ async function renderExtensionCard() {
       renderExtensionCard();
     })
   );
+}
+
+// ---------------- Claude's progress on a resume ----------------
+
+// A bar that fills as Claude reads, writes and checks a resume. The markup
+// is the same every time (so redraws of the page don't flash); the numbers
+// are filled in from the latest update, here and as more arrive.
+const resumeProgressNow = new Map();
+function resumeProgressHtml(id) {
+  return `<div class="rprog" data-rprog="${esc(id)}"><div class="rprog-bar"><i></i></div><div class="rprog-text"><span data-rprog-label>Starting…</span><b data-rprog-pct></b></div></div>`;
+}
+function paintResumeProgress(p) {
+  if (!p) return;
+  for (const el of document.querySelectorAll(`[data-rprog="${CSS.escape(p.appId)}"]`)) {
+    el.querySelector('.rprog-bar i').style.width = `${p.pct}%`;
+    el.querySelector('[data-rprog-label]').textContent = `${p.label}…`;
+    el.querySelector('[data-rprog-pct]').textContent = `${p.pct}%`;
+  }
+}
+S.onResumeProgress((p) => (resumeProgressNow.set(p.appId, p), paintResumeProgress(p)));
+// After a redraw: show where it's got to (asking the app if this window missed it).
+async function refreshResumeProgress(root) {
+  for (const el of (root || document).querySelectorAll('[data-rprog]')) {
+    const id = el.dataset.rprog;
+    const p = resumeProgressNow.get(id) || (await S.resumeProgress(id).catch(() => null));
+    if (p) resumeProgressNow.set(id, p), paintResumeProgress(p);
+  }
 }
 
 // ---------------- tracking ----------------
@@ -1355,6 +1397,12 @@ function scanFromApp(e) {
     else toast("I couldn't find a job posting on your screen. Open one and try again, or paste its text into Check a job.", 'error', 5000, 'curious');
   }, 'Reading your screen…');
 }
+
+// Pages that fill parts in after drawing (from the app): when an update
+// leaves the page itself unchanged, these refresh just those parts.
+const refreshers = {
+  settings: () => (renderExtensionCard(), renderUpdateCard()),
+};
 
 const binders = {
   home() {
@@ -1633,7 +1681,7 @@ setInterval(() => {
 // Pages fade in when you go to them, not each time they redraw in place.
 let lastRouted = null;
 
-function route() {
+function route({ ifChanged = false } = {}) {
   refreshHeld = false;
   // A search box redraws from its own value, so it keeps focus and caret through
   // a redraw; so does a checkbox or menu you just used.
@@ -1652,7 +1700,12 @@ function route() {
     openTab = null;
     currentAppId = v === 'application' ? id : null;
   }
-  view.innerHTML = views[v]();
+  const html = views[v]();
+  // An update that changes nothing on this page: leave it be (no flash, no replayed animations).
+  if (ifChanged && view._html === html && view._hash === location.hash) return refreshers[v] && refreshers[v]();
+  view._html = html;
+  view._hash = location.hash;
+  view.innerHTML = html;
   binders[v]();
   animateRings(view); // score and goal rings grow in (the application page does its own)
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => (location.hash = '#' + b.dataset.go)));
@@ -1698,7 +1751,7 @@ function isTyping() {
 let refreshHeld = false;
 function routeWhenFree() {
   if (isEditing()) refreshHeld = true;
-  else route();
+  else route({ ifChanged: true });
 }
 
 // Leaving the box: catch up on what changed meanwhile. Wait for a click in
@@ -1719,16 +1772,24 @@ function catchUp() {
 }
 
 window.addEventListener('hashchange', route);
-S.onStateChanged(async () => {
-  await refreshState();
-  // Don't wipe a form the user is typing in.
-  if (!currentAppId && !currentResumeId) routeWhenFree();
-});
-S.onAppUpdated(async (app) => {
-  await refreshState();
-  if (currentAppId && app && app.id === currentAppId) renderApplication(currentAppId);
-  else if (!currentAppId && !currentResumeId) routeWhenFree();
-});
+// Updates come in bursts (a careers check, Claude at work, autosaves): one
+// redraw for each burst, and none when the page would look the same.
+let redrawTimer = null;
+let redrawApp = false;
+function redrawSoon(app) {
+  if (app && currentAppId && app.id === currentAppId) redrawApp = true;
+  clearTimeout(redrawTimer);
+  redrawTimer = setTimeout(async () => {
+    const appToo = redrawApp;
+    redrawApp = false;
+    await refreshState();
+    if (currentAppId) {
+      if (appToo) renderApplication(currentAppId, { ifChanged: true });
+    } else if (!currentResumeId) routeWhenFree(); // don't wipe a form the user is typing in
+  }, 120);
+}
+S.onStateChanged(() => redrawSoon(null));
+S.onAppUpdated((app) => redrawSoon(app));
 S.onToast(({ text, kind }) => toast(text, kind));
 S.onNavigate(({ view: v, id, tab, standouts }) => {
   if (v === 'find' && standouts) return showStandouts(); // network.js

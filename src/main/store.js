@@ -22,6 +22,9 @@ const DEFAULT_SETTINGS = {
   // Resume length for the free ATS optimizer: 'auto' (one page, two only when
   // it shows more of what the posting asks for), 1, or 2 (up to two pages).
   resumePages: 'auto',
+  // How tall the resume editor's page draws on this computer against Sprout's
+  // estimate (fonts differ a little between systems). Set by the editor.
+  pageScale: 1,
   // How to read job postings off the screen: 'ocr' (free, on this computer),
   // 'ocr-then-claude' (free first, Claude only if that finds nothing), or 'claude'.
   screenReader: 'ocr',
@@ -259,6 +262,25 @@ class Store {
   }
 
   // ---- bullet bank ----
+  // Merge the same job filed twice (bullets.tidyBank) and point every saved
+  // resume (and its undo copy) at the role and bullet that remain.
+  repairBank(tidy) {
+    const { bank, roles, bullets } = tidy(this.data.bank);
+    if (!roles.size) return 0;
+    this.data.bank = bank;
+    const fix = (doc) => {
+      for (const r of (doc && doc.roles) || []) {
+        if (roles.has(r.experienceId)) r.experienceId = roles.get(r.experienceId);
+        for (const b of r.bullets || []) if (bullets.has(b.bulletId)) b.bulletId = bullets.get(b.bulletId);
+      }
+    };
+    for (const rec of [...this.data.applications, ...this.data.resumes]) {
+      fix(rec.builder && rec.builder.doc);
+      fix(rec.builderPrev && rec.builderPrev.doc);
+    }
+    this.save();
+    return roles.size;
+  }
   getBank() {
     return this.data.bank;
   }

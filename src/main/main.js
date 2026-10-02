@@ -410,6 +410,10 @@ function scoringDocuments() {
   return bankText.trim() ? [...docs, { kind: 'bank', text: bankText }] : docs;
 }
 
+// The editor's page against the length estimate on this computer (see builder:calibrate).
+const validScale = (s) => (typeof s === 'number' && s >= 0.85 && s <= 1.3 ? Math.round(s * 1000) / 1000 : null);
+const pageScale = () => validScale(store.getSettings().pageScale) || 1;
+
 function scoreLocally(job) {
   return localFitScore(job, scoringDocuments(), store.getProfile());
 }
@@ -550,37 +554,91 @@ async function makeResume(appId) {
     if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add them on the Bullet bank page first.");
     const profile = store.getProfile();
     const documents = docsForPrompt();
-    const ids = draft.promptIds(bank, currentDoc(rec).roles);
+    // Internships stay off once there's real work to show (see resumeExperiences).
+    const ids = draft.promptIds(bank, currentDoc(rec).roles, bulletBank.resumeExperiences(bank, rec.job));
     const job = jobForClaude(rec);
-    const out = await claude.generateResume(claudeClient(), {
-      job,
-      documents,
-      profile,
-      analysis: rec.analysis,
-      ats: libraryAtsScore(rec.job, evidenceDocs(), store.getProfile()),
-      roles: ids.roles,
-      picked: ids.picked,
-      model: store.getSettings().model,
-    });
+    const progress = resumeProgress(appId);
+    let out;
+    try {
+      out = await claude.generateResume(claudeClient(), {
+        job,
+        documents,
+        profile,
+        analysis: rec.analysis,
+        ats: libraryAtsScore(rec.job, evidenceDocs(), store.getProfile()),
+        roles: ids.roles,
+        picked: ids.picked,
+        model: store.getSettings().model,
+        onProgress: progress.update,
+      });
+    } finally {
+      progress.stop();
+    }
+    progress.checking();
     let { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
     const prev = rec.builder && rec.builder.doc;
     if (prev && prev.header && prev.header.name) doc.header = prev.header;
     // Keep Claude's draft within the length you chose (it's asked for one page, but can run over).
-    const limit = String(store.getSettings().resumePages) === '1' ? 1 : 2;
-    if (ResumeDoc.measure(doc).pages > limit) {
-      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit);
+    // On Auto, a second page with only a few lines on it is a spill-over: back to one.
+    const want = String(store.getSettings().resumePages);
+    const spill = ResumeDoc.measure(doc, { scale: pageScale() });
+    const limit = want === '1' || (want !== '2' && spill.pages === 2 && spill.lastPageFill < 0.3) ? 1 : 2;
+    if (!ResumeDoc.fits(doc, limit, { scale: pageScale() })) {
+      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit, { scale: pageScale() });
       doc = fit.doc;
       const n = fit.removed.length;
       if (n) notes = [...notes, `Took off ${n} of the weakest bullet${n === 1 ? '' : 's'} so it fits on ${limit === 1 ? 'one page' : 'two pages'}.`];
     }
+    resumeProgressNow.delete(appId);
     saveDoc(appId, doc, { resumeSource: 'claude', resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
     hostUpdated(updated);
     return updated;
   } catch (err) {
+    resumeProgressNow.delete(appId);
     hostUpdated(updateHost(appId, { resumeStatus: 'error', resumeError: err.message }));
     throw err;
   }
+}
+
+// How far along Claude is with a resume, for the progress bar: reading
+// (thinking, before it writes) creeps from 4% to about 30% over a minute;
+// writing fills 30–92% as the draft arrives (a one-page draft is about 5,000
+// characters); checking every fact against the documents takes it to 96%.
+// Sent at most four times a second; the page shows the latest.
+const resumeProgressNow = new Map();
+function resumeProgress(appId) {
+  const started = Date.now();
+  let phase = 'thinking';
+  let chars = 0;
+  let last = 0;
+  const send = (force) => {
+    const now = Date.now();
+    if (!force && now - last < 250) return;
+    last = now;
+    const t = (now - started) / 1000;
+    const pct =
+      phase === 'thinking' ? 4 + 26 * (1 - Math.exp(-t / 25)) : phase === 'writing' ? 30 + 62 * Math.min(1, chars / 5000) : 96;
+    const label =
+      phase === 'thinking'
+        ? 'Reading your documents and the posting'
+        : phase === 'writing'
+          ? 'Writing your summary and bullets'
+          : 'Checking every fact against your documents';
+    const p = { appId, pct: Math.round(pct), label, seconds: Math.round(t) };
+    resumeProgressNow.set(appId, p);
+    broadcast('resume-progress', p);
+  };
+  const timer = setInterval(() => send(true), 1000);
+  send(true);
+  return {
+    update: (p) => {
+      if (p.phase === 'writing') (phase = 'writing'), (chars = p.chars);
+      send(false);
+    },
+    stop: () => clearInterval(timer),
+    checking: () => ((phase = 'checking'), send(true)),
+  };
 }
 
 // Every job starts from the baseline (your bank as it stands). ATS mode
@@ -621,7 +679,7 @@ function makeAtsResume(appId) {
   const profile = store.getProfile();
   const header = rec.builder && rec.builder.doc ? rec.builder.doc.header : undefined;
   // Sized to the page: the template is measured as bullets go in.
-  const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages });
+  const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages, scale: pageScale() });
   const { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
   saveDoc(appId, doc, { resumeSource: 'ats', resumeError: null, atsFit: { pages: sel.pages, why: sel.why }, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
@@ -789,7 +847,7 @@ function builderState(rec) {
     otherRoles: bulletBank
       .orderedExperiences(bank)
       .filter((e) => !inDoc.has(e.id))
-      .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
+      .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, hidden: !!e.hidden, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
     coverage,
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 10), components: ats.components, gaps },
@@ -1215,7 +1273,7 @@ function registerIpc() {
   handle('bank:saveRole', (role) => {
     let saved;
     store.updateBank((b) => {
-      const fields = pick(role, ['title', 'organization', 'location', 'dates', 'isProject']);
+      const fields = pick(role, ['title', 'organization', 'location', 'dates', 'isProject', 'hidden']);
       if (fields.dates !== undefined) {
         const [start, end] = String(fields.dates).split(/\s*(?:-|–|—|to)\s*/);
         Object.assign(fields, { start: start || '', end: end || '' });
@@ -1277,12 +1335,19 @@ function registerIpc() {
     makeAtsResume(appId);
     return builderState(getHost(appId));
   });
+  // The editor reports how its page draws against the estimate; building and
+  // trimming use it. Saved quietly: nothing on screen depends on it.
+  handle('builder:calibrate', (scale) => {
+    const s = validScale(scale);
+    if (s && Math.abs(s - pageScale()) >= 0.003) store.updateSettings({ pageScale: s });
+  });
   // Trim the page to one or two pages, weakest bullets first (undoable).
-  handle('builder:fit', (appId, pages) => {
+  // `again`: another pass of the same trim, which Undo takes back with the first.
+  handle('builder:fit', (appId, pages, scale, again) => {
     const rec = getHost(appId);
     if (!rec) throw new Error('That resume no longer exists.');
-    const out = bulletBank.fitDocToPages(currentDoc(rec), rec.job, store.getBank(), pages === 2 ? 2 : 1);
-    if (out.removed.length || out.skills.length || out.roles.length) saveDoc(appId, out.doc, { builderPrev: undoPoint(rec) });
+    const out = bulletBank.fitDocToPages(currentDoc(rec), rec.job, store.getBank(), pages === 2 ? 2 : 1, { scale: validScale(scale) || pageScale() });
+    if (out.removed.length || out.skills.length || out.roles.length) saveDoc(appId, out.doc, again && rec.builderPrev ? {} : { builderPrev: undoPoint(rec) });
     hostUpdated(getHost(appId));
     return { ...builderState(getHost(appId)), trimmed: { bullets: out.removed, skills: out.skills, roles: out.roles, pages: out.pages } };
   });
@@ -1322,6 +1387,7 @@ function registerIpc() {
   });
   // Highlights the folder in its parent rather than opening it, since Load unpacked wants the folder itself.
   handle('bridge:showFolder', () => shell.showItemInFolder(extensionDir()));
+  handle('resume:progress', (appId) => resumeProgressNow.get(appId) || null);
   handle('update:status', () => updater.status());
   handle('update:check', () => updater.check());
   handle('update:install', () => updater.install());
@@ -2178,6 +2244,7 @@ if (process.argv.includes('--smoke-test')) {
   app.whenReady().then(() => {
     store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
     store.pruneChecked(); // checked jobs you never saved, not seen for a month
+    store.repairBank(bulletBank.tidyBank); // the same job from two resumes, filed twice before roles were matched
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();
     // First run with the bullet bank: fill it from the resumes already in the library.

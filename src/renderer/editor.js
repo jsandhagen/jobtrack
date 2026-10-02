@@ -145,7 +145,10 @@ async function switchMode(mode) {
     const p = S.generateResume(appId);
     const slot = document.getElementById('editorSlot');
     if (ed.app) renderApplication(appId); // shows Root at work
-    else if (slot) slot.innerHTML = `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3><p>It'll open right here in the editor. Usually under a minute.</p></div>`;
+    else if (slot) {
+      slot.innerHTML = `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3>${resumeProgressHtml(appId)}<p class="faint">It'll open right here in the editor.</p></div>`;
+      refreshResumeProgress(slot);
+    }
     const ok = await run(null, () => p.then(() => true));
     if (ed.app) await renderApplication(appId);
     else if (ed.appId === appId) await renderEditor(appId, null);
@@ -316,12 +319,29 @@ function drawGuides() {
   }
   page.classList.remove('measuring');
 
+  ed.pages = pages;
+  calibrate(h);
+
   page.style.minHeight = `${pages * 11}in`;
   guides.innerHTML = starts
     .map((el, k) => `<div class="ed-break" style="top:${el ? Math.max(0, yOf(el) - 3) : top0 + usable * (k + 1)}px"><span>page ${k + 2}</span></div>`)
     .join('');
   const fill = (h - usable * (pages - 1)) / usable;
   showLength(pages, fill);
+}
+
+// How tall this page draws against Sprout's length estimate on this computer
+// (fonts differ a little between systems), so building and trimming size
+// resumes to what you see here. Told to the app when it changes.
+function calibrate(heightPx) {
+  const est = ResumeDoc.measure(ed.doc).height;
+  if (est < 200) return; // too little on the page to tell
+  const scale = (heightPx * 0.75) / est; // px -> pt
+  if (!(scale >= 0.85 && scale <= 1.3)) return;
+  ed.scale = scale;
+  if (Math.abs(scale - (ed.reportedScale || 1)) < 0.003) return;
+  ed.reportedScale = scale;
+  S.calibratePage(scale).catch(() => {});
 }
 
 // Where the printed page really breaks before a line: the template keeps a
@@ -383,10 +403,21 @@ async function fitToPages(btn, pages) {
   await run(btn, async () => {
     await saveNow();
     const appId = ed.appId;
-    const info = await S.fitEditor(appId, pages);
-    if (ed.appId !== appId) return;
-    const t = info.trimmed;
-    await renderEditor(appId, ed.app);
+    const t = { bullets: [], skills: [], roles: [], pages };
+    // Trim, then look at the page as drawn; if it still runs over (this
+    // computer draws it a little taller), trim again with what it measured.
+    for (let round = 0; round < 3; round++) {
+      const info = await S.fitEditor(appId, pages, ed.scale, round > 0);
+      if (ed.appId !== appId) return;
+      const got = info.trimmed;
+      t.bullets.push(...got.bullets);
+      t.skills.push(...got.skills);
+      t.roles.push(...got.roles);
+      await renderEditor(appId, ed.app);
+      if (ed.appId !== appId) return;
+      t.pages = Math.min(ed.pages || got.pages, got.pages);
+      if (!(ed.pages > pages) || !(got.bullets.length || got.skills.length || got.roles.length)) break;
+    }
     if (!t.bullets.length && !t.skills.length && !t.roles.length) return toast('Nothing left that can come off.', 'info');
     const n = (k, word) => (k ? `${k} ${word}${k === 1 ? '' : 's'}` : '');
     const parts = [n(t.bullets.length, 'bullet'), n(t.skills.length, 'skill'), n(t.roles.length, 'older role')].filter(Boolean);
@@ -502,7 +533,7 @@ function bulletsPane(pc) {
     <div class="tray-card">
       <h4>Slot in a bullet</h4>
       ${cand || (info.bankSize ? sproutSays('proud', 'Every relevant bullet in your bank is already on the page.', 40, { cls: 'tight' }) : sproutSays('curious', 'Your bullet bank is empty — add a resume to <a href="#library">My library</a>.', 40, { cls: 'tight' }))}
-      ${info.otherRoles.length ? `<div class="tray-role" style="margin-top:10px">Roles not on this resume</div>${info.otherRoles.map((o) => `<div class="cand slim"><span>${esc([o.title, o.organization].filter(Boolean).join(' · '))} <span class="faint">(${o.count})</span></span><button class="small soft" data-add-role-id="${o.id}">+ Add</button></div>`).join('')}` : ''}
+      ${info.otherRoles.length ? `<div class="tray-role" style="margin-top:10px">Roles not on this resume</div>${info.otherRoles.map((o) => `<div class="cand slim"><span>${esc([o.title, o.organization].filter(Boolean).join(' · '))} <span class="faint">(${o.count})${o.hidden ? ' · left off resumes' : ''}</span></span><button class="small soft" data-add-role-id="${o.id}">+ Add</button></div>`).join('')}` : ''}
     </div>`;
 }
 
@@ -1070,8 +1101,14 @@ function wirePaper() {
     if (roleTool) {
       const r = +roleTool.dataset.r;
       if (roleTool.dataset.roleTool === 'remove')
-        askConfirm('Take this role off this resume? (It stays in your bullet bank.)', 'Take it off').then((yes) => {
+        askConfirm('Take this role off just this resume, or leave it off every resume from now on? Its bullets stay in your bullet bank either way.', 'Just this resume', { alt: 'Every resume' }).then(async (yes) => {
           if (!yes || ed.doc.roles[r] === undefined) return;
+          const role = ed.doc.roles[r];
+          // Every resume: the bank remembers to leave it off from now on.
+          if (yes === 'alt' && role.experienceId) {
+            await S.saveRole({ id: role.experienceId, hidden: true });
+            toast(`${role.title || role.organization || 'That role'} stays off your resumes from now on. Bullet bank → Use on resumes brings it back.`, 'good', 5200);
+          }
           ed.doc.roles.splice(r, 1);
           ed.polish = new Map();
           ed.held = [];
@@ -1097,7 +1134,22 @@ function wirePaper() {
     const li = e.target.closest('li.rs-bullet');
     if (li) showGrip(li);
     else if (!e.target.closest('.rs-bullets')) hideGrip();
-    const block = e.target.closest('[data-role-block]');
+  });
+  // The role's ✕ / ▲ sit in the margin, so the margin beside a role counts as
+  // that role: moving out to them mustn't make them go away.
+  const roleAt = (e) => {
+    const inside = e.target.closest('[data-role-block]');
+    if (inside) return inside;
+    // In the right margin, level with a role.
+    return [...page.querySelectorAll('[data-role-block]')].find((b) => {
+      const r = b.getBoundingClientRect();
+      return e.clientX > r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    });
+  };
+  page.addEventListener('mousemove', (e) => {
+    if (document.body.classList.contains('dragging')) return;
+    if (e.target.closest('.ed-grip, .ed-float')) return;
+    const block = roleAt(e);
     const have = page.querySelector('.role-tools');
     if (have && block && have.dataset.r === block.dataset.roleBlock) return;
     if (have) have.remove();
