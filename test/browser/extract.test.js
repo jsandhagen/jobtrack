@@ -140,3 +140,34 @@ test('Phenom: an escaped "&" in the title and raw tabs in the data still read, m
   assert.equal(r.title, 'Risk & Controls Senior');
   assert.match(r.text, /Keys to Success/);
 });
+
+test('Lever without structured data still supplies the employer from the tab title', async () => {
+  const r = await read('https://jobs.lever.co/acme/123', `<html><head><title>Acme - Product Manager</title></head><body><div class="posting-headline"><h2>Product Manager</h2></div><div class="content">${DUTIES}</div></body></html>`);
+  assert.ok(r.isPosting);
+  assert.equal(r.title, 'Product Manager');
+  assert.equal(r.company, 'Acme');
+});
+
+test('generic extraction stays responsive on a large careers page', async () => {
+  const p = await ctx.newPage();
+  const url = 'https://careers.large.example/jobs/123';
+  try {
+    await p.route(url, (r) => r.fulfill({ contentType: 'text/html', body: `<html><head><title>Strategy Manager | Acme</title></head><body><nav>${'<span>Teams and locations</span>'.repeat(4000)}</nav><main><h1>Strategy Manager</h1>${DUTIES}</main></body></html>` }));
+    await p.goto(url);
+    await p.addScriptTag({ path: EXTRACT });
+    const out = await p.evaluate(() => {
+      const samples = [];
+      let posting;
+      for (let i = 0; i < 7; i++) {
+        const start = performance.now();
+        posting = globalThis.sproutExtract();
+        samples.push(performance.now() - start);
+      }
+      samples.sort((a, b) => a - b);
+      return { posting, medianMs: samples[3] };
+    });
+    assert.ok(out.posting.isPosting);
+    assert.ok(!out.posting.text.includes('Teams and locations'));
+    assert.ok(out.medianMs < 50, `generic extraction took ${out.medianMs.toFixed(1)}ms`);
+  } finally { await p.close(); }
+});

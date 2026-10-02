@@ -253,8 +253,9 @@
       pollTimer = null;
       if (!on || dead) return;
       pollTimer = setTimeout(async () => {
-        const r = await opts.send({ type: 'get', id: result.app.id });
-        if (dead) return;
+        const checking = result;
+        const r = await opts.send({ type: 'get', id: checking.app.id });
+        if (dead || result !== checking) return;
         if (r.ok) show({ ...r.value, justSaved: result.justSaved, seen: result.seen });
         else schedulePoll(true);
       }, 2000);
@@ -290,6 +291,7 @@
     }
 
     async function act(action, btn) {
+      const actingOn = result;
       const app = result && result.app;
       if (action === 'close') return opts.onClose('close');
       if (action === 'retry') return opts.onRetry && opts.onRetry();
@@ -305,7 +307,7 @@
       if (action === 'save') {
         if (btn) btn.innerHTML = '<span class="spinner"></span> Saving…';
         const r = await opts.send({ type: 'save' });
-        if (dead) return;
+        if (dead || result !== actingOn) return;
         if (!r.ok) {
           ui.error = r.error;
           return draw();
@@ -317,7 +319,7 @@
         const person = action === 'add-person';
         if (btn && person) btn.innerHTML = '<span class="spinner"></span> Adding…';
         const r = await opts.send(person ? { type: 'addPerson' } : { type: 'openPerson', id: result.contact.id });
-        if (dead) return;
+        if (dead || result !== actingOn) return;
         if (!r.ok) {
           ui.error = r.error;
           return draw();
@@ -332,7 +334,7 @@
         draw();
       }
       const r = await opts.send({ type: 'action', id: app.id, action });
-      if (dead) return;
+      if (dead || result !== actingOn) return;
       if (!r.ok) {
         ui = { work: null, done: null, error: r.error };
         return draw();

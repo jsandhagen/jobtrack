@@ -478,6 +478,15 @@
     if (!result) return { isPosting: false, url: location.href };
     // Fill gaps from the page if structured data was thin on details.
     if (!result.title) result.title = text('h1');
+    if (!result.company) {
+      const og = document.querySelector('meta[property="og:site_name"]');
+      const tab = fromTabTitle();
+      // Lever's tab title is "Employer - Job title"; other boards put
+      // the employer after the title ("Job Application for X at Acme").
+      const parts = document.title.split(/\s[|–—-]\s/);
+      const lever = site && site.name === 'lever' && parts.length > 1 && norm(parts.slice(1).join(' - ')) === norm(result.title);
+      result.company = clean((og && og.content) || (lever ? parts[0] : tab.company));
+    }
     // A teaser in the structured data: the page has the whole posting.
     if (STRUCTURED.has(result.source) && result.text.length < 2500) {
       for (const fn of [fromPageData, fromKnownSite, fromPage]) {

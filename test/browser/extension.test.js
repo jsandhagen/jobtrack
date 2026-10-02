@@ -25,6 +25,7 @@ const people = []; // looked up
 const added = []; // added to your people
 const pairings = [];
 let askedToPair = 0;
+let previewGate = null;
 
 // A pretend app: every job scores 81; saved jobs live in `saved`.
 const saved = new Map();
@@ -55,6 +56,7 @@ test.before(async () => {
     askToPair: async () => (askedToPair++, true),
     onPreview: async (p) => {
       previews.push(p);
+      if (previewGate) await previewGate(p);
       const dup = findSaved(p);
       if (dup) return card(dup, true);
       return { saved: false, preview: { job: { title: p.title, company: p.company, location: p.location, url: p.url }, quick, ats: { before: { score: 72, grade: 'B', skillsMatch: 'Good' } } }, ...env };
@@ -354,4 +356,73 @@ test('LinkedIn profile: reads the person, says what you share, and adds them whe
   });
   await waitFor(async () => (await cardText(p)) === '');
   await p.close();
+});
+
+test('late-loaded requirements are rescored even when the first 600 characters stay the same', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.linkedin.com/jobs/view/late-requirements');
+  await waitFor(() => previews.find((x) => x.url.endsWith('/late-requirements')));
+  await p.evaluate(() => { document.querySelector('#job-details').append(' Required: active TS/SCI security clearance.'); });
+  const changed = await waitFor(() => previews.find((x) => x.url.endsWith('/late-requirements') && x.text.includes('TS/SCI')));
+  assert.match(changed.text, /active TS\/SCI/);
+  await p.close();
+});
+
+test('removing an embedded posting clears the card and the toolbar job', async () => {
+  const p = await context.newPage();
+  await p.goto('https://careers.northwind.example/careers/job?id=55');
+  await waitFor(async () => (await cardText(p)).includes('Operations Manager'));
+  await p.evaluate(() => document.querySelector('iframe').remove());
+  await waitFor(async () => (await cardText(p)) === '');
+  const tabId = await sw.evaluate(async () => (await chrome.tabs.query({ active: true }))[0].id);
+  assert.equal(await sw.evaluate((id) => getEntry(id), tabId), null);
+  await p.close();
+});
+
+test('a preview finishing after leaving the job cannot reopen its card', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  previewGate = (posting) => posting.url.endsWith('/pending-preview') ? gate : Promise.resolve();
+  const p = await context.newPage();
+  try {
+    await p.goto('https://www.linkedin.com/jobs/view/pending-preview');
+    await waitFor(() => previews.find((x) => x.url.endsWith('/pending-preview')));
+    await p.evaluate(() => { history.pushState({}, '', '/feed/'); document.body.innerHTML = '<h1>Your feed</h1>'; });
+    await p.waitForTimeout(700);
+    release();
+    await p.waitForTimeout(300);
+    assert.equal(await cardText(p), '');
+    const tabId = await sw.evaluate(async () => (await chrome.tabs.query({ active: true }))[0].id);
+    assert.equal(await sw.evaluate((id) => getEntry(id), tabId), null);
+  } finally { release(); previewGate = null; await p.close(); }
+});
+
+test('slow SPA navigation never attributes the old description to the new job', async () => {
+  const p = await context.newPage();
+  try {
+    await p.goto('https://www.linkedin.com/jobs/view/slow-navigation');
+    await waitFor(async () => (await cardText(p)).includes('Senior Frontend Engineer'));
+    await p.evaluate(() => {
+      history.pushState({}, '', '/jobs/view/still-loading');
+      document.querySelector('h1').textContent = 'New job, description still loading';
+    });
+    await p.waitForTimeout(600);
+    await p.evaluate(() => history.replaceState({}, '', location.pathname + '?trk=loading'));
+    await p.waitForTimeout(4900);
+    assert.equal(await cardText(p), '');
+    assert.ok(!previews.some((x) => x.url.includes('/still-loading')), 'old text was not sent under the new title or URL');
+    await p.click('[data-job="pm"]');
+    await waitFor(async () => (await cardText(p)).includes('Product Manager'));
+  } finally { await p.close(); }
+});
+
+test('a tracking parameter change keeps the same posting available', async () => {
+  const p = await context.newPage();
+  try {
+    await p.goto('https://www.linkedin.com/jobs/view/tracking-only');
+    await waitFor(async () => (await cardText(p)).includes('Senior Frontend Engineer'));
+    await p.evaluate(() => history.replaceState({}, '', location.pathname + '?trk=job_search&utm_source=feed'));
+    await waitFor(() => previews.find((x) => x.url.includes('/tracking-only?trk=')));
+    await waitFor(async () => (await cardText(p)).includes('Senior Frontend Engineer'));
+  } finally { await p.close(); }
 });

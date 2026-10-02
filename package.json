@@ -8,6 +8,7 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "test:browser": "node --test test/browser/*.test.js",
+    "test:extension:live": "node scripts/check-extension-live.js",
     "sync:extension": "node scripts/sync-extension.js",
     "eval:prompts": "node scripts/eval-prompts.js",
     "dist": "electron-builder",

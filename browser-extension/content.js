@@ -43,7 +43,7 @@
       return Promise.resolve({ ok: false, error: e.message });
     }
   };
-  const contentKey = (p) => `${p.title}|${p.company}|${p.text.slice(0, 600)}`;
+  const contentKey = (p) => JSON.stringify([p.title, p.company, p.location, p.salary, p.text]);
 
   if (window !== window.top) return watchFrame();
 
@@ -52,19 +52,19 @@
     let last = '';
     let timer = null;
     let firstChange = 0;
+    const read = () => {
+      if (!mayBeJobPage()) return null;
+      try {
+        const p = globalThis.sproutExtract();
+        return p && p.isPosting ? p : null;
+      } catch { return null; }
+    };
     const look = () => {
       timer = null;
       firstChange = 0;
       if (!alive()) return frameObserver.disconnect();
-      if (!mayBeJobPage()) return;
-      let p = null;
-      try {
-        p = globalThis.sproutExtract();
-      } catch {
-        return;
-      }
-      const posting = p && p.isPosting ? p : null;
-      const key = posting ? contentKey(posting) : '';
+      const posting = read();
+      const key = posting ? location.href + '|' + contentKey(posting) : '';
       if (key === last) return;
       last = key;
       ask({ type: 'framePosting', posting });
@@ -77,6 +77,9 @@
     });
     frameObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     setTimeout(look, 600);
+    chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+      if (msg.type === 'extractFrame') reply(read());
+    });
   }
 
   // The posting on the page, or failing that, one a frame inside it found.
@@ -145,13 +148,15 @@
     bubble.hidden = !showing || !tuck;
     if (tuck && r.person) bubble.innerHTML = `${window.SproutMascot.mascotSvg('wave', 34)}<b class="hi">${r.saved ? '✓' : '+'}</b>`;
     else if (tuck) {
-      const cls = q.score >= 65 ? 'hi' : q.score >= 45 ? 'mid' : 'lo';
+      const B = window.FitScale.BANDS;
+      const cls = q.score >= B.strong ? 'hi' : q.score >= B.good ? 'mid' : 'lo';
       bubble.innerHTML = `${window.SproutMascot.mascotSvg(window.SproutMascot.moodForScore(q.score), 34)}<b class="${cls}">${q.score}</b>`;
     }
   }
 
-  async function showCard(key, result) {
+  async function showCard(key, result, version = pageVersion) {
     await ensureCard();
+    if (version !== pageVersion) return;
     showing = key;
     card.show(result);
     layout();
@@ -165,31 +170,42 @@
 
   // ---------- watching the page ----------
   let current = null; // { url, key } of the last job found
-  let urlChangedAt = 0;
+  let pageVersion = 0;
+  let awaitingText = null; // old description while a single-page navigation loads
   let lastUrl = location.href;
   let timer = null;
   let firstChange = 0;
   let busy = false;
+  let queuedForce = false;
   let misses = 0; // looks for a posting on this address that found none
 
   async function run({ force = false } = {}) {
     timer = null;
     firstChange = 0;
     if (!alive()) return stop();
-    if (busy) return schedule(400);
+    if (busy) {
+      queuedForce = queuedForce || force;
+      return schedule(400);
+    }
+    force = force || queuedForce;
+    queuedForce = false;
     if (isProfilePage()) return runPerson({ force });
     if (!force && !mayBeJobPage() && !framesHavePosting) return leave();
     let p;
+    const version = pageVersion;
+    const url = location.href;
     busy = true; // asking about frames takes a moment
     try {
       p = await extractHere();
     } finally {
       busy = false;
     }
+    if (version !== pageVersion || url !== location.href) return schedule(300);
     if (!p || !p.isPosting) {
       misses++;
       if (force) {
         await ensureCard();
+        if (version !== pageVersion || url !== location.href) return;
         showing = 'none';
         card.message({ mood: 'curious', title: "Hmm, I don't see a job posting", text: 'Open a job description and try again.' });
         return layout();
@@ -198,20 +214,20 @@
     }
     misses = 0;
     const key = contentKey(p);
-    if (!force && current && current.key === key) {
-      if (current.url === p.url) return;
-      // New address but the old job's text: a single-page site that hasn't
-      // swapped the posting in yet. Give it a moment before trusting it.
-      if (Date.now() - urlChangedAt < 4000) return schedule(700);
-    }
-    current = { url: p.url, key };
+    // Never relabel the old posting with a new address just because loading
+    // took longer than four seconds. Wait until the description changes.
+    if (!force && awaitingText === p.text) return schedule(700);
+    awaitingText = null;
+    if (!force && current && current.key === key) return;
+    current = { url: p.url, key, text: p.text };
     if (!force && dismissed.has(key)) return hide();
     busy = true;
     try {
-      if (force) await showCard(key, { loading: 'Reading this job…' });
+      if (force) await showCard(key, { loading: 'Reading this job…' }, version);
       const r = await ask({ type: 'detected', posting: p, force });
-      if (current.key !== key) return; // moved on while we were asking
+      if (version !== pageVersion || url !== location.href || !current || current.key !== key) return;
       if (!r.ok) {
+        current = null; // retry on the next page change or tab focus
         // Not running or not connected: stay quiet unless you asked.
         if (force) await showCard(key, { error: r.error });
         else hide();
@@ -219,10 +235,11 @@
       }
       const { result, skipped, dismissed: wasDismissed } = r.value;
       if (skipped || (wasDismissed && !force)) {
+        if (skipped) current = null;
         if (wasDismissed) dismissed.add(key);
         return hide();
       }
-      await showCard(key, result);
+      await showCard(key, result, version);
     } finally {
       busy = false;
     }
@@ -230,6 +247,8 @@
 
   // Someone's LinkedIn profile: are they in your people, and what do you share?
   async function runPerson({ force = false } = {}) {
+    const version = pageVersion;
+    const url = location.href;
     let p;
     try {
       p = globalThis.sproutPerson();
@@ -249,22 +268,24 @@
     if (!force && dismissed.has(dkey)) return hide();
     busy = true;
     try {
-      if (force) await showCard(dkey, { loading: 'Reading this profile…' });
+      if (force) await showCard(dkey, { loading: 'Reading this profile…' }, version);
       const r = await ask({ type: 'personDetected', person: p, force });
-      if (!current || current.key !== key) return;
+      if (version !== pageVersion || url !== location.href || !current || current.key !== key) return;
       if (!r.ok) {
+        current = null;
         if (force) await showCard(dkey, { error: r.error });
         else hide();
         return;
       }
       const { result, skipped, dismissed: wasDismissed } = r.value;
       if (skipped || (wasDismissed && !force)) {
+        if (skipped) current = null;
         if (wasDismissed) dismissed.add(dkey);
         return hide();
       }
       // Don't undo "Added!" just because another section loaded.
       if (showing === dkey && card.result && card.result.justAdded && result.saved) return;
-      await showCard(dkey, result);
+      await showCard(dkey, result, version);
     } finally {
       busy = false;
     }
@@ -274,6 +295,8 @@
   function leave() {
     if (!current && !showing) return;
     current = null;
+    pageVersion++;
+    awaitingText = null;
     hide();
     ask({ type: 'cleared' });
   }
@@ -281,7 +304,7 @@
   // Wait for the page to settle (descriptions often load after the page), but
   // not forever: busy sites like LinkedIn never stop changing. A page that
   // keeps changing without ever showing a posting is looked at less often.
-  function schedule(delay = 900) {
+  function schedule(delay = 500) {
     const now = Date.now();
     if (!firstChange) firstChange = now;
     clearTimeout(timer);
@@ -289,10 +312,23 @@
     timer = setTimeout(run, Math.max(0, Math.min(delay, firstChange + cap - now)));
   }
 
+  function jobAddress(href) {
+    const url = new URL(href);
+    for (const key of [...url.searchParams.keys()]) if (/^utm_|^(trk|trkInfo|gh_src|lever-source|ref|referrer)$/i.test(key)) url.searchParams.delete(key);
+    url.searchParams.sort();
+    return url.href;
+  }
+
   function urlCheck() {
     if (location.href === lastUrl) return;
+    const changedJob = jobAddress(location.href) !== jobAddress(lastUrl);
     lastUrl = location.href;
-    urlChangedAt = Date.now();
+    pageVersion++;
+    if (current) awaitingText = changedJob ? current.text : null;
+    current = null;
+    queuedForce = false;
+    hide();
+    ask({ type: 'cleared' });
     misses = 0;
     schedule(700);
   }
@@ -316,7 +352,14 @@
   addEventListener('hashchange', urlCheck);
   // Coming back to a tab: pick up anything that changed while it was hidden.
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && schedule(300));
-  schedule(600);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || (!changes.token && !changes.autoSend)) return;
+    if (changes.autoSend && changes.autoSend.newValue === false) return leave();
+    pageVersion++;
+    current = null;
+    schedule(300);
+  });
+  schedule(350);
 
   // ---------- messages from the extension ----------
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {

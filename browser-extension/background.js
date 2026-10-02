@@ -6,6 +6,7 @@
 // jobs when you say so on the card (/posting). The same goes for people: a
 // LinkedIn profile is looked up (/person) and added to your people when you
 // say so (/person/add).
+importScripts('vendor/fitScale.js');
 const PORTS = [47321, 47322, 47323, 47324, 47325];
 // Everything the card on the page needs, in load order (see manifest.json).
 const CONTENT_FILES = ['vendor/fitScale.js', 'vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'extract.js', 'person.js', 'card.js', 'content.js'];
@@ -19,7 +20,7 @@ async function findApp() {
   for (const p of port ? [port, ...PORTS.filter((x) => x !== port)] : PORTS) {
     try {
       // POST, because Chrome only sends the Origin header the app checks on non-GET requests.
-      const r = await fetch(`http://127.0.0.1:${p}/ping`, { method: 'POST', headers: { 'X-Sprout-Token': token } });
+      const r = await fetch(`http://127.0.0.1:${p}/ping`, { method: 'POST', headers: { 'X-Sprout-Token': token }, signal: AbortSignal.timeout(500) });
       if (!r.ok) continue;
       const body = await r.json();
       if (body.app === 'sprout') {
@@ -61,6 +62,7 @@ async function call(path, body) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Sprout-Token': token },
     body: JSON.stringify(body || {}),
+    signal: AbortSignal.timeout(15000),
   });
   const data = await r.json().catch(() => ({}));
   if (r.status === 401) throw Object.assign(new Error('Not connected to Sprout yet. Click the Sprout button in your toolbar to connect.'), { code: 'unpaired' });
@@ -73,6 +75,10 @@ async function call(path, body) {
 // tabId -> { key, posting, result, dismissed }. Mirrored to session storage,
 // because the service worker can be stopped at any time.
 const tabs = new Map();
+// Navigation/clearing invalidates pending responses, including when this
+// tab has no cached entry yet. A newer detection supersedes an older one.
+const requests = new Map();
+const invalidate = (tabId) => requests.set(tabId, {});
 
 async function getEntry(tabId) {
   if (tabId === undefined || tabId === null) return null;
@@ -94,8 +100,8 @@ async function setEntry(tabId, entry) {
   badge(tabId, entry && entry.result);
 }
 
-// Same job = same title, company and opening text (the URL can change under it).
-const jobKey = (p) => `${p.title}|${p.company}|${String(p.text || '').slice(0, 600)}`;
+// Requirements often load late, below the opening paragraphs.
+const jobKey = (p) => JSON.stringify([p.title, p.company, p.location, p.salary, p.text]);
 
 // Only what the card needs from the app's answer.
 const cardResult = (d) =>
@@ -110,7 +116,8 @@ function badge(tabId, result) {
   const dealbreaker = !!(quick.dealbreakers && quick.dealbreakers.length) && !(result.saved && result.app.analysis);
   const s = q.score;
   chrome.action.setBadgeText({ tabId, text: dealbreaker ? '!' : String(s) }).catch(() => {});
-  chrome.action.setBadgeBackgroundColor({ tabId, color: dealbreaker ? '#e98a8a' : s >= 65 ? '#3f8a61' : s >= 45 ? '#d9a93a' : '#e0906a' }).catch(() => {});
+  const B = globalThis.FitScale.BANDS;
+  chrome.action.setBadgeBackgroundColor({ tabId, color: dealbreaker ? '#e98a8a' : s >= B.strong ? '#3f8a61' : s >= B.good ? '#d9a93a' : '#e0906a' }).catch(() => {});
 }
 
 // Tell the card on the page (if any) about something that happened in the popup.
@@ -137,27 +144,33 @@ async function setFramePosting(tabId, frameId, posting) {
 
 // A job is on the page: score it (without saving) unless it's the one we already have.
 async function detected(tabId, posting, { force = false } = {}) {
+  const request = {};
+  requests.set(tabId, request);
+  const active = () => requests.get(tabId) === request;
   const { autoSend, token } = await getConfig();
   if (!force && (!autoSend || !token)) return { skipped: true };
   const key = jobKey(posting);
   const e = await getEntry(tabId);
-  if (e && e.key === key && e.result) {
+  if (e && e.key === key && e.result && (e.result.saved || !force)) {
     let result = e.result;
     // A saved job may have moved on (applied, resume written) since we last looked.
     if (result.saved) result = await call('/app', { id: result.app.id }).then((d) => ({ ...cardResult(d), seen: result.seen }), () => result);
+    if (!active()) return { skipped: true };
     await setEntry(tabId, { ...e, posting, result });
     return { result, dismissed: e.dismissed && !force };
   }
   const result = cardResult(await call('/preview', posting));
-  await setEntry(tabId, { key, posting, result, dismissed: false });
+  if (!active()) return { skipped: true };
+  await setEntry(tabId, { key, posting, result, dismissed: !force && !!(e && e.key === key && e.dismissed) });
   return { result, dismissed: false };
 }
 
 async function save(tabId) {
+  const request = requests.get(tabId);
   const e = await getEntry(tabId);
   if (!e) throw new Error("I can't find that job on the page anymore. Try reloading it.");
   const result = cardResult(await call('/posting', { ...e.posting, auto: false, silent: true }));
-  await setEntry(tabId, { ...e, result, dismissed: false });
+  if (requests.get(tabId) === request) await setEntry(tabId, { ...e, result, dismissed: false });
   return result;
 }
 
@@ -182,21 +195,25 @@ async function getSaved(id) {
 
 // A profile is on the page: are they in your people already, and what do you share?
 async function personDetected(tabId, person, { force = false } = {}) {
+  const request = {};
+  requests.set(tabId, request);
   const { autoSend, token } = await getConfig();
   if (!force && (!autoSend || !token)) return { skipped: true };
   const key = `person|${person.url}`;
   const e = await getEntry(tabId);
   const result = await call('/person', person);
+  if (requests.get(tabId) !== request) return { skipped: true };
   const same = e && e.key === key;
   await setEntry(tabId, { key, posting: { url: person.url }, person, result, dismissed: same && e.dismissed });
   return { result, dismissed: same && e.dismissed && !force };
 }
 
 async function addPerson(tabId) {
+  const request = requests.get(tabId);
   const e = await getEntry(tabId);
   if (!e || !e.person) throw new Error("I can't find that profile on the page anymore. Try reloading it.");
   const result = await call('/person/add', e.person);
-  await setEntry(tabId, { ...e, result, dismissed: false });
+  if (requests.get(tabId) === request) await setEntry(tabId, { ...e, result, dismissed: false });
   return result;
 }
 
@@ -210,7 +227,7 @@ async function ensureContent(tabId) {
   } catch {
     /* not there yet */
   }
-  await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES });
+  await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: CONTENT_FILES });
   return true;
 }
 
@@ -302,16 +319,22 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       case 'openPerson':
         return call('/person/open', { id: msg.id });
       case 'cleared':
+        invalidate(tabId);
         return setEntry(tabId, null);
       case 'framePosting': {
         // A frame inside the page found (or lost) a posting: tell the page.
         if (!fromPage || !sender.frameId) return null;
         await setFramePosting(tabId, sender.frameId, msg.posting || null);
-        if (msg.posting) tellTab(tabId, { type: 'framePosting' });
+        tellTab(tabId, { type: 'framePosting' });
         return null;
       }
       case 'framePostings':
-        return Object.values(await getFrames(tabId));
+        // A removed or navigated frame must never supply its old posting.
+        // Read the reported frames fresh; messaging a detached frame fails.
+        return (await Promise.all(Object.keys(await getFrames(tabId)).map(async (id) => {
+          try { return await chrome.tabs.sendMessage(tabId, { type: 'extractFrame' }, { frameId: Number(id) }); }
+          catch { return null; }
+        }))).filter((p) => p && p.isPosting);
       case 'css':
         return css();
       case 'save': {
@@ -372,11 +395,13 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 // shows one. content.js re-reports the job if it's still the same one.
 chrome.tabs.onUpdated.addListener(async (tabId, change) => {
   if (!change.url) return;
+  invalidate(tabId);
   await chrome.storage.session.remove('frames:' + tabId).catch(() => {});
   const e = await getEntry(tabId);
   if (e && e.posting.url !== change.url) await setEntry(tabId, null);
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
+  requests.delete(tabId);
   setEntry(tabId, null);
   chrome.storage.session.remove('frames:' + tabId).catch(() => {});
 });
