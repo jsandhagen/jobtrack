@@ -2568,6 +2568,7 @@ if (process.argv.includes('--smoke-test')) {
     store.pruneChecked(); // checked jobs you never saved, not seen for a month
     store.repairBank(bulletBank.tidyBank); // the same job from two resumes, filed twice before roles were matched
     store.migrateFitScale(fitScale); // fit scores saved before the grade-like scale
+    store.liftClaudeScores(claude.liftSavedAnalysis); // Claude scores saved before they were shown generously
     fillContactOnce(); // name and contact details for libraries imported before Profile filled itself in
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();

@@ -274,15 +274,19 @@ async function analyzeFit(client, { job, documents, profile, model, screens = []
   // The checklist judges the stated requirements; level, years and the kind
   // of job are screened the same way as the free score (localFit.js).
   // Shown a little generously, like the free score (see shownFit in localFit.js).
-  const checklist = generous(scoreFromQualifications(qualifications));
-  const score = Math.min(checklist, ...screens.map((s) => s.max));
+  const raw = scoreFromQualifications(qualifications);
+  const checklist = generous(raw);
+  const caps = screens.map((s) => s.max);
+  const score = Math.min(checklist, ...caps);
   return {
     ...out,
     qualifications,
     keywords,
-    // Shown on the grade-like scale (src/shared/fitScale.js); the label and grade use the calibrated score.
+    // Shown on the grade-like scale (src/shared/fitScale.js); the label and
+    // grade use the generous score. calibratedScore is before the lift, as
+    // in the free score.
     score: toShown(score),
-    calibratedScore: score,
+    calibratedScore: Math.min(raw, ...caps),
     scale: FIT_SCALE,
     label: fitLabel(score),
     screened: score < checklist ? screens.filter((s) => s.max < checklist).map((s) => s.reason) : [],
@@ -296,6 +300,30 @@ async function analyzeFit(client, { job, documents, profile, model, screens = []
  * Draft a resume. `roles` and `picked` come from draft.promptIds(); the
  * caller turns the result into an editor document with draft.draftToDoc().
  */
+// Claude scores saved before they were shown generously (the scale
+// migration moved them as they were), and ones saved while calibratedScore
+// held the lifted score: worked out again from the saved checklist. A score
+// a screen held down stays where it is. Run once (store.liftClaudeScores).
+// Returns whether it changed anything.
+function liftSavedAnalysis(a) {
+  if (!a || !Array.isArray(a.qualifications) || typeof a.score !== 'number') return false;
+  const raw = scoreFromQualifications(a.qualifications);
+  const lifted = generous(raw);
+  const was = a.scale === FIT_SCALE && typeof a.calibratedScore === 'number' ? a.calibratedScore : a.score;
+  if (was === raw || was === lifted) {
+    if (a.scale === FIT_SCALE && a.calibratedScore === raw && a.score === toShown(lifted)) return false;
+    Object.assign(a, { score: toShown(lifted), calibratedScore: raw, scale: FIT_SCALE, label: fitLabel(lifted), grade: gradeFromQualifications(a.qualifications, lifted) });
+    return true;
+  }
+  // Held down by a screen between the checklist and its lift: only the
+  // calibrated score was saved after the lift.
+  if (a.scale === FIT_SCALE && was > raw && was < lifted) {
+    a.calibratedScore = raw;
+    return true;
+  }
+  return false;
+}
+
 async function generateResume(client, { job, documents, profile, analysis, ats, roles, picked, model, onProgress }) {
   const out = await structuredCall(client, {
     kind: 'resume',
@@ -545,6 +573,7 @@ module.exports = {
   polishBullets,
   suggestBullets,
   scoreFromQualifications,
+  liftSavedAnalysis,
   libraryText,
   schemas: { ScreenJob, FitAnalysis, ResumeDraft, CoverLetter, BulletEdits, SuggestedBullets, FoundCompanies },
   DEFAULT_MODEL,

@@ -305,9 +305,10 @@ test('analyzeFit scores from its own checklist, verifies every quote, and caches
   // A made-up quote drops "met" to "partial". Must-haves [1, 0.5] combine
   // conjunctively (0.4 × mean 0.75 + 0.6 × harmonic 0.667 = 0.70) and count
   // 80%; the unmet nice-to-have adds nothing: 56, shown a little generously
-  // like the free score (56 + 0.2 × 56 × 44 / 100 = 61).
+  // like the free score (56 + 0.2 × 56 × 44 / 100 = 61). The calibrated score
+  // is before the lift, as in the free score.
   assert.deepEqual(res.qualifications.map((x) => [x.status, x.verified]), [['met', true], ['partial', false], ['not_met', true]]);
-  assert.equal(res.calibratedScore, 61);
+  assert.equal(res.calibratedScore, 56);
   assert.equal(res.score, require('../src/shared/fitScale').toShown(61), 'shown on the grade-like scale');
   assert.deepEqual(res.keywords, ['React']); // Kubernetes isn't in the posting
   assert.ok(res.promptVersion);

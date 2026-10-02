@@ -272,6 +272,17 @@ class Store {
     return changed;
   }
 
+  // Claude scores saved before they were shown generously, once, after
+  // migrateFitScale (claude.js, liftSavedAnalysis).
+  liftClaudeScores(lift) {
+    if (this.data.settings.fitLift === 1) return false;
+    let changed = false;
+    for (const a of this.data.applications) if (lift(a.analysis)) changed = true;
+    this.data.settings.fitLift = 1;
+    this.save();
+    return changed;
+  }
+
   // ---- application history ----
   listApplications() {
     return [...this.data.applications].sort((a, b) => b.createdAt.localeCompare(a.createdAt));

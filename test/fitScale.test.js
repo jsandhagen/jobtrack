@@ -7,6 +7,8 @@ const { toShown, shownLabel, BANDS, SCALE } = require('../src/shared/fitScale');
 const { fitLabel } = require('../src/main/fitScore');
 const { shownFit } = require('../src/main/localFit');
 const { Store } = require('../src/main/store');
+const { liftSavedAnalysis, scoreFromQualifications } = require('../src/main/claude');
+const { generous } = require('../src/main/localFit');
 
 test('the shown fit reads like a grade: a strong match lands in the 80s', () => {
   assert.deepEqual([0, 45, 65, 80, 100].map(toShown), [0, BANDS.good, BANDS.strong, BANDS.excellent, 100]);
@@ -63,4 +65,38 @@ test('company previews persist their scale marker through the app projection', (
   const fit = require('node:vm').runInNewContext('(' + projection[1] + ')', { q });
   assert.equal(fit.scale, SCALE);
   assert.equal(fit.calibratedScore, 69);
+});
+
+test('saved Claude scores are lifted like new ones, once, and a screened score stays put', () => {
+  const quals = [
+    { type: 'basic', status: 'met' },
+    { type: 'basic', status: 'partial' },
+    { type: 'preferred', status: 'not_met' },
+  ];
+  const raw = scoreFromQualifications(quals);
+  const lifted = generous(raw);
+  assert.ok(lifted > raw, `the checklist lifts (${raw} -> ${lifted})`);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fitlift-'));
+  fs.writeFileSync(path.join(dir, 'jobtrack.json'), JSON.stringify({
+    applications: [
+      // Saved before the scale: the migration moves it without the lift.
+      { id: 'old', createdAt: '2026-01-01', analysis: { score: raw, qualifications: quals, screened: [] } },
+      // Saved after the lift but with calibratedScore holding the lifted score.
+      { id: 'mid', createdAt: '2026-01-01', analysis: { score: toShown(lifted), calibratedScore: lifted, scale: SCALE, qualifications: quals, screened: [] } },
+      // Held down by a screen below the checklist.
+      { id: 'cap', createdAt: '2026-01-01', analysis: { score: raw - 10, qualifications: quals, screened: ['Overqualified'] } },
+    ],
+    settings: {},
+  }));
+  const store = new Store(dir);
+  store.migrateFitScale({ toShown, SCALE });
+  assert.equal(store.liftClaudeScores(liftSavedAnalysis), true);
+  for (const id of ['old', 'mid']) {
+    const a = store.getApplication(id).analysis;
+    assert.deepEqual([a.score, a.calibratedScore, a.label], [toShown(lifted), raw, fitLabel(lifted)], id);
+  }
+  const cap = store.getApplication('cap').analysis;
+  assert.deepEqual([cap.score, cap.calibratedScore], [toShown(raw - 10), raw - 10]);
+  assert.equal(store.liftClaudeScores(liftSavedAnalysis), false, 'runs once');
+  assert.equal(store.getApplication('old').analysis.score, toShown(lifted), 'never lifted twice');
 });
