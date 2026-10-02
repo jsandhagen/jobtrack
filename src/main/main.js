@@ -1970,7 +1970,7 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
       boardIds.length ? jobBoards.searchBoards({ ...opts, boards: boardIds, keys, onProgress: (p) => ((progress.boards = p), tell()) }) : { results: [], searched: [], failed: [] },
     ]);
     // Boards found along the way are worth keeping.
-    for (const [id, board] of Object.entries(mine.boards)) store.saveItem('companies', { id, board });
+    for (const [id, board] of Object.entries(mine.boards)) if (stillWatched(id)) store.saveItem('companies', { id, board });
     // A job board posting from a company you watch belongs to that company
     // (its logo, your people there), and is left out if its careers board already listed it.
     const watched = new Map(store.list('companies').map((c) => [normCo(c.name), c]));
@@ -2002,6 +2002,9 @@ async function searchRole({ role, place = '', remoteOnly = false, minFit = 70, s
 }
 
 const CAREERS_EVERY = 8 * 60 * 60 * 1000;
+// A check or search takes a while; a company removed meanwhile stays removed
+// (saving its results would bring it back as a nameless entry).
+const stillWatched = (id) => store.list('companies').some((c) => c.id === id);
 function checkCareersIfDue() {
   const last = Date.parse(store.getSettings().careersCheckedAt || '') || 0;
   if (Date.now() - last >= CAREERS_EVERY) checkCareers().catch(() => {});
@@ -2026,12 +2029,13 @@ async function checkCareers(ids, { manual = false } = {}) {
       if (ids ? !ids.includes(co.id) : co.status === 'pass') continue;
       try {
         const r = await careers.checkCompany(co, { fetchImpl: netFetch, roles, scoreJob });
+        if (!stillWatched(co.id)) continue; // removed while it was being checked
         store.saveItem('companies', { id: co.id, ...r.patch });
         for (const j of r.fresh) fresh.push({ company: co, job: j });
         if (r.firstLook) firstLooks.add(co.id);
         checked++;
       } catch (err) {
-        store.saveItem('companies', { id: co.id, lastCheckedAt: new Date().toISOString(), checkError: err.name === 'TimeoutError' ? 'The careers site took too long to answer.' : err.message });
+        if (stillWatched(co.id)) store.saveItem('companies', { id: co.id, lastCheckedAt: new Date().toISOString(), checkError: err.name === 'TimeoutError' ? 'The careers site took too long to answer.' : err.message });
         failed++;
       }
       broadcast('state-changed');
