@@ -31,6 +31,7 @@ const { PostingWatcher, fingerprint } = require('./watcher');
 const ocr = require('./ocr');
 const { createBridge } = require('./bridge');
 const { createUpdater } = require('./updater');
+const { installExtension } = require('./extensionFolder');
 const bulletBank = require('./bullets');
 const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
@@ -1000,8 +1001,25 @@ function openPersonInDashboard(id) {
   else go();
 }
 
-function extensionDir() {
+// The extension that ships with the app (it moves with the app; see extensionFolder.js).
+function bundledExtensionDir() {
   return app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(__dirname, '..', '..', 'browser-extension');
+}
+
+// The folder people load the extension from. Packaged builds keep a copy in
+// the data folder, which stays put across updates, so the browser never
+// loses it; running from source, it's the source folder itself.
+let extensionFolder = null;
+function setUpExtensionFolder() {
+  if (!app.isPackaged) return;
+  try {
+    extensionFolder = installExtension(bundledExtensionDir(), path.join(app.getPath('userData'), 'browser-extension')).dir;
+  } catch (err) {
+    console.warn('Could not copy the browser extension to the data folder:', err.message);
+  }
+}
+function extensionDir() {
+  return extensionFolder || bundledExtensionDir();
 }
 
 function askToPair({ origin, name }) {
@@ -2224,6 +2242,7 @@ async function smokeTest() {
     await ocr.terminate();
     const win = new BrowserWindow({ show: false, webPreferences: { preload: PRELOAD } });
     await win.loadFile(path.join(RENDERER, 'dashboard.html'));
+    setUpExtensionFolder();
     if (!fs.existsSync(path.join(extensionDir(), 'manifest.json'))) throw new Error(`browser extension missing at ${extensionDir()}`);
     console.log(`SMOKE OK (${app.isPackaged ? 'packaged' : 'dev'})`);
     clearTimeout(timer);
@@ -2273,6 +2292,8 @@ if (process.argv.includes('--smoke-test')) {
     setTimeout(checkCareersIfDue, 60 * 1000);
     setInterval(checkCareersIfDue, 15 * 60 * 1000);
     powerMonitor.on('resume', () => setTimeout(checkCareersIfDue, 60 * 1000));
+    // Before the bridge, which tells the extension which version is on disk.
+    setUpExtensionFolder();
     startBridge();
     startUpdates();
   });

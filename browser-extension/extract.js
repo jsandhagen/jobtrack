@@ -58,6 +58,28 @@
     const el = q(sel);
     return el ? clean(el.innerText).split('\n')[0].trim() : '';
   };
+  // Headings, labels and buttons that sit where a title would ("About this
+  // role", "Responsibilities:", "Careers at Acme"). The rules are the app's
+  // (vendor/jobTitle.js); without them, only empty titles are refused.
+  const notJobTitle = (t) => (globalThis.SproutJobTitle ? globalThis.SproutJobTitle.notJobTitle(t) : !String(t || '').trim());
+  // The first element any of the selectors match whose first line can be a
+  // job title: a site's own title element, then its fallbacks (<h1>, <h2>),
+  // skipping section headings that use the same tag.
+  const titleText = (sel) => {
+    for (const s of [].concat(sel)) {
+      let els = [];
+      try {
+        els = [...document.querySelectorAll(s)];
+      } catch {
+        /* invalid selector on this browser */
+      }
+      for (const el of els.slice(0, 20)) {
+        const t = clean(el.innerText || '').split('\n')[0].trim();
+        if (t && !notJobTitle(t)) return t;
+      }
+    }
+    return '';
+  };
 
   // HTML description from JSON-LD -> readable text with bullets.
   function htmlToText(html) {
@@ -332,7 +354,7 @@
     const body = q(site.body);
     if (!body) return null;
     return {
-      title: text(site.title),
+      title: titleText(site.title),
       company: text(site.company),
       location: text(site.location),
       text: clean(body.innerText),
@@ -423,7 +445,7 @@
   function titleAndCompany(block) {
     const ogSite = document.querySelector('meta[property="og:site_name"]');
     const site = norm(ogSite && ogSite.content);
-    const ok = (t) => t && t.length <= 120 && !ANCHOR.test(t) && !SECTION.test(t) && !SITE_HEADING.test(t) && norm(t) !== site;
+    const ok = (t) => t && !notJobTitle(t) && !ANCHOR.test(t) && !SECTION.test(t) && !SITE_HEADING.test(t) && norm(t) !== site;
     const tab = fromTabTitle();
     let title = '';
     // The posting's <h1>, the page's, the posting's first heading if it isn't
@@ -436,9 +458,19 @@
         break;
       }
     }
-    if (!title) title = tab.title;
+    if (!title && ok(tab.title)) title = tab.title;
     const company = (ogSite && ogSite.content) || tab.company || '';
     return { title, company: clean(company) };
+  }
+
+  // The job title from the page as a whole, or '' when nothing on it can be one.
+  function pageTitle() {
+    const og = document.querySelector('meta[property="og:title"]');
+    const ogTitle = og && og.content ? og.content.split(/\s[|–—-]\s|\s·\s/)[0].replace(/^job application for\s+/i, '').trim() : '';
+    const site = norm((document.querySelector('meta[property="og:site_name"]') || {}).content);
+    const ok = (t) => t && !notJobTitle(t) && !ANCHOR.test(t) && !SECTION.test(t) && !SITE_HEADING.test(t) && norm(t) !== site;
+    for (const t of [titleText('h1'), ogTitle, fromTabTitle().title]) if (ok(t)) return t;
+    return '';
   }
 
   // Structured data already says "this is a job posting", so it needs less
@@ -476,8 +508,10 @@
     else if (teaser && STRUCTURED.has(teaser.source) && !STRUCTURED.has(result.source))
       result = { ...result, ...Object.fromEntries(['title', 'company', 'location', 'salary'].filter((k) => teaser[k]).map((k) => [k, teaser[k]])) };
     if (!result) return { isPosting: false, url: location.href };
-    // Fill gaps from the page if structured data was thin on details.
-    if (!result.title) result.title = text('h1');
+    // No title, or a heading in its place ("About this role"): the page's
+    // own title, its <h1>s, then the tab title. Better none than a wrong one;
+    // the app then looks for one in the text.
+    if (notJobTitle(result.title)) result.title = pageTitle();
     // A teaser in the structured data: the page has the whole posting.
     if (STRUCTURED.has(result.source) && result.text.length < 2500) {
       for (const fn of [fromPageData, fromKnownSite, fromPage]) {

@@ -243,6 +243,7 @@ test('a job you already saved shows as saved, not as a new question', async () =
 test('company careers pages: finds the posting, leaves out menus and other openings, and asks too', async () => {
   const p = await context.newPage();
   await p.goto('https://careers.fabrikam.example/jobs/senior-accountant');
+  await p.addScriptTag({ path: path.join(EXT_DIR, 'vendor/jobTitle.js') });
   await p.addScriptTag({ path: path.join(EXT_DIR, 'extract.js') });
   const r = await p.evaluate(() => globalThis.sproutExtract());
   assert.equal(r.isPosting, true);
@@ -268,6 +269,7 @@ test('Phenom careers sites (careers.freddiemac.com and the like): reads the job 
   await p.evaluate(() => (document.querySelector('h1').textContent = 'Data Engineer'));
   await p.evaluate(() => (document.title = 'Data Engineer | Contoso Careers'));
   await p.evaluate(() => history.pushState({}, '', '/us/en/job/JR456/Data-Engineer'));
+  await p.addScriptTag({ path: path.join(EXT_DIR, 'vendor/jobTitle.js') });
   await p.addScriptTag({ path: path.join(EXT_DIR, 'extract.js') });
   const stale = await p.evaluate(() => globalThis.sproutExtract());
   assert.ok(!stale.isPosting || stale.title !== 'Chief of Staff');

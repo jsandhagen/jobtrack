@@ -1247,6 +1247,7 @@ async function renderExtensionCard() {
         <button class="small soft" id="extFolder">${icon('folder', 15)} Show folder</button></div></li>
       <li>Click the Sprout icon in the toolbar → <b>Connect</b>, then choose <b>Allow</b> here.</li>
     </ol>
+    <p class="muted">You only do this once: this folder stays where it is when Sprout updates, and the extension picks up each new version on its own.</p>
     ${browsers}`;
   $('#extFolder', card).addEventListener('click', () => S.showExtensionFolder());
   $('#extCopy', card).addEventListener('click', async () => {

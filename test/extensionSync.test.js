@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { stale, FILES } = require('../scripts/sync-extension');
+const { stale, FILES, READER_FILES } = require('../scripts/sync-extension');
 
 const EXT = path.resolve(__dirname, '../browser-extension');
 
@@ -23,6 +23,8 @@ test('the manifest and popup load every shared file the card needs', () => {
   // Load order: the card needs the vendor files, and content.js needs the card.
   assert.ok(js.indexOf('card.js') > Math.max(...FILES.filter((f) => f.endsWith('.js')).map((f) => js.indexOf(`vendor/${f}`))));
   assert.equal(js.at(-1), 'content.js');
+  // The page reader checks titles with the app's own rules.
+  for (const f of READER_FILES) assert.ok(js.indexOf(`vendor/${f}`) >= 0 && js.indexOf(`vendor/${f}`) < js.indexOf('extract.js'), `content script must load vendor/${f} before extract.js`);
   // background.js injects the same list into tabs opened before install.
   const bg = fs.readFileSync(path.join(EXT, 'background.js'), 'utf8');
   const listed = bg.match(/const CONTENT_FILES = (\[[^\]]*\])/)[1];

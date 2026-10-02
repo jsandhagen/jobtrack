@@ -8,7 +8,7 @@
 // say so (/person/add).
 const PORTS = [47321, 47322, 47323, 47324, 47325];
 // Everything the card on the page needs, in load order (see manifest.json).
-const CONTENT_FILES = ['vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'extract.js', 'person.js', 'card.js', 'content.js'];
+const CONTENT_FILES = ['vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'vendor/jobTitle.js', 'extract.js', 'person.js', 'card.js', 'content.js'];
 
 async function getConfig() {
   return chrome.storage.local.get({ port: null, token: '', autoSend: true });
@@ -221,7 +221,7 @@ async function extractFromTab(tabId) {
   } catch {
     /* no content script on this page */
   }
-  await chrome.scripting.executeScript({ target: { tabId }, files: ['extract.js'] });
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['vendor/jobTitle.js', 'extract.js'] });
   const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: () => globalThis.sproutExtract() });
   return result;
 }
