@@ -192,7 +192,8 @@ test('LinkedIn: pops up the card, asks before saving, and follows in-page naviga
   const text = await waitFor(async () => ((await cardText(p)).includes('Senior Frontend Engineer') ? cardText(p) : null));
   assert.match(text, /Add this job to your saved jobs\?/);
   assert.match(text, /Excellent match/);
-  assert.match(text, /72%\s*Resume visibility in ATS searches for this job · about your resume, not you/);
+  // (The rings count up as they appear: wait for the final number.)
+  await waitFor(async () => /72\s*ATS\s*Resume visibility\s*How easily recruiters find it/.test(await cardText(p)));
   assert.ok(!/ATS match/.test(text), 'described as the resume\'s visibility, not a match of you');
   assert.equal(postings.length, 0, 'nothing is saved until you say so');
 
@@ -290,8 +291,8 @@ test('"Do you have these?": a yes is recorded and the card re-scores; a no stops
       return !!b;
     })
   );
-  const after = await waitFor(async () => ((await cardText(p)).includes('Your score went from 61 to 70') ? cardText(p) : null));
-  assert.match(after, /Added CPA to the skills in your bullet bank/);
+  const after = await waitFor(async () => ((await cardText(p)).includes('Fit 61 → 70') ? cardText(p) : null));
+  assert.match(after, /Added CPA to your skills/);
   assert.ok(!/CPA\s*\+9/.test(after), 'not asked again');
   const yes = answers.find((a) => a.label === 'CPA');
   assert.equal(yes.answer, 'yes');

@@ -53,14 +53,33 @@
   // as the resume is tailored.
   const visCls = (score) => (score >= 75 ? 'hi' : score >= 55 ? 'mid' : 'lo');
 
+  // A ring, like the fit score's and the app's ATS ring.
   function atsLine(before) {
     if (!before) return '';
-    return `<div class="ats-line" data-info-host title="How visible your current resume is when recruiters search their applicant tracking system for this job. It's about the resume, not you.">
-      <span class="vis vis-${visCls(before.score)}">${before.score}%</span>
-      <span><b>Resume visibility</b> in ATS searches for this job · about your resume, not you</span>${info('visibility')}</div>`;
+    return `<div class="scoreline vis-line" data-info-host title="How easily recruiters find your current resume when they search their applicant tracking system for this job">
+      ${M().scoreRing(before.score, 64, 'ATS')}
+      <div><div class="label">Resume visibility</div><div class="src">How easily recruiters find it ${info('visibility')}</div></div></div>`;
   }
 
-  const chips = (list) => `<div class="chips">${list.map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')}</div>`;
+  // The score's labels, as you'd say them: "one of ERP, Oracle" -> "ERP or Oracle",
+  // "experience in accounting" -> "Accounting experience".
+  function plain(s) {
+    let t = String(s || '').trim();
+    const one = t.match(/^one of (.+)$/i);
+    if (one) {
+      const opts = one[1].split(/\s*,\s*/);
+      t = opts.length > 1 ? `${opts.slice(0, -1).join(', ')} or ${opts[opts.length - 1]}` : opts[0];
+    }
+    const exp = t.match(/^experience in (.+)$/i);
+    if (exp) t = `${exp[1]} experience`;
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  // "Accounting" beside "Accounting experience" says the same thing twice.
+  function chips(list) {
+    const shown = list.map((s) => ({ s, t: plain(s) }));
+    const kept = shown.filter(({ t }) => !shown.some((o) => o.t !== t && o.t.toLowerCase().startsWith(t.toLowerCase() + ' ')));
+    return `<div class="chips">${kept.map(({ s, t }) => `<span class="chip good" title="${esc(s)}">✓ ${esc(t)}</span>`).join('')}</div>`;
+  }
   const note = (html, cls = '') => `<div class="note ${cls}">${html}</div>`;
   // "Do you have these?": must-haves the posting asks for that your documents
   // don't show, each with how much a yes would add to the free score. A yes
@@ -72,20 +91,22 @@
       `<button class="${cls}" data-act="have" data-label="${esc(label)}" data-answer="${answer}"${option ? ` data-option="${esc(option)}"` : ''}>${esc(text)}</button>`;
     const rows = asks
       .map(
-        (a) => `<div class="have-row"><span class="have-q">${esc(a.ask)}</span><span class="have-gain" title="How much the free score would go up">+${a.gain}</span>
+        (a) => `<div class="have-row"><span class="have-q">${esc(a.ask)} <span class="have-gain" title="How much your fit score would go up">+${a.gain}</span></span>
         <span class="have-btns">${(a.options || []).length ? a.options.slice(0, 4).map((o) => btn(a.label, 'yes', o, o, 'soft')).join('') : btn(a.label, 'yes', 'I have it', '', 'soft')}${btn(a.label, 'no', 'No', '', 'ghost')}</span></div>`
       )
       .join('');
-    return `<div class="have"><div class="have-title">Do you have these? Your documents don't show them.</div>${rows}</div>`;
+    return `<div class="have"><div class="have-title" title="Must-haves your documents don't show yet. A yes adds them and re-scores.">Do you have these?</div>${rows}</div>`;
   }
 
   // After an answer: what changed.
   function answeredNote(ui) {
     const a = ui.answered;
     if (!a || a.answer !== 'yes') return '';
-    const moved = a.was != null && a.now != null && a.now !== a.was ? ` Your score went from ${a.was} to <b>${a.now}</b>.` : '';
-    const where = a.where === 'skills' ? `Added <b>${esc(a.value)}</b> to the skills in your bullet bank.` : `Noted that you have ${esc(a.value)}. It counts toward your scores; add a bullet that shows it to put it on a resume.`;
-    return note(where + moved, 'good');
+    const moved = a.was != null && a.now != null && a.now !== a.was ? ` Fit ${a.was} → <b>${a.now}</b>.` : '';
+    // Skills go on resumes; experience needs a bullet that shows it.
+    const where = a.where === 'skills' ? `Added <b>${esc(a.value)}</b> to your skills.` : `Noted <b>${esc(a.value)}</b>.`;
+    const hint = a.where === 'skills' ? '' : ' <span class="faint">Add a bullet to show it on resumes.</span>';
+    return note(where + moved + hint, 'good');
   }
 
   const dealbreakers = (q) => (q.dealbreakers && q.dealbreakers.length ? note(`Heads up — ${esc(q.dealbreakers.join('; '))}.`, 'warn') : '');

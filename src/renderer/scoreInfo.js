@@ -35,8 +35,9 @@
     // it reads as a measure of the resume, not a verdict on you: recruiters
     // search and sort their applicant tracking system, and read the top.
     visibility: {
-      title: 'Resume visibility: will recruiters find this resume?',
-      short: `<p>This is the ATS score, and it's about <b>your resume, not you</b>. Recruiters <b>search and sort</b> applicants in their tracking system (Workday, Taleo, iCIMS) by the skills, title and keywords they need, and read the top of the list. The score is how visible <b>this resume</b> is in those searches for this job: around 75%+ shows near the top, 55–75% is found but below closer matches, under 55% is likely buried. Tailoring the resume raises it.</p>`,
+      title: 'Resume visibility',
+      short: `<p>The ATS score: how easily recruiters find <b>this resume</b> when they search their tracking system (Workday, Taleo, iCIMS) for this job. It rates the resume, not you.</p>
+        <p class="faint">75+ lands near the top · 55–74 is found, below closer matches · under 55 is likely buried. Tailoring raises it.</p>`,
       body: `<p>This is the ATS score, and it's about <b>your resume, not you</b>. Recruiters <b>search and sort</b> applicants in their tracking system (Workday, Taleo, iCIMS) by the skills, title and keywords they need, and read the top of the list.</p>
         <p>The score is how visible <b>one resume</b> (your current one, or the one tailored for this job) is in those searches for this posting:</p>
         <ul>
@@ -46,7 +47,7 @@
         </ul>
         <p class="faint">Hard skills count most, then a parse-ready format, the job title, years, education and keywords.</p>
         <p>It goes up as you tailor and edit the resume.</p>`,
-      contrast: '<p class="info-vs"><b>Fit vs. visibility:</b> fit is about you; visibility is about the resume. A high fit with low visibility means you\'re qualified but the resume doesn\'t show it yet, so tailor it.</p>',
+      contrast: '<p class="info-vs">High fit, low visibility? You\'re qualified; the resume just doesn\'t show it yet.</p>',
     },
   };
   const CONTRAST =
