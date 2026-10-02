@@ -55,6 +55,30 @@
     return v;
   };
   const sameCompany = (a, b) => !!norm(a) && norm(a) === norm(b);
+
+  // Saved and checked jobs are matched for every board row and sidebar alert.
+  // Index once per state read, preserving the old first-match order even when
+  // one record matches the URL and another matches company + title.
+  function applicationLookup(applications, checked = []) {
+    const urls = new Map();
+    const roles = new Map();
+    const titleKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    let index = 0;
+    for (const app of [...applications, ...checked]) {
+      const entry = { app, index: index++ };
+      if (app.url && !urls.has(app.url)) urls.set(app.url, entry);
+      const company = norm(app.job.company);
+      const key = `${company}\u0000${titleKey(app.job.title)}`;
+      if (company && !roles.has(key)) roles.set(key, entry);
+    }
+    return (co, job) => {
+      const byUrl = job.url && urls.get(job.url);
+      const byRole = roles.get(`${norm(co.name)}\u0000${titleKey(job.title)}`);
+      if (!byUrl) return byRole && byRole.app;
+      if (!byRole) return byUrl.app;
+      return (byUrl.index < byRole.index ? byUrl : byRole).app;
+    };
+  }
   const isRemote = (loc) => /^(remote|anywhere|us remote|remote us|united states)$/i.test(clean(loc));
 
   // ---------------- search links ----------------
@@ -993,6 +1017,7 @@
     NOTE_LIMIT,
     splitList,
     sameCompany,
+    applicationLookup,
     googleUrl,
     linkedinJobsUrl,
     indeedJobsUrl,

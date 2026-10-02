@@ -102,6 +102,33 @@ test('headers default from the profile, or a saved resume header', () => {
   assert.equal(ResumeDoc.headerFromProfile({ name: 'A', resumeHeader: { line1: '1 Main St | 555', line2: 'a@x.com' } }).line1, '1 Main St | 555');
 });
 
+test('partial or whitespace-only header defaults cannot hide profile contact information', () => {
+  const profile = { name: 'Jordan Avery', location: 'Portland, OR', phone: '555-0100', email: 'j@example.com', links: 'example.com' };
+  assert.deepEqual(ResumeDoc.headerFromProfile({ ...profile, resumeHeader: { name: '', line1: '  ', line2: '\n' } }), {
+    name: profile.name, line1: 'Portland, OR | 555-0100', line2: 'j@example.com | example.com',
+  });
+  assert.deepEqual(ResumeDoc.headerFromProfile({ ...profile, resumeHeader: { line1: 'Remote' } }), {
+    name: profile.name, line1: 'Remote', line2: 'j@example.com | example.com',
+  });
+  assert.equal(ResumeDoc.fillHeader({ name: 'Your Name' }, profile).name, profile.name);
+});
+
+test('HTML and Markdown rendering repair existing blank headers without replacing custom text', () => {
+  const { renderResumeHtml, resumeToMarkdown } = require('../src/main/resumeRender');
+  const profile = { name: 'Jordan Avery', phone: '555-0100', email: 'j@example.com' };
+  for (const header of [{ name: '', line1: '', line2: '' }, { name: 'J. Avery', line1: 'Remote', line2: '' }]) {
+    const doc = { ...DOC, header };
+    const html = renderResumeHtml(doc, profile);
+    const md = resumeToMarkdown(doc, profile);
+    for (const result of [html, md]) {
+      assert.ok(result.includes(header.name || profile.name));
+      assert.ok(result.includes(header.line1 || profile.phone));
+      assert.ok(result.includes(profile.email));
+    }
+    assert.deepEqual(doc.header, header, 'rendering must not mutate the caller');
+  }
+});
+
 test('a skill that is really a list splits into skills; real skill names stay whole', () => {
   assert.deepEqual(ResumeDoc.splitSkill('Python, SQL, Tableau'), ['Python', 'SQL', 'Tableau']);
   assert.deepEqual(ResumeDoc.splitSkill('Excel; Word; and PowerPoint'), ['Excel', 'Word', 'PowerPoint']);

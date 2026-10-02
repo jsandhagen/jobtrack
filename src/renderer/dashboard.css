@@ -221,6 +221,7 @@ details[open] > summary::before { transform: rotate(90deg); }
 .role-card { margin-bottom: 16px; padding: 18px 20px; }
 .role-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
 .bb, .pick { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.bb[hidden], .role-card[hidden] { display: none; }
 .bb-main { flex: 1; min-width: 0; }
 .bb textarea, .pick textarea, .bb-new textarea, .sugg textarea { resize: none; overflow: hidden; min-height: 0; padding: 7px 10px; line-height: 1.45; border-color: transparent; background: var(--surface-2); }
 .bb textarea:hover, .pick textarea:hover { border-color: var(--line); }

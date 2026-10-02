@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Worker } = require('worker_threads');
 
 const DEFAULT_SETTINGS = {
   model: 'claude-opus-5-5',
@@ -76,11 +77,17 @@ class Store {
     this.dir = dir;
     this.deferSave = deferSave;
     this.saveTimer = null;
+    this.writePending = false;
+    this.writeInFlight = null;
+    this.writer = null;
+    this.writeId = 0;
+    this.flushEpoch = 0;
     fs.mkdirSync(dir, { recursive: true });
     this.file = path.join(dir, 'jobtrack.json');
     this.data = this._load();
     // Bumped whenever the library changes, so scores read from it can be kept until then.
     this.documentsVersion = 0;
+    this.bankVersion = 0;
   }
 
   _load() {
@@ -109,17 +116,75 @@ class Store {
     };
   }
 
-  // The whole file is rewritten each time, which gets slow with a big library
-  // and many jobs, so a burst of changes (rescoring every job, a careers
-  // check) is written once.
+  // Coalesce a burst and do serialization/disk writes off the main thread.
+  // flush() remains synchronous for shutdown and callers needing durability.
   save() {
     if (!this.deferSave) return this.flush();
-    if (!this.saveTimer) this.saveTimer = setTimeout(() => this.flush(), 250);
+    this.writePending = true;
+    if (!this.saveTimer) this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this._writeDeferred();
+    }, 250);
+  }
+
+  hasPendingSave() {
+    return !!(this.saveTimer || this.writePending || this.writeInFlight);
+  }
+
+  _writeDeferred() {
+    if (!this.writePending || this.writeInFlight) return;
+    try {
+      if (!this.writer) {
+        const worker = new Worker(path.join(__dirname, 'storeWriter.js'));
+        this.writer = worker;
+        worker.on('message', (result) => this._finishWrite(worker, result));
+        worker.on('error', (err) => {
+          if (this.writer !== worker) return;
+          this.writer = null;
+          this.writeInFlight = null;
+          console.warn('Background save failed; writing synchronously:', err.message);
+          this.flush();
+        });
+        worker.unref();
+      }
+      const id = ++this.writeId;
+      const temporary = `${this.file}.tmp-${process.pid}-${id}`;
+      this.writeInFlight = { id, temporary, epoch: this.flushEpoch };
+      this.writePending = false;
+      this.writer.ref();
+      this.writer.postMessage({ id, temporary, data: this.data });
+    } catch (err) {
+      this.writeInFlight = null;
+      if (this.writer) this.writer.unref();
+      console.warn('Background save unavailable; writing synchronously:', err.message);
+      this.flush();
+    }
+  }
+
+  _finishWrite(worker, result) {
+    if (this.writer !== worker || !this.writeInFlight || result.id !== this.writeInFlight.id) return;
+    const write = this.writeInFlight;
+    this.writeInFlight = null;
+    worker.unref();
+    try {
+      if (result.error) throw new Error(result.error);
+      // Only this process replaces the real file. A worker completing after a
+      // synchronous flush must never replace that newer shutdown snapshot.
+      if (write.epoch === this.flushEpoch) fs.renameSync(write.temporary, this.file);
+    } catch (err) {
+      console.warn('Background save failed; writing synchronously:', err.message);
+      this.flush();
+    } finally {
+      try { fs.unlinkSync(write.temporary); } catch (err) { if (err.code !== 'ENOENT') console.warn('Could not remove save temporary file:', err.message); }
+    }
+    if (this.writePending && !this.saveTimer) this._writeDeferred();
   }
 
   flush() {
     clearTimeout(this.saveTimer);
     this.saveTimer = null;
+    this.writePending = false;
+    this.flushEpoch++;
     const tmp = this.file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
     fs.renameSync(tmp, this.file);
@@ -287,6 +352,7 @@ class Store {
     const { bank, roles, bullets } = tidy(this.data.bank);
     if (!roles.size) return 0;
     this.data.bank = bank;
+    this.bankVersion++;
     const fix = (doc) => {
       for (const r of (doc && doc.roles) || []) {
         if (roles.has(r.experienceId)) r.experienceId = roles.get(r.experienceId);
@@ -306,7 +372,11 @@ class Store {
   // Apply a change to the bank and save; `fn` may mutate it or return a new one.
   updateBank(fn) {
     const next = fn(this.data.bank);
+    // A caller that checked for changes can avoid invalidating derived reads
+    // and scheduling another write when the bank stayed exactly the same.
+    if (next === false) return this.data.bank;
     if (next) this.data.bank = next;
+    this.bankVersion++;
     this.save();
     return this.data.bank;
   }

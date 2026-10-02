@@ -1181,9 +1181,16 @@ function showNewJobs() {
   if (location.hash !== '#find') location.hash = '#find';
 }
 
+let applicationMatchIndex = null;
+let indexedApplications = null;
+let indexedChecked = null;
 function inMyList(co, job) {
-  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  return [...state.applications, ...(state.checked || [])].find((a) => (a.url && a.url === job.url) || (O.sameCompany(a.job.company, co.name) && norm(a.job.title) === norm(job.title)));
+  if (!applicationMatchIndex || indexedApplications !== state.applications || indexedChecked !== state.checked) {
+    indexedApplications = state.applications;
+    indexedChecked = state.checked;
+    applicationMatchIndex = O.applicationLookup(indexedApplications, indexedChecked || []);
+  }
+  return applicationMatchIndex(co, job);
 }
 
 // Every filter but the date window (the window tabs show counts under the others).

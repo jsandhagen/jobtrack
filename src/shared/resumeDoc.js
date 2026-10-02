@@ -162,11 +162,12 @@
 
   // Default header lines from a profile: "Address | Phone" / "email | links".
   function headerFromProfile(p = {}) {
-    if (p.resumeHeader && (p.resumeHeader.line1 || p.resumeHeader.line2)) return { name: p.name || '', ...p.resumeHeader };
+    const text = (value) => String(value == null ? '' : value).trim();
+    const custom = p.resumeHeader || {};
     return {
-      name: p.name || '',
-      line1: [p.location, p.phone].filter(Boolean).join(' | '),
-      line2: [p.email, p.links].filter(Boolean).join(' | '),
+      name: text(p.name),
+      line1: text(custom.line1) || [p.location, p.phone].map(text).filter(Boolean).join(' | '),
+      line2: text(custom.line2) || [p.email, p.links].map(text).filter(Boolean).join(' | '),
     };
   }
 
@@ -176,7 +177,10 @@
   function fillHeader(header, profile = {}) {
     const h = { name: '', line1: '', line2: '', ...(header || {}) };
     const p = headerFromProfile(profile);
-    for (const k of ['name', 'line1', 'line2']) if (!String(h[k] || '').trim() && p[k]) h[k] = p[k];
+    for (const k of ['name', 'line1', 'line2']) {
+      const missing = !String(h[k] || '').trim() || (k === 'name' && /^your name$/i.test(String(h[k]).trim()));
+      if (missing && p[k]) h[k] = p[k];
+    }
     return h;
   }
 

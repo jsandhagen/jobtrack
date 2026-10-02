@@ -13,7 +13,7 @@ const EXTRACT = path.resolve(__dirname, '../../browser-extension/extract.js');
 let browser;
 let ctx;
 test.before(async () => {
-  browser = await chromium.launch(process.env.PLAYWRIGHT_BROWSERS_PATH ? {} : { executablePath: '/opt/pw-browsers/chromium' });
+  browser = await chromium.launch();
   ctx = await browser.newContext();
 });
 test.after(async () => browser && browser.close());

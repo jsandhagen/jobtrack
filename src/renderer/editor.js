@@ -178,9 +178,19 @@ async function saveNow() {
   clearTimeout(ed.timer);
   ed.dirty = false;
   const appId = ed.appId;
+  const submittedHeader = { ...ed.doc.header };
   const p = S.saveEditor(appId, ed.doc).then((info) => {
     if (ed.appId !== appId) return;
     ed.info = info;
+    // The server fills blank contact fields from Profile. Show those repairs
+    // here too, while preserving anything typed after this save was sent.
+    for (const k of ['name', 'line1', 'line2']) {
+      if (ed.doc.header[k] === submittedHeader[k] && ed.doc.header[k] !== info.doc.header[k]) {
+        ed.doc.header[k] = info.doc.header[k];
+        const field = document.querySelector(`[data-path="header.${k}"]`);
+        if (field) field.textContent = info.doc.header[k];
+      }
+    }
     // Keep bullet ids the server linked (e.g. after "Add to bank").
     info.doc.roles.forEach((r, i) => {
       if (ed.doc.roles[i]) {
