@@ -47,23 +47,17 @@
     `<div class="scoreline" data-info-host>${M().scoreRing(score, 84)}
       <div><div class="label">${esc(label)}</div><div class="src">${src} ${info('fit')}</div></div></div>`;
 
-  // ATS results as visibility, not a score: ATS software rarely rejects on a
-  // number, but recruiters search and sort it, so what matters is whether
-  // they'd find the resume. From the app's ATS score and its Workday-style
-  // grade (D: basic qualifications missing, which sinks it in a search).
-  function visibility(ats, grade) {
-    const g = grade || ats.grade;
-    if (ats.score >= 75 && g !== 'C' && g !== 'D') return { level: 'High', cls: 'hi', says: 'near the top when recruiters search for this role' };
-    if (ats.score >= 55 && g !== 'D') return { level: 'Medium', cls: 'mid', says: 'found in a search, but below closer matches' };
-    return { level: 'Low', cls: 'lo', says: 'likely buried under closer matches' };
-  }
+  // The ATS score, described as what it is: how visible the resume is when
+  // recruiters search their applicant tracking system for this job. It's
+  // about the resume, not about you (that's the fit score), and it goes up
+  // as the resume is tailored.
+  const visCls = (score) => (score >= 75 ? 'hi' : score >= 55 ? 'mid' : 'lo');
 
-  function atsLine(before, grade) {
+  function atsLine(before) {
     if (!before) return '';
-    const v = visibility(before, grade);
-    return `<div class="ats-line" data-info-host title="How visible your current resume would be when recruiters search their applicant tracking system">
-      <span class="vis vis-${v.cls}">${v.level}</span>
-      <span>ATS visibility of your resume: ${esc(v.says)}</span>${info('visibility')}</div>`;
+    return `<div class="ats-line" data-info-host title="How visible your current resume is when recruiters search their applicant tracking system for this job. It's about the resume, not you.">
+      <span class="vis vis-${visCls(before.score)}">${before.score}%</span>
+      <span><b>Resume visibility</b> in ATS searches for this job · about your resume, not you</span>${info('visibility')}</div>`;
   }
 
   const chips = (list) => `<div class="chips">${list.map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')}</div>`;
@@ -208,7 +202,7 @@
       ${role(app.job)}
       <div class="saved-tag">${icon('check', 14)} ${r.justSaved ? 'Added to your saved jobs' : 'In your saved jobs'}</div>
       ${scoreline(score, label, src)}
-      ${atsLine(app.ats && app.ats.before, a && a.grade)}
+      ${atsLine(app.ats && app.ats.before)}
       ${a && a.headline ? `<div class="headline">${esc(a.headline)}</div>` : !a && app.quick.headline ? `<div class="headline">${esc(app.quick.headline)}</div>` : ''}
       ${chips(a ? a.strengths.slice(0, 3) : app.quick.matchedSkills.slice(0, 6))}
       ${a ? '' : answeredNote(ui)}
@@ -229,11 +223,9 @@
   }
 
   // Before and after tailoring: "ATS visibility Medium → High".
+  // Before and after tailoring: "Resume visibility 72% → 88%".
   function atsCompare(before, after) {
-    const a = visibility(after);
-    const b = before && visibility(before);
-    const moved = b && b.level !== a.level;
-    return `<div class="ats-compare">ATS visibility ${moved ? `<span class="was">${b.level}</span> → ` : ''}<span class="vis vis-${a.cls}">${a.level}</span>${!moved && b && after.score > before.score ? ' <span class="up">and higher in it</span>' : ''}</div>`;
+    return `<div class="ats-compare">Resume visibility ${before ? `<span class="was">${before.score}%</span> → ` : ''}<span class="vis vis-${visCls(after.score)}">${after.score}%</span></div>`;
   }
 
   function doneView(app, { what, engine }) {

@@ -31,21 +31,21 @@
         <p class="faint">A list like "Python, R, or SAS" is one qualification that any of them meets; the strict keyword rate still checks every term word for word, as Taleo-style searches do.</p>
         <p>It goes up as you tailor and edit. Aim for 75–80%+.</p>`,
     },
-    // The browser extension shows ATS results as how findable the resume is,
-    // not as a score: applicant tracking systems rarely reject on a number,
-    // but recruiters search and sort them, and that decides who gets read.
+    // The browser extension describes the ATS score as resume visibility, so
+    // it reads as a measure of the resume, not a verdict on you: recruiters
+    // search and sort their applicant tracking system, and read the top.
     visibility: {
-      title: 'ATS visibility: will recruiters find this resume?',
-      short: `<p>Most applicant tracking systems (Workday, Taleo, iCIMS) don't reject you on a score. Recruiters <b>search and sort</b> applicants by the skills, title and keywords they need, and read the top of the list. Visibility is where <b>one resume</b> would land for this job: <b>High</b> near the top, <b>Medium</b> found but below closer matches, <b>Low</b> likely buried. Tailoring the resume raises it.</p>`,
-      body: `<p>Most applicant tracking systems (Workday, Taleo, iCIMS) don't reject you on a score. Recruiters <b>search and sort</b> applicants by the skills, title and keywords they need, and read the top of the list.</p>
-        <p>Visibility is where <b>one resume</b> (your current one, or the one tailored for this job) would land for this posting:</p>
+      title: 'Resume visibility: will recruiters find this resume?',
+      short: `<p>This is the ATS score, and it's about <b>your resume, not you</b>. Recruiters <b>search and sort</b> applicants in their tracking system (Workday, Taleo, iCIMS) by the skills, title and keywords they need, and read the top of the list. The score is how visible <b>this resume</b> is in those searches for this job: around 75%+ shows near the top, 55–75% is found but below closer matches, under 55% is likely buried. Tailoring the resume raises it.</p>`,
+      body: `<p>This is the ATS score, and it's about <b>your resume, not you</b>. Recruiters <b>search and sort</b> applicants in their tracking system (Workday, Taleo, iCIMS) by the skills, title and keywords they need, and read the top of the list.</p>
+        <p>The score is how visible <b>one resume</b> (your current one, or the one tailored for this job) is in those searches for this posting:</p>
         <ul>
-          <li><b>High</b>: near the top. It shows the basic qualifications and most of the posting's terms.</li>
-          <li><b>Medium</b>: found, but below closer matches.</li>
-          <li><b>Low</b>: likely buried. Basic qualifications or key terms are missing from the resume.</li>
+          <li><b>75%+</b>: near the top.</li>
+          <li><b>55–75%</b>: found, but below closer matches.</li>
+          <li><b>Under 55%</b>: likely buried. Key skills or terms are missing from the resume, even if you have them.</li>
         </ul>
-        <p class="faint">Worked out like the ATS score in the app: hard skills count most, then a parse-ready format, the job title, years, education and keywords.</p>
-        <p>It goes up as you tailor and edit.</p>`,
+        <p class="faint">Hard skills count most, then a parse-ready format, the job title, years, education and keywords.</p>
+        <p>It goes up as you tailor and edit the resume.</p>`,
       contrast: '<p class="info-vs"><b>Fit vs. visibility:</b> fit is about you; visibility is about the resume. A high fit with low visibility means you\'re qualified but the resume doesn\'t show it yet, so tailor it.</p>',
     },
   };
@@ -54,7 +54,7 @@
 
   function infoBtn(topic, label) {
     const t = TOPICS[topic];
-    return `<button type="button" class="info-btn" data-info="${topic}" aria-expanded="false" aria-label="${label || (topic === 'visibility' ? 'How ATS visibility works' : `How the ${topic === 'ats' ? 'ATS' : 'fit'} score works`)}" title="${t.title}">i</button>`;
+    return `<button type="button" class="info-btn" data-info="${topic}" aria-expanded="false" aria-label="${label || (topic === 'visibility' ? 'How resume visibility works' : `How the ${topic === 'ats' ? 'ATS' : 'fit'} score works`)}" title="${t.title}">i</button>`;
   }
 
   // The overlay is a small popup, so it gets the short version.
