@@ -49,6 +49,7 @@
     },
     "files": [
       "src/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "asarUnpack": [

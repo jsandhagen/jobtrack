@@ -129,7 +129,7 @@ function createDashboard() {
     minHeight: 600,
     title: 'Sprout — Job Application Buddy',
     backgroundColor: windowBg(),
-    icon: appIcon(64),
+    icon: appIcon(256),
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
   });
   dashboard.loadFile(path.join(RENDERER, 'dashboard.html'));
@@ -188,25 +188,12 @@ function broadcast(channel, payload) {
   }
 }
 
-// A tiny sprout-green dot for the tray, drawn in code so we don't ship binaries.
+// The same picture the installer gives the desktop and Start menu shortcuts
+// (build/icon.png), so the window, taskbar and tray match them.
+let appIconImage;
 function appIcon(size = 32) {
-  const buf = Buffer.alloc(size * size * 4);
-  const c = size / 2;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4;
-      const d = Math.hypot(x + 0.5 - c, y + 0.5 - c);
-      const inside = d <= c - 1;
-      const leaf = Math.hypot(x + 0.5 - c * 1.15, y + 0.5 - c * 0.8) < c * 0.35;
-      // BGRA
-      const [r, g, b] = leaf ? [214, 240, 200] : [111, 178, 138];
-      buf[i] = b;
-      buf[i + 1] = g;
-      buf[i + 2] = r;
-      buf[i + 3] = inside ? 255 : d <= c ? 120 : 0;
-    }
-  }
-  return nativeImage.createFromBitmap(buf, { width: size, height: size });
+  if (!appIconImage) appIconImage = nativeImage.createFromBuffer(fs.readFileSync(path.join(__dirname, '..', '..', 'build', 'icon.png')));
+  return appIconImage.resize({ width: size, height: size, quality: 'best' });
 }
 
 function buildTrayMenu() {
