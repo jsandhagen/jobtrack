@@ -192,7 +192,8 @@ test('LinkedIn: pops up the card, asks before saving, and follows in-page naviga
   const text = await waitFor(async () => ((await cardText(p)).includes('Senior Frontend Engineer') ? cardText(p) : null));
   assert.match(text, /Add this job to your saved jobs\?/);
   assert.match(text, /Excellent match/);
-  assert.match(text, /ATS match for your current resume: 72%/);
+  assert.match(text, /Medium\s*ATS visibility of your current resume: found in a search, but below closer matches/);
+  assert.ok(!/72%|ATS match/.test(text), 'ATS shows as visibility, not a score');
   assert.equal(postings.length, 0, 'nothing is saved until you say so');
 
   await p.click('[data-job="pm"]'); // LinkedIn-style: no page reload
@@ -217,7 +218,7 @@ test('LinkedIn: pops up the card, asks before saving, and follows in-page naviga
   assert.ok(await clickCard(p, 'resume-ats'));
   await waitFor(async () => (await cardText(p)).includes('Your ATS resume is ready!'));
   assert.deepEqual(actions.at(-1), { id: 'a1', action: 'resume-ats' });
-  assert.match(await cardText(p), /88%/);
+  assert.match(await cardText(p), /ATS visibility\s*Medium\s*→\s*High/);
 
   // Leaving the job (still on LinkedIn, no reload) puts the card away.
   await p.evaluate(() => {

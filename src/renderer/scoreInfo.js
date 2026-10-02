@@ -31,19 +31,36 @@
         <p class="faint">A list like "Python, R, or SAS" is one qualification that any of them meets; the strict keyword rate still checks every term word for word, as Taleo-style searches do.</p>
         <p>It goes up as you tailor and edit. Aim for 75–80%+.</p>`,
     },
+    // The browser extension shows ATS results as how findable the resume is,
+    // not as a score: applicant tracking systems rarely reject on a number,
+    // but recruiters search and sort them, and that decides who gets read.
+    visibility: {
+      title: 'ATS visibility: will recruiters find this resume?',
+      short: `<p>Most applicant tracking systems (Workday, Taleo, iCIMS) don't reject you on a score. Recruiters <b>search and sort</b> applicants by the skills, title and keywords they need, and read the top of the list. Visibility is where <b>one resume</b> would land for this job: <b>High</b> near the top, <b>Medium</b> found but below closer matches, <b>Low</b> likely buried. Tailoring the resume raises it.</p>`,
+      body: `<p>Most applicant tracking systems (Workday, Taleo, iCIMS) don't reject you on a score. Recruiters <b>search and sort</b> applicants by the skills, title and keywords they need, and read the top of the list.</p>
+        <p>Visibility is where <b>one resume</b> (your current one, or the one tailored for this job) would land for this posting:</p>
+        <ul>
+          <li><b>High</b>: near the top. It shows the basic qualifications and most of the posting's terms.</li>
+          <li><b>Medium</b>: found, but below closer matches.</li>
+          <li><b>Low</b>: likely buried. Basic qualifications or key terms are missing from the resume.</li>
+        </ul>
+        <p class="faint">Worked out like the ATS score in the app: hard skills count most, then a parse-ready format, the job title, years, education and keywords.</p>
+        <p>It goes up as you tailor and edit.</p>`,
+      contrast: '<p class="info-vs"><b>Fit vs. visibility:</b> fit is about you; visibility is about the resume. A high fit with low visibility means you\'re qualified but the resume doesn\'t show it yet, so tailor it.</p>',
+    },
   };
   const CONTRAST =
     '<p class="info-vs"><b>Fit vs. ATS:</b> fit is about you; ATS is about the resume. A high fit with a low ATS score means you\'re qualified but the resume doesn\'t show it yet, so tailor it.</p>';
 
   function infoBtn(topic, label) {
     const t = TOPICS[topic];
-    return `<button type="button" class="info-btn" data-info="${topic}" aria-expanded="false" aria-label="${label || `How the ${topic === 'ats' ? 'ATS' : 'fit'} score works`}" title="${t.title}">i</button>`;
+    return `<button type="button" class="info-btn" data-info="${topic}" aria-expanded="false" aria-label="${label || (topic === 'visibility' ? 'How ATS visibility works' : `How the ${topic === 'ats' ? 'ATS' : 'fit'} score works`)}" title="${t.title}">i</button>`;
   }
 
   // The overlay is a small popup, so it gets the short version.
   function panelHtml(topic, short) {
     const t = TOPICS[topic];
-    return `<b class="info-title">${t.title}</b>${short ? t.short : t.body}${CONTRAST}`;
+    return `<b class="info-title">${t.title}</b>${short ? t.short : t.body}${t.contrast || CONTRAST}`;
   }
 
   let open = null; // { btn, el }

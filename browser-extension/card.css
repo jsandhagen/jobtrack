@@ -55,6 +55,11 @@
 .note.err { background: var(--rose-soft); color: var(--ink); }
 .ats-line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-soft); background: var(--surface-2); border-radius: 10px; padding: 6px 10px; margin: -2px 0 10px; }
 .ats-compare { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; background: var(--sage-soft); border-radius: 12px; padding: 6px 12px; margin-bottom: 12px; }
+.vis { flex: none; font-weight: 800; font-size: 11.5px; border-radius: 999px; padding: 1px 9px; }
+.vis-hi { background: var(--sage-soft); color: var(--sage-deep); }
+.vis-mid { background: var(--butter-soft); color: #8a6a12; }
+.vis-lo { background: var(--peach-soft); color: #b8653e; }
+.ats-compare .up { font-size: 12px; color: var(--sage-deep); }
 .ats-compare .was { color: var(--ink-faint); text-decoration: line-through; }
 .ask-claude { margin: 0 0 4px -6px; }
 
