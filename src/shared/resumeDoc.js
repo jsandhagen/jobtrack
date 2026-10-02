@@ -36,6 +36,7 @@
 .rs-role + .rs-role, .rs-edu + .rs-edu { margin-top: 7pt; }
 .rs-bullets { list-style: none; margin: 0; padding: 0; }
 .rs-bullets > li, .rs-skills > li, .rs-certs > li { position: relative; padding-left: 18pt; break-inside: avoid; }
+.rs-bullets > li + li { margin-top: 2pt; }
 .rs-bullets > li::before, .rs-skills > li::before, .rs-certs > li::before { content: "\\25CF"; position: absolute; left: 3pt; top: 0; font-family: Arial, Helvetica, sans-serif; font-size: 7pt; line-height: 13.2pt; }
 .rs-skills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2pt 12pt; list-style: none; margin: 0; padding: 0; }
 .rs-skills.rs-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -167,6 +168,16 @@
       line1: [p.location, p.phone].filter(Boolean).join(' | '),
       line2: [p.email, p.links].filter(Boolean).join(' | '),
     };
+  }
+
+  // A resume's header with any empty part (name, contact lines) filled in from
+  // the profile. A resume made before the profile was filled in would
+  // otherwise keep a blank header for good. What you typed is never replaced.
+  function fillHeader(header, profile = {}) {
+    const h = { name: '', line1: '', line2: '', ...(header || {}) };
+    const p = headerFromProfile(profile);
+    for (const k of ['name', 'line1', 'line2']) if (!String(h[k] || '').trim() && p[k]) h[k] = p[k];
+    return h;
   }
 
   function labelLines(details) {
@@ -309,6 +320,7 @@
   const CONTENT_W = (8.5 - MARGINS.left - MARGINS.right) * 72; // 468pt
   const PAGE_H = (11 - MARGINS.top - MARGINS.bottom) * 72; // 712.8pt
   const INDENT = 18; // ● hanging indent
+  const BULLET_GAP = 2; // space between bullets, so each one reads as its own point
   const SKILL_GAP = 12;
   const skillCol = (cols) => (CONTENT_W - (cols - 1) * SKILL_GAP) / cols - INDENT;
 
@@ -377,7 +389,7 @@
       const head = r.isProject
         ? rowLines(r.title, r.dates, true, false) + (r.organization ? rowLines(r.organization, '', false, false) : 0)
         : rowLines(r.organization, r.location, true, true) + rowLines(r.title, r.dates, true, false);
-      return (head + r.bullets.reduce((s, b) => s + lineCount(b.text, CONTENT_W - INDENT), 0)) * LINE;
+      return (head + r.bullets.reduce((s, b) => s + lineCount(b.text, CONTENT_W - INDENT), 0)) * LINE + BULLET_GAP * Math.max(0, r.bullets.length - 1);
     };
     const stack = (blocks) => (blocks.length ? blocks.reduce((s, x) => s + x, 0) + 7 * (blocks.length - 1) : 0);
     y += sec(stack(d.roles.filter((r) => !r.isProject).map(roleH)));
@@ -448,5 +460,5 @@
     return measure(doc, { scale }).height <= pages * PAGE_H - LINE / 2;
   }
 
-  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, normalize, compact, labelLines, esc, measure, fits, lineCount, textWidth, skillColumns, skillTooLong, splitSkill };
+  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, fillHeader, normalize, compact, labelLines, esc, measure, fits, lineCount, textWidth, skillColumns, skillTooLong, splitSkill };
 });

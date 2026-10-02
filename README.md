@@ -228,7 +228,7 @@ Every resume uses **one template** (`src/shared/resumeDoc.js`), a classic Word/G
 - US Letter, 0.5" top margin and 1" side margins, Times New Roman 11pt.
 - Centred 20pt bold name, with centred contact lines underneath.
 - Bold capitalised section headings over a heavy rule: *Professional Summary, Relevant Work Experience, Projects, Relevant Skills, Education*.
-- For each job, "**Employer** … **City, ST**" on one line and "**Title** … Dates" on the next, then ● bullets with a hanging indent.
+- For each job, "**Employer** … **City, ST**" on one line and "**Title** … Dates" on the next, then ● bullets with a hanging indent and a little space (2pt) between them, so each one reads as its own point.
 - A ● skills grid, three across in equal columns. If one skill is too long for a third of the page, the grid goes two across, and long names wrap inside their own column instead of squeezing the others.
 - Page breaks keep a role's header rows with its first bullet and a heading with what follows, and never split a bullet. The editor's page-break guides follow the same rules.
 - Education as school and location, degree and date, then bold-labelled lines such as "**Relevant Courses:** …".
@@ -237,6 +237,7 @@ The editor, PDF export, Markdown export and ATS check all render from this same 
 
 **Editing** (each application's *Resume* tab):
 - Click anywhere on the page to type: name, contact lines, summary, employers, titles, dates, bullets, skills, education. Headings are editable too.
+- The header comes from **Profile** (name, location, phone, email, links). Any part of a resume's header left empty is filled in from Profile when the resume opens, so a resume started before you filled in Profile doesn't stay blank. What you type into a resume's header stays as you wrote it. Changing your contact details on Profile replaces a header you saved earlier with *Make this resume's header your default*.
 - Bullets and skills work like a word processor: **Enter** splits one at the caret (at the end, it starts a new one), **Backspace** at the start joins it to the one above, **Delete** at the end joins the next one, and Backspace on an empty one removes it. Enter in any other field moves on to the next one.
 - The arrow keys move between lines across the whole page, as if it were one document.
 - **Paste** is plain text. Several lines pasted into a bullet become separate bullets, with their ●, - or 1. dropped. A list pasted into a skill ("dbt, Snowflake, Looker") becomes separate skills.

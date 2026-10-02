@@ -118,3 +118,10 @@ test('the skills grid goes two across when a skill is too long for a third of th
   assert.match(ResumeDoc.renderBody({ ...DOC, skills: ['SQL', 'Cross-functional stakeholder management and executive communication'] }), /class="rs-skills rs-cols-2"/);
   assert.match(ResumeDoc.renderBody(DOC), /class="rs-skills"/);
 });
+
+test('an empty header is filled from the profile; what was typed stays', () => {
+  const profile = { name: 'Jordan Rivera', email: 'jordan@example.com', phone: '(555) 123-4567', location: 'Portland, OR' };
+  assert.deepEqual(ResumeDoc.fillHeader({ name: '', line1: '', line2: '' }, profile), { name: 'Jordan Rivera', line1: 'Portland, OR | (555) 123-4567', line2: 'jordan@example.com' });
+  assert.deepEqual(ResumeDoc.fillHeader({ name: 'J. Rivera', line1: 'Remote', line2: '' }, profile), { name: 'J. Rivera', line1: 'Remote', line2: 'jordan@example.com' });
+  assert.deepEqual(ResumeDoc.fillHeader(undefined, {}), { name: '', line1: '', line2: '' });
+});

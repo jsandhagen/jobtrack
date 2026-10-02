@@ -785,8 +785,9 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     if (one.short) (pick = two), (why = 'Two pages: your roles need more room than one page.');
     else if (gained.length) (pick = two), (why = `Two pages, to also show ${gained.map((k) => units.find((u) => u.key === k).label).join(', ')}.`);
     else if (want === 2) (pick = two), (why = 'Two pages: more of your relevant bullets fit.');
-    // A second page should look intended, not like spill-over (under 30% full, as the editor says).
-    else if (careerYears(bank) >= 10 && one.leftLines >= perPage / 3 && two.fill >= 0.3) (pick = two), (why = 'Two pages: a long career with plenty of relevant bullets.');
+    // A second page should look intended, not like spill-over: about a third
+    // full or more, clear of the 30% the editor calls a thin second page.
+    else if (careerYears(bank) >= 10 && one.leftLines >= perPage / 3 && two.fill >= 0.35) (pick = two), (why = 'Two pages: a long career with plenty of relevant bullets.');
     else why = 'Fits on one page; the bullets left out add nothing new for this posting.';
   }
   if (pick.pages === 1 && pick !== one) why = 'Fits on one page.';

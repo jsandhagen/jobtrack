@@ -577,7 +577,7 @@ async function makeResume(appId) {
     progress.checking();
     let { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
     const prev = rec.builder && rec.builder.doc;
-    if (prev && prev.header && prev.header.name) doc.header = prev.header;
+    if (prev && prev.header && prev.header.name) doc.header = ResumeDoc.fillHeader(prev.header, profile);
     // Keep Claude's draft within the length you chose (it's asked for one page, but can run over).
     // On Auto, a second page with only a few lines on it is a spill-over: back to one.
     const want = String(store.getSettings().resumePages);
@@ -652,7 +652,7 @@ function makeBaseline(appId) {
   const rec = getHost(appId);
   if (!rec) throw new Error('That resume no longer exists.');
   const doc = bulletBank.baselineDoc({ profile: store.getProfile(), bank: store.getBank(), job: rec.job });
-  if (rec.builder && rec.builder.doc) doc.header = rec.builder.doc.header;
+  if (rec.builder && rec.builder.doc) doc.header = ResumeDoc.fillHeader(rec.builder.doc.header, store.getProfile());
   saveDoc(appId, doc, { resumeSource: 'baseline', builderPrev: undoPoint(rec) });
   hostUpdated(getHost(appId));
 }
@@ -677,7 +677,7 @@ function makeAtsResume(appId) {
   if (!bank.experiences.length) throw new Error("Couldn't find any jobs in your documents yet. Add your resume to My library first.");
   store.saveApplication(appId);
   const profile = store.getProfile();
-  const header = rec.builder && rec.builder.doc ? rec.builder.doc.header : undefined;
+  const header = rec.builder && rec.builder.doc ? ResumeDoc.fillHeader(rec.builder.doc.header, profile) : undefined;
   // Sized to the page: the template is measured as bullets go in.
   const sel = bulletBank.selectBullets(rec.job, bank, { profile, header, pages: store.getSettings().resumePages, scale: pageScale() });
   const { doc } = bulletBank.buildDoc({ profile, bank, job: rec.job, roles: sel.roles, header });
@@ -708,7 +708,7 @@ async function makeCoverLetter(appId) {
       analysis: rec.analysis,
       model: store.getSettings().model,
     });
-    const header = (rec.builder && rec.builder.doc && rec.builder.doc.header) || ResumeDoc.headerFromProfile(profile);
+    const header = ResumeDoc.fillHeader(rec.builder && rec.builder.doc && rec.builder.doc.header, profile);
     const letterHtml = renderCoverLetterHtml(letter, { header: { ...header, name: header.name || letter.signature } });
     const updated = store.updateApplication(appId, { letter, letterHtml, letterChecks: letter.checks || [], letterStatus: 'ready' });
     broadcast('app-updated', updated);
@@ -798,8 +798,10 @@ function saveDoc(appId, doc, extra = {}) {
 function builderState(rec) {
   if (!rec) throw new Error('That resume no longer exists.');
   let doc = currentDoc(rec);
-  if (!rec.builder || !rec.builder.doc) {
-    doc = saveDoc(rec.id, doc, { resumeSource: resumeMode(rec) });
+  const header = ResumeDoc.fillHeader(doc.header, store.getProfile());
+  const headerFilled = JSON.stringify(header) !== JSON.stringify({ name: '', line1: '', line2: '', ...doc.header });
+  if (!rec.builder || !rec.builder.doc || headerFilled) {
+    doc = saveDoc(rec.id, { ...doc, header }, rec.builder && rec.builder.doc ? {} : { resumeSource: resumeMode(rec) });
     rec = getHost(rec.id);
   }
   const bank = store.getBank();
@@ -1160,6 +1162,10 @@ function registerIpc() {
   }));
   handle('settings:update', (patch) => applySettings(patch));
   handle('profile:update', (patch) => {
+    // A header saved from a resume ("make this my default") stands in for the
+    // contact details. Changing them on the Profile page makes them the header again.
+    const before = store.getProfile();
+    if (before.resumeHeader && ['name', 'email', 'phone', 'location', 'links'].some((k) => patch[k] !== undefined && String(patch[k]) !== String(before[k] || ''))) patch = { ...patch, resumeHeader: null };
     const p = store.updateProfile(patch);
     broadcast('state-changed');
     return p;
