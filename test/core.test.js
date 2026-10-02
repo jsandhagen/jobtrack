@@ -89,6 +89,32 @@ test('Store persists settings, documents and applications', () => {
   assert.equal(new Store(dir).listDocuments().length, 0);
 });
 
+test('the app writes a burst of changes once, and flush() writes what is waiting', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-'));
+  const s = new Store(dir, { deferSave: true });
+  const v = s.documentsVersion;
+  s.addDocument({ name: 'resume.pdf', kind: 'resume', text: RESUME });
+  assert.ok(s.documentsVersion > v, 'library changes are counted, so scores read from it are redone');
+  for (let i = 0; i < 20; i++) s.addApplication({ job: { title: `Job ${i}`, text: POSTING }, quick: { score: i } });
+  assert.equal(new Store(dir).listApplications().length, 0, 'not written yet');
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(new Store(dir).listApplications().length, 20, 'written once the burst is over');
+  s.updateSettings({ screenWatch: true });
+  s.flush();
+  assert.equal(new Store(dir).getSettings().screenWatch, true);
+  assert.equal(s.saveTimer, null);
+});
+
+test('a library of many versions of one resume scores like one copy, and the posting is read once', () => {
+  const one = localFitScore({ title: 'Senior Frontend Engineer', text: POSTING }, [{ kind: 'resume', text: RESUME }]);
+  const many = localFitScore({ title: 'Senior Frontend Engineer', text: POSTING }, Array.from({ length: 15 }, () => ({ kind: 'resume', text: RESUME })));
+  assert.equal(many.score, one.score);
+  const { requirementUnits } = require('../src/main/localFit');
+  const job = { title: 'Senior Frontend Engineer', text: POSTING };
+  assert.strictEqual(requirementUnits({ ...job }), requirementUnits({ ...job }), 'the same posting is read once');
+  assert.notStrictEqual(requirementUnits(job), requirementUnits({ ...job, text: POSTING + '\nExperience with GraphQL required.' }));
+});
+
 test('checked jobs stay off your applications until saved, and are forgotten after a month', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobtrack-'));
   const s = new Store(dir);

@@ -17,10 +17,11 @@
 
 const { voiceProfile } = require('./voice');
 
-// Resume: the role list leaves out internships and roles the candidate hid;
-// bullets carry their result in one or two lines rather than many one-liners;
-// each accomplishment once; old unrelated roles may go.
-const PROMPT_VERSION = '2026-10-02.2';
+// Resume: a free hand with the content (swap, reframe, merge and split
+// bullets from anything in the documents) inside the fixed layout and the
+// truthfulness rules; the page goes to the most relevant roles. Repeated
+// bullets across documents are sent once.
+const PROMPT_VERSION = '2026-10-02.3';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -162,22 +163,26 @@ The goal is one page that makes the candidate's fit for this specific posting ob
 
 Roles (<role_list>):
 - Every role in the list is real and comes from the candidate's documents. Refer to roles only by their role_id. Include every job-type role in the list so the work history has no unexplained gaps, in the order given (most recent first); include a project only when it shows something the posting asks for. The list already leaves out roles the candidate doesn't want on a resume, such as internships once they have two years of other work; don't bring those back from the documents. A role that ended more than ten years ago and shows nothing the posting asks for may be left out, so the page goes to recent, relevant work.
-- Give recent and relevant roles 3 to 6 bullets and older or less relevant roles 1 to 3, keeping the whole resume to one page — about 12 to 16 bullets in total across all roles.
+- Spend the page where it proves the most: the roles that best show what this posting asks for get the most bullets (up to 6 or 7), older or less relevant roles 1 to 3. Fill one page with the strongest material rather than aiming for a count.
 
-Bullets:
-- Start from the bullets in <picked_bullets>: the candidate chose these for this job. Keep them unless a bullet from the same role in <role_list> is clearly stronger for this posting. Keep a picked or bank bullet's wording except for small edits that use the posting's term for the same thing, move the most relevant element forward, or remove filler; when you use one, set from_bullet to its id.
-- Check the other documents for stronger evidence than the bank holds — a project write-up, a review or a cover letter often describes an accomplishment that proves a requirement the bank bullets don't. You may write a new bullet from them, filed under the role it belongs to, but only from facts in the candidate documents. For a new bullet set from_bullet to "" and set source_quote to the shortest exact excerpt from the documents that supports its key fact. The app verifies every quote and number and flags anything it cannot trace.
+Bullets — you have a free hand with the content, as long as every fact is the candidate's:
+- <picked_bullets> is what is on the candidate's page now. Treat it as a starting point, not a limit. Build the strongest page for this posting from everything available: any bullet in <role_list>, and evidence anywhere in the candidate documents — other versions of their resume, project write-ups, reviews, cover letters, notes. Swap out a picked bullet whenever something else proves more of what this posting asks for.
+- Rewrite as much as the posting calls for. Reframe a bullet around the part of the work this employer cares about; lead with the result or the requirement it proves; use the posting's terms for the same work; merge two bullets about one piece of work into one stronger bullet; split one that buries a second accomplishment; bring in scope, scale, tools or outcomes the documents record elsewhere for the same work. A bullet that only restates a task is worth rewriting into what came of it, if the documents say.
+- What you may not change are the facts: the truthfulness rules above still apply in full. Numbers, tools, scope and level of ownership must come from the documents for that same work, and nothing is added because the posting wants it.
+- When a bullet is built on a bank bullet — even heavily rewritten, or merged with another — set from_bullet to the id of the one it is mostly built on and source_quote to "". For a bullet written from the other documents, set from_bullet to "" and source_quote to the shortest exact excerpt from the documents that supports its key fact. File every bullet under the role the work was done in. The app verifies every quote and number and flags anything it cannot trace.
 - Order bullets within a role by relevance to the posting, strongest first.
-- The candidate's resumes often describe the same accomplishment in different words, sometimes under two roles. Use each accomplishment once, in its strongest wording, under the role it belongs to, and vary the opening verbs within a role.
+- The candidate's resumes often describe the same accomplishment in different words, sometimes under two roles. Use each accomplishment once, in its strongest form, under the role it belongs to, and vary the opening verbs within a role.
 - Each bullet is one or two lines (roughly 15 to 30 words): what the candidate did and what came of it. A page of one-line tasks ("Ran weekly reports") is hard to read and proves little, so prefer fewer bullets that each carry a result over more bullets, and don't pad a role with filler to reach a count.
+
+The layout is fixed: don't add sections, headings, a title line or contact details, and don't put several accomplishments in one bullet with semicolons to get around the length.
 
 Voice: follow the house style above, using the candidate's own verbs and bullet punctuation from <voice_profile>; the summary may sound a little more like them.
 
-Summary: two or three sentences, no first person. Open with the candidate's professional identity as their documents support it — the target job title if they hold or have held that title, otherwise their actual current title — and years of experience only if the dated roles support the figure. Then name two or three of the posting's key requirements the candidate demonstrably meets, using the posting's wording. No clichés.
+Summary: two or three sentences, no first person, written for this posting rather than reused. Open with the candidate's professional identity as their documents support it — the target job title if they hold or have held that title, otherwise their actual current title — and years of experience only if the dated roles support the figure. Then make the case: the two or three things this employer most needs that the candidate demonstrably brings, in the posting's wording, with a concrete proof point from the documents where one fits. No clichés.
 
 Skills: 9 to 12 items, ordered by importance to the posting, for a three-column grid. Each is a skill, tool or method the documents show the candidate using, in one to four words, in the posting's wording when it is the same skill. Include the candidate's own relevant skills from their documents even if the posting doesn't name them, after the posting's.
 
-Notes: for the candidate, not printed. List each basic requirement the resume can't evidence (a higher degree evidences a lower degree requirement), any preferred requirement worth adding if they have it, and any judgement call you made (a role you shortened, a bullet you swapped out and why).
+Notes: for the candidate, not printed. List each basic requirement the resume can't evidence (a higher degree evidences a lower degree requirement), any preferred requirement worth adding if they have it, and the judgement calls you made (a bullet you swapped in from another document, two you merged, a role you shortened, and why).
 </task>`,
 
   polish: `<task>
@@ -287,21 +292,51 @@ function docXml(d) {
   return `<document name="${escapeAttr(d.name)}" kind="${escapeAttr(d.kind || 'other')}">\n${d.text}\n</document>`;
 }
 
+// Someone with a dozen versions of one resume has most lines a dozen times.
+// Each bullet goes to Claude once, in the first document that has it: later
+// documents leave out bullets (and long lines) already given word for word.
+// Nothing is lost, the prompt is far shorter, and Claude reads the
+// differences between versions instead of the same lines again.
+const LIST_MARK = /^\s*(?:[-•*▪●◦‣∙·–—]|\d+[.)])\s+/;
+function withoutRepeats(docs) {
+  const seen = new Set();
+  const texts = new Map();
+  let dropped = 0;
+  const out = docs.map((d) => {
+    const text = String(d.text || '');
+    const same = texts.get(text.trim());
+    if (same && text.trim()) return { ...d, text: `(the same text as "${same}")` };
+    texts.set(text.trim(), d.name);
+    const kept = text.split('\n').filter((l) => {
+      const key = l.replace(LIST_MARK, '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (key.length < 25 || !(LIST_MARK.test(l) || key.length >= 100)) return true;
+      if (seen.has(key)) return (dropped++, false);
+      seen.add(key);
+      return true;
+    });
+    return kept.length === text.split('\n').length ? d : { ...d, text: kept.join('\n') };
+  });
+  return { docs: out, dropped };
+}
+
 function libraryBlock(documents, profile = {}) {
   const all = documents || [];
   const samples = all.filter((d) => d.kind === 'writing-sample');
-  const evidence = all
-    .filter((d) => d.kind !== 'writing-sample')
-    .map((d, i) => ({ d, i, k: KIND_ORDER.indexOf(KIND_ORDER.includes(d.kind) ? d.kind : 'other') }))
-    .sort((a, b) => a.k - b.k || a.i - b.i)
-    .map((x) => x.d);
+  const { docs: evidence, dropped } = withoutRepeats(
+    all
+      .filter((d) => d.kind !== 'writing-sample')
+      .map((d, i) => ({ d, i, k: KIND_ORDER.indexOf(KIND_ORDER.includes(d.kind) ? d.kind : 'other') }))
+      .sort((a, b) => a.k - b.k || a.i - b.i)
+      .map((x) => x.d)
+  );
+  const repeatNote = dropped ? '(A bullet that appears word for word in several documents is given once, in the first document that has it; later documents leave it out.)\n\n' : '';
   const profileLines = PROFILE_KEYS.filter((k) => profile[k] && String(profile[k]).trim())
     .map((k) => `${k}: ${String(profile[k]).trim()}`)
     .join('\n');
   const voice = voiceProfile(all);
   return [
     `<candidate_profile>\n${profileLines || '(not filled in)'}\n</candidate_profile>`,
-    `<candidate_documents>\n${evidence.map(docXml).join('\n\n') || '(no documents uploaded)'}\n</candidate_documents>`,
+    `<candidate_documents>\n${repeatNote}${evidence.map(docXml).join('\n\n') || '(no documents uploaded)'}\n</candidate_documents>`,
     `<writing_samples>\n${samples.map(docXml).join('\n\n') || '(none — take the voice from their cover letters and other prose, if any)'}\n</writing_samples>`,
     `<voice_profile>\n${voice || '(not enough of their writing to measure)'}\n</voice_profile>`,
   ].join('\n\n');

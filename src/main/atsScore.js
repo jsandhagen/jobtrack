@@ -20,6 +20,7 @@
 const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
+const { memoize } = require('./memo');
 
 
 const WEIGHTS = {
@@ -74,7 +75,7 @@ function containsTerm(haystack, term) {
 
 // Degree the posting requires vs. merely prefers ("Bachelor's required;
 // Master's a plus" should not demand a Master's).
-function degreeRequirements(jobText) {
+function readDegreeRequirements(jobText) {
   let required = 0;
   let preferred = 0;
   for (const { original, kind } of classifyLines(jobText).flatMap((l) => clauses(l.original, l.kind, l.section))) {
@@ -223,7 +224,7 @@ const PHRASE_VERBS = new Set(
     'help structure complete formulate generate mentor educate administer conduct perform create establish oversee ensure assist operate execute bring').split(' ')
 );
 const phraseWords = (s) => lower(s).replace(/&/g, ' and ').replace(/['’]s\b/g, '').match(/[a-z][a-z0-9+#'-]*/g) || [];
-function postingPhrases(jobText, company = '') {
+function readPostingPhrases(jobText, company = '') {
   const companyWords = new Set(phraseWords(company));
   const counts = new Map();
   let started = false;
@@ -256,11 +257,15 @@ function postingPhrases(jobText, company = '') {
   return list.filter((t) => !list.some((u) => u !== t && ` ${u} `.includes(` ${t} `)));
 }
 
-function scoreKeywords(jobText, resumeLower, company) {
+// The posting's phrases a recruiter would search for. Dictionary skills have their own component.
+const keywordTerms = memoize((jobText, company) => {
   jobText = jobText.split('\n').filter((l) => !BOILERPLATE_LINE.test(l)).join('\n');
   const skillWords = Object.values(SKILLS).flat();
-  // Dictionary skills have their own component.
-  const terms = postingPhrases(jobText, company).filter((t) => !skillWords.some((re) => re.test(t))).slice(0, 15);
+  return { jobText, terms: postingPhrases(jobText, company).filter((t) => !skillWords.some((re) => re.test(t))).slice(0, 15) };
+});
+
+function scoreKeywords(rawJobText, resumeLower, company) {
+  const { jobText, terms } = keywordTerms(rawJobText, company || '');
   if (terms.length < 3) return scoreKeywordWords(jobText, resumeLower, company);
   // Like Taleo's "related terms" search: other forms of the words count too
   // ("executive presentation" finds "executive presentations"), in order and close together.
@@ -390,6 +395,13 @@ function skillsMatchLabel(ratio) {
   return 'Low';
 }
 
+// Dictionary skills a resume mentions (the same resume is read against every posting).
+const skillsIn = memoize((resumeLower) => {
+  const found = new Set();
+  for (const [skill, patterns] of Object.entries(SKILLS)) if (patterns.some((p) => p.test(resumeLower))) found.add(skill);
+  return found;
+}, { size: 100 });
+
 /**
  * @param {object} job   { title, text }
  * @param {string} resumeText  plain text of one resume
@@ -400,8 +412,7 @@ function atsScore(job, resumeText, opts = {}) {
   const checkFormatting = opts.checkFormatting !== false;
   const resumeLower = lower(resumeText);
   const jobSkills = classifyJobSkills(job.text);
-  const resumeSkills = new Set();
-  for (const [skill, patterns] of Object.entries(SKILLS)) if (patterns.some((p) => p.test(resumeLower))) resumeSkills.add(skill);
+  const resumeSkills = skillsIn(resumeLower);
 
   const skills = scoreSkills(jobSkills, resumeLower, resumeSkills);
   const title = scoreJobTitle(job.title, resumeLower);
@@ -554,5 +565,9 @@ function libraryAtsScore(job, documents, profile) {
   if (!documents.length) return null;
   return { ...atsScore(job, documents.map((d) => d.text).join('\n\n'), { checkFormatting: false, profile }), basis: 'your whole library (add a resume for formatting checks)' };
 }
+
+// Posting-side reads, shared by every resume scored against the posting.
+const degreeRequirements = memoize(readDegreeRequirements);
+const postingPhrases = memoize(readPostingPhrases);
 
 module.exports = { atsGaps, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };

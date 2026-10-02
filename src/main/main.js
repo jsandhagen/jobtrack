@@ -36,7 +36,8 @@ const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
 const { postingFromLines } = require('./pageText');
 const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } = require('./resumeRender');
-const { atsScore, atsGaps, libraryAtsScore } = require('./atsScore');
+const { atsScore: readAts, atsGaps, libraryAtsScore } = require('./atsScore');
+const { memoize } = require('./memo');
 const outreach = require('../shared/outreach');
 const finder = require('../shared/finder');
 const careers = require('./careers');
@@ -410,6 +411,19 @@ function scoringDocuments() {
   return bankText.trim() ? [...docs, { kind: 'bank', text: bankText }] : docs;
 }
 
+// ATS reads are kept until the posting, the page, the library or the profile
+// changes: the applications list shows one for every job, and with a dozen
+// resumes in the library each takes a while.
+const jobKey = (job) => [job.title, job.company, job.location, job.text].map((x) => x || '').join('\u0000');
+const libraryAts = memoize((job) => libraryAts(job), {
+  size: 1000,
+  key: (job) => `${store.documentsVersion}\u0000${JSON.stringify(store.getProfile())}\u0000${jobKey(job)}`,
+});
+const atsScore = memoize(readAts, {
+  size: 1000,
+  key: (job, text, opts = {}) => `${jobKey(job)}\u0000${text}\u0000${JSON.stringify(opts)}`,
+});
+
 // The editor's page against the length estimate on this computer (see builder:calibrate).
 const validScale = (s) => (typeof s === 'number' && s >= 0.85 && s <= 1.3 ? Math.round(s * 1000) / 1000 : null);
 const pageScale = () => validScale(store.getSettings().pageScale) || 1;
@@ -497,7 +511,7 @@ async function analyzeApp(appId, { popup = false, keepTitle = true } = {}) {
 // Computed on read so it stays current as the library or the resume is edited.
 function withAts(rec) {
   if (!rec) return rec;
-  const before = libraryAtsScore(rec.job, evidenceDocs(), store.getProfile());
+  const before = libraryAts(rec.job);
   const after = rec.resumeHtml ? atsScore(rec.job, htmlToText(rec.resumeHtml), { profile: store.getProfile() }) : null;
   const bank = store.getBank();
   // Which bullet proves each requirement.
@@ -565,7 +579,7 @@ async function makeResume(appId) {
         documents,
         profile,
         analysis: rec.analysis,
-        ats: libraryAtsScore(rec.job, evidenceDocs(), store.getProfile()),
+        ats: libraryAts(rec.job),
         roles: ids.roles,
         picked: ids.picked,
         model: store.getSettings().model,
@@ -1076,7 +1090,7 @@ async function startBridge() {
         preview: {
           job: { title: job.title, company: job.company, location: job.location, url: job.url },
           quick: pickQuick(quick),
-          ats: { before: pickAts(libraryAtsScore(job, evidenceDocs(), store.getProfile())) },
+          ats: { before: pickAts(libraryAts(job)) },
         },
         ...cardEnv(),
       };
@@ -1158,6 +1172,8 @@ function registerIpc() {
     finder: store.getFinder(),
     finderRunning,
   }));
+  // Just the settings, for windows that only need the theme (the whole state reads every job).
+  handle('settings:get', () => ({ ...store.getSettings(), bridgePairings: undefined }));
   handle('settings:update', (patch) => applySettings(patch));
   handle('profile:update', (patch) => {
     const p = store.updateProfile(patch);
@@ -1542,7 +1558,7 @@ function registerIpc() {
     const days = Number(store.getSettings().followUpDays) || 7;
     const appliedAt = info.appliedAt ? new Date(info.appliedAt).toISOString() : new Date().toISOString();
     const followUpAt = info.followUpAt === '' ? null : info.followUpAt ? new Date(info.followUpAt).toISOString() : new Date(Date.parse(appliedAt) + days * 86400000).toISOString();
-    const best = libraryAtsScore(rec.job, evidenceDocs(), store.getProfile());
+    const best = libraryAts(rec.job);
     // For "What's working for you": which kind of resume went out, and how
     // many of its bullets passed every resume check.
     const doc = rec.builder && rec.builder.doc;
@@ -2143,7 +2159,7 @@ function summarizeApp(a) {
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
     atsBefore: (() => {
-      const b = libraryAtsScore(a.job, evidenceDocs(), store.getProfile());
+      const b = libraryAts(a.job);
       return b ? b.score : null;
     })(),
     atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml), { profile: store.getProfile() }).score : null,
@@ -2242,7 +2258,7 @@ if (process.argv.includes('--smoke-test')) {
   app.on('second-instance', () => createDashboard());
 
   app.whenReady().then(() => {
-    store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'));
+    store = new Store(process.env.JOBTRACK_DATA_DIR || app.getPath('userData'), { deferSave: true });
     store.pruneChecked(); // checked jobs you never saved, not seen for a month
     store.repairBank(bulletBank.tidyBank); // the same job from two resumes, filed twice before roles were matched
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
@@ -2282,7 +2298,12 @@ if (process.argv.includes('--smoke-test')) {
     if (!tray) app.quit();
   });
   app.on('activate', () => createDashboard());
+  // Changes are written shortly after they happen; write any still waiting.
+  const flushStore = () => store && store.saveTimer && store.flush();
+  app.on('before-quit', flushStore);
+  process.on('exit', flushStore);
   app.on('will-quit', () => {
+    flushStore();
     globalShortcut.unregisterAll();
     if (bridge) bridge.close();
     if (watcher) watcher.stopAll();

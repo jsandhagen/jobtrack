@@ -210,6 +210,34 @@ test('the library block orders documents by kind and keeps writing samples separ
   assert.match(P.SYSTEM, /# Using every document/);
 });
 
+test('bullets repeated across resume versions go to Claude once, and can still be quoted', () => {
+  const v2 = LIBRARY.replace('Shipped JavaScript apps for 30+ clients', 'Shipped JavaScript apps for 30+ clients in retail and travel');
+  const docs = [
+    { name: 'resume.pdf', kind: 'resume', text: LIBRARY },
+    { name: 'resume v2.pdf', kind: 'resume', text: v2 },
+    { name: 'resume copy.pdf', kind: 'resume', text: LIBRARY },
+  ];
+  const block = P.libraryBlock(docs, {});
+  const facts = block.slice(block.indexOf('<candidate_documents>'), block.indexOf('</candidate_documents>'));
+  assert.equal(facts.split('Built a React + TypeScript design system used by 40 engineers').length - 1, 1, 'given once');
+  assert.match(facts, /in retail and travel/, 'what differs between versions is kept');
+  assert.match(facts, /<document name="resume v2.pdf" kind="resume">\nFrontend Engineer, Bloom Labs, 2020 - Present\nWeb Developer/, 'role lines stay for context');
+  assert.match(facts, /<document name="resume copy.pdf" kind="resume">\n\(the same text as "resume.pdf"\)/);
+  assert.match(facts, /given once, in the first document that has it/);
+  // The fact check still reads every document in full.
+  assert.ok(G.quoteFound('Built a React + TypeScript design system used by 40 engineers', claude.libraryText(docs, {})));
+  // One document: nothing changes.
+  assert.doesNotMatch(P.libraryBlock(DOCS, {}), /given once/);
+});
+
+test('the resume prompt gives Claude a free hand with content, inside the layout and the facts', () => {
+  assert.match(P.TASKS.resume, /starting point, not a limit/);
+  assert.match(P.TASKS.resume, /merge two bullets/);
+  assert.match(P.TASKS.resume, /truthfulness rules above still apply/);
+  assert.match(P.TASKS.resume, /layout is fixed/);
+  assert.doesNotMatch(P.TASKS.resume, /except for small edits/);
+});
+
 test('writing samples never count as facts', async () => {
   // Not in the fact-check corpus…
   assert.doesNotMatch(claude.libraryText([SAMPLE, ...DOCS], {}), /release checklist/);

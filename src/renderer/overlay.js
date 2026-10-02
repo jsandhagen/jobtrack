@@ -186,6 +186,6 @@ document.getElementById('close').addEventListener('click', () => window.sprout.o
 window.sprout.onOverlayShow(render);
 
 // The theme chosen in Settings → Appearance (Green tints the light look).
-const applyTheme = () => window.sprout.getState().then((s) => (document.documentElement.dataset.theme = (s && s.settings && s.settings.theme) || 'light'), () => {});
+const applyTheme = () => window.sprout.getSettings().then((s) => (document.documentElement.dataset.theme = (s && s.theme) || 'light'), () => {});
 applyTheme();
 window.sprout.onStateChanged(applyTheme);

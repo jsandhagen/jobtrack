@@ -22,6 +22,7 @@ const { SKILLS, RELATED, EMPLOYER_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborator
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
+const { memoize } = require('./memo');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
 const SCORER_VERSION = 21;
@@ -42,6 +43,8 @@ function hasTerm(textLower, term) {
 function stem(w) {
   return w.replace(/(ing|ed|es|s)$/, '').replace(/(ment|ation)$/, '');
 }
+// A text's words as stems, padded with spaces for phrase lookups.
+const stemmed = memoize((t) => ` ${(t.match(/[a-z0-9+#]+/g) || []).map(stem).join(' ')} `, { size: 2000 });
 // Every skill pattern, extended to the whole word, for blanking known skills out of a line.
 const SKILL_BLANKERS = Object.values(SKILLS).flatMap((ps) => ps.map((p) => new RegExp(p.source + '[a-z]*', 'gi')));
 const blankSkills = (text, filler) => SKILL_BLANKERS.reduce((t, re) => t.replace(re, filler), text);
@@ -390,9 +393,10 @@ const KIND_SYNONYMS = [
 const canonicalKind = (t) => KIND_SYNONYMS.reduce((x, [re, to]) => x.replace(re, to), t);
 const DEPARTMENT_KIND = new Set(['marketing', 'sales', 'recruiting', 'accounting', 'audit', 'legal', 'design', 'clinical', 'construction', 'nursing'].map((w) => w.replace(/(?:ing|s)$/, '')).concat(['marketing', 'sales', 'recruiting', 'accounting', 'audit', 'legal', 'design', 'clinical', 'construction', 'nursing']));
 const BROAD_KIND = new Set(['strategy', 'management', 'consulting', 'operations', 'planning', 'development', 'leadership'].map(kindStem));
+// Every resume line is tokenised for each kind of experience a posting asks for.
+const tokens = memoize((t) => (canonicalKind(t).match(/[a-z0-9][a-z0-9+#&-]*/g) || []).map(kindStem), { size: 5000 });
 function kindMatch(alts) {
   const stems = alts.map((ws) => canonicalKind(ws.join(' ')).split(/\s+/).map(kindStem));
-  const tokens = (t) => (canonicalKind(t).match(/[a-z0-9][a-z0-9+#&-]*/g) || []).map(kindStem);
   // A shorter form matches a longer one only when it's distinctive (engine / engineer).
   const hasIn = (toks) => (s) => toks.some((x) => x === s || (Math.min(x.length, s.length) >= 5 && (x.startsWith(s) || s.startsWith(x))));
   return (t) => {
@@ -421,7 +425,10 @@ function kindMatch(alts) {
 // What the posting asks for, as a list of units, each able to say how well a
 // piece of text (your whole library, or a single resume bullet) covers it.
 // Shared by the fit score and the bullet bank so they agree.
-function requirementUnits(job) {
+// Read once per posting: the fit score, the ATS view and the bullet bank all
+// ask for the same posting's units, again on every redraw.
+const requirementUnits = memoize(readRequirementUnits, { size: 200, key: (job) => [job.title, job.company, job.location, job.text].map((x) => x || '').join('\u0000') });
+function readRequirementUnits(job) {
   const lines = requirementLines(job.text);
   const hasRequiredSection = lines.some((l) => l.kind === 'required');
   const ignoreWords = new Set([...lower(job.company).split(/\W+/), ...lower(job.title).split(/\W+/)].filter(Boolean));
@@ -530,7 +537,7 @@ function requirementUnits(job) {
             // "CPR/BLS": either one.
             if (/\//.test(term) && term.split('/').some((x) => x.trim().length > 1 && hasTerm(t, x.trim()))) return 1;
             // Other forms of the same words: "unit testing" / "unit tests".
-            const ts = ` ${(t.match(/[a-z0-9+#]+/g) || []).map(stem).join(' ')} `;
+            const ts = stemmed(t);
             if (ts.includes(` ${stems.join(' ')} `)) return 0.9;
             return words.length > 1 && stems.every((w) => ts.includes(` ${w} `)) ? 0.6 : 0;
           },
@@ -665,13 +672,14 @@ function recencyWeight(end, now) {
 }
 const DOC_WEIGHT = { bank: 0.85, project: 0.85, recommendation: 0.8, certification: 0.9, transcript: 0.7, 'cover-letter': 0.7 };
 
-function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
+// One document's evidence. A library of a dozen resumes is read against every
+// posting, so each document is parsed once, not once per posting.
+const documentSegments = memoize((kind, text, now) => {
   const { parseResume } = require('./bullets'); // lazy: bullets.js requires this module
   const segs = [];
   const titles = [];
-  for (const d of documents) {
-    const text = d.text || '';
-    if (d.kind === 'resume' || !d.kind) {
+  {
+    if (kind === 'resume' || !kind) {
       const r = parseResume(text);
       for (const ex of r.experiences) {
         const end = /present|current|now|today/i.test(ex.end || '') ? now : yearFrom(ex.end) ?? yearFrom(ex.dates);
@@ -697,10 +705,23 @@ function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
       const parsed = r.experiences.reduce((n, ex) => n + ex.bullets.reduce((m, b) => m + b.text.length, 0), 0) + r.skills.join(', ').length + r.summary.length;
       segs.push({ text, weight: parsed / Math.max(1, text.length) >= 0.4 ? 0.7 : 0.9 });
     } else {
-      segs.push({ text, weight: DOC_WEIGHT[d.kind] ?? 0.75 });
+      segs.push({ text, weight: DOC_WEIGHT[kind] ?? 0.75 });
     }
   }
   return { segs: segs.map((s) => ({ ...s, lower: lower(withoutCollaborators(s.text)) })), titles };
+}, { size: 200 });
+
+function evidenceSegments(documents, now = new Date().getFullYear() + 0.5) {
+  const segs = new Map();
+  const titles = [];
+  for (const d of documents) {
+    const one = documentSegments(d.kind || '', d.text || '', now);
+    // The same text in several resumes is the same evidence: keep its best weight
+    // (callers adjust weights, so each call gets its own copies).
+    for (const s of one.segs) if (!segs.has(s.text) || segs.get(s.text).weight < s.weight) segs.set(s.text, { ...s });
+    titles.push(...one.titles);
+  }
+  return { segs: [...segs.values()], titles };
 }
 // What a title says you can do, the way LinkedIn and Eightfold infer skills
 // from job titles: partial credit only (a resume that says it still counts

@@ -2,6 +2,8 @@
 // the skills dictionary, posting-line classification, years parsing, and
 // job-posting detection for the clipboard watcher.
 
+const { memoize } = require('./memo');
+
 // canonical skill -> patterns that count as a mention
 const SKILLS = {
   // languages & frameworks
@@ -483,7 +485,7 @@ function alternativeRuns(line, items) {
 // skill -> { kind, term, mentions, group? }. `group` is set only when every mention of
 // the skill was one option in a list of alternatives; the map's `groups`
 // property lists each such set of skills.
-function classifyJobSkills(jobText) {
+function readJobSkills(jobText) {
   const out = new Map();
   const groups = [];
   const mentions = new Map();
@@ -566,7 +568,7 @@ const toNum = (s) => (/\d/.test(s) ? parseInt(s, 10) : NUMBER_WORDS[s]);
 // Years of experience the posting asks for. Skips ages ("18 years or older"),
 // company history ("in business for 25 years") and "4-year degree"; prefers a
 // required mention over a preferred one ("5+ preferred; 3 required" -> 3).
-function requiredYears(jobText) {
+function readRequiredYears(jobText) {
   const found = [];
   for (const { line, kind } of classifyLines(jobText).flatMap((l) => clauses(l.original, l.kind, l.section))) {
     for (const m of line.matchAll(YEARS_RE)) {
@@ -697,6 +699,10 @@ function looksLikeJobPosting(text) {
   const hits = POSTING_SIGNALS.filter((p) => p.test(t)).length;
   return hits >= 4;
 }
+
+// The same posting is read against every resume: once is enough.
+const classifyJobSkills = memoize(readJobSkills);
+const requiredYears = memoize(readRequiredYears);
 
 module.exports = {
   SKILLS,

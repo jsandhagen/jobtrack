@@ -14,6 +14,7 @@ function on(channel, cb) {
 
 contextBridge.exposeInMainWorld('sprout', {
   getState: () => call('state:get'),
+  getSettings: () => call('settings:get'),
   updateSettings: (patch) => call('settings:update', patch),
   updateProfile: (patch) => call('profile:update', patch),
   setApiKey: (key) => call('apikey:set', key),

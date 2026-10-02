@@ -84,7 +84,7 @@ const ResumeDraft = z.object({
         bullets: z.array(
           z.object({
             text: z.string().describe('The bullet: action verb first, one accomplishment, at most two printed lines (about 190 characters), numbers only as documented.'),
-            from_bullet: z.string().describe('The id of the bank bullet this is based on (e.g. "B7"), or "" for a new bullet written from the documents.'),
+            from_bullet: z.string().describe('The id of the bank bullet this is mostly built on (e.g. "B7"), even when heavily rewritten or merged with another; "" for a bullet written from the other documents.'),
             source_quote: z.string().describe('For a new bullet (from_bullet ""): shortest verbatim excerpt from the documents supporting its key fact. Otherwise "".'),
           })
         ),
