@@ -21,6 +21,8 @@
 // `render(url)` too (the app's hidden browser window), such a page is loaded
 // the way a browser would and read after its scripts have run.
 
+const { breather } = require('./breathe');
+
 const ATS_LABEL = {
   greenhouse: 'Greenhouse',
   lever: 'Lever',
@@ -1386,7 +1388,9 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
     .slice(0, KEEP);
   let budget = DETAIL_BUDGET;
   const jobs = [];
+  const breathe = breather();
   for (const j of kept) {
+    await breathe();
     const { text: listed, ...job } = j;
     const prev = before.get(j.id) || {};
     let text = listed;
@@ -1414,6 +1418,7 @@ async function checkCompany(company, { fetchImpl, roles = [], now = Date.now(), 
     let similarBudget = SIMILAR_DETAIL_BUDGET;
     for (const j of all) {
       if (jobs.length >= KEEP) break;
+      await breathe();
       if (matched.has(j.id) || !roles.some((r) => (classifyTitle(j.title, r) || {}).match === 'similar')) continue;
       const { text: listed, ...job } = j;
       const prev = before.get(j.id) || {};
@@ -1513,7 +1518,9 @@ async function searchRole(companies, { role, place = '', remoteOnly = false, min
       if (!b) return;
       if (!co.board) boards[co.id] = b;
       const jobs = await listJobs(b, fetchImpl, { searchTerms: SEARCHED.has(b.ats) ? terms : [] });
+      const breathe = breather(); // a big employer lists thousands of jobs
       for (const j of jobs) {
+        await breathe();
         const c = classifyTitle(j.title, role);
         if (c && locationFits(j.location, place, remoteOnly)) candidates.push({ company: co, board: b, job: j, ...c });
       }
@@ -1533,7 +1540,9 @@ async function searchRole(companies, { role, place = '', remoteOnly = false, min
   const rank = { exact: 0, title: 1, similar: 2 };
   candidates.sort((a, b) => (b.match === 'similar') - (a.match === 'similar') || b.similarity - a.similarity);
   let budget = ROLE_DETAIL_BUDGET;
+  const breathe = breather();
   for (const c of candidates) {
+    await breathe();
     let text = c.job.text || '';
     if (!text && scoreJob && budget > 0) {
       budget--;

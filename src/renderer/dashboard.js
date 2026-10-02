@@ -385,7 +385,7 @@ async function renderResumePage(id) {
         </div>
         <details style="margin-top:8px" ${hasText ? 'open' : ''}><summary class="faint">${hasText ? 'The posting or keywords it’s aimed at' : 'Aim it at a posting or keywords (optional)'}</summary>
           <textarea id="rsText" style="min-height:120px;margin-top:6px" placeholder="Paste a job posting, or the skills and keywords you want this version to show. Leave empty for a general resume.">${esc(r.job.text || '')}</textarea>
-          <div class="inline" style="margin-top:6px"><button class="small soft" id="rsAim">Update the checklist</button><span class="faint">The requirements checklist and ATS match next to the page use this.</span></div>
+          <div class="inline" style="margin-top:6px"><button class="small soft" id="rsAim">Update the checklist</button><span class="faint">The requirements checklist and ATS visibility next to the page use this.</span></div>
         </details>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;min-width:150px">
@@ -749,7 +749,7 @@ function appRow(a, manage = false) {
   }<div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}${busy ? ' busy' : ''}" style="--s:${a.score}" title="${busy ? 'Refreshing the score…' : a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${busy ? '<span class="spinner"></span>' : a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     ${followUpDue(a) ? `<span class="chip due">${icon('clock', 14)} follow up</span>` : ''}
-    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
+    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS visibility: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
     ${a.hasResume || a.hasLetter ? `<span class="chip ic-only good" title="${[a.hasResume && 'Tailored resume', a.hasLetter && 'cover letter'].filter(Boolean).join(' + ')}">${a.hasResume ? icon('doc', 15) : ''}${a.hasLetter ? icon('letter', 15) : ''}</span>` : ''}
     <span class="status ${a.status}">${esc(STATUS_LABEL[a.status] || a.status)}</span>${manage ? appMenu(a) : ''}</div>`;
 }
@@ -913,6 +913,61 @@ function barColor(v) {
   return v >= 75 ? 'var(--band-hi)' : v >= 50 ? 'var(--band-mid)' : 'var(--band-lo)';
 }
 
+// Sprout's take on the ATS check: what it already fixed, then at most three
+// things worth doing, each with one button where Sprout can help. The full
+// breakdown stays one click away for anyone who wants it.
+const NUDGE_ICON = { fixed: 'sparkle', ask: 'chat', 'heads-up': 'warn', tip: 'check' };
+function nudgeCard(n, { appId, compact = false } = {}) {
+  if (!n || (!n.nudges.length && !n.fixed.length && !n.headline)) return '';
+  const act = (x) => {
+    const a = x.action;
+    if (!a) return '';
+    if (a.type === 'have-skill') return `<div class="nudge-acts">${a.terms.map((t) => `<button class="small soft" data-have="${esc(t)}">I've used ${esc(t)}</button>`).join('')}</div>`;
+    return `<div class="nudge-acts"><button class="small soft" data-nudge="${esc(a.type)}" data-nudge-app="${esc(appId)}"${a.key ? ` data-key="${esc(a.key)}"` : ''}${a.term ? ` data-term="${esc(a.term)}"` : ''}>${esc(a.label || 'Do it')}</button></div>`;
+  };
+  return `<div class="nudges${compact ? ' compact' : ''}">
+    ${n.headline ? `<div class="nudge-head">${mascotSvg(n.nudges.length ? 'curious' : 'proud', compact ? 34 : 44)}<p>${esc(n.headline)}</p></div>` : ''}
+    <p class="nudge-literal">${icon('search', 13)} ATS software matches words literally, so this is about the resume's wording, not about you.</p>
+    ${n.fixed.map((f) => `<div class="nudge t-done"><span class="ni">${icon('check', 15)}</span><div><p>${esc(f)}</p></div></div>`).join('')}
+    ${n.nudges.map((x) => `<div class="nudge t-${x.tone}"><span class="ni">${icon(NUDGE_ICON[x.tone] || 'check', 15)}</span><div><p>${esc(x.text)}</p>${act(x)}</div></div>`).join('')}
+    ${n.more ? `<p class="faint nudge-more">${n.more === 1 ? 'One smaller thing is' : `${n.more} smaller things are`} in the details below, if you're curious.</p>` : ''}
+  </div>`;
+}
+
+// A nudge's button: fix the page, show a bullet, or go fill something in.
+async function runNudge(btn) {
+  const id = btn.dataset.nudgeApp;
+  const type = btn.dataset.nudge;
+  const inEditor = !!btn.closest('#edTray');
+  if (type === 'profile') return void (location.hash = '#profile');
+  if (type === 'bank') return void (location.hash = '#bank');
+  if (type === 'requirement') {
+    if (inEditor) return showRequirement(btn.dataset.key); // editor.js
+    edPending = { tab: 'job', filter: btn.dataset.key }; // editor.js picks it up
+    appTab = 'resume';
+    return renderApplication(id);
+  }
+  if (type === 'optimize') {
+    const ok = await run(btn, () => S.atsResume(id).then(() => true), 'Optimizing…');
+    if (!ok) return;
+    appTab = 'resume';
+    await renderApplication(id);
+    return toast(say('atsDone'), 'good', 3800, 'proud');
+  }
+  if (type === 'fix-page' || type === 'add-skill') {
+    if (inEditor) await saveNow(); // editor.js: keep what you typed
+    const ok = await run(btn, () => S.fixPage(id, type === 'add-skill' ? { addSkill: btn.dataset.term } : {}).then(() => true), '…');
+    if (!ok) return;
+    if (inEditor && ed.appId === id) await renderEditor(id, ed.app);
+    else await renderApplication(id);
+    toast(type === 'add-skill' ? `Added “${btn.dataset.term}” to your skills.` : 'Done. It’s in your summary now.', 'good');
+  }
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-nudge]');
+  if (b) (e.preventDefault(), runNudge(b));
+});
+
 function atsPanel(ats) {
   const b = ats.before;
   const a = ats.after;
@@ -922,23 +977,25 @@ function atsPanel(ats) {
   const side = (r, caption) =>
     r
       ? `<div class="ats-side">${scoreRing(r.score, 84, 'ATS')}<div><div class="faint">${caption}</div>
-        <div class="inline" style="gap:6px;margin-top:4px"><span class="grade big g-${r.grade}" title="Workday HiredScore-style grade">${r.grade}</span>
-        <div class="faint" style="line-height:1.35">basic quals ${r.basic.met}/${r.basic.total}<br>preferred ${r.preferred.met}/${r.preferred.total}</div></div></div></div>`
-      : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Generate the tailored resume to see its ATS score here.</div></div>`;
+        <div class="ats-plain">${r.basic.total ? `Uses the posting's words for ${r.basic.met} of its ${r.basic.total} must-haves` : 'The posting names no clear must-haves'}</div></div></div>`
+      : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Tailor a resume and I'll show how much easier it is to find.</div></div>`;
   const stat = (label, value, hint, glyph = '') => `<div class="ats-stat" title="${esc(hint)}">${glyph}<b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
   const pctRing = (v) => (v === null || v === undefined ? '' : window.SproutMascot.miniRing(v, { color: barColor(v) }));
   const skillSteps = { Low: 1, Fair: 2, Good: 3, Strong: 4 }[main.skillsMatch];
   const kos = main.knockouts.length;
   return `<div class="card ats-card" id="atsCard">
-    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('chart', 22)} ATS check ${infoBtn('ats')}</h2>
-      <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Aim for 75–80%+.</p></div>
-      ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
+    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('search', 22)} ATS visibility ${infoBtn('ats')}</h2>
+      <p class="faint">How easily screening software finds ${a ? 'your tailored resume' : 'your current resume'} when recruiters search for this posting. It's about being found, not a judgement of you. Around 75% is plenty.</p></div>
+      ${delta ? `<span class="chip ${delta > 0 ? 'good' : ''}" style="font-size:13px">${delta > 0 ? `Easier to find than your current resume (+${delta})` : `A little harder to find than your current resume (${delta})`}</span>` : ''}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
+    ${nudgeCard(ats.nudges, { appId: ats.appId })}
+    <details class="ats-more"><summary class="section-title">See the full breakdown</summary>
+    <p class="faint" style="margin:4px 0 8px">Workday-style grade: <span class="grade g-${main.grade}">${main.grade}</span> · must-haves ${main.basic.met}/${main.basic.total} · nice-to-haves ${main.preferred.met}/${main.preferred.total}</p>
     <div class="ats-stats">
       ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more', skillSteps ? window.SproutMascot.miniRing(skillSteps * 25, { segments: 4, color: barColor(skillSteps * 25) }) : '')}
       ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search", pctRing(main.strictKeywordRate))}
       ${stat('Smart keywords', main.normalizedKeywordRate === null ? null : main.normalizedKeywordRate + '%', 'Synonym-aware matches (AWS = Amazon Web Services), like iCIMS / SuccessFactors semantic matching', pctRing(main.normalizedKeywordRate))}
-      ${stat('Knockouts', kos, 'Required qualifications not found. Systems like Taleo can auto-filter on these', `<i class="ko ${kos ? 'warn' : 'ok'}">${icon(kos ? 'warn' : 'check', 15)}</i>`)}
+      ${stat('Required words to add', kos, "Required skills whose words aren't on the resume yet. Strict systems like Taleo can filter on these, so add the ones you have", `<i class="ko ${kos ? 'warn' : 'ok'}">${icon(kos ? 'pencil' : 'check', 15)}</i>`)}
     </div>
     <div class="ats-bars">${COMPONENT_LABELS.filter(([k]) => main.components[k] !== null)
       .map(([k, label, hint]) => {
@@ -946,8 +1003,9 @@ function atsPanel(ats) {
         return `<div class="ats-bar" title="${esc(hint)}"><span>${label}</span><div class="track"><i style="width:${v}%;background:${barColor(v)}"></i></div><b>${v}</b></div>`;
       })
       .join('')}</div>
-    ${main.knockouts.length ? `<div class="section-title">Possible knockouts</div><div>${main.knockouts.map((k) => `<span class="chip grow">${icon('warn', 14)} ${esc(k)}</span>`).join('')}</div>` : ''}
-    ${main.tips.length ? `<details ${a ? '' : 'open'}><summary class="section-title" style="cursor:pointer">How to raise it (${main.tips.length})</summary><ul class="tidy">${main.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>` : ''}
+    ${main.knockouts.length ? `<div class="section-title">Required words the resume doesn't use yet</div><div>${main.knockouts.map((k) => `<span class="chip grow">${esc(k)}</span>`).join('')}</div>` : ''}
+    ${main.tips.length ? `<div class="section-title">Every tip</div><ul class="tidy">${main.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+    </details>
     <p class="faint" style="margin:10px 0 0">An estimate based on how Workday, Taleo, iCIMS and resume scanners like Jobscan are documented to work. Vendors keep their exact formulas private, and many companies (e.g. on Greenhouse) have people read every resume, so write for humans first.</p>
   </div>`;
 }
@@ -977,7 +1035,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
 
   const insight = an
     ? `<h3 style="margin-top:4px">Claude's fit read ${infoBtn('fit')}</h3><p style="font-weight:700">${esc(an.headline)}</p>
-      ${an.screened && an.screened.length ? `<p class="muted" style="margin-top:-4px">Score held down: ${an.screened.map(esc).join('; ')}.</p>` : ''}
+      ${an.screened && an.screened.length ? `<p class="muted" style="margin-top:-4px">Worth knowing: ${an.screened.map(esc).join('; ')}.</p>` : ''}
       <div class="section-title">Why you fit</div><ul class="tidy">${an.strengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       ${an.gaps.length ? `<div class="section-title">Room to grow</div><ul class="tidy muted">${an.gaps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
       ${an.qualifications && an.qualifications.length ? `<div class="section-title">Qualifications checklist ${an.grade ? `<span class="grade g-${an.grade}" title="HiredScore-style grade from Claude's checklist">${an.grade}</span>` : ''}</div>
@@ -986,13 +1044,13 @@ async function renderApplication(id, { ifChanged = false } = {}) {
         .join('')}</ul>` : ''}
       <div class="section-title">Talking points</div><ul class="tidy">${an.talking_points.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>
-      ${q.components ? `<div class="section-title">Free score breakdown <span class="faint" style="font-weight:600">(${q.score}/100)</span></div>${window.SproutInfo.fitBars(q.components)}` : ''}`
-    : `<h3 style="margin-top:4px">Free fit score ${infoBtn('fit')} <span class="chip" title="How much of the posting the free scorer recognised">confidence: ${esc(q.confidence || 'medium')}</span></h3>
+      ${q.components ? `<details class="more"><summary>How Sprout's free read compares (${q.score})</summary>${window.SproutInfo.fitBars(q.components)}</details>` : ''}`
+    : `<h3 style="margin-top:4px">How it lines up with you ${infoBtn('fit')}</h3>
       ${q.headline ? `<p style="font-weight:700">${esc(q.headline)}</p>` : ''}
-      ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Dealbreaker:</b> ${q.dealbreakers.map(esc).join('; ')}</div>` : ''}
-      ${q.reasons && q.reasons.length ? `<ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${q.concerns && q.concerns.length ? `<ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${window.SproutInfo.fitBars(q.components)}
+      ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Heads up:</b> ${q.dealbreakers.map(esc).join('; ')} (from your Profile).</div>` : ''}
+      ${q.reasons && q.reasons.length ? `<div class="section-title">What lines up</div><ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${q.concerns && q.concerns.length ? `<div class="section-title">Worth knowing</div><ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${q.components ? `<details class="more"><summary>How Sprout worked this out</summary>${window.SproutInfo.fitBars(q.components)}<p class="faint" style="margin:6px 0 0">A quick read on your computer, ${esc(q.confidence === 'high' ? 'and the posting was clear' : q.confidence === 'low' ? 'from a posting that was hard to read, so take it lightly' : 'so treat it as a rough guide')}. It's about how the job lines up with what your documents show, not about your worth.</p></details>` : ''}
       <div style="margin-top:12px">${
         analyzing
           ? '<p class="muted"><span class="spinner"></span> Claude is reading the posting closely…</p>'
@@ -1015,9 +1073,9 @@ async function renderApplication(id, { ifChanged = false } = {}) {
   const skills = `${asks}<div class="section-title">Skills from the posting</div><div>
     ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
     ${(q.partialSkills || []).map((s) => `<span class="chip" title="Partly shown: a related skill, an older role or only a skills-list mention">~ ${esc(s)}</span>`).join('')}
-    ${q.missingSkills.map((s) => (a.asks || []).some((x) => x.label === s) ? `<span class="chip grow" title="Not found in your library (asked above)">＋ ${esc(s)}</span>` : `<span class="chip grow" title="Not found in your library">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
-    ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Preferred">✓ ${esc(s)} <em>(pref)</em></span>`).join('')}
-    ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
+    ${q.missingSkills.map((s) => (a.asks || []).some((x) => x.label === s) ? `<span class="chip grow" title="Not in your documents yet (asked above)">＋ ${esc(s)}</span>` : `<span class="chip grow" title="Not in your documents yet">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
+    ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Nice to have">✓ ${esc(s)} <em>(nice to have)</em></span>`).join('')}
+    ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Nice to have, not in your documents yet">＋ ${esc(s)} <em>(nice to have)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
 
   const fitCard = `<div class="card">${sproutSays(analyzing ? 'thinking' : moodForScore(score), esc(analyzing ? 'Reading the posting closely…' : encouragement(score, a.id.charCodeAt(2))), 56, { svg: { cls: 'pettable' } })}${insight}${evidenceBlock(a)}${skills}
@@ -1041,13 +1099,13 @@ async function renderApplication(id, { ifChanged = false } = {}) {
   const tabBody = () => {
     if (appTab === 'posting') return `<div class="posting-text card">${esc(a.job.text)}</div>`;
     if (appTab === 'tracking') return `<div style="max-width:560px">${trackingCard(a)}${peopleAtCard(a)}</div>`;
-    if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel(a.ats) : '<div></div>'}${fitCard}</div>`;
+    if (appTab === 'fit') return `<div class="grid sidebar-wide">${a.ats ? atsPanel({ ...a.ats, appId: a.id }) : '<div></div>'}${fitCard}</div>`;
     if (appTab === 'letter') return letterBody();
     if (busyResume) return `<div class="empty">${window.SproutMascot.helperSvg('claude', 'thinking', 88)}<h3>Root is writing your resume with Claude…</h3>${resumeProgressHtml(a.id)}<p class="faint">It'll open right here in the editor. You can keep using Sprout meanwhile.</p></div>`;
     return '<div id="editorSlot"><div class="empty"><span class="spinner"></span></div></div>';
   };
 
-  const html = `
+  const head = `
     <div class="card app-card"><div class="app-head">${scoreRing(score, 84)}
       <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
@@ -1071,14 +1129,25 @@ async function renderApplication(id, { ifChanged = false } = {}) {
       <button class="${appTab === 'letter' ? 'on' : ''}" data-tab="letter">${icon('letter', 17)} Cover letter</button>
       <button class="${appTab === 'posting' ? 'on' : ''}" data-tab="posting">${icon('news', 17)} Posting</button>
       <button class="${appTab === 'tracking' ? 'on' : ''}" data-tab="tracking">${icon('send', 17)} Tracking${followUpDue(a) ? ` ${icon('clock', 15, 'due-ic')}` : ''}</button>
-    </div>
-    <div id="tabBody">${tabBody()}</div>`;
+    </div>`;
+  const body = tabBody();
+  const html = `<div id="appHead">${head}</div><div id="tabBody">${body}</div>`;
   if (ifChanged && page.dataset.shown === id && page._html === html) return page._ready;
+  // The editor is open and only the top of the page changed (an autosave just
+  // saved a checked job, "2m ago" ticked over): redraw just that, so the page
+  // you're typing on isn't rebuilt under you.
+  if (ifChanged && page.dataset.shown === id && page._body === body && document.getElementById('editorSlot') && $('#appHead', page)) {
+    $('#appHead', page).innerHTML = head;
+    page._html = html;
+    wireHead($('#appHead', page), a, id, unsaved);
+    return page._ready;
+  }
   // The page fades in once; redrawing the same job (a tab, Claude finishing,
   // a status change) mustn't blank it and fade it back in.
   page.classList.toggle('settled', page.dataset.shown === id);
   page.innerHTML = html;
   page._html = html;
+  page._body = body;
   page.dataset.shown = id;
   refreshResumeProgress(page);
   animateRings(page);
@@ -1094,36 +1163,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     });
   }
 
-  $$('[data-tab]', page).forEach((b) =>
-    b.addEventListener('click', () => {
-      appTab = b.dataset.tab;
-      renderApplication(id);
-    })
-  );
-  const saveBtn = $('#saveApp', page);
-  if (saveBtn)
-    saveBtn.addEventListener('click', () =>
-      run(saveBtn, async () => {
-        await S.saveApplication(id);
-        toast('Saved to your applications.', 'good');
-        renderApplication(id);
-      }),
-    );
-  const statusSel = $('#statusSel', page);
-  if (statusSel) statusSel.addEventListener('change', (e) => {
-    if (e.target.value === 'applied' && !a.appliedAt) return openApplyModal(a);
-    const st = e.target.value;
-    S.updateApplication(id, { status: st }).then(() => {
-      if (st === 'offer') celebrate(say('offer'));
-      else if (st === 'interviewing') celebrate(say('interviewing'), 'cheer');
-      else if (st === 'rejected') toast(say('rejected'), 'info', 6500, 'hug');
-      else if (st === 'skipped') toast(say('skipped'), 'good', 3800, 'proud');
-      else toast('Status updated', 'good');
-    });
-  });
-  const ma = $('#markApplied', page);
-  if (ma) ma.addEventListener('click', () => openApplyModal(a));
-  $('#editJob', page).addEventListener('click', () => openEditJobModal(a));
+  wireHead($('#appHead', page), a, id, unsaved);
   $$('[data-have]', page).forEach((b) =>
     b.addEventListener('click', () =>
       run(b, async () => {
@@ -1162,11 +1202,6 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     });
   const link = $('#jobLink', page);
   if (link) link.addEventListener('click', (e) => (e.preventDefault(), S.openExternal(a.job.url)));
-  $('#delApp', page).addEventListener('click', async () => {
-    if (!(await askConfirm(unsaved ? 'Forget this job?' : 'Delete this application?', unsaved ? 'Forget' : 'Delete'))) return;
-    await S.removeApplication(id);
-    location.hash = unsaved ? '#check' : '#applications';
-  });
   const genLetter = async () => {
     const p = S.generateCoverLetter(id);
     renderApplication(id);
@@ -1188,6 +1223,45 @@ async function renderApplication(id, { ifChanged = false } = {}) {
   );
   page._ready = editorReady;
   return editorReady;
+}
+
+// The job's header card and tabs (also redrawn on their own, under an open editor).
+function wireHead(head, a, id, unsaved) {
+  $$('[data-tab]', head).forEach((b) =>
+    b.addEventListener('click', () => {
+      appTab = b.dataset.tab;
+      renderApplication(id);
+    })
+  );
+  const saveBtn = $('#saveApp', head);
+  if (saveBtn)
+    saveBtn.addEventListener('click', () =>
+      run(saveBtn, async () => {
+        await S.saveApplication(id);
+        toast('Saved to your applications.', 'good');
+        renderApplication(id);
+      }),
+    );
+  const statusSel = $('#statusSel', head);
+  if (statusSel) statusSel.addEventListener('change', (e) => {
+    if (e.target.value === 'applied' && !a.appliedAt) return openApplyModal(a);
+    const st = e.target.value;
+    S.updateApplication(id, { status: st }).then(() => {
+      if (st === 'offer') celebrate(say('offer'));
+      else if (st === 'interviewing') celebrate(say('interviewing'), 'cheer');
+      else if (st === 'rejected') toast(say('rejected'), 'info', 6500, 'hug');
+      else if (st === 'skipped') toast(say('skipped'), 'good', 3800, 'proud');
+      else toast('Status updated', 'good');
+    });
+  });
+  const ma = $('#markApplied', head);
+  if (ma) ma.addEventListener('click', () => openApplyModal(a));
+  $('#editJob', head).addEventListener('click', () => openEditJobModal(a));
+  $('#delApp', head).addEventListener('click', async () => {
+    if (!(await askConfirm(unsaved ? 'Forget this job?' : 'Delete this application?', unsaved ? 'Forget' : 'Delete'))) return;
+    await S.removeApplication(id);
+    location.hash = unsaved ? '#check' : '#applications';
+  });
 }
 
 // ---------------- updates ----------------
@@ -1710,8 +1784,8 @@ function route({ ifChanged = false } = {}) {
   const [name, id] = (location.hash.slice(1) || 'home').split('/');
   const v = views[name] ? name : 'home';
   $$('.side a', document).forEach((a) => a.classList.toggle('active', a.dataset.view === v || (v === 'application' && a.dataset.view === 'applications') || (v === 'resume' && a.dataset.view === 'resumes')));
-  // Leaving a saved resume: keep the last few keystrokes.
-  if (currentResumeId && (v !== 'resume' || id !== currentResumeId) && ed.appId === currentResumeId) saveNow();
+  // Leaving a resume (saved or an application's): keep the last few keystrokes.
+  if (ed.dirty && ed.appId && id !== ed.appId) saveNow();
   currentResumeId = v === 'resume' ? id : null;
   if (v !== 'application' || id !== currentAppId) {
     if (v === 'application') appTab = openTab || 'auto';

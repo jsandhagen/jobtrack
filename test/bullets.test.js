@@ -62,6 +62,19 @@ test('header splitting handles "Company — Title" order and "at"', () => {
   assert.deepEqual([h.title, h.organization], ['Staff Accountant', 'Contoso Health']);
 });
 
+test('ranking prefers documented impact over keyword-only bullets', () => {
+  const bank = emptyBank();
+  const e = { id: 'e1', title: 'Risk Analyst', organization: 'Acme', end: 'Present', start: '2022', dates: '2022 – Present' };
+  bank.experiences.push(e);
+  bank.bullets.push(
+    { id: 'keyword', experienceId: 'e1', text: 'Used SQL for credit risk analysis', variants: [] },
+    { id: 'impact', experienceId: 'e1', text: 'Built SQL credit risk models used by 12 analysts to improve underwriting decisions', variants: [] }
+  );
+  const { ranked } = rankBullets({ text: 'Requirements\n- SQL\n- credit risk analysis\n- underwriting' }, bank);
+  assert.equal(ranked[0].id, 'impact');
+  assert.ok(ranked[0].evidenceStrength > ranked[1].evidenceStrength);
+});
+
 test('ranking puts bullets that prove required skills first, and picks the best wording', () => {
   const { bank } = bankFromBoth();
   const { ranked, evidence } = rankBullets(POSTINGS.seniorFrontend, bank);

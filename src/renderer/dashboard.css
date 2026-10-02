@@ -1006,3 +1006,28 @@ p.way-next { display: flex; }
 .rprog-text { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 13px; color: var(--ink-soft); }
 .rprog-text b { color: var(--ink); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .rprog-bar i { transition: none; } }
+
+/* Sprout's nudges on the ATS check: a few kind words instead of a wall of misses */
+.nudges { display: grid; gap: 8px; margin: 14px 0 6px; }
+.nudges.compact { margin: 0; }
+.nudge-head { display: flex; align-items: center; gap: 10px; }
+.nudge-head p { margin: 0; font-weight: 700; color: var(--ink-soft); line-height: 1.4; }
+.nudge { display: flex; gap: 10px; align-items: flex-start; border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.45; background: var(--butter-soft); }
+.nudge p { margin: 0; }
+.nudge .ni { flex: none; width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--ink-soft); }
+.nudge.t-done, .nudge.t-fixed { background: var(--sage-soft); }
+.nudge.t-done .ni, .nudge.t-fixed .ni { color: var(--sage-deep); }
+.nudge.t-ask { background: var(--lavender-soft); }
+.nudge.t-heads-up { background: var(--peach-soft); }
+.nudge-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.nudge-more { margin: 2px 4px 0; font-size: 12px; }
+.ats-more { margin-top: 10px; }
+.ats-more > summary { cursor: pointer; }
+.tray-fold > summary { display: flex; align-items: center; }
+.tray-fold > summary h4 { flex: 1; margin: 0; }
+.tray-fold[open] > summary { margin-bottom: 6px; }
+.tray-fold > summary h4 > span { display: inline-flex; align-items: center; gap: 6px; }
+.tray-fold .n { min-width: 17px; height: 17px; border-radius: 9px; background: var(--butter-soft); color: #a0651c; font-size: 10.5px; display: inline-grid; place-items: center; padding: 0 4px; }
+.nudge-literal { display: flex; align-items: center; gap: 6px; margin: -2px 2px 2px; font-size: 12px; color: var(--ink-faint); }
+.ats-plain { margin-top: 4px; font-size: 13px; color: var(--ink-soft); line-height: 1.4; max-width: 220px; }
+.show-more { display: flex; justify-content: center; margin: 12px 0 4px; }

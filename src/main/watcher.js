@@ -48,7 +48,7 @@ class PostingWatcher extends EventEmitter {
    * @param {object} deps
    * @param {() => string|Promise<string>} deps.readClipboard
    * @param {(size:{width:number,height:number}) => Promise<{bitmap:Buffer, png:Buffer}|null>} deps.captureScreen
-   * @param {(png:Buffer, opts:{force:boolean}) => Promise<object>} deps.readScreen  OCR and/or Claude
+   * @param {(shot:Buffer|NativeImage, opts:{force:boolean}) => Promise<object>} deps.readScreen  OCR and/or Claude (given the image when there is one, else the PNG)
    * @param {() => boolean} [deps.isAppFocused]
    */
   constructor(deps) {
@@ -139,7 +139,7 @@ class PostingWatcher extends EventEmitter {
       const shot = await this.deps.captureScreen('full');
       if (!shot) return null;
       if (onScanning) onScanning();
-      const job = await this.deps.readScreen(shot.png, { force });
+      const job = await this.deps.readScreen(shot.image || shot.png, { force });
       if (!job.is_job_posting || !job.posting_text || job.posting_text.length < 200) return null;
       if (!force && !this._isNewOnScreen(job)) return null;
       return { text: job.posting_text, title: job.title, company: job.company, location: job.location, url: job.page_url || '', via: 'screen' };

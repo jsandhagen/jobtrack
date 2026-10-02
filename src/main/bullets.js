@@ -526,6 +526,19 @@ function recencyBonus(exp) {
   return age <= 0 ? 0.6 : age <= 3 ? 0.35 : age <= 7 ? 0.1 : 0;
 }
 
+// Evidence strength rewards accomplishments that show consequence, scope or ownership
+// without requiring a number. This keeps the optimizer from treating "has a keyword"
+// as equivalent to "proves the candidate can do the work".
+function evidenceStrength(text) {
+  const t = lower(text);
+  let score = 0;
+  if (/(?:\b\d[\d,.]*%?|\$\s?\d|\b(?:doubled|tripled|halved|reduced|increased|improved|saved|grew|cut|raised|lowered|accelerated|shortened|expanded|delivered)\b)/.test(t)) score += 0.8;
+  if (/(?:\b(?:used by|serving|supporting|across|for|with)\s+\d|\b(?:customers|users|clients|employees|engineers|teams|stakeholders|accounts|locations|offices|business units)\b)/.test(t)) score += 0.45;
+  if (/\b(?:launched|built|designed|developed|implemented|created|migrated|automated|owned|led|managed|drove|delivered|established|introduced|rebuilt)\b/.test(t)) score += 0.3;
+  if (/\b(?:product|platform|system|model|process|program|initiative|framework|strategy|pipeline|application|service)\b/.test(t)) score += 0.2;
+  return Math.min(1.5, score);
+}
+
 /**
  * Score every bullet (and each of its alternative wordings) for a posting.
  * @returns {{ranked: object[], units: object[], evidence: object[]}}
@@ -544,6 +557,13 @@ function writing(text) {
   return v;
 }
 
+// The writing checks' penalties alone (a weak opener, over two lines, "I"/"my"):
+// the result they'd credit is already in evidenceStrength.
+function writingPenalty(text) {
+  const ok = Object.fromEntries(checkBullet(text).map((c) => [c.id, c.ok]));
+  return (ok.opener ? 0 : -0.6) + (ok.length ? 0 : -0.5) + (ok.voice ? 0 : -0.4);
+}
+
 function rankBullets(job, bank) {
   const units = bulletUnits(job);
   const jobTerms = [...significantTerms(job.text).entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => stem(t));
@@ -560,10 +580,13 @@ function rankBullets(job, bank) {
         const coverage = covers.reduce((s, { u, m }) => s + KIND_WEIGHT[u.kind] * m, 0);
         const words = tokens(text);
         const vocab = Math.min(5, jobTerms.filter((j) => words.has(j)).length) * 0.35;
-        const score = coverage + vocab + writing(text) + recencyBonus(exp);
-        if (!best || score > best.score) best = { text, score, covers: covers.map(({ u, m }) => ({ key: u.key, label: u.label, kind: u.kind, m })) };
+        // What it proves (impact, scope, ownership; a number helps but isn't
+        // required), less what the Check tab would flag in how it's written.
+        const quality = evidenceStrength(text) + writingPenalty(text);
+        const score = coverage + vocab + quality + recencyBonus(exp);
+        if (!best || score > best.score) best = { text, score, quality, covers: covers.map(({ u, m }) => ({ key: u.key, label: u.label, kind: u.kind, m })) };
       }
-      return { id: b.id, experienceId: b.experienceId, ...best, isVariant: best.text !== b.text };
+      return { id: b.id, experienceId: b.experienceId, ...best, evidenceStrength: evidenceStrength(best.text), isVariant: best.text !== b.text };
     })
     .sort((a, b) => b.score - a.score);
 
@@ -717,23 +740,26 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     exps.forEach((e, i) => roleMinimum(e, i) >= 3 && topUp(e, i));
     // Then the bullets that prove the most new requirements per line of page.
     const gainOf = (r) => r.covers.reduce((s, c) => s + KIND_WEIGHT[c.kind] * Math.max(0, c.m - (covered.get(c.key) || 0)), 0) * 1.5 + r.score * 0.5;
+    // Whether a bullet is worth room at all is about this posting; how well
+    // it's written decides the order (gainOf), not whether it's relevant.
+    const relevantGain = (r) => gainOf(r) - (r.quality || 0) * 0.5;
     let left = []; // relevant bullets that didn't fit
     while (count < cap && pool.length) {
       const open = pool.filter((r) => picked.get(r.experienceId).length < limits.get(r.experienceId)).map((r) => ({ r, gain: gainOf(r) }));
       // Per line of page, but a second line is free: a bullet with room for its result reads better than a one-line task.
       const cost = (r) => 1 + 0.2 * Math.max(0, lines.get(r.id) - 2);
       const value = (x) => (x.gain / cost(x.r)) * (sameOpener(x.r) ? 0.8 : 1) * (weak(x.r) ? 0.5 : 1);
-      const worth = open.filter((x) => x.gain >= 0.9).sort((a, b) => value(b) - value(a));
+      const worth = open.filter((x) => relevantGain(x.r) >= 0.9).sort((a, b) => value(b) - value(a));
       const next = worth.find((x) => fits(x.r));
       if (!next) {
         // What a second page could add: relevant bullets out of room, or over this page's per-role limit.
-        left = pool.filter((r) => picked.get(r.experienceId).length < roleLimits2.get(r.experienceId) && gainOf(r) >= 0.9);
+        left = pool.filter((r) => picked.get(r.experienceId).length < roleLimits2.get(r.experienceId) && relevantGain(r) >= 0.9);
         break;
       }
       take(next.r);
     }
     // A full page of bullets: what's still relevant is what a second page could add.
-    if (count >= cap && !left.length) left = pool.filter((r) => picked.get(r.experienceId).length < roleLimits2.get(r.experienceId) && gainOf(r) >= 0.9);
+    if (count >= cap && !left.length) left = pool.filter((r) => picked.get(r.experienceId).length < roleLimits2.get(r.experienceId) && relevantGain(r) >= 0.9);
     // Older roles get their minimum next, so each reads as a real job.
     exps.forEach((e, i) => topUp(e, i));
     // A half-empty page reads as thin: top it up with your strongest remaining bullets.
@@ -785,8 +811,9 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     if (one.short) (pick = two), (why = 'Two pages: your roles need more room than one page.');
     else if (gained.length) (pick = two), (why = `Two pages, to also show ${gained.map((k) => units.find((u) => u.key === k).label).join(', ')}.`);
     else if (want === 2) (pick = two), (why = 'Two pages: more of your relevant bullets fit.');
-    // A second page should look intended, not like spill-over (under 30% full, as the editor says).
-    else if (careerYears(bank) >= 10 && one.leftLines >= perPage / 3 && two.fill >= 0.3) (pick = two), (why = 'Two pages: a long career with plenty of relevant bullets.');
+    // A second page should look intended, not like spill-over: about a third
+    // full or more, clear of the 30% the editor calls a thin second page.
+    else if (careerYears(bank) >= 10 && one.leftLines >= perPage / 3 && two.fill >= 0.35) (pick = two), (why = 'Two pages: a long career with plenty of relevant bullets.');
     else why = 'Fits on one page; the bullets left out add nothing new for this posting.';
   }
   if (pick.pages === 1 && pick !== one) why = 'Fits on one page.';
@@ -947,6 +974,7 @@ function pickSkills(job, bank, { max = 15 } = {}) {
   const listed = (bank.skills || []).filter((s) => String(s).trim());
   const bankText = lower(withoutCollaborators([listed.join(', '), ...bank.bullets.filter((b) => !b.hidden).map((b) => b.text)].join('\n')));
   const keys = new Set();
+  const reworded = []; // { from, to }: your word with the posting's alongside
   const found = []; // {name, rank, mentions, pos}
   const add = (name, kind, mentions, term) => {
     // "Roadmap" next to "Roadmaps" or "Product roadmap" says it twice.
@@ -967,7 +995,17 @@ function pickSkills(job, bank, { max = 15 } = {}) {
     // Your words or the posting's, never a label you didn't write ("IT Portfolio Management" for "planning cycle").
     const own = listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s))));
     const label = gridWords(skill).every((w) => bankText.includes(w)) ? skill : null;
-    const name = mine || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : own || label);
+    let name = mine || (hasWord(bankText, term) ? postingWording(jobText, term, skill) : own || label);
+    // Your short form and the posting's long one ("AWS" / "Amazon Web Services"), or the
+    // other way round: strict systems search the posting's words, so the grid says both.
+    if (name && name === own) {
+      const theirs = postingWording(jobText, term, skill);
+      const short = (w) => /^[A-Z][A-Z0-9&+#./-]{1,5}$/.test(w);
+      if ((short(own) || short(theirs)) && norm(theirs) !== norm(own) && theirs.length + own.length <= 30) {
+        name = short(own) ? `${theirs} (${own})` : `${own} (${theirs})`;
+        reworded.push({ from: own, to: name });
+      }
+    }
     if (name) add(name, kind, mentions, term);
   }
   // Your own listed skills the posting names outside the skills dictionary ("Storybook", "HIPAA").
@@ -990,7 +1028,45 @@ function pickSkills(job, bank, { max = 15 } = {}) {
     if (tags.length && tags.every((t) => keys.has(t))) continue;
     other.push(s);
   }
-  return { relevant, other, all: [...relevant, ...other] };
+  return { relevant, other, all: [...relevant, ...other], reworded: reworded.filter((r) => relevant.includes(r.to)) };
+}
+
+// Industries an ATS can't read from an employer's name: the posting asks for
+// "SaaS" and the page has years at Appian, which a recruiter knows is SaaS and
+// a keyword search doesn't. Said once in the summary — after the employer's
+// name if the summary names them, or as a short closing sentence.
+// Returns the doc (changed in place) and what was added.
+function addIndustryWords(doc, job) {
+  const jobText = String((job && job.text) || '');
+  if (!jobText.trim() || !doc) return { doc, added: [] };
+  const jobSkills = classifyJobSkills(jobText);
+  const pageLower = lower([doc.summary, ...(doc.roles || []).flatMap((r) => [`${r.title}, ${r.organization}, ${r.dates}`, ...(r.bullets || []).map((b) => b.text)]), (doc.skills || []).join(', ')].join('\n'));
+  const byEmployer = new Map(); // employer -> [term]
+  const added = [];
+  for (const [skill, re] of Object.entries(EMPLOYER_EVIDENCE)) {
+    if (!jobSkills.has(skill) || SKILLS[skill].some((p) => p.test(pageLower))) continue;
+    const role = (doc.roles || []).find((r) => !r.isProject && r.organization && re.test(lower(`${r.organization}, ${r.dates || ''}`)));
+    if (!role) continue;
+    const term = postingWording(jobText, jobSkills.get(skill).term, skill);
+    if ([...byEmployer.values()].flat().some((t) => norm(t) === norm(term))) continue;
+    byEmployer.set(role.organization, [...(byEmployer.get(role.organization) || []), term]);
+    added.push({ skill, term, employer: role.organization });
+  }
+  for (const [employer, terms] of byEmployer) {
+    const ts = terms.map((t, i) => (i ? t.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()) : t));
+    const words = ts.length > 1 ? `${ts.slice(0, -1).join(', ')} and ${ts[ts.length - 1]}` : ts[0];
+    const summary = String(doc.summary || '');
+    const at = summary.toLowerCase().indexOf(employer.toLowerCase());
+    if (at >= 0 && !summary.slice(at + employer.length).startsWith(' (')) {
+      doc.summary = `${summary.slice(0, at + employer.length)} (${words})${summary.slice(at + employer.length)}`;
+    } else if (summary.trim()) {
+      const lead = words.replace(/^[a-z]/, (c) => c.toUpperCase());
+      doc.summary = `${summary.trim().replace(/[^.!?]$/, '$&.')} ${lead} experience at ${employer}.`;
+    } else {
+      doc.summary = `${words.replace(/^[a-z]/, (c) => c.toUpperCase())} experience at ${employer}.`;
+    }
+  }
+  return { doc, added };
 }
 
 // "postgresql" as the posting writes it ("PostgreSQL").
@@ -1121,7 +1197,8 @@ function fitDocToPages(doc, job, bank, pages = 1, { skills = true, scale = 1 } =
   const over = () => !ResumeDoc.fits(d, pages, { scale });
 
   const jobLower = lower((job && job.text) || '');
-  const asked = new Set(pickSkills(job || { text: '' }, bank || emptyBank()).relevant.map(norm));
+  const picked = pickSkills(job || { text: '' }, bank || emptyBank());
+  const asked = new Set([...picked.relevant, ...picked.reworded.map((r) => r.from)].map(norm));
   const relevantSkill = (s) => asked.has(norm(s)) || hasWord(jobLower, lower(s)) || units.some((u) => u.match(lower(s)) >= 1);
   while (skills && over() && d.skills.length > 9) {
     const i = d.skills.map((s, k) => ({ s, k })).reverse().find(({ s }) => !relevantSkill(s));
@@ -1181,6 +1258,7 @@ function linkDocToBank(doc, bank) {
 module.exports = {
   buildDoc,
   pickSkills,
+  addIndustryWords,
   fitDocToPages,
   baselineDoc,
   linkDocToBank,
@@ -1193,6 +1271,7 @@ module.exports = {
   coverageOf,
   buildResume,
   similarity,
+  evidenceStrength,
   skillTags,
   orderedExperiences,
   resumeExperiences,

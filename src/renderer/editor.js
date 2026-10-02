@@ -8,6 +8,20 @@
 const PAGE_W = 816; // 8.5in at 96 css px/in
 const PX_IN = 96;
 
+// Set by a nudge on the Fit & ATS tab: open the Job match tab on this requirement.
+let edPending = null;
+
+// Open the Job match tab on one requirement, with its bullets from your bank.
+function showRequirement(key) {
+  ed.tab = 'job';
+  ed.filter = key;
+  saveTab();
+  renderTray();
+  highlightFilter();
+  const el = document.querySelector(`#edTray [data-filter="${CSS.escape(key)}"]`);
+  if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
 const ed = {
   appId: null,
   app: null,
@@ -55,6 +69,103 @@ function setPath(obj, path, value) {
     o = o[k];
   }
   o[keys[keys.length - 1]] = value;
+}
+
+// ---------- undo ----------
+//
+// The page is redrawn after every structural edit (a new bullet, a merge, a
+// move), which wipes the browser's own undo. So the editor keeps its own: a
+// snapshot before each change, with a run of typing in one field as one step.
+
+const hist = { past: [], future: [], key: null, at: 0 };
+
+function remember(key = null) {
+  const now = Date.now();
+  if (key && key === hist.key && now - hist.at < 1500) return void (hist.at = now);
+  hist.past.push(JSON.stringify(ed.doc));
+  if (hist.past.length > 200) hist.past.shift();
+  hist.future = [];
+  hist.key = key;
+  hist.at = now;
+}
+
+function forgetHistory() {
+  hist.past = [];
+  hist.future = [];
+  hist.key = null;
+}
+
+function undo(redo = false) {
+  const from = redo ? hist.future : hist.past;
+  if (!from || !from.length) return toast(redo ? 'Nothing to redo.' : 'Nothing to undo.', 'info', 1800);
+  (redo ? hist.past : hist.future).push(JSON.stringify(ed.doc));
+  const keep = activeField();
+  ed.doc = JSON.parse(from.pop());
+  hist.key = null;
+  ed.polish = new Map();
+  renderPaper();
+  if (keep) restoreField(keep);
+  renderTray();
+  scheduleSave(300);
+}
+
+// ---------- caret ----------
+
+// Where the caret is in a field, as character offsets into its text.
+function caretIn(el) {
+  const sel = window.getSelection();
+  const len = el.textContent.length;
+  if (!sel.rangeCount || !el.contains(sel.anchorNode)) return { start: len, end: len, collapsed: true };
+  const r = sel.getRangeAt(0);
+  const at = (node, off) => {
+    const pre = document.createRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(node, off);
+    return pre.toString().length;
+  };
+  const start = at(r.startContainer, r.startOffset);
+  const end = at(r.endContainer, r.endOffset);
+  return { start, end, collapsed: start === end };
+}
+
+function setCaret(el, offset) {
+  el.focus();
+  const sel = window.getSelection();
+  const range = document.createRange();
+  let left = Math.max(0, offset);
+  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let node = walk.nextNode();
+  let placed = false;
+  while (node) {
+    if (left <= node.length) {
+      range.setStart(node, left);
+      placed = true;
+      break;
+    }
+    left -= node.length;
+    node = walk.nextNode();
+  }
+  if (!placed) (range.selectNodeContents(el), range.collapse(false));
+  else range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+// The field you're typing in, to put the caret back after a redraw.
+function activeField() {
+  const el = document.activeElement;
+  if (!el || !el.closest || !el.closest('#edPage') || !el.dataset.path) return null;
+  return { path: el.dataset.path, offset: caretIn(el).start };
+}
+
+function restoreField(keep) {
+  const el = document.querySelector(`#edPage [data-path="${keep.path}"]`);
+  if (el) setCaret(el, Math.min(keep.offset, el.textContent.length));
+}
+
+function focusAt(sel, offset) {
+  const el = document.querySelector(`#edPage ${sel}`);
+  if (el) setCaret(el, offset == null ? el.textContent.length : offset);
 }
 
 function scheduleSave(delay = 700) {
@@ -175,6 +286,8 @@ document.addEventListener('click', (e) => {
 async function renderEditor(appId, app) {
   let slot = document.getElementById('editorSlot');
   if (!slot) return;
+  // Edits not sent yet go to the resume they were made on before anything reloads.
+  if (ed.dirty && ed.appId && ed.appId !== appId) await saveNow();
   injectResumeCss();
   if (ed.appId !== appId) {
     ed.polish = new Map();
@@ -191,7 +304,12 @@ async function renderEditor(appId, app) {
   slot = document.getElementById('editorSlot');
   if (!info || !slot || ed.appId !== appId) return;
   ed.info = info;
-  ed.doc = JSON.parse(JSON.stringify(info.doc));
+  // Typed while this loaded: keep what's on the page (it saves shortly) over what came back.
+  const typing = ed.dirty && ed.doc && ed.loadedFor === appId;
+  if (!typing) ed.doc = JSON.parse(JSON.stringify(info.doc));
+  if (ed.loadedFor !== appId || !typing) forgetHistory();
+  ed.loadedFor = appId;
+  const keep = activeField();
 
   slot.innerHTML = `
     ${modeBar(info)}
@@ -211,11 +329,12 @@ async function renderEditor(appId, app) {
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
         </div>
-        <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click the page to edit · Enter = new bullet · drag a bullet’s grip (right margin) to move it, or onto the side panel to remove it</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
+        <div class="ed-desk" id="edDesk"><span class="ed-hint">${icon('pencil', 12)} Click to type · Enter = new bullet · ${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl+'}Z = undo · drag a bullet’s grip (right margin) to move it, or off the page to remove it</span><div class="ed-zoom" id="edZoom"><div class="rs-page ed-page" id="edPage"></div></div></div>
       </div>
       <aside class="ed-tray" id="edTray"></aside>
     </div>`;
   renderPaper();
+  if (keep) restoreField(keep);
   renderTray();
   fitZoom();
 
@@ -227,6 +346,11 @@ async function renderEditor(appId, app) {
   len.addEventListener('change', () => setLength(len.value));
   $('#edFit', slot).addEventListener('click', (e) => fitToPages(e.currentTarget, +e.currentTarget.dataset.pages));
   wirePaper();
+  if (edPending) {
+    const { filter } = edPending;
+    edPending = null;
+    showRequirement(filter);
+  }
 }
 
 // A new saved resume from the one on screen (an application's, or a duplicate of a saved one).
@@ -290,6 +414,8 @@ function fitZoom() {
   zoom.style.zoom = z;
 }
 window.addEventListener('resize', () => fitZoom());
+// Closing the window (Sprout stays in the tray): send the last keystrokes.
+window.addEventListener('beforeunload', () => ed.dirty && saveNow());
 
 // Dashed page-break guides, like a word processor. Measured as the page will
 // print: without the editor's "+ add" rows and empty placeholders.
@@ -427,7 +553,7 @@ async function fitToPages(btn, pages) {
 
 // ---------- tray ----------
 //
-// Three rings up top (requirements shown, ATS match, strong bullets), then
+// Three rings up top (requirements shown, ATS visibility, strong bullets), then
 // three tabs: Bullets (edit and add), Check (how well it's written) and Job
 // match (how well it fits this posting, and the score behind it). The tray
 // never switches tabs by itself.
@@ -472,8 +598,11 @@ function checkRow(c, key) {
   const spec = ResumeCheck.CHECKS[c.id];
   const open = ed.why.has(key);
   const move = c.moves && c.moves.length ? `<span class="fix">${c.moves.map((m) => `<button class="small soft" data-move-best="${m.r}:${m.best}">Move the strongest to the top of ${esc(m.role)}</button>`).join(' ')}</span>` : '';
+  const long = c.long && c.long.length
+    ? `<span class="fix">${c.long.map((l) => (l.parts ? `<button class="small soft" data-split-skill="${l.i}" title="${esc(l.parts.join(' · '))}">Split “${quote(l.text, 28)}” into ${l.parts.length}</button>` : `<button class="small ghost" data-goto-skill="${l.i}">Shorten “${quote(l.text, 28)}”</button>`)).join(' ')}</span>`
+    : '';
   return `<li class="${c.ok ? 'ok' : 'no'}"><span class="m">${c.ok ? '✓' : '!'}</span><span>${esc(c.label)}</span><button class="why" data-why="${esc(key)}" aria-expanded="${open}">${open ? 'Hide' : 'Why?'}</button>
-    ${!c.ok && c.fix ? `<span class="fix">${esc(c.fix)}</span>` : ''}${move}
+    ${!c.ok && c.fix ? `<span class="fix">${esc(c.fix)}</span>` : ''}${move}${long}
     ${open ? `<span class="expl">${esc(spec.why)}<span class="how"><b>How Sprout checks:</b> ${esc(spec.how)}</span></span>` : ''}</li>`;
 }
 
@@ -497,7 +626,7 @@ function renderTray() {
   const head = `<div class="tray-top">
     <div class="tray-card tray-head"><div class="tray-score">
       ${aimed ? tile('job', reqPct, req.length <= 12 ? req.length : 0, `${covered}/${req.length}`, 'requirements', 'Requirements a bullet on the page shows') : ''}
-      ${aimed ? tile('job', info.ats.score, 0, `${info.ats.score}%`, `ATS match${info.ats.grade ? ` <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}`, 'How applicant tracking systems would read this resume') : ''}
+      ${aimed ? tile('job', info.ats.score, 0, `${info.ats.score}%`, 'ATS visibility', 'How easily screening software finds this resume when recruiters search for this posting') : ''}
       ${tile('check', strongPct, pc.total && pc.total <= 12 ? pc.total : 0, `${pc.strong}/${pc.total}`, 'strong bullets', 'Bullets that pass every check')}
     </div></div>
     <div class="tray-tabs" role="tablist">${TABS.map(([k, label]) => `<button role="tab" data-tab="${k}" aria-selected="${ed.tab === k}" class="${ed.tab === k ? 'on' : ''}">${label}${k === 'check' && tips ? ` <span class="n">${tips}</span>` : ''}${k === 'job' && aimed && req.length - covered ? ` <span class="n">${req.length - covered}</span>` : ''}</button>`).join('')}</div>
@@ -566,6 +695,7 @@ function focusPanel(pc) {
   return `<div class="tray-card focus">
     <h4>This bullet</h4>
     ${b.flag ? `<div class="flag-note">${icon('warn', 15)} Check this: ${esc(b.flag)} <button class="small ghost" data-clear-flag="${f.r}:${f.b}">It's accurate</button></div>` : ''}
+    ${!text.trim() ? `<p class="faint" style="margin:0">Start with what you did (Built, Cut, Led…) and end with what came of it. Enter starts another bullet; Backspace on an empty one removes it.</p>` : ''}
     ${meta && meta.covers.length ? `<div>${coverChips(meta.covers)}</div>` : ''}
     ${mine ? (misses.length ? `<button class="mini-check" data-tab-go="check"><b>${misses.length} tip${misses.length === 1 ? '' : 's'}</b><span>${esc(misses.map((c) => c.label.toLowerCase()).join(' · '))}</span><i>Check →</i></button>` : `<div class="mini-check ok"><b>✓ Strong bullet</b><span>passes every check</span></div>`) : ''}
     ${sug ? `<div class="suggest"><b>${icon('sparkle', 15)} Suggested:</b> ${esc(sug.text)}${sug.why ? ` <span class="faint">(${esc(sug.why)})</span>` : ''}<div class="inline" style="margin-top:4px"><button class="small soft" data-use-sug>Use it</button><button class="small ghost" data-drop-sug>Keep mine</button></div></div>` : ''}
@@ -592,7 +722,7 @@ function checkPane(pc) {
     : `<p class="tray-hint">${icon('pencil', 13)} Click a bullet on the page to check it here.</p>`;
   const resumeCard = pc.total
     ? `<div class="tray-card"><h4><span>Resume check</span></h4>
-      <div class="qbar"><div><b>${pc.withResult} of ${pc.total}</b>show a result</div><div><b>${weak}</b>weak opener${weak === 1 ? '' : 's'}</div><div><b>${first && !first.ok ? '!' : '✓'}</b>best bullet first</div></div>
+      <div class="qbar"><div><b>${pc.withResult} of ${pc.total}</b>show a result</div><div><b>${weak}</b>opener${weak === 1 ? '' : 's'} to liven up</div><div><b>${first && !first.ok ? '!' : '✓'}</b>best bullet first</div></div>
       <ul class="qcheck">${pc.resume.map((c) => checkRow(c, `r:${c.id}`)).join('')}</ul>
       ${others.length ? `<div class="tray-role" style="margin-top:12px">Other bullets with tips (${others.length})</div>${others
         .slice(0, 10)
@@ -655,7 +785,7 @@ function jobPane() {
   const info = ed.info;
   const aimed = !info.standalone || info.hasTarget;
   const defaults = `<div class="faint tray-foot">Make this resume's <a href="#" data-default="header">header</a> · <a href="#" data-default="summary">summary</a> · <a href="#" data-default="skills">skills</a> · <a href="#" data-default="education">education</a> your default for new resumes.</div>`;
-  if (!aimed) return `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS match.</p></div>${defaults}`;
+  if (!aimed) return `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS visibility.</p></div>${defaults}`;
   const units = new Map((info.units || []).map((u) => [u.key, u]));
   const proofs = (key) => {
     const out = [];
@@ -672,7 +802,7 @@ function jobPane() {
     let line;
     if (c.covered) line = shown.length === 1 ? `“${quote(shown[0].text, 70)}”` : shown.length ? `${shown.length} bullets show it` : 'Shown on the page';
     else if (c.skillsOnly) line = 'Only in your skills list. A bullet showing it is stronger.';
-    else line = from.length ? `Not on the page. ${from.length} bullet${from.length === 1 ? '' : 's'} in your bank show${from.length === 1 ? 's' : ''} it.` : 'Not on the page, and no bullet in your bank shows it.';
+    else line = from.length ? `Not on the page. ${from.length} bullet${from.length === 1 ? '' : 's'} in your bank show${from.length === 1 ? 's' : ''} it.` : "Not on the page yet. If you've done this, a short bullet about it will cover it.";
     let detail = '';
     if (open) {
       if (c.covered) detail = shown.length > 1 ? shown.map((s) => `<span class="src">“${quote(s.text, 80)}”</span>`).join('') : '';
@@ -695,24 +825,25 @@ function jobPane() {
   const gapRow = (g, i) => `<div class="jm-req gap ats-gap">
       <span class="m">${g.type === 'knockout' ? '!' : '○'}</span><b>“${esc(g.phrase)}”</b><span class="faint">${GAP_LABEL[g.type]}</span>
       <span class="src">${esc(g.why)}</span>
-      ${g.closest ? `<span class="src">Closest: “${quote(g.closest.text, 80)}”</span><span class="src"><button class="small ghost" data-gap-edit="${i}">Edit this bullet</button> <span class="faint">copies “${esc(g.phrase)}”</span></span>` : '<span class="src">No bullet on the page is close. If you have done this, add a bullet that says so.</span>'}
+      ${g.closest ? `<span class="src">Closest: “${quote(g.closest.text, 80)}”</span><span class="src"><button class="small ghost" data-gap-edit="${i}">Edit this bullet</button> <span class="faint">copies “${esc(g.phrase)}”</span></span>` : '<span class="src">Nothing on the page says this yet. If you\'ve done it, a short bullet will cover it.</span>'}
     </div>`;
-  const skillTip = /^(?:Required skill not found|Required: any one of|Use the posting's exact wording|Nice-to-have)/;
+  const skillTip = /^(?:Required: |Use the posting's exact wording|Nice to have: )/;
   const otherTips = info.ats.tips.filter((t) => !skillTip.test(t)).slice(0, 5);
   ed.gaps = gaps;
-  return `${gaps.length ? `<div class="tray-card"><h4><span>Words the screen looks for</span></h4>
-      <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. Recruiters search an ATS for them, and a required one can screen you out. Use each only where it's true of you: the closest bullet is a place to start.</p>
-      ${gaps.map(gapRow).join('')}</div>` : ''}
+  return `${info.nudges ? `<div class="tray-card">${nudgeCard(info.nudges, { appId: ed.appId, compact: true })}</div>` : ''}
+    ${gaps.length ? `<details class="tray-card tray-fold"><summary><h4><span>Words the screen looks for</span> <span class="n">${gaps.length}</span></h4></summary>
+      <p class="faint" style="margin:0 0 6px">The posting's own words this page doesn't say yet. The software matches them literally, so it's about wording, not about you. Use each only where it's true of you: the closest bullet is a place to start.</p>
+      ${gaps.map(gapRow).join('')}</details>` : ''}
     <div class="tray-card">
       <h4>What the posting asks for</h4>
       ${info.coverage.length ? `<div class="jm-legend"><span>✓ a bullet shows it</span><span>½ skills list only</span><span>○ not shown</span></div>${reqs.map(row).join('')}${prefs.map(row).join('')}<p class="faint" style="margin:8px 0 0">Tap one to highlight its bullets on the page, or to see bullets from your bank that would show it.</p>` : '<p class="muted" style="margin:0">Sprout couldn\'t find specific requirements in this posting.</p>'}
     </div>
-    <div class="tray-card"><h4><span>How the ATS match adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4>
+    <details class="tray-card tray-fold"><summary><h4><span>How ATS visibility adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4></summary>
       ${bars || '<p class="muted" style="margin:0">No breakdown for this posting.</p>'}
       ${bars ? '<p class="faint" style="margin:6px 0 0">Parts that don\'t apply to this posting are left out and the rest re-weighted.</p>' : ''}
       ${otherTips.length ? `<div class="tray-role" style="margin-top:12px">Also</div><ul class="tidy" style="margin:4px 0 0">${otherTips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
       <p class="honest">Applicant tracking systems mostly rank and search; few reject on a match score alone. Use this to make sure the posting's words for skills you really have are on the page. <a href="#" data-guide>More →</a></p>
-    </div>
+    </details>
     ${defaults}`;
 }
 
@@ -769,7 +900,7 @@ function openGuide() {
     <p>Here is everything Sprout's resume checks are based on, how each one is measured, and what they can't tell you.</p>
     <h3>Your resume gets read twice</h3>
     <div class="two">
-      <div><b>1. Searched by software.</b> Recruiters search their applicant tracking system for keywords and filter on knockout questions (location, work authorization, years). Most systems don't reject you for a low match score; you rank lower in a search.<br><i>So:</i> use the posting's own words for skills you really have. The ATS match on the Job match tab checks this.</div>
+      <div><b>1. Searched by software.</b> Recruiters search their applicant tracking system for keywords and filter on knockout questions (location, work authorization, years). Most systems don't reject you for a low match score; you rank lower in a search.<br><i>So:</i> use the posting's own words for skills you really have. ATS visibility on the Job match tab checks this.</div>
       <div><b>2. Skimmed by a person</b>, often in under a minute, mostly the top third and the first bullet or two of each role.<br><i>So:</i> name the role up top, lead with your strongest proof, and show results. The Check tab checks this.</div>
     </div>
     <h3>Each bullet</h3>
@@ -793,6 +924,18 @@ function gotoBullet(r, b) {
 }
 
 function wireTray() {
+  // "I've used it" on a nudge: into your bank's skills, then the tray reads it again.
+  $$('#edTray [data-have]', document).forEach((b) =>
+    b.addEventListener('click', () =>
+      run(b, async () => {
+        const bank = await S.getBank();
+        const skills = bank.skills || [];
+        if (!skills.some((x) => x.toLowerCase() === b.dataset.have.toLowerCase())) await S.updateBank({ skills: [...skills, b.dataset.have] });
+        toast(`Added ${b.dataset.have} to the skills in your bullet bank. Optimize again to put it on this page.`, 'good', 5000);
+        await saveNow();
+      }, '…')
+    )
+  );
   const tray = document.getElementById('edTray');
   $$('[data-tab]', tray).forEach((b) => b.addEventListener('click', () => ((ed.tab = b.dataset.tab), saveTab(), renderTray(), (tray.scrollTop = 0))));
   $$('[data-tab-go]', tray).forEach((b) => b.addEventListener('click', () => ((ed.tab = b.dataset.tabGo), saveTab(), renderTray(), (tray.scrollTop = 0))));
@@ -828,6 +971,25 @@ function wireTray() {
     btn.addEventListener('click', () => {
       const [r, b] = btn.dataset.moveBest.split(':').map(Number);
       if (ed.doc.roles[r] && ed.doc.roles[r].bullets[b]) moveBullet({ r, b }, { r, b: 0 });
+    })
+  );
+  // A skill that's really a list: one per skill, in the same place.
+  $$('[data-split-skill]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const i = +btn.dataset.splitSkill;
+      const parts = ResumeDoc.splitSkill(ed.doc.skills[i] || '');
+      if (parts.length < 2) return;
+      remember();
+      ed.doc.skills.splice(i, 1, ...parts);
+      renderPaper();
+      renderTray();
+      saveNow();
+    })
+  );
+  $$('[data-goto-skill]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const el = document.querySelector(`#edPage [data-path="skills.${btn.dataset.gotoSkill}"]`);
+      if (el) (el.scrollIntoView({ block: 'center', behavior: 'smooth' }), setCaret(el, el.textContent.length));
     })
   );
   $$('[data-filter]', tray).forEach((el) => {
@@ -880,6 +1042,7 @@ function wireTray() {
       const f = ed.focus;
       const meta = ed.info.roles[f.r].bullets[f.b];
       const text = meta.wordings.filter((x) => x !== ed.doc.roles[f.r].bullets[f.b].text)[+w.dataset.wording];
+      remember();
       ed.doc.roles[f.r].bullets[f.b].text = text;
       renderPaper(`li[data-role="${f.r}"][data-bullet="${f.b}"]`);
       saveNow();
@@ -907,6 +1070,7 @@ function wireTray() {
     )
   );
   const useSug = (key) => {
+    remember('suggestions');
     const [r, b] = key.split(':').map(Number);
     const s = ed.polish.get(key);
     if (s && ed.doc.roles[r] && ed.doc.roles[r].bullets[b]) ed.doc.roles[r].bullets[b].text = s.text;
@@ -922,6 +1086,7 @@ function wireTray() {
     btn.addEventListener('click', () => {
       const [r, b] = btn.dataset.clearFlag.split(':').map(Number);
       const bl = ed.doc.roles[r] && ed.doc.roles[r].bullets[b];
+      remember();
       if (bl) delete bl.flag;
       renderPaper();
       saveNow();
@@ -964,6 +1129,7 @@ function saveTab() {
 // ---------- structural edits ----------
 
 function insertBullet(r, index, bullet) {
+  remember();
   ed.doc.roles[r].bullets.splice(index, 0, bullet);
   shiftPolish(r, index, +1);
   renderPaper(`li[data-role="${r}"][data-bullet="${index}"]`);
@@ -971,6 +1137,7 @@ function insertBullet(r, index, bullet) {
 }
 
 function removeBullet(r, b, focusPrev) {
+  remember();
   ed.doc.roles[r].bullets.splice(b, 1);
   ed.polish.delete(`${r}:${b}`);
   shiftPolish(r, b + 1, -1);
@@ -981,6 +1148,7 @@ function removeBullet(r, b, focusPrev) {
 }
 
 function moveBullet(from, to) {
+  remember();
   const [item] = ed.doc.roles[from.r].bullets.splice(from.b, 1);
   let idx = to.b;
   if (from.r === to.r && from.b < to.b) idx--;
@@ -1003,6 +1171,7 @@ function shiftPolish(r, from, delta) {
 }
 
 function insertRole(role) {
+  remember();
   const jobs = ed.doc.roles.filter((r) => !r.isProject).length;
   const at = role.isProject ? ed.doc.roles.length : jobs;
   ed.doc.roles.splice(at, 0, role);
@@ -1023,38 +1192,91 @@ function wirePaper() {
     let text = el.innerText.replace(/\n+/g, ' ');
     if (!text.trim()) el.innerHTML = '';
     if (/\.label$/.test(el.dataset.path)) text = text.replace(/:\s*$/, '');
+    remember(`type:${el.dataset.path}`);
     setPath(ed.doc, el.dataset.path, text);
+    // A skill getting long: the grid goes two across as you type, as it will print.
+    const grid = el.closest('.rs-skills');
+    if (grid) grid.classList.toggle('rs-cols-2', ResumeDoc.skillColumns(ed.doc.skills) === 2);
     requestAnimationFrame(() => (drawGuides(), placeTools(), markPage(pageChecks())));
     scheduleSave();
   });
 
+  // The browser's Edit → Undo would only undo inside one field: use the page's.
+  page.addEventListener('beforeinput', (e) => {
+    if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') return;
+    e.preventDefault();
+    undo(e.inputType === 'historyRedo');
+  });
+
   page.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return; // typing with an input method
+    const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (mod && (k === 'z' || k === 'y')) {
+      e.preventDefault();
+      return undo(k === 'y' || e.shiftKey);
+    }
     const el = e.target.closest('[data-path]');
     if (!el) return;
-    const li = el.matches('li.rs-bullet') ? el : null;
-    const skill = el.matches('li.rs-skill') ? el : null;
+    const list = listOf(el);
+    const text = el.textContent;
+    const c = caretIn(el);
+
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (li) insertBullet(+li.dataset.role, +li.dataset.bullet + 1, { bulletId: null, text: '' });
-      else if (skill) {
-        const i = +skill.dataset.skill + 1;
-        ed.doc.skills.splice(i, 0, '');
-        renderPaper(`[data-path="skills.${i}"]`);
-      }
+      // A bullet or skill splits at the caret, like a word processor.
+      if (list) return splitAt(list, text, c);
+      // Elsewhere, Enter goes on to the next thing to fill in.
+      const next = neighbour(el, +1);
+      if (next) setCaret(next, 0);
       return;
     }
-    if (e.key === 'Backspace' && !el.innerText.trim()) {
-      if (li) {
-        e.preventDefault();
-        removeBullet(+li.dataset.role, +li.dataset.bullet, true);
-      } else if (skill) {
-        e.preventDefault();
-        const i = +skill.dataset.skill;
-        ed.doc.skills.splice(i, 1);
-        renderPaper(i > 0 ? `[data-path="skills.${i - 1}"]` : null);
-        saveNow();
-      }
+    if (e.key === 'Backspace' && c.collapsed && c.start === 0 && list) {
+      if (!text.trim() || list.i > 0) e.preventDefault();
+      if (!text.trim()) return dropItem(list, -1);
+      if (list.i > 0) return joinItems(list, list.i - 1);
+      return;
     }
+    if (e.key === 'Delete' && c.collapsed && c.start === text.length && list) {
+      if (!text.trim() && list.len > 1) return (e.preventDefault(), dropItem(list, +1));
+      if (list.i < list.len - 1) return (e.preventDefault(), joinItems(list, list.i));
+      return;
+    }
+    if (mod || e.shiftKey || e.altKey) return;
+    // Arrow keys move between fields as if the page were one document.
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const dir = e.key === 'ArrowUp' ? -1 : 1;
+      if (!onEdgeLine(el, dir, c)) return;
+      const x = caretX(el);
+      const to = neighbour(el, dir, x);
+      if (!to) return;
+      e.preventDefault();
+      placeNear(to, dir, x);
+    } else if (e.key === 'ArrowLeft' && c.collapsed && c.start === 0) {
+      const to = neighbour(el, -1);
+      if (to) (e.preventDefault(), setCaret(to, to.textContent.length));
+    } else if (e.key === 'ArrowRight' && c.collapsed && c.start === text.length) {
+      const to = neighbour(el, +1);
+      if (to) (e.preventDefault(), setCaret(to, 0));
+    }
+  });
+
+  // Pasting: plain text only. Several lines into a bullet become bullets
+  // (their ●, - or 1. dropped); a list pasted into a skill becomes skills.
+  page.addEventListener('paste', (e) => {
+    const el = e.target.closest && e.target.closest('[data-path]');
+    if (!el) return;
+    e.preventDefault();
+    const raw = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    const list = listOf(el);
+    const c = caretIn(el);
+    const GLYPH = /^\s*(?:[●•▪◦○■□➢➤►▶✓✔·*\-–—]|\d{1,2}[.)])\s+/;
+    const rows = raw.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    let pieces = rows.length > 1 || (list && c.start === 0) ? rows.map((l) => l.replace(GLYPH, '').trim()).filter(Boolean) : rows;
+    if (list && list.kind === 'skill') pieces = pieces.flatMap((l) => ResumeDoc.splitSkill(l));
+    if (!pieces.length) return;
+    if (list && pieces.length > 1) return pasteItems(list, el.textContent, c, pieces);
+    document.execCommand('insertText', false, pieces.join(' '));
   });
 
   page.addEventListener('focusin', (e) => {
@@ -1070,13 +1292,16 @@ function wirePaper() {
     if (add) {
       if (add.dataset.addBullet !== undefined) insertBullet(+add.dataset.addBullet, ed.doc.roles[+add.dataset.addBullet].bullets.length, { bulletId: null, text: '' });
       else if (add.hasAttribute('data-add-skill')) {
+        remember();
         ed.doc.skills.push('');
         renderPaper(`[data-path="skills.${ed.doc.skills.length - 1}"]`);
       } else if (add.hasAttribute('data-add-edu')) {
+        remember();
         ed.doc.education.push({ school: '', location: '', degree: '', dates: '', lines: [] });
         renderPaper(`[data-path="education.${ed.doc.education.length - 1}.school"]`);
       } else if (add.dataset.addEduline !== undefined) {
         const i = +add.dataset.addEduline;
+        remember();
         ed.doc.education[i].lines.push({ label: 'Relevant Courses', text: '' });
         renderPaper(`[data-path="education.${i}.lines.${ed.doc.education[i].lines.length - 1}.text"]`);
       } else if (add.dataset.addRole) openRoleMenu(add);
@@ -1104,6 +1329,7 @@ function wirePaper() {
         askConfirm('Take this role off just this resume, or leave it off every resume from now on? Its bullets stay in your bullet bank either way.', 'Just this resume', { alt: 'Every resume' }).then(async (yes) => {
           if (!yes || ed.doc.roles[r] === undefined) return;
           const role = ed.doc.roles[r];
+          remember();
           // Every resume: the bank remembers to leave it off from now on.
           if (yes === 'alt' && role.experienceId) {
             await S.saveRole({ id: role.experienceId, hidden: true });
@@ -1117,6 +1343,7 @@ function wirePaper() {
           saveNow();
         });
       if (roleTool.dataset.roleTool === 'up' && r > 0) {
+        remember();
         [ed.doc.roles[r - 1], ed.doc.roles[r]] = [ed.doc.roles[r], ed.doc.roles[r - 1]];
         ed.polish = new Map();
         ed.held = [];
@@ -1189,6 +1416,173 @@ function wirePaper() {
     if (data.fromTray) insertBullet(r, index, { bulletId: data.bulletId, text: data.text });
     else if (data.move) moveBullet(data.move, { r, b: index });
   });
+}
+
+// ---------- lists on the page: bullets and skills ----------
+//
+// A bullet or a skill field, as the list it belongs to, so Enter, Backspace,
+// Delete and paste work the same way in both.
+function listOf(el) {
+  if (el.matches('li.rs-bullet')) {
+    const r = +el.dataset.role;
+    const bullets = ed.doc.roles[r] && ed.doc.roles[r].bullets;
+    if (!bullets) return null;
+    return {
+      kind: 'bullet',
+      i: +el.dataset.bullet,
+      len: bullets.length,
+      text: (k) => bullets[k].text || '',
+      set: (k, t) => void (bullets[k].text = t),
+      insert: (k, t) => (bullets.splice(k, 0, { bulletId: null, text: t }), shiftPolish(r, k, +1)),
+      remove: (k) => {
+        bullets.splice(k, 1);
+        ed.polish.delete(`${r}:${k}`);
+        shiftPolish(r, k + 1, -1);
+      },
+      // Joining two bullets: the first keeps its place in your bank (the second's if the first was empty).
+      join: (k) => {
+        const [a, b] = [bullets[k], bullets[k + 1]];
+        if (!String(a.text || '').trim()) a.bulletId = b.bulletId;
+        if (b.flag && !a.flag) a.flag = b.flag;
+      },
+      sel: (k) => `li[data-role="${r}"][data-bullet="${k}"]`,
+      key: (k) => `${r}:${k}`,
+    };
+  }
+  if (el.matches('li.rs-skill')) {
+    const skills = ed.doc.skills;
+    return {
+      kind: 'skill',
+      i: +el.dataset.skill,
+      len: skills.length,
+      text: (k) => skills[k] || '',
+      set: (k, t) => void (skills[k] = t),
+      insert: (k, t) => void skills.splice(k, 0, t),
+      remove: (k) => void skills.splice(k, 1),
+      join: () => {},
+      sel: (k) => `[data-path="skills.${k}"]`,
+      key: () => '',
+    };
+  }
+  return null;
+}
+
+function afterListEdit(list, k, offset) {
+  ed.focus = null;
+  renderPaper();
+  focusAt(list.sel(k), offset);
+  saveNow();
+}
+
+// Enter: split at the caret. At the very start, a new empty one goes above
+// and the caret stays with the text.
+function splitAt(list, text, c) {
+  remember();
+  const before = text.slice(0, c.start).replace(/\s+$/, '');
+  const after = text.slice(c.end).replace(/^\s+/, '');
+  if (!before && after) {
+    list.insert(list.i, '');
+    return afterListEdit(list, list.i + 1, 0);
+  }
+  if (after) ed.polish.delete(list.key(list.i)); // a suggestion for the whole bullet no longer fits either half
+  list.set(list.i, before);
+  list.insert(list.i + 1, after);
+  afterListEdit(list, list.i + 1, 0);
+}
+
+// Backspace at the start of item k+1, or Delete at the end of item k: one item.
+function joinItems(list, k) {
+  remember();
+  const a = list.text(k).replace(/\s+$/, '');
+  const b = list.text(k + 1).replace(/^\s+/, '');
+  const glue = a && b ? ' ' : '';
+  ed.polish.delete(list.key(k));
+  list.join(k);
+  list.set(k, a + glue + b);
+  list.remove(k + 1);
+  afterListEdit(list, k, a.length + glue.length);
+}
+
+// Backspace in an empty item goes to the one before; Delete to the one after.
+function dropItem(list, dir) {
+  remember();
+  list.remove(list.i);
+  if (dir < 0 && list.i > 0) return afterListEdit(list, list.i - 1, null);
+  ed.focus = null;
+  renderPaper();
+  if (list.i < list.len - 1) focusAt(list.sel(list.i), 0);
+  saveNow();
+}
+
+function pasteItems(list, text, c, pieces) {
+  remember();
+  const before = text.slice(0, c.start);
+  const after = text.slice(c.end);
+  const last = pieces.length - 1;
+  list.set(list.i, (before + pieces[0]).replace(/\s+/g, ' '));
+  for (let j = 1; j <= last; j++) list.insert(list.i + j, pieces[j] + (j === last ? after : ''));
+  afterListEdit(list, list.i + last, pieces[last].length);
+  toast(`Pasted as ${pieces.length} ${list.kind === 'skill' ? 'skills' : 'bullets'}. Ctrl+Z puts it back.`, 'good', 2600);
+}
+
+// ---------- moving between fields ----------
+
+function pageFields() {
+  return [...document.querySelectorAll('#edPage [data-path][contenteditable]')].filter((f) => f.offsetParent);
+}
+
+// The next field in reading order (dir ±1); with x, the nearest field on the
+// line above or below instead (employer → title, not employer → location).
+function neighbour(el, dir, x) {
+  const all = pageFields();
+  if (x == null) return all[all.indexOf(el) + dir] || null;
+  const r = el.getBoundingClientRect();
+  const cands = all
+    .filter((f) => f !== el)
+    .map((f) => ({ f, b: f.getBoundingClientRect() }))
+    .filter(({ b }) => (dir > 0 ? b.top >= r.bottom - 2 : b.bottom <= r.top + 2));
+  if (!cands.length) return null;
+  const edge = dir > 0 ? Math.min(...cands.map((c) => c.b.top)) : Math.max(...cands.map((c) => c.b.bottom));
+  const line = cands.filter((c) => (dir > 0 ? c.b.top <= edge + 4 : c.b.bottom >= edge - 4));
+  const dist = (b) => (x < b.left ? b.left - x : x > b.right ? x - b.right : 0);
+  line.sort((a, b) => dist(a.b) - dist(b.b));
+  return line[0].f;
+}
+
+function caretRect() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return null;
+  const rects = sel.getRangeAt(0).getClientRects();
+  return rects.length ? rects[rects.length - 1] : null;
+}
+
+function caretX(el) {
+  const cr = caretRect();
+  return cr ? cr.left : el.getBoundingClientRect().left;
+}
+
+// Is the caret on the field's first line (dir -1) or last line (dir +1)?
+function onEdgeLine(el, dir, c) {
+  const len = el.textContent.length;
+  if (!len || (dir < 0 && c.start === 0) || (dir > 0 && c.end === len)) return true;
+  const cr = caretRect();
+  if (!cr) return false;
+  const b = el.getBoundingClientRect();
+  const lh = cr.height || 14;
+  return dir < 0 ? cr.top < b.top + lh * 0.6 : cr.bottom > b.bottom - lh * 0.6;
+}
+
+// Put the caret in a field near x: on its last line coming up, its first going down.
+function placeNear(to, dir, x) {
+  const b = to.getBoundingClientRect();
+  const y = dir > 0 ? b.top + 4 : b.bottom - 4;
+  const range = document.caretRangeFromPoint && document.caretRangeFromPoint(Math.min(Math.max(x, b.left + 1), b.right - 1), y);
+  if (range && to.contains(range.startContainer)) {
+    to.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } else setCaret(to, dir > 0 ? 0 : to.textContent.length);
 }
 
 const MOVE_TYPE = 'application/x-sprout-move';
@@ -1282,10 +1676,14 @@ function gripHtml(li) {
 }
 
 // Line a margin tool up with its bullet.
+// Reads first, then writes: a write between two reads makes the browser lay
+// the page out twice, on every keystroke.
 function placeBeside(el, li) {
-  el.style.top = `${offsetWithin(li, document.getElementById('edPage'))}px`;
+  const top = offsetWithin(li, document.getElementById('edPage'));
+  const height = li.offsetHeight;
+  el.style.top = `${top}px`;
   const h = el.querySelector('.handle');
-  if (h) h.style.height = `${Math.max(18, li.offsetHeight)}px`;
+  if (h) h.style.height = `${Math.max(18, height)}px`;
 }
 
 function liAt(r, b) {

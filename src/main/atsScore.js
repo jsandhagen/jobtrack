@@ -17,9 +17,10 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
+const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, EMPLOYER_EVIDENCE, EMPLOYER_HEADING, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
+const { memoize } = require('./memo');
 
 
 const WEIGHTS = {
@@ -74,7 +75,7 @@ function containsTerm(haystack, term) {
 
 // Degree the posting requires vs. merely prefers ("Bachelor's required;
 // Master's a plus" should not demand a Master's).
-function degreeRequirements(jobText) {
+function readDegreeRequirements(jobText) {
   let required = 0;
   let preferred = 0;
   for (const { original, kind } of classifyLines(jobText).flatMap((l) => clauses(l.original, l.kind, l.section))) {
@@ -223,7 +224,7 @@ const PHRASE_VERBS = new Set(
     'help structure complete formulate generate mentor educate administer conduct perform create establish oversee ensure assist operate execute bring').split(' ')
 );
 const phraseWords = (s) => lower(s).replace(/&/g, ' and ').replace(/['’]s\b/g, '').match(/[a-z][a-z0-9+#'-]*/g) || [];
-function postingPhrases(jobText, company = '') {
+function readPostingPhrases(jobText, company = '') {
   const companyWords = new Set(phraseWords(company));
   const counts = new Map();
   let started = false;
@@ -256,11 +257,15 @@ function postingPhrases(jobText, company = '') {
   return list.filter((t) => !list.some((u) => u !== t && ` ${u} `.includes(` ${t} `)));
 }
 
-function scoreKeywords(jobText, resumeLower, company) {
+// The posting's phrases a recruiter would search for. Dictionary skills have their own component.
+const keywordTerms = memoize((jobText, company) => {
   jobText = jobText.split('\n').filter((l) => !BOILERPLATE_LINE.test(l)).join('\n');
   const skillWords = Object.values(SKILLS).flat();
-  // Dictionary skills have their own component.
-  const terms = postingPhrases(jobText, company).filter((t) => !skillWords.some((re) => re.test(t))).slice(0, 15);
+  return { jobText, terms: postingPhrases(jobText, company).filter((t) => !skillWords.some((re) => re.test(t))).slice(0, 15) };
+});
+
+function scoreKeywords(rawJobText, resumeLower, company) {
+  const { jobText, terms } = keywordTerms(rawJobText, company || '');
   if (terms.length < 3) return scoreKeywordWords(jobText, resumeLower, company);
   // Like Taleo's "related terms" search: other forms of the words count too
   // ("executive presentation" finds "executive presentations"), in order and close together.
@@ -390,6 +395,13 @@ function skillsMatchLabel(ratio) {
   return 'Low';
 }
 
+// Dictionary skills a resume mentions (the same resume is read against every posting).
+const skillsIn = memoize((resumeLower) => {
+  const found = new Set();
+  for (const [skill, patterns] of Object.entries(SKILLS)) if (patterns.some((p) => p.test(resumeLower))) found.add(skill);
+  return found;
+}, { size: 100 });
+
 /**
  * @param {object} job   { title, text }
  * @param {string} resumeText  plain text of one resume
@@ -400,8 +412,7 @@ function atsScore(job, resumeText, opts = {}) {
   const checkFormatting = opts.checkFormatting !== false;
   const resumeLower = lower(resumeText);
   const jobSkills = classifyJobSkills(job.text);
-  const resumeSkills = new Set();
-  for (const [skill, patterns] of Object.entries(SKILLS)) if (patterns.some((p) => p.test(resumeLower))) resumeSkills.add(skill);
+  const resumeSkills = skillsIn(resumeLower);
 
   const skills = scoreSkills(jobSkills, resumeLower, resumeSkills);
   const title = scoreJobTitle(job.title, resumeLower);
@@ -433,7 +444,21 @@ function atsScore(job, resumeText, opts = {}) {
   const preferred = hardUnits.filter((u) => u.kind === 'preferred');
   let basicMet = basic.filter((u) => u.met).length;
   let basicTotal = basic.length;
-  const knockouts = basic.filter((u) => !u.met).map((u) => `${u.label} (posting says "${u.term}")`);
+  // "SaaS" asked for, and the resume has years at Appian: a recruiter knows,
+  // a keyword search doesn't. Still unmatched (that's how the systems work),
+  // but it's a word to add, not a qualification missing.
+  const fixable = [];
+  for (const u of hardUnits.filter((x) => !x.met)) {
+    for (const skill of u.skills) {
+      const m = EMPLOYER_EVIDENCE[skill] && (resumeLower.match(EMPLOYER_EVIDENCE[skill]) || resumeLower.match(EMPLOYER_HEADING[skill]));
+      if (!m) continue;
+      const employer = m[0].replace(/(?:,? (?:inc|corp(?:oration)?|llc|ltd))?\.?\s*[,|·–—-]?\s*(?:[a-z]+\.? )?(?:19|20)\d{2}$/, '').replace(/\s*[,|·–—-].*$/, '').trim();
+      fixable.push({ skill, term: u.terms[u.skills.indexOf(skill)], employer: resumeText.match(new RegExp(employer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))?.[0] || employer, kind: u.kind });
+      u.implied = true;
+      break;
+    }
+  }
+  const knockouts = basic.filter((u) => !u.met && !u.implied).map((u) => `${u.label} (posting says "${u.term}")`);
   if (education) {
     basicTotal++;
     if (education.score >= 0.5) basicMet++;
@@ -457,13 +482,13 @@ function atsScore(job, resumeText, opts = {}) {
   const tips = [];
   for (const u of screening.unanswered) tips.push(u);
   for (const m of skills.hard.missing.filter((m) => m.kind === 'required')) {
-    tips.push(m.anyOf ? `Required: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}; none found. Add whichever you have.` : `Required skill not found: "${m.term}". Add it if you have it.`);
+    tips.push(m.anyOf ? `Required: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}. If you've used one, add it in those words.` : `Required: "${m.term}". If you've used it, add it in those words.`);
   }
   for (const w of skills.wordingTips.slice(0, 4)) tips.push(`Use the posting's exact wording "${w.term}" at least once (strict systems like Taleo match literally).`);
   if (title && !title.exact) tips.push(`Include the job title "${job.title}" (e.g. in your headline) if it honestly describes you.`);
   if (education && education.score < 1) tips.push(`The posting asks for ${DEGREE_NAMES[education.need]}${education.equivalentOk ? ' or equivalent experience' : ''}; make your education easy to find.`);
   if (parse) for (const c of parse.checks) if (!c.ok) tips.push(c.tip);
-  for (const m of skills.hard.missing.filter((m) => m.kind !== 'required').slice(0, 3)) tips.push(m.anyOf ? `Nice-to-have: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}.` : `Nice-to-have not found: "${m.term}".`);
+  for (const m of skills.hard.missing.filter((m) => m.kind !== 'required').slice(0, 3)) tips.push(m.anyOf ? `Nice to have: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}.` : `Nice to have: "${m.term}".`);
 
   return {
     score,
@@ -475,6 +500,10 @@ function atsScore(job, resumeText, opts = {}) {
     basic: { met: basicMet, total: basicTotal },
     preferred: { met: preferredMet, total: preferred.length },
     knockouts,
+    fixable,
+    experience: experience ? { need: experience.need, have: experience.have, met: experience.score >= 0.8 } : null,
+    education: education ? { need: DEGREE_NAMES[education.need], met: education.score >= 0.5, equivalentOk: !!education.equivalentOk } : null,
+    titleExact: title ? !!title.exact : null,
     screening,
     matchedSkills: [...skills.hard.matched, ...skills.soft.matched].map((m) => m.skill),
     missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),
@@ -520,7 +549,7 @@ function atsGaps(job, resumeText, bullets = []) {
   for (const m of r.missingSkills) {
     if (m.kind !== 'required' || INTERPERSONAL.has(m.skill) || SOFT_SKILLS.has(m.skill)) continue;
     const phrase = m.anyOf ? m.anyOf.join(' or ') : m.term;
-    gaps.push({ type: 'knockout', phrase, why: 'Required, and not on the page. Screens and recruiter searches look for these exact words: another form ("program-managed" for "program management") may not match.', closest: closest(m.anyOf ? m.anyOf[0] : m.term, skillByLabel(m.skill)) });
+    gaps.push({ type: 'knockout', phrase, why: 'Required. Searches look for these exact words, so another form ("program-managed" for "program management") may not match.', closest: closest(m.anyOf ? m.anyOf[0] : m.term, skillByLabel(m.skill)) });
   }
   // Industries ("bank" for financial services) are where you worked, not words to add.
   const INDUSTRIES = new Set(['Financial Services', 'Public Sector', 'Healthcare', 'Enterprise Software']);
@@ -554,5 +583,9 @@ function libraryAtsScore(job, documents, profile) {
   if (!documents.length) return null;
   return { ...atsScore(job, documents.map((d) => d.text).join('\n\n'), { checkFormatting: false, profile }), basis: 'your whole library (add a resume for formatting checks)' };
 }
+
+// Posting-side reads, shared by every resume scored against the posting.
+const degreeRequirements = memoize(readDegreeRequirements);
+const postingPhrases = memoize(readPostingPhrases);
 
 module.exports = { atsGaps, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };

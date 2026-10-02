@@ -70,11 +70,17 @@ const DEFAULT_PROFILE = {
 const LISTS = ['contacts', 'companies', 'searches', 'templates', 'connections'];
 
 class Store {
-  constructor(dir) {
+  // deferSave: write once after a burst of changes (the app) rather than after
+  // each one; call flush() before quitting.
+  constructor(dir, { deferSave = false } = {}) {
     this.dir = dir;
+    this.deferSave = deferSave;
+    this.saveTimer = null;
     fs.mkdirSync(dir, { recursive: true });
     this.file = path.join(dir, 'jobtrack.json');
     this.data = this._load();
+    // Bumped whenever the library changes, so scores read from it can be kept until then.
+    this.documentsVersion = 0;
   }
 
   _load() {
@@ -103,7 +109,17 @@ class Store {
     };
   }
 
+  // The whole file is rewritten each time, which gets slow with a big library
+  // and many jobs, so a burst of changes (rescoring every job, a careers
+  // check) is written once.
   save() {
+    if (!this.deferSave) return this.flush();
+    if (!this.saveTimer) this.saveTimer = setTimeout(() => this.flush(), 250);
+  }
+
+  flush() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
     const tmp = this.file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
     fs.renameSync(tmp, this.file);
@@ -137,6 +153,7 @@ class Store {
     return [...this.data.documents].sort((a, b) => a.addedAt.localeCompare(b.addedAt) || a.id.localeCompare(b.id));
   }
   addDocument({ name, kind, text, sourcePath, layout }) {
+    this.documentsVersion++;
     const doc = {
       id: crypto.randomUUID(),
       name,
@@ -151,6 +168,7 @@ class Store {
     return { ...doc, chars: text.length };
   }
   updateDocument(id, patch) {
+    this.documentsVersion++;
     const doc = this.data.documents.find((d) => d.id === id);
     if (!doc) return null;
     Object.assign(doc, patch);
@@ -158,6 +176,7 @@ class Store {
     return doc;
   }
   removeDocument(id) {
+    this.documentsVersion++;
     this.data.documents = this.data.documents.filter((d) => d.id !== id);
     this.save();
   }

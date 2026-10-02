@@ -101,3 +101,27 @@ test('headers default from the profile, or a saved resume header', () => {
   assert.deepEqual(ResumeDoc.headerFromProfile({ name: 'A', location: 'Fairfax, VA', phone: '555', email: 'a@x.com' }), { name: 'A', line1: 'Fairfax, VA | 555', line2: 'a@x.com' });
   assert.equal(ResumeDoc.headerFromProfile({ name: 'A', resumeHeader: { line1: '1 Main St | 555', line2: 'a@x.com' } }).line1, '1 Main St | 555');
 });
+
+test('a skill that is really a list splits into skills; real skill names stay whole', () => {
+  assert.deepEqual(ResumeDoc.splitSkill('Python, SQL, Tableau'), ['Python', 'SQL', 'Tableau']);
+  assert.deepEqual(ResumeDoc.splitSkill('Excel; Word; and PowerPoint'), ['Excel', 'Word', 'PowerPoint']);
+  assert.deepEqual(ResumeDoc.splitSkill('AWS/Kubernetes/Terraform'), ['AWS', 'Kubernetes', 'Terraform']);
+  assert.deepEqual(ResumeDoc.splitSkill('Looker / Mode'), ['Looker', 'Mode']);
+  for (const s of ['Microsoft Power BI (DAX, Power Query, M)', 'A/B testing', 'CI/CD', 'TCP/IP networking', 'Stakeholder communication'])
+    assert.deepEqual(ResumeDoc.splitSkill(s), [s]);
+});
+
+test('the skills grid goes two across when a skill is too long for a third of the page', () => {
+  assert.equal(ResumeDoc.skillColumns(['SQL', 'Python', 'Stakeholder Communication', 'Microsoft Power BI (DAX, Power Query, M)']), 3);
+  assert.equal(ResumeDoc.skillColumns(['SQL', 'Cross-functional stakeholder management and executive communication']), 2);
+  assert.equal(ResumeDoc.skillColumns(['SQL', 'AWS/Kubernetes/Terraform/CloudFormation']), 2); // one word wider than a column
+  assert.match(ResumeDoc.renderBody({ ...DOC, skills: ['SQL', 'Cross-functional stakeholder management and executive communication'] }), /class="rs-skills rs-cols-2"/);
+  assert.match(ResumeDoc.renderBody(DOC), /class="rs-skills"/);
+});
+
+test('an empty header is filled from the profile; what was typed stays', () => {
+  const profile = { name: 'Jordan Rivera', email: 'jordan@example.com', phone: '(555) 123-4567', location: 'Portland, OR' };
+  assert.deepEqual(ResumeDoc.fillHeader({ name: '', line1: '', line2: '' }, profile), { name: 'Jordan Rivera', line1: 'Portland, OR | (555) 123-4567', line2: 'jordan@example.com' });
+  assert.deepEqual(ResumeDoc.fillHeader({ name: 'J. Rivera', line1: 'Remote', line2: '' }, profile), { name: 'J. Rivera', line1: 'Remote', line2: 'jordan@example.com' });
+  assert.deepEqual(ResumeDoc.fillHeader(undefined, {}), { name: '', line1: '', line2: '' });
+});

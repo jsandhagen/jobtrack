@@ -14,6 +14,7 @@ function on(channel, cb) {
 
 contextBridge.exposeInMainWorld('sprout', {
   getState: () => call('state:get'),
+  getSettings: () => call('settings:get'),
   updateSettings: (patch) => call('settings:update', patch),
   updateProfile: (patch) => call('profile:update', patch),
   setApiKey: (key) => call('apikey:set', key),
@@ -44,6 +45,7 @@ contextBridge.exposeInMainWorld('sprout', {
   removeApplication: (id) => call('app:remove', id),
   generateResume: (id) => call('app:resume', id),
   atsResume: (id) => call('app:atsResume', id),
+  fixPage: (id, opts) => call('builder:fixPage', id, opts),
   baselineResume: (id) => call('builder:baseline', id),
   undoResume: (id) => call('builder:undo', id),
   generateCoverLetter: (id) => call('app:coverLetter', id),
