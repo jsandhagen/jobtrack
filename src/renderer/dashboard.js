@@ -923,7 +923,7 @@ function nudgeCard(n, { appId, compact = false } = {}) {
     const a = x.action;
     if (!a) return '';
     if (a.type === 'have-skill') return `<div class="nudge-acts">${a.terms.map((t) => `<button class="small soft" data-have="${esc(t)}">I've used ${esc(t)}</button>`).join('')}</div>`;
-    return `<div class="nudge-acts"><button class="small soft" data-nudge="${esc(a.type)}" data-app="${esc(appId)}"${a.key ? ` data-key="${esc(a.key)}"` : ''}${a.term ? ` data-term="${esc(a.term)}"` : ''}>${esc(a.label || 'Do it')}</button></div>`;
+    return `<div class="nudge-acts"><button class="small soft" data-nudge="${esc(a.type)}" data-nudge-app="${esc(appId)}"${a.key ? ` data-key="${esc(a.key)}"` : ''}${a.term ? ` data-term="${esc(a.term)}"` : ''}>${esc(a.label || 'Do it')}</button></div>`;
   };
   return `<div class="nudges${compact ? ' compact' : ''}">
     ${n.headline ? `<div class="nudge-head">${mascotSvg(n.nudges.length ? 'curious' : 'proud', compact ? 34 : 44)}<p>${esc(n.headline)}</p></div>` : ''}
@@ -936,7 +936,7 @@ function nudgeCard(n, { appId, compact = false } = {}) {
 
 // A nudge's button: fix the page, show a bullet, or go fill something in.
 async function runNudge(btn) {
-  const id = btn.dataset.app;
+  const id = btn.dataset.nudgeApp;
   const type = btn.dataset.nudge;
   const inEditor = !!btn.closest('#edTray');
   if (type === 'profile') return void (location.hash = '#profile');

@@ -416,7 +416,7 @@ function scoringDocuments() {
 // changes: the applications list shows one for every job, and with a dozen
 // resumes in the library each takes a while.
 const jobKey = (job) => [job.title, job.company, job.location, job.text].map((x) => x || '').join('\u0000');
-const libraryAts = memoize((job) => libraryAts(job), {
+const libraryAts = memoize((job) => libraryAtsScore(job, evidenceDocs(), store.getProfile()), {
   size: 1000,
   key: (job) => `${store.documentsVersion}\u0000${JSON.stringify(store.getProfile())}\u0000${jobKey(job)}`,
 });
@@ -528,15 +528,27 @@ function withAts(rec) {
 // (offline and free), after the same cleanup new postings get: site chrome
 // removed, and a real title / company / location where the text names one
 // (jobs saved as "About the job" get their title back).
+// One job at a time between other work, so the window and clicks stay
+// responsive while a scorer update rescores everything.
 function refreshLocalScores() {
-  for (const rec of store.listApplications()) {
-    if (!rec.job || !rec.job.text) continue;
-    if (rec.quick && rec.quick.version === SCORER_VERSION) continue;
-    // Clean postings saved before cleanup existed; keep what was captured.
-    const clean = cleanPosting(rec.job);
-    const job = { ...rec.job, ...clean, rawText: rec.job.rawText || (clean.text !== rec.job.text ? rec.job.text : undefined) };
-    store.updateApplication(rec.id, { job, quick: scoreLocally(job) });
-  }
+  const stale = store.listApplications().filter((rec) => rec.job && rec.job.text && !(rec.quick && rec.quick.version === SCORER_VERSION));
+  if (!stale.length) return Promise.resolve(0);
+  return new Promise((resolve) => {
+    const next = () => {
+      const rec = stale.shift();
+      const cur = rec && store.getApplication(rec.id);
+      if (cur) {
+        // Clean postings saved before cleanup existed; keep what was captured.
+        const clean = cleanPosting(cur.job);
+        const job = { ...cur.job, ...clean, rawText: cur.job.rawText || (clean.text !== cur.job.text ? cur.job.text : undefined) };
+        store.updateApplication(cur.id, { job, quick: scoreLocally(job) });
+      }
+      if (stale.length) return void setImmediate(next);
+      broadcast('state-changed');
+      resolve(true);
+    };
+    setImmediate(next);
+  });
 }
 
 // The resume editor works on an application's resume or on one of your own
@@ -2194,10 +2206,8 @@ function summarizeApp(a) {
     statusHistory: a.statusHistory || [],
     followUpAt: a.status === 'applied' ? a.followUpAt || null : null,
     url: a.job.url || '',
-    atsBefore: (() => {
-      const b = libraryAts(a.job);
-      return b ? b.score : null;
-    })(),
+    // Shown only beside a tailored resume ("ATS 61→74%"), so only worked out then.
+    atsBefore: a.resumeHtml ? (libraryAts(a.job) || {}).score ?? null : null,
     atsAfter: a.resumeHtml ? atsScore(a.job, htmlToText(a.resumeHtml), { profile: store.getProfile() }).score : null,
     hasResume: !!a.resume,
     hasPage: !!(a.builder && a.builder.doc),
@@ -2299,10 +2309,6 @@ if (process.argv.includes('--smoke-test')) {
     store.repairBank(bulletBank.tidyBank); // the same job from two resumes, filed twice before roles were matched
     updater = createUpdater({ app, fetchImpl: (url, opts) => net.fetch(url, opts) }); // Chromium's network stack honours system proxies
     registerIpc();
-    // First run with the bullet bank: fill it from the resumes already in the library.
-    if (!store.getBank().bullets.length && store.allDocuments().length) importBullets(store.allDocuments());
-    backfillLayouts().catch(() => {});
-    refreshLocalScores();
     applyTheme(store.getSettings().theme);
     createDashboard();
     createOverlay();
@@ -2327,6 +2333,19 @@ if (process.argv.includes('--smoke-test')) {
     powerMonitor.on('resume', () => setTimeout(checkCareersIfDue, 60 * 1000));
     startBridge();
     startUpdates();
+    // Slower housekeeping once the window is up: first run with the bullet bank
+    // fills it from the resumes already in the library; a scorer update rescores
+    // saved jobs (a slice at a time); old imports get their layout checked.
+    const toFill = store.getBank().bullets.length ? [] : store.allDocuments();
+    const housekeeping = () => {
+      if (toFill.length) {
+        importBullets([toFill.shift()]); // one document per slice
+        if (!toFill.length) broadcast('state-changed');
+        return void setImmediate(housekeeping);
+      }
+      refreshLocalScores().then(() => backfillLayouts()).catch(() => {});
+    };
+    setTimeout(housekeeping, 1500); // after the first screen has loaded
   });
 
   // Keep running in the tray so detection keeps working after the dashboard closes.

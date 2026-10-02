@@ -36,13 +36,24 @@
     const q = list.map(quote).filter(Boolean);
     return q.length > 1 ? `(${q.join(' OR ')})` : q[0] || '';
   };
-  const norm = (s) =>
-    clean(s)
-      .toLowerCase()
-      .replace(/&/g, ' and ')
-      .replace(/\b(inc|llc|ltd|corp|corporation|co|company|the)\b\.?/g, ' ')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim();
+  // Company and name matching runs for every person × every company on the
+  // People and Find jobs pages, so each string is cleaned once.
+  const normCache = new Map();
+  const norm = (s) => {
+    const key = s == null ? '' : String(s);
+    let v = normCache.get(key);
+    if (v === undefined) {
+      v = clean(key)
+        .toLowerCase()
+        .replace(/&/g, ' and ')
+        .replace(/\b(inc|llc|ltd|corp|corporation|co|company|the)\b\.?/g, ' ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+      if (normCache.size > 20000) normCache.clear();
+      normCache.set(key, v);
+    }
+    return v;
+  };
   const sameCompany = (a, b) => !!norm(a) && norm(a) === norm(b);
   const isRemote = (loc) => /^(remote|anywhere|us remote|remote us|united states)$/i.test(clean(loc));
 

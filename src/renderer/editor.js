@@ -1314,10 +1314,14 @@ function gripHtml(li) {
 }
 
 // Line a margin tool up with its bullet.
+// Reads first, then writes: a write between two reads makes the browser lay
+// the page out twice, on every keystroke.
 function placeBeside(el, li) {
-  el.style.top = `${offsetWithin(li, document.getElementById('edPage'))}px`;
+  const top = offsetWithin(li, document.getElementById('edPage'));
+  const height = li.offsetHeight;
+  el.style.top = `${top}px`;
   const h = el.querySelector('.handle');
-  if (h) h.style.height = `${Math.max(18, li.offsetHeight)}px`;
+  if (h) h.style.height = `${Math.max(18, height)}px`;
 }
 
 function liAt(r, b) {
