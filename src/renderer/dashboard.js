@@ -385,7 +385,7 @@ async function renderResumePage(id) {
         </div>
         <details style="margin-top:8px" ${hasText ? 'open' : ''}><summary class="faint">${hasText ? 'The posting or keywords it’s aimed at' : 'Aim it at a posting or keywords (optional)'}</summary>
           <textarea id="rsText" style="min-height:120px;margin-top:6px" placeholder="Paste a job posting, or the skills and keywords you want this version to show. Leave empty for a general resume.">${esc(r.job.text || '')}</textarea>
-          <div class="inline" style="margin-top:6px"><button class="small soft" id="rsAim">Update the checklist</button><span class="faint">The requirements checklist and ATS match next to the page use this.</span></div>
+          <div class="inline" style="margin-top:6px"><button class="small soft" id="rsAim">Update the checklist</button><span class="faint">The requirements checklist and ATS visibility next to the page use this.</span></div>
         </details>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;min-width:150px">
@@ -749,7 +749,7 @@ function appRow(a, manage = false) {
   }<div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}${busy ? ' busy' : ''}" style="--s:${a.score}" title="${busy ? 'Refreshing the score…' : a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${busy ? '<span class="spinner"></span>' : a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     ${followUpDue(a) ? `<span class="chip due">${icon('clock', 14)} follow up</span>` : ''}
-    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS match: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
+    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS visibility: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
     ${a.hasResume || a.hasLetter ? `<span class="chip ic-only good" title="${[a.hasResume && 'Tailored resume', a.hasLetter && 'cover letter'].filter(Boolean).join(' + ')}">${a.hasResume ? icon('doc', 15) : ''}${a.hasLetter ? icon('letter', 15) : ''}</span>` : ''}
     <span class="status ${a.status}">${esc(STATUS_LABEL[a.status] || a.status)}</span>${manage ? appMenu(a) : ''}</div>`;
 }
@@ -916,7 +916,7 @@ function barColor(v) {
 // Sprout's take on the ATS check: what it already fixed, then at most three
 // things worth doing, each with one button where Sprout can help. The full
 // breakdown stays one click away for anyone who wants it.
-const NUDGE_ICON = { fixed: 'sparkle', ask: 'heart', 'heads-up': 'warn', tip: 'check' };
+const NUDGE_ICON = { fixed: 'sparkle', ask: 'chat', 'heads-up': 'warn', tip: 'check' };
 function nudgeCard(n, { appId, compact = false } = {}) {
   if (!n || (!n.nudges.length && !n.fixed.length && !n.headline)) return '';
   const act = (x) => {
@@ -977,25 +977,25 @@ function atsPanel(ats) {
   const side = (r, caption) =>
     r
       ? `<div class="ats-side">${scoreRing(r.score, 84, 'ATS')}<div><div class="faint">${caption}</div>
-        <div class="inline" style="gap:6px;margin-top:4px"><span class="grade big g-${r.grade}" title="Workday HiredScore-style grade">${r.grade}</span>
-        <div class="faint" style="line-height:1.35">basic quals ${r.basic.met}/${r.basic.total}<br>preferred ${r.preferred.met}/${r.preferred.total}</div></div></div></div>`
-      : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Generate the tailored resume to see its ATS score here.</div></div>`;
+        <div class="ats-plain">${r.basic.total ? `Uses the posting's words for ${r.basic.met} of its ${r.basic.total} must-haves` : 'The posting names no clear must-haves'}</div></div></div>`
+      : `<div class="ats-side muted">${mascotSvg('cheer', 56)}<div>Tailor a resume and I'll show how much easier it is to find.</div></div>`;
   const stat = (label, value, hint, glyph = '') => `<div class="ats-stat" title="${esc(hint)}">${glyph}<b>${value === null || value === undefined ? '–' : value}</b><span>${label}</span></div>`;
   const pctRing = (v) => (v === null || v === undefined ? '' : window.SproutMascot.miniRing(v, { color: barColor(v) }));
   const skillSteps = { Low: 1, Fair: 2, Good: 3, Strong: 4 }[main.skillsMatch];
   const kos = main.knockouts.length;
   return `<div class="card ats-card" id="atsCard">
-    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('chart', 22)} ATS check ${infoBtn('ats')}</h2>
-      <p class="faint">How applicant tracking systems are likely to read ${a ? 'your tailored resume' : 'your current resume'} for this posting. Around 75% is plenty.</p></div>
-      ${delta !== null ? `<span class="chip ${delta >= 0 ? 'good' : 'grow'}" style="font-size:14px">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} pts vs. your current resume</span>` : ''}</div>
+    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('search', 22)} ATS visibility ${infoBtn('ats')}</h2>
+      <p class="faint">How easily screening software finds ${a ? 'your tailored resume' : 'your current resume'} when recruiters search for this posting. It's about being found, not a judgement of you. Around 75% is plenty.</p></div>
+      ${delta ? `<span class="chip ${delta > 0 ? 'good' : ''}" style="font-size:13px">${delta > 0 ? `Easier to find than your current resume (+${delta})` : `A little harder to find than your current resume (${delta})`}</span>` : ''}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
     ${nudgeCard(ats.nudges, { appId: ats.appId })}
     <details class="ats-more"><summary class="section-title">See the full breakdown</summary>
+    <p class="faint" style="margin:4px 0 8px">Workday-style grade: <span class="grade g-${main.grade}">${main.grade}</span> · must-haves ${main.basic.met}/${main.basic.total} · nice-to-haves ${main.preferred.met}/${main.preferred.total}</p>
     <div class="ats-stats">
       ${stat('Skills match', main.skillsMatch, 'Workday-style Candidate Skills Match: Strong / Good / Fair / Low, required skills weighted more', skillSteps ? window.SproutMascot.miniRing(skillSteps * 25, { segments: 4, color: barColor(skillSteps * 25) }) : '')}
       ${stat('Strict keywords', main.strictKeywordRate === null ? null : main.strictKeywordRate + '%', "Exact-wording matches, like Oracle Taleo's literal keyword search", pctRing(main.strictKeywordRate))}
       ${stat('Smart keywords', main.normalizedKeywordRate === null ? null : main.normalizedKeywordRate + '%', 'Synonym-aware matches (AWS = Amazon Web Services), like iCIMS / SuccessFactors semantic matching', pctRing(main.normalizedKeywordRate))}
-      ${stat('Required words to add', kos, "Required skills whose words aren't on the resume yet. Strict systems like Taleo can filter on these, so add the ones you have", `<i class="ko ${kos ? 'warn' : 'ok'}">${icon(kos ? 'heart' : 'check', 15)}</i>`)}
+      ${stat('Required words to add', kos, "Required skills whose words aren't on the resume yet. Strict systems like Taleo can filter on these, so add the ones you have", `<i class="ko ${kos ? 'warn' : 'ok'}">${icon(kos ? 'pencil' : 'check', 15)}</i>`)}
     </div>
     <div class="ats-bars">${COMPONENT_LABELS.filter(([k]) => main.components[k] !== null)
       .map(([k, label, hint]) => {
@@ -1035,7 +1035,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
 
   const insight = an
     ? `<h3 style="margin-top:4px">Claude's fit read ${infoBtn('fit')}</h3><p style="font-weight:700">${esc(an.headline)}</p>
-      ${an.screened && an.screened.length ? `<p class="muted" style="margin-top:-4px">Score held down: ${an.screened.map(esc).join('; ')}.</p>` : ''}
+      ${an.screened && an.screened.length ? `<p class="muted" style="margin-top:-4px">Worth knowing: ${an.screened.map(esc).join('; ')}.</p>` : ''}
       <div class="section-title">Why you fit</div><ul class="tidy">${an.strengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       ${an.gaps.length ? `<div class="section-title">Room to grow</div><ul class="tidy muted">${an.gaps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
       ${an.qualifications && an.qualifications.length ? `<div class="section-title">Qualifications checklist ${an.grade ? `<span class="grade g-${an.grade}" title="HiredScore-style grade from Claude's checklist">${an.grade}</span>` : ''}</div>
@@ -1044,13 +1044,13 @@ async function renderApplication(id, { ifChanged = false } = {}) {
         .join('')}</ul>` : ''}
       <div class="section-title">Talking points</div><ul class="tidy">${an.talking_points.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
       <div class="section-title">Keywords to use</div><div>${an.keywords.map((k) => `<span class="chip lav">${esc(k)}</span>`).join('')}</div>
-      ${q.components ? `<div class="section-title">Free score breakdown <span class="faint" style="font-weight:600">(${q.score}/100)</span></div>${window.SproutInfo.fitBars(q.components)}` : ''}`
-    : `<h3 style="margin-top:4px">Free fit score ${infoBtn('fit')} <span class="chip" title="How much of the posting the free scorer recognised">confidence: ${esc(q.confidence || 'medium')}</span></h3>
+      ${q.components ? `<details class="more"><summary>How Sprout's free read compares (${q.score})</summary>${window.SproutInfo.fitBars(q.components)}</details>` : ''}`
+    : `<h3 style="margin-top:4px">How it lines up with you ${infoBtn('fit')}</h3>
       ${q.headline ? `<p style="font-weight:700">${esc(q.headline)}</p>` : ''}
-      ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Dealbreaker:</b> ${q.dealbreakers.map(esc).join('; ')}</div>` : ''}
-      ${q.reasons && q.reasons.length ? `<ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${q.concerns && q.concerns.length ? `<ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${window.SproutInfo.fitBars(q.components)}
+      ${q.dealbreakers && q.dealbreakers.length ? `<div class="note-box" style="margin:0 0 8px;background:var(--peach-soft)"><b>Heads up:</b> ${q.dealbreakers.map(esc).join('; ')} (from your Profile).</div>` : ''}
+      ${q.reasons && q.reasons.length ? `<div class="section-title">What lines up</div><ul class="tidy">${q.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${q.concerns && q.concerns.length ? `<div class="section-title">Worth knowing</div><ul class="tidy muted">${q.concerns.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${q.components ? `<details class="more"><summary>How Sprout worked this out</summary>${window.SproutInfo.fitBars(q.components)}<p class="faint" style="margin:6px 0 0">A quick read on your computer, ${esc(q.confidence === 'high' ? 'and the posting was clear' : q.confidence === 'low' ? 'from a posting that was hard to read, so take it lightly' : 'so treat it as a rough guide')}. It's about how the job lines up with what your documents show, not about your worth.</p></details>` : ''}
       <div style="margin-top:12px">${
         analyzing
           ? '<p class="muted"><span class="spinner"></span> Claude is reading the posting closely…</p>'
@@ -1064,9 +1064,9 @@ async function renderApplication(id, { ifChanged = false } = {}) {
   const skills = `<div class="section-title">Skills from the posting</div><div>
     ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
     ${(q.partialSkills || []).map((s) => `<span class="chip" title="Partly shown: a related skill, an older role or only a skills-list mention">~ ${esc(s)}</span>`).join('')}
-    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
-    ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Preferred">✓ ${esc(s)} <em>(pref)</em></span>`).join('')}
-    ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
+    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not in your documents yet">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
+    ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Nice to have">✓ ${esc(s)} <em>(nice to have)</em></span>`).join('')}
+    ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Nice to have, not in your documents yet">＋ ${esc(s)} <em>(nice to have)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
 
   const fitCard = `<div class="card">${sproutSays(analyzing ? 'thinking' : moodForScore(score), esc(analyzing ? 'Reading the posting closely…' : encouragement(score, a.id.charCodeAt(2))), 56, { svg: { cls: 'pettable' } })}${insight}${evidenceBlock(a)}${skills}

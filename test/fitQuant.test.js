@@ -65,14 +65,14 @@ test('the headline says the one thing that decides it', () => {
   const h = (resume, posting) => localFitScore({ ...POSTINGS, ...T2.POSTINGS, ...D.POSTINGS }[posting], [{ kind: 'resume', text: { ...RESUMES, ...D.RESUMES }[resume] }]).headline;
   assert.match(h('quantResearcherPhD', 'quantResearcher'), /^You meet all \d+ must-haves and have done this kind of role\.$/);
   assert.match(h('quantResearcherPhD', 'entryQuantAnalyst'), /overqualified/);
-  assert.match(h('quantResearcherPhD', 'headOfQuantResearch'), /^A stretch: this is a director-level role.*12\+ years/);
+  assert.match(h('quantResearcherPhD', 'headOfQuantResearch'), /^A stretch, but worth a look: this is a director-level role.*12\+ years/);
   assert.match(h('techStrategyConsultant', 'presalesConsultant'), /sales job/);
-  assert.match(h('techStrategyConsultant', 'workdayConsultant'), /^The title names Workday,/);
-  assert.match(h('dataScientist', 'creditRiskModeler'), /^You show \d+ of \d+ must-haves; the gap is experience in credit risk modeling/);
+  assert.match(h('techStrategyConsultant', 'workdayConsultant'), /^The title centres on Workday,/);
+  assert.match(h('dataScientist', 'creditRiskModeler'), /^You show \d+ of \d+ must-haves; the one your documents don't cover yet is experience in credit risk modeling/);
   assert.match(h('fpaAnalyst', 'quantResearcher'), /^A different line of work: it asks for experience in quantitative research/);
   // A dealbreaker comes first.
   const r = localFitScore(POSTINGS.derivativesQuant, [{ kind: 'resume', text: RESUMES.mfeNewGrad }], { minSalary: '250000' });
-  assert.match(r.headline, /^Dealbreaker: pay tops out/);
+  assert.match(r.headline, /^Heads up: pay tops out/);
   // No documents, no headline.
   assert.equal(localFitScore(POSTINGS.quantResearcher, []).headline, '');
 });

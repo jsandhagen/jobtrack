@@ -51,7 +51,7 @@
     const g = grade || before.grade;
     return `<div class="ats-line" data-info-host title="Estimated applicant-tracking-system match for your current resume">
       <span class="grade g-${esc(g)}">${esc(g)}</span>
-      <span>ATS match for your current resume: <b>${before.score}%</b>${before.skillsMatch ? ` · skills ${esc(before.skillsMatch.toLowerCase())}` : ''}</span>${info('ats')}</div>`;
+      <span>ATS visibility of your current resume: <b>${before.score}%</b>${before.skillsMatch ? ` · skills ${esc(before.skillsMatch.toLowerCase())}` : ''}</span>${info('ats')}</div>`;
   }
 
   const chips = (list) => `<div class="chips">${list.map((s) => `<span class="chip good" title="${esc(s)}">✓ ${esc(s)}</span>`).join('')}</div>`;
@@ -198,7 +198,7 @@
     return `<div class="center">${M().helperSvg(claude ? 'claude' : 'ats', 'thrilled', 88)}
       <h3>Your ${claude ? 'Claude' : 'ATS'} resume is ready!</h3>
       <p class="muted">Tailored for <b>${esc(app.job.title)}</b>${at}. Give it a quick read, tweak anything you like, and export to PDF.</p>
-      ${after ? `<div class="ats-compare">ATS match ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${after.score}%</b> <span class="grade g-${esc(after.grade)}">${esc(after.grade)}</span></div>` : ''}
+      ${after ? `<div class="ats-compare">ATS visibility ${app.ats.before ? `<span class="was">${app.ats.before.score}%</span> → ` : ''}<b>${after.score}%</b></div>` : ''}
       <div class="actions"><button class="primary" data-act="open">Open & review</button><button class="ghost" data-act="back">Back</button></div></div>`;
   }
 

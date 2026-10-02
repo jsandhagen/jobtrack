@@ -173,7 +173,7 @@ test('LinkedIn: pops up the card, asks before saving, and follows in-page naviga
   const text = await waitFor(async () => ((await cardText(p)).includes('Senior Frontend Engineer') ? cardText(p) : null));
   assert.match(text, /Add this job to your saved jobs\?/);
   assert.match(text, /Excellent match/);
-  assert.match(text, /ATS match for your current resume: 72%/);
+  assert.match(text, /ATS visibility of your current resume: 72%/);
   assert.equal(postings.length, 0, 'nothing is saved until you say so');
 
   await p.click('[data-job="pm"]'); // LinkedIn-style: no page reload

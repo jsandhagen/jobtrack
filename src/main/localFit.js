@@ -996,14 +996,14 @@ const plain = (label) =>
     .replace(/^(associate|bachelor's|master's) degree in ([^,]+?)(?:,.*)? or (?:another|a) (.*) field$/, '$1 degree in $2 or another $3 field')
     .replace(/^(associate|bachelor's|master's) degree (in .{40,})$/, '$1 degree in the field asked for');
 function fitHeadline(f) {
-  if (f.breakers.length) return `Dealbreaker: ${f.breakers[0].replace(/^./, (c) => c.toLowerCase())}.`;
-  if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, and that's not work your documents show.`;
-  if (f.missingCore.length) return `The title names ${listOf(f.missingCore)}, which your documents don't show — that's the job's core.`;
-  if (f.missingFunction) return `A different line of work: it asks for ${plain(f.missingFunction.label)}, which your documents don't show.`;
-  if (f.missingCredential) return `It requires ${plain(f.missingCredential.label)}, which your documents don't show — applications are screened on it.`;
+  if (f.breakers.length) return `Heads up: ${f.breakers[0].replace(/^./, (c) => c.toLowerCase())}, one of the things you said you'd rather avoid.`;
+  if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, a different line of work from what your documents describe.`;
+  if (f.missingCore.length) return `The title centres on ${listOf(f.missingCore)}, which your documents don't mention yet.`;
+  if (f.missingFunction) return `A different line of work: it asks for ${plain(f.missingFunction.label)}, which isn't in your documents yet.`;
+  if (f.missingCredential) return `It requires ${plain(f.missingCredential.label)}. If you have it, add it to your documents: applications are screened on it.`;
   const years = f.needYears !== null && f.haveYears !== null ? `it asks for ${f.needYears}+ years; you have about ${Math.round(f.haveYears)}.` : '';
-  if (f.stretch) return `A stretch: this is ${/^[aeio]/.test(LEVEL_NAMES[f.postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[f.postingLevel]}-level role and your experience reads as ${LEVEL_NAMES[f.userLevel]}.${years ? ` It${years.slice(2)}` : ''}`;
-  if (f.shortYears) return `A stretch on experience: ${years}`;
+  if (f.stretch) return `A stretch, but worth a look: this is ${/^[aeio]/.test(LEVEL_NAMES[f.postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[f.postingLevel]}-level role and your documents read as ${LEVEL_NAMES[f.userLevel]}-level.${years ? ` It${years.slice(2)}` : ''}`;
+  if (f.shortYears) return `A stretch on years, which postings often flex on: ${years}`;
   if (f.overqualified) return `You'd likely be overqualified: this is an earlier-career version of what you already do.`;
   // The kind of experience and the degree come first, then by how sure we are it's a requirement.
   const rank = (u) => (u.gate || /degree|^PhD/.test(u.label) ? 2 : u.weight);
@@ -1017,12 +1017,12 @@ function fitHeadline(f) {
   const step = f.stepUp ? 'A step up from where you are: ' : '';
   const cap = (x) => (step ? x.replace(/^./, (c) => c.toLowerCase()) : x);
   if (f.thin) return "There isn't enough in this posting to judge the fit; paste the full description for a real read.";
-  if (!f.req.length) return f.score >= 65 ? 'Your background lines up with this role.' : f.score >= 45 ? 'Some of your background carries over to this role.' : 'Little of this role shows in your documents.';
+  if (!f.req.length) return f.score >= 65 ? 'Your background lines up with this role.' : f.score >= 45 ? 'Some of your background carries over to this role.' : "Not much of this role shows in your documents yet.";
   if (!gaps.length && !partial.length) return `${step}${cap(`You meet ${f.req.length === 1 ? 'the must-have' : f.req.length === 2 ? 'both must-haves' : `all ${f.req.length} must-haves`}${done}.`)}${f.dutyGap ? ' The day-to-day work would be new, though.' : ''}`;
   if (!gaps.length) return `${step}${cap(`You meet the must-haves${done}; ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown.`)}`;
-  if (met / f.req.length < 0.3) return `This role needs ${listOf(gaps.slice(0, 3))}, which your documents don't show.`;
+  if (met / f.req.length < 0.3) return `This role leans on ${listOf(gaps.slice(0, 3))}, which your documents don't cover yet.`;
   const also = gaps.length === 1 && partial.length ? `, and ${listOf(partial.slice(0, 2))} ${partial.length === 1 ? 'is' : 'are'} only partly shown` : '';
-  return `${step}${cap(`You show ${met} of ${f.req.length} must-haves; the ${gaps.length === 1 ? 'gap is' : 'main gaps are'} ${listOf(gaps.slice(0, 2))}${also}.`)}`;
+  return `${step}${cap(`You show ${met} of ${f.req.length} must-haves; ${gaps.length === 1 ? 'the one your documents don\'t cover yet is' : 'the ones your documents don\'t cover yet are'} ${listOf(gaps.slice(0, 2))}${also}.`)}`;
 }
 
 // ---------- the score ----------
@@ -1183,23 +1183,23 @@ function localFitScore(job, documents, profile = {}) {
   if (req.length) reasons.push(`You show ${Math.round(req.reduce((s, u) => s + u.met, 0))} of ${req.length} required qualifications`);
   if (role !== null && role >= 0.8) reasons.push('The role lines up with your background and target roles');
   if (experience !== null && experience >= 1) reasons.push(`Your ~${haveYears} years cover the ${needYears}+ asked for`);
-  if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`This is a ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}`);
+  if (seniority !== null && postingLevel - userLevel >= 1) concerns.push(`It's pitched at ${LEVEL_NAMES[postingLevel]} level, a step up from the ${LEVEL_NAMES[userLevel]}-level work your documents describe`);
   if (overqualified) concerns.push(levelsBelow >= 2 ? `This looks like an earlier-career (${LEVEL_NAMES[postingLevel]}-level) role, and your experience reads as ${LEVEL_NAMES[userLevel]}. You'd likely be overqualified, so it may undersell you` : `It asks for up to ${rangeTop} years and you have about ${Math.round(haveYears)}. You'd likely be overqualified, so it may undersell you`);
-  if (experience !== null && experience < 0.8) concerns.push(`Asks for ${needYears}+ years; your documents show about ${haveYears ?? 'unclear'}`);
+  if (experience !== null && experience < 0.8) concerns.push(haveYears === null || haveYears === undefined ? `Asks for ${needYears}+ years; dates on your roles would let me count yours` : `Asks for ${needYears}+ years and your documents show about ${haveYears}; year counts are often flexible`);
   concerns.push(...screening.unanswered);
   // Problems with what was captured (cut-off description, a list of jobs).
   concerns.unshift(...(job.warnings || []));
   if (otherFunction) concerns.unshift(`This is a ${otherFunction} role (${otherFunction === 'sales' ? 'a quota, closing deals' : 'filling requisitions, sourcing candidates'}), and your documents don't show ${otherFunction} work`);
   if (dutyGap) concerns.push(`${req.every((u) => u.met >= 0.5) ? 'You meet what it asks for, but much' : 'Much'} of the day-to-day work (${neutral.filter((u) => u.met < 0.5).slice(0, 3).map((u) => u.label).join(', ')}) isn't in your documents yet`);
   const missingProducts = all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label);
-  if (missingCore.length) concerns.push(`The title names ${(missingProducts.length ? missingProducts : missingCore).join(', ')}, which your documents don't show`);
+  if (missingCore.length) concerns.push(`The title centres on ${(missingProducts.length ? missingProducts : missingCore).join(', ')}, which your documents don't mention yet`);
   const missingReq = req.filter((u) => u.met < 0.5).map((u) => u.label);
 
   // One sentence to decide by, most decisive fact first.
   const headline = documents.length
     ? fitHeadline({ breakers, otherFunction, missingFunction, missingCredential, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
     : '';
-  if (missingReq.length) concerns.push(`Not found in your documents: ${missingReq.slice(0, 6).join(', ')}`);
+  if (missingReq.length) concerns.push(`Not in your documents yet: ${missingReq.slice(0, 6).join(', ')}`);
 
   return {
     score,

@@ -446,7 +446,7 @@ async function fitToPages(btn, pages) {
 
 // ---------- tray ----------
 //
-// Three rings up top (requirements shown, ATS match, strong bullets), then
+// Three rings up top (requirements shown, ATS visibility, strong bullets), then
 // three tabs: Bullets (edit and add), Check (how well it's written) and Job
 // match (how well it fits this posting, and the score behind it). The tray
 // never switches tabs by itself.
@@ -516,7 +516,7 @@ function renderTray() {
   const head = `<div class="tray-top">
     <div class="tray-card tray-head"><div class="tray-score">
       ${aimed ? tile('job', reqPct, req.length <= 12 ? req.length : 0, `${covered}/${req.length}`, 'requirements', 'Requirements a bullet on the page shows') : ''}
-      ${aimed ? tile('job', info.ats.score, 0, `${info.ats.score}%`, `ATS match${info.ats.grade ? ` <span class="grade g-${info.ats.grade}">${info.ats.grade}</span>` : ''}`, 'How applicant tracking systems would read this resume') : ''}
+      ${aimed ? tile('job', info.ats.score, 0, `${info.ats.score}%`, 'ATS visibility', 'How easily screening software finds this resume when recruiters search for this posting') : ''}
       ${tile('check', strongPct, pc.total && pc.total <= 12 ? pc.total : 0, `${pc.strong}/${pc.total}`, 'strong bullets', 'Bullets that pass every check')}
     </div></div>
     <div class="tray-tabs" role="tablist">${TABS.map(([k, label]) => `<button role="tab" data-tab="${k}" aria-selected="${ed.tab === k}" class="${ed.tab === k ? 'on' : ''}">${label}${k === 'check' && tips ? ` <span class="n">${tips}</span>` : ''}${k === 'job' && aimed && req.length - covered ? ` <span class="n">${req.length - covered}</span>` : ''}</button>`).join('')}</div>
@@ -674,7 +674,7 @@ function jobPane() {
   const info = ed.info;
   const aimed = !info.standalone || info.hasTarget;
   const defaults = `<div class="faint tray-foot">Make this resume's <a href="#" data-default="header">header</a> · <a href="#" data-default="summary">summary</a> · <a href="#" data-default="skills">skills</a> · <a href="#" data-default="education">education</a> your default for new resumes.</div>`;
-  if (!aimed) return `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS match.</p></div>${defaults}`;
+  if (!aimed) return `<div class="tray-card"><p class="faint" style="margin:0">${icon('target', 14)} Aim this resume at a posting (above the page) to see which requirements it shows and its ATS visibility.</p></div>${defaults}`;
   const units = new Map((info.units || []).map((u) => [u.key, u]));
   const proofs = (key) => {
     const out = [];
@@ -727,7 +727,7 @@ function jobPane() {
       <h4>What the posting asks for</h4>
       ${info.coverage.length ? `<div class="jm-legend"><span>✓ a bullet shows it</span><span>½ skills list only</span><span>○ not shown</span></div>${reqs.map(row).join('')}${prefs.map(row).join('')}<p class="faint" style="margin:8px 0 0">Tap one to highlight its bullets on the page, or to see bullets from your bank that would show it.</p>` : '<p class="muted" style="margin:0">Sprout couldn\'t find specific requirements in this posting.</p>'}
     </div>
-    <details class="tray-card tray-fold"><summary><h4><span>How the ATS match adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4></summary>
+    <details class="tray-card tray-fold"><summary><h4><span>How ATS visibility adds up</span> ${window.SproutInfo.infoBtn('ats')}</h4></summary>
       ${bars || '<p class="muted" style="margin:0">No breakdown for this posting.</p>'}
       ${bars ? '<p class="faint" style="margin:6px 0 0">Parts that don\'t apply to this posting are left out and the rest re-weighted.</p>' : ''}
       ${otherTips.length ? `<div class="tray-role" style="margin-top:12px">Also</div><ul class="tidy" style="margin:4px 0 0">${otherTips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
@@ -789,7 +789,7 @@ function openGuide() {
     <p>Here is everything Sprout's resume checks are based on, how each one is measured, and what they can't tell you.</p>
     <h3>Your resume gets read twice</h3>
     <div class="two">
-      <div><b>1. Searched by software.</b> Recruiters search their applicant tracking system for keywords and filter on knockout questions (location, work authorization, years). Most systems don't reject you for a low match score; you rank lower in a search.<br><i>So:</i> use the posting's own words for skills you really have. The ATS match on the Job match tab checks this.</div>
+      <div><b>1. Searched by software.</b> Recruiters search their applicant tracking system for keywords and filter on knockout questions (location, work authorization, years). Most systems don't reject you for a low match score; you rank lower in a search.<br><i>So:</i> use the posting's own words for skills you really have. ATS visibility on the Job match tab checks this.</div>
       <div><b>2. Skimmed by a person</b>, often in under a minute, mostly the top third and the first bullet or two of each role.<br><i>So:</i> name the role up top, lead with your strongest proof, and show results. The Check tab checks this.</div>
     </div>
     <h3>Each bullet</h3>
