@@ -44,23 +44,60 @@ function strategySummary(job, doc, ranked) {
   const years = Math.floor(yearsOfExperience(doc.roles.filter((r) => !r.isProject).map((r) => `${r.title}, ${r.dates}`).join('\n')) || 0);
   const lead = `${current.title}${current.organization ? ` at ${current.organization}` : ''}${years >= 2 ? `, with ${years} years of experience` : ''}.`;
   const byId = new Map(ranked.map((b) => [b.id, b]));
-  const proofLimit = Math.max(20, 75 - lead.split(/\s+/).length);
-  const proofs = doc.roles.flatMap((r) => r.bullets.map((b) => ({ ...b, role: r, rank: byId.get(b.bulletId) })))
-    .filter((b) => b.rank && b.rank.strategy.length && b.text.split(/\s+/).length <= proofLimit);
-  const primaryKeys = new Set(strategyFocus(job).filter((t) => t.primary).map((t) => t.key));
-  const primary = proofs.filter((b) => b.rank.strategy.some((t) => primaryKeys.has(t.key)));
-  const relevant = primary.length ? primary : proofs;
-  const recent = relevant.filter((b) => b.role === current);
-  const proof = (recent.length ? recent : relevant).sort((a, b) => b.rank.score - a.rank.score)[0];
-  // A verbatim, relevant accomplishment is stronger than a list of skills,
-  // and cannot turn "supported" into "led" or borrow a metric from another job.
-  if (!proof) return lead;
-  const text = proof.text.replace(/[.!?]+$/, '');
-  const achievement = proof.role !== current && proof.role.organization
-    ? `At ${proof.role.organization}, ${text.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())}`
-    : text;
-  return `${lead} ${achievement}.`;
+  const onPage = doc.roles.flatMap((r) => r.bullets.map((b) => ({ text: b.text, rank: byId.get(b.bulletId) })))
+    .filter((b) => b.rank && b.rank.strategy.length)
+    .sort((a, b) => b.rank.score - a.rank.score);
+  // Name the kinds of work the page proves, in the bullets' own words, rather
+  // than repeating a bullet the reader meets again below. Naming the work
+  // can't turn "supported" into "led" or carry a metric away from its job.
+  const phrases = [];
+  const themes = strategyFocus(job).sort((a, b) => b.primary - a.primary || b.weight - a.weight);
+  for (const theme of themes) {
+    for (const b of onPage) {
+      if (!b.rank.strategy.some((t) => t.key === theme.key)) continue;
+      const phrase = workPhrase(b.text, theme);
+      if (phrase && !phrases.some((p) => samePhrase(p, phrase))) {
+        phrases.push(phrase);
+        break;
+      }
+    }
+    if (phrases.length >= 3) break;
+  }
+  return phrases.length ? `${lead} Experience includes ${list(phrases)}.` : lead;
 }
+
+// Kinds of strategy work, as noun phrases a summary can list.
+const WORK = [
+  /\b(?:competitive (?:analysis|analyses|intelligence|landscape|positioning)|competitor (?:research|analysis|benchmarking)|battlecards?|win\/loss analys[ie]s|market (?:research|analysis|sizing))\b/gi,
+  /\b(?:annual|quarterly) (?:technology |business |strategic )?planning\b|\bOKRs\b|\boperating (?:cadences?|rhythms?)\b|\b(?:quarterly )?business reviews\b|\b(?:budget|headcount) planning\b/gi,
+  /\b(?:technical |commercial )?due diligence\b|\bacquisition integrations?\b|\bM&A\b/gi,
+  /\b(?:technology|strategic|AI|data|channel|ISV|cloud) partnerships\b|\bvendor (?:evaluations?|selection)\b|\bsourcing strateg(?:y|ies)\b/gi,
+  /\bbusiness cases\b|\bfinancial (?:models|modeling|modelling)\b|\bcost (?:models|optimization)\b|\bIT spend\b/gi,
+  /\b(?:multi-year )?(?:technology|IT|product) roadmaps\b|\bIT strateg(?:y|ies)\b|\b(?:IT )?operating models\b|\bcloud (?:strategy|migrations?)\b|\b(?:ERP|digital|technology|IT) (?:modernization|transformation)(?: planning| programs?)?\b|\b(?:modernization|transformation) (?:planning|programs?|engagements?)\b/gi,
+  /\bexecutive (?:presentations|communications|summaries|workshops|briefings)\b|\bboard (?:materials|presentations)\b/gi,
+  /\bprototypes\b|\bproofs? of concept\b|\bpilots\b/gi,
+  /\bemerging technolog(?:y|ies)\b|\btechnology trends\b/gi,
+  /\bgo-to-market(?: strategy| plans?)?\b|\bsales enablement\b|\bjoint business planning\b/gi,
+  /\b(?:program|project) management\b|\bprocess (?:improvement|documentation)\b|\brelease process(?:es)?\b/gi,
+  /\b(?:executive |KPI )?dashboards\b|\bforecasting\b|\bKPIs\b|\bdata models\b/gi,
+];
+
+// The first named kind of work in a bullet that belongs to this theme.
+function workPhrase(text, theme) {
+  const own = (p) => new RegExp(theme.evidence.source, 'i').test(p) || new RegExp(theme.posting.source, 'i').test(p);
+  for (const re of WORK) {
+    for (const m of text.matchAll(re)) {
+      // "Research emerging technologies" opens a sentence; mid-list it is lower case.
+      const phrase = m[0].split(' ').map((w) => (/^[A-Z][a-z]+$/.test(w) ? w.toLowerCase() : w)).join(' ');
+      if (own(phrase)) return phrase;
+    }
+  }
+  return null;
+}
+
+const stemmed = (s) => ` ${s.toLowerCase().replace(/(\w)(?:ing|es|s)\b/g, '$1')} `;
+const samePhrase = (a, b) => stemmed(a).includes(stemmed(b)) || stemmed(b).includes(stemmed(a));
+const list = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 function strategyChecks(job, doc) {
   const required = classifyLines(job.text).filter((line) => line.kind === 'required').map((line) => line.original).join('\n');

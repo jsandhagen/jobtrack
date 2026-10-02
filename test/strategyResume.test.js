@@ -8,22 +8,25 @@ const F = require('./fixtures/ctoOfficePersona');
 const DEEP = require('./fixtures/techStrategyDeep');
 const profile = { name: 'Jordan Avery', email: 'jordan@example.com', phone: '555-010-0100', location: 'Washington, DC' };
 const bankFor = (text) => B.mergeIntoBank(B.emptyBank(), B.parseResume(text)).bank;
+// A bullet from the page, copied into the summary (allowing for the summary's lower-case start).
+const onPageVerbatim = (doc) => doc.roles.flatMap((r) => r.bullets).find((b) => doc.summary.toLowerCase().includes(b.text.replace(/[.!?]+$/, '').toLowerCase().slice(0, 60)));
 
 test('one-click strategy optimization leads with the work the target role actually needs', () => {
   const bank = bankFor(F.RESUMES.ctoOfficeStrategist);
   const cases = [
-    ['octoStrategyOps', /annual technology planning.*OKRs/],
-    ['chiefOfStaffCTO', /annual technology planning.*OKRs/],
-    ['competitiveIntel', /competitive analysis.*Gartner/],
-    ['corpStrategyVendor', /competitive analysis|technical due diligence/],
-    ['productStrategyAI', /competitive analysis/],
-    ['emergingTechStrategist', /prototypes.*Python|Research emerging technologies/],
-    ['techPartnerships', /20\+.*4 technology partnerships/],
+    ['octoStrategyOps', /annual technology planning.*OKRs/, /annual technology planning/],
+    ['chiefOfStaffCTO', /annual technology planning.*OKRs/, /annual technology planning/],
+    ['competitiveIntel', /competitive analysis.*Gartner/, /competitive analysis/],
+    ['corpStrategyVendor', /competitive analysis|technical due diligence/, /technical due diligence/],
+    ['productStrategyAI', /competitive analysis/, /competitive analysis/],
+    ['emergingTechStrategist', /prototypes.*Python|Research emerging technologies/, /emerging technologies, prototypes/],
+    ['techPartnerships', /20\+.*4 technology partnerships/, /technology partnerships/],
   ];
-  for (const [key, proof] of cases) {
+  for (const [key, proof, theme] of cases) {
     const out = B.optimizeResume({ profile, bank, job: F.POSTINGS[key] });
     assert.match(out.doc.roles[0].bullets[0].text, proof, key);
-    assert.match(out.doc.summary, proof, key + ' summary');
+    assert.match(out.doc.summary, theme, key + ' summary');
+    assert.ok(!onPageVerbatim(out.doc), key + ': summary does not repeat a bullet');
     assert.equal(out.pages, 1, key);
     assert.equal(R.measure(out.doc).pages, 1, key);
     assert.ok(out.doc.summary.split(/\s+/).length <= 75, key + ': concise summary');
@@ -34,7 +37,7 @@ test('required investment and transformation work outranks optional technical ex
   const bank = bankFor(F.RESUMES.ctoOfficeStrategist);
   const { doc } = B.optimizeResume({ profile, bank, job: F.POSTINGS.techStrategyManagerBig4 });
   assert.match(doc.roles[0].bullets[0].text, /due diligence|Evaluated.*vendors/);
-  assert.match(doc.summary, /At Deloitte Consulting, developed IT strategies, technology roadmaps and business cases/);
+  assert.match(doc.summary, /Experience includes IT strategies, business cases/);
   assert.match(doc.roles.find((r) => /Deloitte/.test(r.organization)).bullets[0].text, /IT strategies|cost models/);
 });
 
@@ -46,8 +49,11 @@ test('a tailored summary replaces a generic imported summary without inventing a
     const out = B.optimizeResume({ profile, bank, job: F.POSTINGS[key] });
     assert.doesNotMatch(out.doc.summary, /Looking for opportunities|years in consulting|years in strategy/);
     assert.ok(out.doc.summary.startsWith(bank.experiences[0].title));
-    const achievement = out.doc.roles.flatMap((r) => r.bullets).find((b) => out.doc.summary.toLowerCase().includes(b.text.replace(/[.!?]+$/, '').toLowerCase()));
-    assert.ok(achievement, key + ': summary proof is on the page');
+    assert.ok(!onPageVerbatim(out.doc), key + ': summary does not repeat a bullet');
+    // Every kind of work it names is said on the page.
+    const page = out.doc.roles.flatMap((r) => r.bullets.map((b) => b.text)).join('\n').toLowerCase();
+    const named = out.doc.summary.replace(/^.*Experience includes /, '').replace(/\.$/, '').split(/, | and /);
+    for (const phrase of named) assert.ok(page.includes(phrase.toLowerCase()), `${key}: "${phrase}" is on the page`);
     for (const role of out.doc.roles) {
       const source = bank.experiences.find((e) => e.id === role.experienceId);
       assert.equal(role.title, source.title);
