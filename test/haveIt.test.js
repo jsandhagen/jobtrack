@@ -53,4 +53,9 @@ test('skills go in the skills list; experience is kept apart, off resumes', () =
   assert.equal(recordYes(bank, 'one of Tableau, Power BI', 'Power BI').value, 'Power BI');
   assert.ok(bank.skills.includes('Power BI') && !bank.skills.some((s) => /one of/.test(s)));
   assert.equal(question('one of AWS, GCP, Azure'), 'AWS, GCP or Azure');
+  assert.equal(question('managing people'), 'Experience managing people');
+  assert.equal(question('consolidations'), 'Consolidations');
+  assert.equal(question('Legal / Compliance'), 'Legal / Compliance experience');
+  // The score's areas of work are experience, not resume skills.
+  assert.equal(recordYes(bank, 'Legal / Compliance').where, 'confirmed');
 });

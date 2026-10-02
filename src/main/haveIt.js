@@ -29,20 +29,28 @@ function optionsOf(label) {
 // Context, not a skill: "enterprise-scale organizations", "technology roles".
 const CONTEXT = /\b(?:experience|organi[sz]ations?|roles?|industr(?:y|ies)|teams?|environments?|companies|clients|settings?|managing|leading|working)\b/i;
 
+// The score's own groupings ("Legal / Compliance", "Audit & Controls"): an
+// area of work, not something you'd list as a skill.
+const AREA = /\s[/&]\s/;
+
 // A skill, tool or certification you'd list on a resume.
 function isSkill(label) {
   const t = String(label || '').trim();
-  if (!t || optionsOf(t)) return false;
+  if (!t || optionsOf(t) || AREA.test(t)) return false;
   const known = Object.keys(SKILLS).some((k) => lower(k) === lower(t));
   if (known) return true;
   return t.split(/\s+/).length <= 3 && !CONTEXT.test(t) && !/\s(?:or|and)\s/i.test(t);
 }
 
-// How the card asks about it.
+// How the card asks about it: "AWS, GCP or Azure", "Experience managing
+// people", "Legal / Compliance experience", "Consolidations".
 function question(label) {
   const opts = optionsOf(label);
   if (opts) return opts.slice(0, -1).join(', ') + ' or ' + opts[opts.length - 1];
-  return String(label).replace(/^experience in /i, 'Experience in ').replace(/^experience managing /i, 'Experience managing ');
+  let t = String(label).trim();
+  if (/^(?:managing|leading|working|building|running)\b/i.test(t)) t = `experience ${t}`;
+  else if (AREA.test(t)) t = `${t} experience`;
+  return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
 /**

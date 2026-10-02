@@ -31,7 +31,7 @@ contextBridge.exposeInMainWorld('sprout', {
   getApplication: (id) => call('app:get', id),
   analyzeApplication: (id) => call('app:analyze', id),
   rescoreLocal: (id) => call('app:rescoreLocal', id),
-  haveIt: (label, id) => call('app:haveIt', { label, id }),
+  haveIt: (label, id, option, answer) => call('app:haveIt', { label, id, option, answer }),
   markApplied: (id, info) => call('app:markApplied', id, info),
   exportCsv: () => call('apps:exportCsv'),
   openExternal: (url) => call('shell:openExternal', url),

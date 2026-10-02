@@ -1003,10 +1003,19 @@ async function renderApplication(id, { ifChanged = false } = {}) {
               : '<p class="faint"><a href="#settings">Add a Claude API key</a> for an optional deeper read.</p>'
       }</div>`;
 
-  const skills = `<div class="section-title">Skills from the posting</div><div>
+  // "Do you have these?": the missing must-haves a yes would score for, biggest first (haveIt.js).
+  const haveRow = (x) => {
+    const btn = (text, option, answer, cls) => `<button class="small ${cls}" data-have-ask="${esc(x.label)}" data-answer="${answer}"${option ? ` data-option="${esc(option)}"` : ''}>${esc(text)}</button>`;
+    const yes = (x.options || []).length ? x.options.slice(0, 4).map((o) => btn(o, o, 'yes', 'soft')).join('') : btn('I have it', '', 'yes', 'soft');
+    return `<div class="have-row"><span class="have-q">${esc(x.ask)}</span><span class="have-gain" title="How much the free score would go up">+${x.gain}</span><span class="have-btns">${yes}${btn('No', '', 'no', 'ghost')}</span></div>`;
+  };
+  const asks = (a.asks || []).length
+    ? `<div class="have-box"><div class="have-title">Do you have these? <span class="faint">Your documents don't show them, and a yes would raise your score.</span></div>${a.asks.map(haveRow).join('')}</div>`
+    : '';
+  const skills = `${asks}<div class="section-title">Skills from the posting</div><div>
     ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
     ${(q.partialSkills || []).map((s) => `<span class="chip" title="Partly shown: a related skill, an older role or only a skills-list mention">~ ${esc(s)}</span>`).join('')}
-    ${q.missingSkills.map((s) => `<span class="chip grow" title="Not found in your library">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
+    ${q.missingSkills.map((s) => (a.asks || []).some((x) => x.label === s) ? `<span class="chip grow" title="Not found in your library (asked above)">＋ ${esc(s)}</span>` : `<span class="chip grow" title="Not found in your library">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
     ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Preferred">✓ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Preferred, not found">＋ ${esc(s)} <em>(pref)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;
@@ -1121,6 +1130,16 @@ async function renderApplication(id, { ifChanged = false } = {}) {
         // Skills go into your bullet bank's skills; experience counts toward the score but stays off resumes.
         const r = await S.haveIt(b.dataset.have, id);
         toast(r.where === 'skills' ? `Added ${r.value} to the skills in your bullet bank.` : `Noted: you have ${r.value}. It counts toward your fit scores; add a bullet that shows it to put it on a resume.`, 'good', 5000);
+      }, '…')
+    )
+  );
+  $$('[data-have-ask]', page).forEach((b) =>
+    b.addEventListener('click', () =>
+      run(b, async () => {
+        const r = await S.haveIt(b.dataset.haveAsk, id, b.dataset.option || '', b.dataset.answer);
+        if (b.dataset.answer === 'no') return toast("OK, I won't ask about that again.", 'info', 2500);
+        const moved = r.was != null && r.now != null && r.now !== r.was ? ` Your score went from ${r.was} to ${r.now}.` : '';
+        toast((r.where === 'skills' ? `Added ${r.value} to the skills in your bullet bank.` : `Noted: you have ${r.value}. It counts toward your fit scores; add a bullet that shows it to put it on a resume.`) + moved, 'good', 6000);
       }, '…')
     )
   );

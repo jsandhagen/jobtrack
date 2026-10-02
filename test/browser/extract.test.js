@@ -96,6 +96,13 @@ test('nothing on the page names the job: no title rather than a heading', async 
   assert.equal(r.title, '');
 });
 
+test('list items read off the page keep their bullets, so the app counts them as requirements', async () => {
+  const r = await read('https://jobs.fernwood.example/openings/316', `<html><head><title>Accounting Manager | Fernwood</title></head><body><main><h1>Accounting Manager</h1><h2>Responsibilities</h2><ul><li>Lead month-end close for 4 entities</li><li>Own SOX compliance and internal controls testing</li></ul><h2>Qualifications</h2><ul><li>CPA required</li><li>Experience managing people</li><li>Experience with consolidations</li></ul><p>Benefits: medical, dental. Full-time, hybrid. 5+ years of experience. We are an equal opportunity employer.</p></main></body></html>`);
+  assert.match(r.text, /^- Experience managing people$/m);
+  assert.match(r.text, /^- CPA required$/m);
+  assert.match(r.text, /^Qualifications$/m, 'headings stay as they are');
+});
+
 test('button text ("Show more", "Apply now", "Save") stays out of the posting', async () => {
   const r = await read('https://www.linkedin.com/jobs/view/4000000001/', `<html><body><h1 class="top-card-layout__title">Technology Strategy Manager</h1><div class="description__text"><div class="show-more-less-html__markup">${DUTIES}</div><button>Show more</button><button>Show less</button></div><button>Apply now</button><button>Save</button></body></html>`);
   assert.ok(r.isPosting);

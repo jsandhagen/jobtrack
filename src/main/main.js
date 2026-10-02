@@ -1312,7 +1312,11 @@ function registerIpc() {
     return handlePosting({ ...posting, text: posting.text.trim(), via: 'manual' }, { fromDashboard: true });
   });
   handle('job:scanScreen', () => scanFromApp());
-  handle('app:get', (id) => withAts(store.getApplication(id)));
+  handle('app:get', (id) => {
+    const rec = withAts(store.getApplication(id));
+    // "Do you have these?" under the free score, as on the browser card.
+    return rec && rec.quick ? { ...rec, asks: missingAsks(rec.job, rec.quick) } : rec;
+  });
   handle('app:update', (id, patch) => {
     const allowed = {};
     for (const k of ['notes', 'followUpAt', 'appliedVia', 'contact', 'salaryNote']) if (patch[k] !== undefined) allowed[k] = patch[k];
@@ -1635,7 +1639,13 @@ function registerIpc() {
     return shell.openExternal(url);
   });
   // "I have this" on a missing skill (dashboard): same as the browser card's yes.
-  handle('app:haveIt', ({ label, option, id }) => answerHaveIt({ label, answer: 'yes', option, id }));
+  handle('app:haveIt', ({ label, option, id, answer = 'yes' }) => {
+    const before = id && store.getApplication(id);
+    const r = answerHaveIt({ label, answer: answer === 'no' ? 'no' : 'yes', option, id });
+    const after = id && store.getApplication(id);
+    if (id) broadcast('app-updated', after); // redraws the job's page, with the questions that are left
+    return { ...(r || {}), was: before ? before.quick.score : null, now: after ? after.quick.score : null };
+  });
   handle('app:rescoreLocal', (id) => {
     const rec = store.getApplication(id);
     const updated = store.updateApplication(id, { quick: scoreLocally(rec.job) });

@@ -41,6 +41,21 @@
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+  // The text of part of the page, with its list items marked "- " as they
+  // look on the page. innerText drops the bullets, and without them the app
+  // reads short requirement lines ("SOX compliance experience") as headings
+  // and leaves them out of the score.
+  function readText(el) {
+    const raw = el.innerText || [...(el.children || [])].map((c) => c.innerText || '').join('\n');
+    const items = new Set();
+    for (const li of [...el.querySelectorAll('li')].slice(0, 400)) {
+      const first = (li.innerText || '').split('\n').map((l) => l.trim()).find(Boolean);
+      if (first) items.add(first);
+    }
+    if (!items.size) return clean(raw);
+    const marked = /^(?:[-•*▪●◦✓✔➢►‣–—]|\d+[.)])\s/;
+    return clean(raw.split('\n').map((l) => (items.has(l.trim()) && !marked.test(l.trim()) ? `- ${l.trim()}` : l)).join('\n'));
+  }
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const signalCount = (t) => SIGNALS.filter((re) => re.test(t)).length;
   const q = (sel, root = document) => {
@@ -357,7 +372,7 @@
       title: titleText(site.title),
       company: text(site.company),
       location: text(site.location),
-      text: clean(body.innerText),
+      text: readText(body),
       source: site.name,
     };
   }
@@ -390,12 +405,12 @@
         }
         el = el.parentElement;
       }
-      const t = clean(el.innerText);
+      const t = readText(el);
       if (t.length > 300 && signalCount(t) >= 4 && (!best || t.length < best.text.length)) best = { el, text: t };
     }
     if (!best) {
       const main = q(['main', '[role="main"]', 'article']);
-      const t = main ? clean(main.innerText) : '';
+      const t = main ? readText(main) : '';
       if (t.length > 300 && signalCount(t) >= 4) best = { el: main, text: t };
     }
     if (!best) best = fromShadowRoots();
@@ -421,7 +436,7 @@
     walk(document);
     let best = null;
     for (const r of roots) {
-      const t = clean([...r.children].map((c) => c.innerText || '').join('\n'));
+      const t = readText(r);
       if (t.length > 300 && signalCount(t) >= 4 && (!best || t.length < best.text.length)) best = { el: r, text: t };
     }
     return best;
