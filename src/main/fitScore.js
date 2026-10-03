@@ -184,7 +184,7 @@ const SKILLS = {
   // industries
   'Enterprise Software': [/\benterprise software\b/, /\bsaas\b/, /\bsoftware[- ]as[- ]a[- ]service\b/, /\bb2b software\b/, /\b(?:enterprise )?software (?:company|companies|vendors?|firms?|industry)\b/],
   'Financial Services': [/\bfinancial services\b/, /\bbank(?:s|ing)?\b/, /\binsur(?:ance|er|ers)\b/, /\bfintech\b/, /\bcapital markets\b/, /\bmortgage\b/, /\blending\b/, /\bcredit (?:unions?|cards?)\b/, /\bpayments\b/],
-  'Public Sector': [/\bpublic sector\b/, /\bfederal\b/, /\bgovernment\b/, /\bstate and local\b/],
+  'Public Sector': [/\bpublic sector\b/, /\bpubsec\b/, /\bfederal\b/, /\bgovernment\b/, /\bstate and local\b/, /\bb2g\b/],
   'Customer Success': [/\bcustomer success\b/, /\bcustomer support\b/, /\bclient relations?\b/, /\baccount management\b/],
   Finance: [/\bfinancial (?:analysis|modeling|reporting|planning)\b/, /\bbudget(?:s|ing)?\b/, /\bp&l\b/],
   Accounting: [/\baccounting\b(?!\s+for\b)/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
@@ -503,10 +503,17 @@ function alternativeRuns(line, items) {
 // property lists each such set of skills.
 // "Comfort working without a clear roadmap" describes a working style; it
 // doesn't ask for roadmapping. The word after "without" isn't a requirement.
+// Also input to someone else's roadmap: "provide input to product roadmap
+// discussions" is a CI or research duty, not owning product management.
+const ROADMAP_INPUT = /\b(?:(?:evidence-based |data-driven )?input (?:in)?to|inform(?:s|ing)?|influenc(?:e|es|ing))\s+(?:the\s+)?(?:product\s+)?roadmaps?(?:\s+(?:discussions?|decisions?|planning))?/gi;
 function withoutNegated(text) {
-  return String(text || '').replace(/\bwithout (?:a |an |any )?(?:clear |defined |formal |set |fixed |much )?[a-z][\w-]*/gi, ' ');
+  return String(text || '').replace(/\bwithout (?:a |an |any )?(?:clear |defined |formal |set |fixed |much )?[a-z][\w-]*/gi, ' ').replace(ROADMAP_INPUT, ' ');
 }
 
+// What you watch competitors do isn't what you need to have done: "Monitor
+// competitive developments including product launches, pricing changes,
+// partnerships, and M&A activity" asks for competitive intelligence, not M&A.
+const WATCH_LINE = /^\W*(?:monitor|track|follow|watch|scan)(?:s|ing)?\b[^.;]{0,40}\b(?:competit\w*|competitor\w*|rivals?)\b/;
 const WORK_AUTH_LINE = /\bcitizen(?:ship)?\b|\bwork authori[sz]ation\b|\bauthori[sz]ed to work\b|\bvisa sponsorship\b/i;
 function readJobSkills(jobText) {
   const out = new Map();
@@ -524,6 +531,7 @@ function readJobSkills(jobText) {
     const authLine = WORK_AUTH_LINE.test(line);
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       if (authLine && skill !== 'Security Clearance') continue;
+      if (WATCH_LINE.test(line) && skill !== 'Competitive Analysis') continue;
       for (const p of patterns) {
         const m = line.match(p);
         if (!m) continue;
@@ -597,7 +605,11 @@ const toNum = (s) => (/\d/.test(s) ? parseInt(s, 10) : NUMBER_WORDS[s]);
 // required mention over a preferred one ("5+ preferred; 3 required" -> 3).
 function readRequiredYears(jobText) {
   const found = [];
-  for (const { line, kind } of classifyLines(jobText).flatMap((l) => clauses(l.original, l.kind, l.section))) {
+  for (const { line, kind: lineKind, section } of classifyLines(jobText).flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, section: l.section })))) {
+    // "8-10 years of experience in …, ideally within SaaS": "ideally" is about
+    // where, not how long. The years are a requirement unless the head says otherwise.
+    const head = line.split(/,\s*(?:ideally|preferably|especially)\b/)[0];
+    const kind = lineKind === 'preferred' && section !== 'preferred' && head !== line && !/\b(?:preferred|plus|bonus|ideally|preferably|desired|nice to have)\b/.test(head) ? 'required' : lineKind;
     for (const m of line.matchAll(YEARS_RE)) {
       const after = line.slice(m.index + m[0].length, m.index + m[0].length + 30);
       const before = line.slice(Math.max(0, m.index - 30), m.index);
@@ -735,6 +747,7 @@ const requiredYears = memoize(readRequiredYears);
 
 module.exports = {
   withoutNegated,
+  WATCH_LINE,
   SKILLS,
   RELATED,
   EMPLOYER_EVIDENCE,

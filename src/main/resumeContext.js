@@ -113,6 +113,7 @@ function roleFor(docText, roles) {
 // for every posting, so worked out once until the documents or the bank
 // change: checking each draft against every bullet is the slow part.
 // Resumes are left out: their bullets are what the bank is made of.
+const DEAL_OUTCOME = /\b(?:influenc(?:ed|ing)|won|winning|closed|closing|shaped)\s+(?:\w+\s+)?(?:deals?|contracts?|awards?|business)\s+(?:with|at|for)\s+(?:the\s+)?[A-Z]/;
 const candidateCache = new Map();
 function docCandidates(documents, bank, names) {
   const docs = documents.filter((d) => d.kind !== 'bank' && d.kind !== 'resume' && d.text);
@@ -154,8 +155,9 @@ function docCandidates(documents, bank, names) {
           const used = follow.filter((next) => draft.includes(tail(next)));
           out.push({
             passage, lead, draft, quote: [sentence, ...used].join(' '), doc: doc.name || 'your documents', docText: doc.text,
-            // A version that says what came of it beats one that doesn't.
-            result: draft !== lead && hasResult(draft) && !hasResult(lead),
+            // A version that says what came of it beats one that doesn't: a
+            // number, or the deals it moved ("influencing deals with the Army, Navy and DARPA").
+            result: draft !== lead && (hasResult(draft) || DEAL_OUTCOME.test(draft)) && !hasResult(lead),
             weak: /^(?:Supported|Helped|Assisted|Contributed|Participated|Handled)\b/.test(draft),
           });
         }

@@ -11,7 +11,10 @@ const { strategyFocus, strategyEvidence, strategySummary, strategyChecks } = req
 // The posting's requirements, less the kind of experience asked for ("5+
 // years in software engineering"): a role's title meets that, so it can't
 // tell one bullet from another.
-const bulletUnits = (job) => requirementUnits(job).units.filter((u) => !u.gate);
+// What a bullet can show: not a kind of experience (the role does), nor a
+// degree (Education does), which "or equivalent professional experience" would
+// otherwise pin on every bullet.
+const bulletUnits = (job) => requirementUnits(job).units.filter((u) => !u.gate && !/degree|^PhD\b/i.test(u.label));
 
 const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?';
 const DATE = `(?:${MONTH}\\s+)?(?:\\d{1,2}/)?(?:19|20)\\d{2}`;

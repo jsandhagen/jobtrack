@@ -18,7 +18,7 @@
 // Roles two or more levels below yours, in your own line of work, are capped
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
-const { SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel, withoutNegated } = require('./fitScore');
+const { WATCH_LINE, SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel, withoutNegated } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements, isVerbForm } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
@@ -67,7 +67,7 @@ function showsProgramming(textLower) {
 const NOT_TERMS = new Set(
   (
     'we you our your the this that they their a an and or of in on for to with as at by is are be will no not it executive executives cloud enterprise applications engagements industry such framework frameworks database databases interest passion curiosity obtain comfort communication communications tracking programs design optimization technology ' +
-    'about role team company position job candidate candidates applicants responsibility responsibilities requirements qualifications ' +
+    'about role team company position job candidate candidates applicants ou responsibility responsibilities requirements qualifications ' +
     'preferred required minimum basic nice bonus plus benefits experience knowledge ability skills strong excellent ' +
     'proven demonstrated working work must should including include etc ideal ideally equivalent degree bachelor ' +
     'master bachelors masters years year what who why how join help build support manage develop create ensure ' +
@@ -338,7 +338,7 @@ function requirementLines(text) {
     if (PAY_LINE.test(l.line)) return false;
     if (!BOILERPLATE_LINE.test(l.line)) return !perks || l.isHeading;
     return !perks && !l.isHeading && DUTY_START.test(l.line);
-  }).map((l) => (/\bwithout\b/i.test(l.line) ? { ...l, line: withoutNegated(l.line), original: withoutNegated(l.original) } : l));
+  }).map((l) => (/\bwithout\b|\broadmap/i.test(l.line) ? { ...l, line: withoutNegated(l.line), original: withoutNegated(l.original) } : l));
 }
 
 // "3+ years in technology consulting or IT strategy roles": the kind of
@@ -516,6 +516,13 @@ function readRequirementUnits(job) {
     if (SCREENING_LINE.test(line)) continue;
     if (INTEREST.test(original)) continue;
     const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
+    // What you watch competitors do isn't what you need to have done: "Monitor
+    // competitive developments including product launches, pricing changes,
+    // partnerships, and M&A activity" asks for competitive intelligence, not M&A.
+    if (WATCH_LINE.test(line)) {
+      addUnit('s:Competitive Analysis', 'Competitive Analysis', effKind, (t) => (SKILLS['Competitive Analysis'].some((re) => re.test(t)) ? 1 : 0), { skills: ['Competitive Analysis'] });
+      continue;
+    }
     const found = []; // { key, label, match, index, end }
     // "Current RDH license", "Active Journeyman Electrician license", "CMA, RMA
     // or CCMA certification": a credential the application screens on, unless
@@ -1068,7 +1075,7 @@ function fitHeadline(f) {
 function localFitScore(job, documents, profile = {}) {
   const libText = documents.map((d) => d.text).join('\n\n');
   const lib = lower(libText);
-  const { units, ignoreWords } = requirementUnits(job);
+  const { units, ignoreWords, hasRequiredSection } = requirementUnits(job);
   const { segs, titles } = evidenceSegments(documents);
   // "Coursework or work experience": the posting accepts what school shows.
   if (/\bcoursework\b/i.test(job.text)) for (const s of segs) if (s.weight < 0.9) s.weight = 0.9;
@@ -1104,7 +1111,8 @@ function localFitScore(job, documents, profile = {}) {
     // manager) is having done the role: the posting asks for that kind of
     // experience, and a recent role's bullets name the title's own specialty, a
     // two-word one. Not a broad word ("strategy", "consulting"), nor a skills list.
-    const asked = all.some((u) => u.functionKind && u.kind === 'required' && u.met >= 0.9);
+    // A posting that lists only duties asks for the work its title names.
+    const asked = all.some((u) => u.functionKind && u.kind === 'required' && u.met >= 0.9) || !hasRequiredSection;
     const tw = lower(job.title).replace(NOT_LEVEL, ' ').split(/[^a-z0-9+#&]+/).filter((w) => w && !STOPWORDS.has(w) && titleLevel(w) === null);
     const specialties = tw.slice(1).map((w, i) => [tw[i], w]).filter((pair) => pair.every((w) => w.length > 2 && !BROAD_KIND.has(kindStem(w)) && !DEPARTMENT_KIND.has(kindStem(w)) && !/^(?:technology|technical|business|digital|product|senior|manager|lead)$/.test(w)));
     const done = asked && specialties.some((pair) => segs.some((s) => s.role && s.weight >= 0.9 && hasTerm(s.lower, pair.join(' '))));
@@ -1225,7 +1233,8 @@ function localFitScore(job, documents, profile = {}) {
   const dutyGap = neutral.length >= 4 && mean(neutral) < 0.5;
   if (dutyGap) score = Math.min(score, 79);
   if (stretch) score = Math.min(score, -levelsBelow >= 3 ? 25 : 44); // "Stretch role"
-  // A step up can be a strong fit, but not an excellent one: that's a role at your level.
+  // A step up is how many people change jobs: meeting its must-haves and the
+  // years it asks, it can be an excellent fit. Missing a must-have, it's good potential.
   else if (seniority !== null && -levelsBelow === 1) score = Math.min(score, req.some((u) => u.met < 0.5) ? 64 : 79);
 
   // How much should you trust this number?

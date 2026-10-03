@@ -95,3 +95,41 @@ test('the optimizer says so when it keeps your own summary', () => {
   if (opt.doc.summary === own) assert.ok(opt.notes.some((n) => /Kept your own summary/.test(n)), opt.notes.join(' '));
   else assert.ok(opt.notes.some((n) => /achievement in the summary/.test(n)), opt.notes.join(' '));
 });
+
+// Third run, good fits and one-level step-ups:
+//
+// - EvenUp's "Competitive Intelligence Manager" lists only duties, all of them
+//   this candidate's work (battle cards, win/loss, objection handling), and
+//   read 40 "Stretch": the competitors' "M&A activity" it monitors and the
+//   "input to product roadmap discussions" it gives became must-haves, and the
+//   competitive intelligence they've led didn't count as having done the role.
+// - Mark43's "8-10 years …, ideally within SaaS or B2G" read as 5 years:
+//   "ideally" made the whole line preferred.
+// - Salesforce's PubSec competitive intelligence role didn't offer the impact
+//   statement's public sector passage ("PubSec" wasn't public sector), and the
+//   draft kept "120 slides" over "influencing deals with the Army, Navy and DARPA".
+test('a duties-only posting for work you lead is a real fit', () => {
+  const f = fit(P.evenupCI);
+  assert.ok(f.score >= 65, `${f.score} ${f.label}`);
+  for (const gap of ['M&A', 'Product Management', 'Roadmapping', 'Digital Products']) assert.ok(!(f.missingSkills || []).includes(gap), (f.missingSkills || []).join(', '));
+  const { classifyJobSkills } = require('../src/main/fitScore');
+  assert.ok(!classifyJobSkills(P.evenupCI.text).has('M&A'));
+});
+
+test('years before "ideally" are required years', () => {
+  const { requiredYears } = require('../src/main/fitScore');
+  assert.equal(requiredYears(P.mark43SeniorCI.text), 8);
+});
+
+test('a PubSec posting is offered the public sector passage, with the deals it influenced', () => {
+  const asks = resumeEnhancements({ job: P.salesforcePubSecCI, bank: bank(), profile, documents: [RESUME, IMPACT], fit: 79 });
+  const pub = asks.find((a) => a.draft && /pitches/.test(a.draft));
+  assert.ok(pub, asks.map((a) => a.text).join('\n'));
+  assert.match(pub.draft, /Army, Navy and DARPA/);
+});
+
+test('no bullet is tagged as proving a degree ("or equivalent professional experience")', () => {
+  const { ranked } = B.rankBullets(P.cyeraOctoStrategyOps, bank());
+  const tags = ranked.flatMap((r) => r.covers.map((c) => c.label));
+  assert.ok(!tags.some((l) => /degree/i.test(l)), [...new Set(tags)].join(' | '));
+});
