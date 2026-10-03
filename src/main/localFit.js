@@ -1118,7 +1118,11 @@ function localFitScore(job, documents, profile = {}) {
   const plainTitle = lower(job.title || '').replace(NOT_LEVEL, ' ');
   const managerRank = (/\bmanager\b/.test(plainTitle) && !/\b(?:director|head of|vp|vice president|chief|principal|staff|lead|architect)\b/.test(plainTitle)) || (/\blead\b/.test(plainTitle) && /\b(?:strategy|operations|business|program|chief of staff)\b/.test(plainTitle) && !/\b(?:director|head of|vp|vice president|chief|principal|staff|architect|engineer(?:ing)?|tech(?:nical)? lead)\b/.test(plainTitle));
   const titled = titleLevel(job.title);
-  const postingLevel = (titled !== null && managerRank && needYears !== null ? Math.min(titled, levelFromYears(needYears) + 1) : titled) ?? (ENTRY_TEXT.test(job.text || '') ? 1 : consultantRank);
+  // "Associate" and "Junior" describe the seat, not always the level: Workiva's
+  // "Associate Strategic Alliance Executive" asks for 4+ years and pays like a
+  // senior role. When the posting asks for years, they set the floor.
+  const juniorTitled = titled !== null && titled <= 2 && needYears !== null && needYears >= 3 ? Math.max(titled, levelFromYears(needYears)) : titled;
+  const postingLevel = (titled !== null && managerRank && needYears !== null ? Math.min(titled, levelFromYears(needYears) + 1) : juniorTitled) ?? (ENTRY_TEXT.test(job.text || '') ? 1 : consultantRank);
   const docLevels = documents.filter((d) => d.kind === 'resume' || !d.kind).map((d) => d.text.split('\n').map(titleLevel).filter((l) => l !== null && l < 6)).flat();
   const yearLevel = levelFromYears(haveYears);
   const userLevel = yearLevel !== null ? Math.max(yearLevel, docLevels.length ? Math.min(Math.max(...docLevels), yearLevel + 1) : yearLevel) : null;
@@ -1287,4 +1291,4 @@ function shownFit(q) {
   return { ...q, score: toShown(lifted), label: fitLabel(lifted), calibratedScore: q.score, scale: FIT_SCALE };
 }
 
-module.exports = { localFitScore, shownFit, generous, conjunctive, titleSimilarity: titleMatch, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, skippedEmployer, workMode, postingSalaryMax };
+module.exports = { PARENT_OF, localFitScore, shownFit, generous, conjunctive, titleSimilarity: titleMatch, SCORER_VERSION, requirementUnits, extractTerms, titleLevel, dealbreakers, skippedEmployer, workMode, postingSalaryMax };

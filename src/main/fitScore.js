@@ -507,6 +507,7 @@ function withoutNegated(text) {
   return String(text || '').replace(/\bwithout (?:a |an |any )?(?:clear |defined |formal |set |fixed |much )?[a-z][\w-]*/gi, ' ');
 }
 
+const WORK_AUTH_LINE = /\bcitizen(?:ship)?\b|\bwork authori[sz]ation\b|\bauthori[sz]ed to work\b|\bvisa sponsorship\b/i;
 function readJobSkills(jobText) {
   const out = new Map();
   const groups = [];
@@ -518,7 +519,11 @@ function readJobSkills(jobText) {
     const { kind } = part;
     const line = withoutNegated(stripFieldsOfStudy(part.line));
     const found = [];
+    // A citizenship or sponsorship line is a screening question (screening.js),
+    // and its reasons aren't skills: "to meet customer and compliance requirements".
+    const authLine = WORK_AUTH_LINE.test(line);
     for (const [skill, patterns] of Object.entries(SKILLS)) {
+      if (authLine && skill !== 'Security Clearance') continue;
       for (const p of patterns) {
         const m = line.match(p);
         if (!m) continue;

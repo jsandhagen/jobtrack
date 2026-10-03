@@ -272,14 +272,18 @@ function openSuggestModal({ suggestions, dropped }, bank) {
 // ---------------- evidence in the fit panel ----------------
 
 function evidenceBlock(a) {
-  const ev = (a.evidence || []).filter((e) => e.kind !== 'preferred').slice(0, 10);
+  // A degree is shown by the Education section, never by a bullet.
+  const ev = (a.evidence || []).filter((e) => e.kind !== 'preferred' && !/degree|^PhD\b/i.test(e.label)).slice(0, 10);
   if (!ev.length) return '';
+  // The fit score can see a skill in a title, summary or skills list ("Strategy
+  // Consultant") that no bullet proves: say so, rather than contradict its ✓ chip.
+  const matched = new Set((a.quick && a.quick.matchedSkills) || []);
   return `<div class="section-title">Your evidence</div>
     <ul class="evidence">${ev
       .map((e) =>
         e.bullet
           ? `<li class="ok" title="${esc(e.bullet.text)}"><b>${esc(reqLabel(e.label))}</b><span>${esc(e.bullet.text.length > 90 ? e.bullet.text.slice(0, 88) + '…' : e.bullet.text)}</span></li>`
-          : `<li class="gap"><b>${esc(reqLabel(e.label))}</b><span>No bullet shows this yet — <a href="#bank">add one</a> if you have it.</span></li>`
+          : `<li class="gap"><b>${esc(reqLabel(e.label))}</b><span>${matched.has(e.label) ? 'Your documents mention it, but no bullet shows it yet' : 'No bullet shows this yet'} — <a href="#bank">add one</a> if you have it.</span></li>`
       )
       .join('')}</ul>`;
 }

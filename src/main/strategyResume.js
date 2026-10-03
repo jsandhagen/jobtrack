@@ -92,8 +92,13 @@ function strategySummary(job, doc, ranked) {
   const pageIds = new Set(onPage.map((b) => b.bulletId).filter(Boolean));
   // An accomplishment from the bank that the page doesn't show (or say in other words) adds to it.
   const pageWords = onPage.map((b) => words(b.text));
+  // A figure the page already gives ("$9M" and "$9M+ in customer transactions")
+  // isn't told again up top: such a one can lend its main clause, if that has none.
+  const figuresOf = (t) => (String(t).match(/\$?\d[\d.,]*[kmb%]?/gi) || []).map((f) => f.toLowerCase().replace(/[+,]|\.$/g, ''));
+  const pageFigures = new Set(onPage.flatMap((b) => figuresOf(b.text)));
+  const repeatsFigure = (t) => figuresOf(t).some((f) => pageFigures.has(f));
   const offPage = ranked
-    .filter((b) => !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6))
+    .filter((b) => !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6) && !repeatsFigure(mainClause(b.text)))
     .map((b) => ({ bulletId: b.id, text: b.text, role: roleOf.get(b.experienceId), rank: b, offPage: true }));
   // Best first: the title's own kind of work, then the current role, then the strongest.
   const primaryKeys = new Set(strategyFocus(job).filter((t) => t.primary).map((t) => t.key));
@@ -112,7 +117,7 @@ function strategySummary(job, doc, ranked) {
   const proof = fresh && (!shown || isPrimary(fresh) || !isPrimary(shown)) ? fresh : shown;
   if (!proof) return lead;
   // A long one reads as a second bullet up top: its main clause says enough.
-  const text = proof.offPage && wordCount(proof.text) <= 30 ? proof.text.replace(/[.!?]+$/, '') : mainClause(proof.text);
+  const text = proof.offPage && wordCount(proof.text) <= 30 && !repeatsFigure(proof.text) ? proof.text.replace(/[.!?]+$/, '') : mainClause(proof.text);
   const achievement = proof.role !== current && proof.role.organization
     ? `At ${proof.role.organization}, ${text.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())}`
     : text;

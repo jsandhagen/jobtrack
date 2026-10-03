@@ -8,6 +8,7 @@ const { strategyChecks } = require('./strategyResume');
 const { INTERPERSONAL, SOFT_SKILLS, SKILLS, EMPLOYER_EVIDENCE } = require('./fitScore');
 const { repeatOf, hasResult } = require('../shared/resumeCheck');
 const { postingPhrases } = require('./atsScore');
+const { PARENT_OF } = require('./localFit');
 
 function contextQuestion(topic) {
   if (/years specifically|years of experience/i.test(topic)) return 'Have you done this work in any other roles? Add those roles and their dates in your bullet bank. For an existing role, describe what you did and when.';
@@ -336,6 +337,9 @@ function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [
   for (const m of ats.missingSkills || []) {
     if (m.kind !== 'required' || INTERPERSONAL.has(m.skill) || SOFT_SKILLS.has(m.skill) || shownAs(m.skill) || implied.has(m.skill)) continue;
     if (SKILLS[m.skill] && SKILLS[m.skill].some((p) => p.test(docsLower)) && (EMPLOYER_EVIDENCE[m.skill] || /^(?:Enterprise Software|SaaS)$/i.test(m.skill))) continue;
+    // A broad word whose specific case your documents show ("cloud" with AWS
+    // Marketplace on the page) is a wording fix, not a question.
+    if ((PARENT_OF[m.skill] || []).some((k) => SKILLS[k] && SKILLS[k].some((p) => p.test(docsLower)))) continue;
     // The posting's word, unless it's one bare word ("federal"): then the skill's name ("public sector").
     let term = (m.anyOf || [m.term || m.skill])[0];
     if (!m.anyOf && !/\s/.test(term) && m.skill && /\s/.test(m.skill)) term = plainName(m.skill);
