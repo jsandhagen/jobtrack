@@ -365,7 +365,12 @@ button.info-btn:hover, button.info-btn[aria-expanded='true'] { border-color: var
 .qa-actions { display: flex; gap: 8px; margin-left: auto; }
 .qa-count { font-size: 14px; }
 /* Narrow: the desktop popup and the browser card. */
-.qa-compact .qa-head { gap: 10px; padding-right: 52px; }
+/* The popup's and card's gradient band is a fixed height; the questions'
+   header (title and intro) can be taller, so it brings its own band, as tall
+   as it is, and the fixed one steps aside. */
+.pop:has(.qa-compact)::before { display: none; }
+.qa-compact .qa-head { gap: 10px; position: relative; isolation: isolate; margin: calc(-1 * var(--qa-pad)) calc(-1 * var(--qa-pad)) 0; padding: var(--qa-pad) 52px 16px var(--qa-pad); }
+.qa-compact .qa-head::before { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(120deg, var(--sage-soft), var(--lavender-soft) 60%, var(--peach-soft)); -webkit-mask: linear-gradient(#000 70%, transparent); mask: linear-gradient(#000 70%, transparent); }
 .qa-compact .qa-head h2 { font-size: 15px; }
 .qa-compact .qa-head p, .qa-compact .qa-now { font-size: 12px; }
 .qa-compact .qa-now { padding: 7px 10px; margin-top: 8px; }
