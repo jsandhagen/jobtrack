@@ -97,7 +97,11 @@ test('the app writes a burst of changes once, and flush() writes what is waiting
   assert.ok(s.documentsVersion > v, 'library changes are counted, so scores read from it are redone');
   for (let i = 0; i < 20; i++) s.addApplication({ job: { title: `Job ${i}`, text: POSTING }, quick: { score: i } });
   assert.equal(new Store(dir).listApplications().length, 0, 'not written yet');
-  await new Promise((r) => setTimeout(r, 400));
+  // Written once the burst is over (250 ms), by a worker thread. Wait for it
+  // rather than a fixed time: starting the worker on a slow CI runner
+  // (Windows) can take longer than the gap a fixed sleep left.
+  const until = Date.now() + 5000;
+  while (new Store(dir).listApplications().length < 20 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
   assert.equal(new Store(dir).listApplications().length, 20, 'written once the burst is over');
   s.updateSettings({ screenWatch: true });
   s.flush();
