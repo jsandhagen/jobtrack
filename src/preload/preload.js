@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('sprout', {
   removeResume: (id) => call('resume:remove', id),
   removeApplication: (id) => call('app:remove', id),
   generateResume: (id) => call('app:resume', id),
+  resumeQuestions: (id) => call('app:resumeQuestions', id),
+  answerResumeQuestions: (id, replies) => call('app:answerResumeQuestions', id, replies),
   atsResume: (id) => call('app:atsResume', id),
   fixPage: (id, opts) => call('builder:fixPage', id, opts),
   baselineResume: (id) => call('builder:baseline', id),

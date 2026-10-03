@@ -1080,3 +1080,16 @@ p.way-next { display: flex; }
 @media (max-height: 820px) { .buddy .bubble { display: none; } .buddy { padding-top: 8px; } }
 /* An empty week says what will grow there, instead of a blank bed. */
 .week-empty { margin: 18px 0 -40px; text-align: center; font-size: 13px; }
+
+/* Questions before Claude writes a resume */
+.qa-list { display: grid; gap: 14px; margin-top: 14px; }
+.qa-row { border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; background: var(--surface); display: grid; gap: 8px; }
+.qa-q { display: flex; gap: 10px; align-items: baseline; line-height: 1.4; }
+.qa-n { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 800; background: var(--sage-soft); color: var(--sage-deep); }
+.qa-why { margin-left: 32px; font-size: 13px; }
+.qa-role { font-weight: 700; }
+.qa-row textarea, .qa-row input[type="text"] { margin-left: 32px; width: calc(100% - 32px); }
+.qa-yn { display: flex; gap: 8px; margin-left: 32px; }
+.qa-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; font-weight: 700; font-size: 14px; }
+.qa-chip:has(input:checked) { background: var(--sage-soft); border-color: var(--sage-deep); color: var(--sage-deep); }
+.qa-chip input { accent-color: var(--sage-deep); margin: 0; }

@@ -97,6 +97,23 @@ const ResumeDraft = z.object({
   notes: z.array(z.string()).describe('For the candidate (not printed): unevidenced basic requirements, preferred ones worth adding, judgement calls made.'),
 });
 
+// Questions before a resume is written: only ones whose answer would change the page.
+const ResumeQuestions = z.object({
+  questions: z
+    .array(
+      z.object({
+        question: z.string().describe('To "you", one thing at a time, about their actual work. Never suggests an answer or a number.'),
+        kind: z.enum(['yes_no', 'number', 'text']).describe('"yes_no" when the first thing to know is whether they have done it; "number" for a figure; "text" otherwise.'),
+        why: z.string().describe('One short sentence, to "you": what the answer would add to this resume.'),
+        requirement: z.string().describe('The posting\'s words it serves, trimmed; "" when it strengthens a bullet rather than a requirement.'),
+        role_id: z.string().describe('The role it is about, from <role_list>, or "".'),
+        bullet_id: z.string().describe('The bank bullet it would strengthen, or "".'),
+        placeholder: z.string().describe('A short hint of the detail that helps ("who, what you did, what came of it"); never an example answer.'),
+      })
+    )
+    .describe('At most 4, most valuable first; empty when the documents already make the strongest page they can.'),
+});
+
 const BulletEdits = z.object({
   edits: z
     .array(
@@ -337,6 +354,28 @@ async function generateResume(client, { job, documents, profile, analysis, ats, 
   return { ...out, promptVersion: P.PROMPT_VERSION };
 }
 
+// Before a resume is written: up to four questions whose answers would make
+// the page stronger (a requirement the documents don't show, a number for a
+// lead bullet, who owned the work). None is a fine answer.
+async function askResumeQuestions(client, { job, documents, profile, analysis, ats, roles, answered, flagged, model }) {
+  const out = await structuredCall(client, {
+    kind: 'interview',
+    model,
+    effort: 'medium',
+    system: P.systemBlocks(documents, profile),
+    content: [P.jobBlock(job), P.roleListBlock(roles), P.fitBlock(analysis), P.atsBlock(job, ats), P.answeredBlock(answered.answers, answered.confirmed, answered.declined), P.flaggedBlock(flagged), P.TASKS.interview].filter(Boolean).join('\n\n'),
+    schema: ResumeQuestions,
+    maxTokens: 8000,
+  });
+  const roleIds = new Set((roles || []).map((r) => r.id));
+  const bulletIds = new Set((roles || []).flatMap((r) => (r.bullets || []).map((b) => b.id)));
+  const questions = (out.questions || [])
+    .filter((q) => String(q.question || '').trim())
+    .slice(0, 4)
+    .map((q, i) => ({ ...q, id: `q${i + 1}`, question: q.question.trim(), role_id: roleIds.has(q.role_id) ? q.role_id : '', bullet_id: bulletIds.has(q.bullet_id) ? q.bullet_id : '' }));
+  return { questions, promptVersion: P.PROMPT_VERSION };
+}
+
 // Light, fact-preserving edits. Anything that adds a number or named detail
 // the documents don't have is held back.
 async function polishBullets(client, { job, bullets, documents, profile, model, terms = [] }) {
@@ -569,12 +608,13 @@ module.exports = {
   extractJobFromScreenshot,
   analyzeFit,
   generateResume,
+  askResumeQuestions,
   generateCoverLetter,
   polishBullets,
   suggestBullets,
   scoreFromQualifications,
   liftSavedAnalysis,
   libraryText,
-  schemas: { ScreenJob, FitAnalysis, ResumeDraft, CoverLetter, BulletEdits, SuggestedBullets, FoundCompanies },
+  schemas: { ScreenJob, FitAnalysis, ResumeDraft, ResumeQuestions, CoverLetter, BulletEdits, SuggestedBullets, FoundCompanies },
   DEFAULT_MODEL,
 };

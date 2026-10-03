@@ -85,13 +85,17 @@ const pastOf = (ing) => {
 };
 function asBullet(sentence, names) {
   let t = sentence.replace(/^[A-Z][\w &/-]{2,60}?\s+[–—-]\s+/, ''); // "Public Sector Strategy – …"
-  const who = names.length ? `(?:${names.join('|')}|She|He|They)` : '(?:She|He|They)';
+  // Third person (an impact statement, a review) or first ("Answers you gave Sprout": "I registered…").
+  const who = names.length ? `(?:${names.join('|')}|She|He|They|I)` : '(?:She|He|They|I)';
+  const firstPerson = new RegExp(`(?:^|[,;–—]\\s+|\\s)I\\s+(?:have\\s+|had\\s+)?(?:also\\s+)?[a-z]+`).test(t);
   // "Leveraging her perspective…, Sadia developed several pitches…": from the person on.
   const subject = t.match(new RegExp(`(?:^|[,;–—]\\s+|\\s)${who}\\s+(?:has\\s+|have\\s+|had\\s+)?(?:also\\s+)?(?:successfully\\s+)?([a-z]+(?:ed|t)|led|built|ran|wrote|made|drove|grew|won|sold|held|kept|met|set|took|gave|brought|taught|oversaw)\\b`));
   if (subject) t = t.slice(subject.index).replace(new RegExp(`^[,;–—]?\\s*${who}\\s+(?:has\\s+|have\\s+|had\\s+)?(?:also\\s+)?(?:successfully\\s+)?`), '');
   else if (/^[A-Z][a-z]+ing\b/.test(t)) t = t.replace(/^([A-Z][a-z]+ing)\b/, (w) => pastOf(w));
   else return null; // "These materials…", "Highlights include…": not a sentence about what you did
   t = t.replace(/^[a-z]/, (c) => c.toUpperCase()).replace(/[.;:,\s]+$/, '');
+  // In your own words, "our co-sell opportunities" reads on a resume as "co-sell opportunities".
+  if (firstPerson) t = t.replace(/\b(?:our|my) (?=[a-z])/gi, '').replace(/\s{2,}/g, ' ').trim();
   // A role described, not work done ("Played a larger role in…"), isn't a bullet.
   if (/^(?:Played|Grown|Had|Been|Started|Continued|Contributed)\b/.test(t) || /\b(?:role in supporting|over the last (?:year|\d+ months))\b/i.test(t)) return null;
   const words = t.split(/\s+/).length;

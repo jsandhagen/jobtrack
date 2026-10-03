@@ -34,6 +34,7 @@ const { createBridge } = require('./bridge');
 const { createUpdater } = require('./updater');
 const { installExtension } = require('./extensionFolder');
 const haveIt = require('./haveIt');
+const answersLib = require('./answers');
 const bulletBank = require('./bullets');
 const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
@@ -42,7 +43,7 @@ const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } 
 const { atsScore: readAts, atsGaps, postingRewords, rewordTerms, libraryAtsScore } = require('./atsScore');
 const { memoize } = require('./memo');
 const { atsNudges } = require('./atsNudges');
-const { INTERPERSONAL, SOFT_SKILLS } = require('./fitScore');
+const { INTERPERSONAL, SOFT_SKILLS, SKILLS } = require('./fitScore');
 const fitScale = require('../shared/fitScale');
 const { contactFromResume, contactFromLibrary, contactPatch } = require('./contact');
 const { resumeEnhancements } = require('./resumeContext');
@@ -124,6 +125,8 @@ function setApiKey(key) {
 }
 
 function claudeClient() {
+  // Tests and demos only: a module that stands in for the Anthropic client (test/e2e/fakeClaude.js).
+  if (process.env.SPROUT_FAKE_CLAUDE) return require(path.resolve(process.env.SPROUT_FAKE_CLAUDE))();
   const key = getApiKey();
   if (!key) throw new Error('Add your Claude API key in Settings to unlock this.');
   return claude.createClient(key);
@@ -414,6 +417,11 @@ function docsForPrompt() {
   const own = [...new Set(store.getBank().bullets.filter((b) => !b.hidden).flatMap((b) => [b.text, ...(b.variants || [])]))]
     .filter((t) => t && !inDocs.includes(t.replace(/\s+/g, ' ').toLowerCase()));
   if (own.length) docs.push({ name: 'Bullets written in Sprout', kind: 'bank', text: own.map((t) => `- ${t}`).join('\n') });
+  // What you said yes to when Sprout asked ("Do you have these?", or before a
+  // Claude draft): Claude may name it, in the posting's words, where the page shows that work.
+  const bank = store.getBank();
+  const confirmed = [...new Set([...(bank.confirmed || [])])].filter((t) => t && !inDocs.includes(String(t).toLowerCase()));
+  if (confirmed.length) docs.push({ name: 'Experience you confirmed in Sprout', kind: 'bank', text: `The candidate confirmed having this experience when Sprout asked:\n${confirmed.map((t) => `- ${t}`).join('\n')}` });
   return docs;
 }
 
@@ -758,6 +766,103 @@ function jobForClaude(rec) {
   return { ...job, title: job.title || 'General resume', text: `${aim ? `Target role: ${aim}.` : 'No specific role.'} There is no job posting: write a strong general resume ${aim ? 'for this kind of role' : 'that shows the candidate at their best'}.${job.text ? `\nFocus: ${job.text}` : ''}` };
 }
 
+// ---------- questions before a Claude draft ----------
+
+// Up to four questions whose answers would make this resume stronger
+// (claude.askResumeQuestions). None is a fine result: then the draft starts
+// right away. Remembered on the job until the bank or library changes.
+async function resumeQuestions(appId) {
+  const rec = getHost(appId);
+  if (!rec) throw new Error('That resume no longer exists.');
+  if (!rec.job || !String(rec.job.text || '').trim()) return { questions: [] };
+  if (!store.getBank().experiences.length && store.allDocuments().length) importBullets(store.allDocuments());
+  const bank = store.getBank();
+  if (!bank.experiences.length || !evidenceDocs().length) return { questions: [] };
+  const version = `${store.bankVersion}:${store.documentsVersion}:${P_VERSION()}`;
+  if (rec.resumeQuestions && rec.resumeQuestions.version === version) return { questions: rec.resumeQuestions.questions };
+  const profile = store.getProfile();
+  const ids = draft.promptIds(bank, currentDoc(rec).roles, bulletBank.resumeExperiences(bank, rec.job));
+  const quick = rec.quick || null;
+  // What the app's own checks would ask, as leads (Claude asks better, and only when it matters).
+  const flagged = [
+    ...contextSuggestions({ job: rec.job, bank, profile, fit: quick ? quick.score : null }).filter((a) => !a.draft).map((a) => a.text),
+    ...missingAsks(rec.job, quick).map((x) => x.ask || x.label).filter(Boolean),
+  ].slice(0, 8);
+  const answered = { answers: (bank.answers || []).slice(-30), confirmed: bank.confirmed || [], declined: (store.getSettings().declinedQualifications || []).slice(-30) };
+  const out = await claude.askResumeQuestions(claudeClient(), { job: jobForClaude(rec), documents: docsForPrompt(), profile, analysis: rec.analysis, ats: libraryAts(rec.job), roles: ids.roles, answered, flagged, model: store.getSettings().model });
+  // Ids that last beyond this prompt: the bank's own role and bullet ids.
+  const roleLabel = (e) => (e ? [e.title, e.organization].filter(Boolean).join(' · ') : '');
+  const questions = out.questions.map((q) => {
+    const exp = q.role_id ? ids.roleById.get(q.role_id) : null;
+    const bullet = q.bullet_id ? ids.bulletById.get(q.bullet_id) : null;
+    return { id: q.id, question: q.question, kind: q.kind, why: q.why, requirement: q.requirement, placeholder: q.placeholder, experienceId: exp ? exp.id : bullet ? bullet.experienceId : null, bulletId: bullet ? bullet.id : null, role: roleLabel(exp || (bullet && bank.experiences.find((e) => e.id === bullet.experienceId))), bullet: bullet ? bullet.text : '' };
+  });
+  updateHost(appId, { resumeQuestions: { version, questions, at: new Date().toISOString() } });
+  return { questions };
+}
+const P_VERSION = () => require('./prompts').PROMPT_VERSION;
+
+// Your answers, kept for good: in the library document "Answers you gave
+// Sprout", in your bank's answers, and a yes or no to a requirement recorded
+// as "Do you have these?" records it. Then every job is re-scored, since
+// what you told Sprout counts for all of them.
+function answerResumeQuestions(appId, replies = []) {
+  const rec = getHost(appId);
+  if (!rec) throw new Error('That resume no longer exists.');
+  const asked = (rec.resumeQuestions && rec.resumeQuestions.questions) || [];
+  const { entries, yes, no } = answersLib.answerEntries(asked, replies, { job: rec.job });
+  if (!entries.length) return { saved: 0 };
+  store.updateBank((b) => void (b.answers = [...(b.answers || []), ...entries]));
+  const bank = store.getBank();
+  const existing = store.allDocuments().find(answersLib.isAnswersDoc);
+  const text = answersLib.withAnswers(existing && existing.text, entries, bank.experiences, store.getProfile().name);
+  if (existing) store.updateDocument(existing.id, { text });
+  else store.addDocument({ name: answersLib.ANSWERS_DOC, kind: 'other', text });
+  // A yes is experience you have (it counts toward every fit score); only a
+  // skill the dictionary knows goes to your skills list. A no isn't asked again.
+  if (yes.length) {
+    store.updateBank((b) => {
+      for (const label of yes) {
+        const known = Object.keys(SKILLS).find((k) => k.toLowerCase() === label.toLowerCase());
+        const where = known ? 'skills' : 'confirmed';
+        const list = (b[where] = Array.isArray(b[where]) ? b[where] : []);
+        const value = known || label;
+        if (!list.some((x) => x.toLowerCase() === value.toLowerCase())) list.push(value);
+      }
+    });
+    const declined = store.getSettings().declinedQualifications || [];
+    const said = new Set(yes.map((x) => x.toLowerCase()));
+    if (declined.some((x) => said.has(x.toLowerCase()))) store.updateSettings({ declinedQualifications: declined.filter((x) => !said.has(x.toLowerCase())) });
+  }
+  for (const label of no) answerHaveIt({ label, answer: 'no' });
+  updateHost(appId, { resumeQuestions: null });
+  rescoreAllSoon();
+  broadcast('state-changed');
+  return { saved: entries.length, document: answersLib.ANSWERS_DOC };
+}
+
+// After a Claude draft: the bullets it wrote from your answers, into the bank.
+function saveAnswerBullets(doc, out) {
+  const answersDoc = store.allDocuments().find(answersLib.isAnswersDoc);
+  if (!answersDoc) return { added: 0, reworded: 0 };
+  const quotes = (out.experience || []).flatMap((r) => r.bullets || []);
+  const { add, variants } = answersLib.bulletsFromAnswers(doc, { answersText: answersDoc.text, bank: store.getBank(), quotes });
+  if (!add.length && !variants.length) return { added: 0, reworded: 0 };
+  const now = new Date().toISOString();
+  store.updateBank((b) => {
+    for (const x of add) b.bullets.push({ id: crypto.randomUUID(), experienceId: x.experienceId, text: x.text, variants: [], tags: [], source: { docId: answersDoc.id, name: answersLib.ANSWERS_DOC }, createdAt: now, uses: 0 });
+    for (const v of variants) {
+      const bl = b.bullets.find((y) => y.id === v.bulletId);
+      if (bl && !bl.variants.includes(v.text)) bl.variants.push(v.text);
+    }
+  });
+  // The page's new bullets now point at their bank entries.
+  const bank = store.getBank();
+  for (const r of doc.roles) for (const bl of r.bullets) if (!bl.bulletId) { const hit = bank.bullets.find((x) => x.text === bl.text); if (hit) bl.bulletId = hit.id; }
+  broadcast('state-changed');
+  return { added: add.length, reworded: variants.length };
+}
+
 async function makeResume(appId) {
   const rec = getHost(appId);
   if (!rec) throw new Error('That resume no longer exists.');
@@ -794,6 +899,11 @@ async function makeResume(appId) {
     }
     progress.checking();
     let { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
+    // Bullets Claude wrote from your answers go into your bullet bank, so the
+    // free optimizer and later drafts have them too.
+    const kept = saveAnswerBullets(doc, out);
+    const said = [kept.added && `${kept.added === 1 ? 'a new bullet' : `${kept.added} new bullets`}`, kept.reworded && `${kept.reworded === 1 ? 'a new wording of a bullet' : `${kept.reworded} new wordings of bullets`}`].filter(Boolean);
+    if (said.length) notes = [...notes, `Saved ${said.join(' and ')} written from your answers to your bullet bank.`];
     const prev = rec.builder && rec.builder.doc;
     if (prev && prev.header && prev.header.name) doc.header = ResumeDoc.fillHeader(prev.header, profile);
     // Keep Claude's draft within the length you chose (it's asked for one page, but can run over).
@@ -1467,7 +1577,7 @@ function registerIpc() {
         .filter((a) => a.saved === false)
         .sort((a, b) => String(b.lastSeenAt || b.createdAt).localeCompare(String(a.lastSeenAt || a.createdAt)))
         .map((a) => summarizeApp(a, scoreProfile)),
-      hasApiKey: !!getApiKey(),
+      hasApiKey: !!getApiKey() || !!process.env.SPROUT_FAKE_CLAUDE,
       usage: store.getUsage(),
       autoBudgetOk: autoBudgetOk(),
       platform: process.platform,
@@ -1981,6 +2091,8 @@ function registerIpc() {
     broadcast('state-changed');
   });
   handle('app:resume', (id) => makeResume(id));
+  handle('app:resumeQuestions', (id) => resumeQuestions(id));
+  handle('app:answerResumeQuestions', (id, replies) => answerResumeQuestions(id, replies));
   handle('app:atsResume', (id) => makeAtsResume(id));
   // The fixes a nudge offers: industry words the employer proves ("SaaS" for
   // Appian), or the posting's word for a skill you show, added to the skills grid.
