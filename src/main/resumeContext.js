@@ -103,38 +103,22 @@ function roleFor(docText, roles) {
   return (named[0] || { e: roles[0] }).e;
 }
 
-/**
- * Passages in your documents (not yet in your bank) that show what this
- * posting asks for, as draft bullets, best first.
- * @returns {{topic: string, draft: string, quote: string, doc: string, experienceId: string, gain: number}[]}
- */
-function documentEvidence({ job, bank, profile = {}, documents = [], pageText, ats, units, shown }) {
-  const roles = B.resumeExperiences(bank, job).filter((e) => !e.isProject);
-  if (!roles.length) return [];
-  const names = String(profile.name || '').split(/\s+/).filter((w) => /^[A-Z][a-z]{2,}$/.test(w));
+// Draft bullets from your documents that aren't in your bank yet. The same
+// for every posting, so worked out once until the documents or the bank
+// change: checking each draft against every bullet is the slow part.
+// Resumes are left out: their bullets are what the bank is made of.
+const candidateCache = new Map();
+function docCandidates(documents, bank, names) {
+  const docs = documents.filter((d) => d.kind !== 'bank' && d.kind !== 'resume' && d.text);
   const bankTexts = bank.bullets.filter((b) => !b.hidden).flatMap((b) => [b.text, ...(b.variants || [])]);
-  // What the posting asks for that the full bank doesn't show.
-  const wants = [
-    ...units.filter((u) => u.kind !== 'preferred' && !INTERPERSONAL.has(u.label) && !SOFT_SKILLS.has(u.label) && !/degree|^PhD/.test(u.label) && shown(u) < 0.6).map((u) => ({ topic: topicOf(u.label, pageText.toLowerCase()), test: (t) => u.match(t.toLowerCase(), t) >= 0.6, weight: u.kind === 'required' ? 3 : 1.5 })),
-    ...(ats.missingSkills || []).flatMap((m) => [m.skill, ...(m.anyOf || [])]).filter((k) => SKILLS[k]).map((k) => ({ topic: plainName(k), test: (t) => SKILLS[k].some((p) => p.test(t.toLowerCase())), weight: 1 })),
-    // A posting phrase whose words the passage uses ("competitive decks":
-    // competitor research and enablement decks in one write-up).
-    ...(ats.missingKeywords || []).filter((k) => /\s/.test(k)).map((k) => {
-      const stems = k.split(/\s+/).map((w) => w.replace(/(?:ies|es|s|ing|ed|ive|ion|ors?)$/, '')).filter((w) => w.length >= 4);
-      return { topic: k, test: (t) => stems.length >= 2 && stems.every((w) => t.toLowerCase().includes(w)), weight: 1, phrase: true };
-    }),
-  ];
-  // What adding a line would do for the ATS read, leaving out the title
-  // check: a bullet doesn't change your job title, so "corporate development"
-  // earns nothing toward a "Partner Development Manager" title.
-  const untitled = { ...job, title: '' };
-  const base = atsScore(untitled, pageText, { profile }).score;
-  const gainOf = (line) => atsScore(untitled, `${pageText}\n- ${line}`, { profile }).score - base;
+  const key = [names.join(' '), ...docs.map((d) => `${d.id || d.name}:${d.text.length}`), bankTexts.length, bankTexts.reduce((n, t) => n + t.length, 0)].join('|');
+  if (candidateCache.has(key)) return candidateCache.get(key);
   const out = [];
-  for (const doc of documents) {
-    if (doc.kind === 'bank' || !doc.text) continue;
-    const role = roleFor(doc.text, roles);
+  const seen = new Set(); // the same passage in two documents is one candidate
+  for (const doc of docs) {
     for (const passage of passagesOf(doc.text)) {
+      if (seen.has(passage)) continue;
+      seen.add(passage);
       const sentences = sentencesOf(passage);
       sentences.forEach((sentence, i) => {
         const lead = asBullet(sentence, names);
@@ -156,20 +140,61 @@ function documentEvidence({ job, bank, profile = {}, documents = [], pageText, a
           return last >= 0 ? parts.slice(0, last + 1).join(', ') : parts.join(', ');
         };
         const tail = (next) => upToResult(next).replace(/^[A-Z]/, (c) => c.toLowerCase());
-        const pairs = follow.flatMap((a, x) => follow.slice(x + 1).map((b) => [a, b]));
-        const variants = [lead, ...follow.map((next) => `${lead}; ${tail(next)}`), ...pairs.map(([a, b]) => `${lead}; ${tail(a)}; ${tail(b)}`)].filter((v) => v.split(/\s+/).length <= 60);
+        const pairs = follow.flatMap((x, k) => follow.slice(k + 1).map((y) => [x, y]));
+        const variants = [lead, ...follow.map((next) => `${lead}; ${tail(next)}`), ...pairs.map(([x, y]) => `${lead}; ${tail(x)}; ${tail(y)}`)].filter((v) => v.split(/\s+/).length <= 60);
+        // Already a bullet: the lead tells (every variant contains it).
+        if (bankTexts.some((t) => repeatOf(t, lead))) return;
         for (const draft of variants) {
-          if (bankTexts.some((b) => repeatOf(b, draft))) continue; // already a bullet
-          const met = wants.filter((w) => w.test(draft));
-          const gain = 0; // measured below, for the most promising only
           const used = follow.filter((next) => draft.includes(tail(next)));
-          const quote = [sentence, ...used].join(' ');
-          // A version that says what came of it beats one that doesn't.
-          const result = draft !== lead && hasResult(draft) && !hasResult(lead);
-          out.push({ passage, lead, topic: met.length ? met[0].topic : null, draft, quote, doc: doc.name || 'your documents', experienceId: role.id, gain, met, result, weak: /^(?:Supported|Helped|Assisted|Contributed|Participated|Handled)\b/.test(draft) });
+          out.push({
+            passage, lead, draft, quote: [sentence, ...used].join(' '), doc: doc.name || 'your documents', docText: doc.text,
+            // A version that says what came of it beats one that doesn't.
+            result: draft !== lead && hasResult(draft) && !hasResult(lead),
+            weak: /^(?:Supported|Helped|Assisted|Contributed|Participated|Handled)\b/.test(draft),
+          });
         }
       });
     }
+  }
+  if (candidateCache.size >= 4) candidateCache.delete(candidateCache.keys().next().value);
+  candidateCache.set(key, out);
+  return out;
+}
+
+/**
+ * Passages in your documents (not yet in your bank) that show what this
+ * posting asks for, as draft bullets, best first.
+ * @returns {{topic: string, draft: string, quote: string, doc: string, experienceId: string, gain: number}[]}
+ */
+function documentEvidence({ job, bank, profile = {}, documents = [], pageText, ats, units, shown }) {
+  const roles = B.resumeExperiences(bank, job).filter((e) => !e.isProject);
+  if (!roles.length) return [];
+  const names = String(profile.name || '').split(/\s+/).filter((w) => /^[A-Z][a-z]{2,}$/.test(w));
+  // What the posting asks for that the full bank doesn't show.
+  const wants = [
+    ...units.filter((u) => u.kind !== 'preferred' && !INTERPERSONAL.has(u.label) && !SOFT_SKILLS.has(u.label) && !/degree|^PhD/.test(u.label) && shown(u) < 0.6).map((u) => ({ topic: topicOf(u.label, pageText.toLowerCase()), test: (t) => u.match(t.toLowerCase(), t) >= 0.6, weight: u.kind === 'required' ? 3 : 1.5 })),
+    ...(ats.missingSkills || []).flatMap((m) => [m.skill, ...(m.anyOf || [])]).filter((k) => SKILLS[k]).map((k) => ({ topic: plainName(k), test: (t) => SKILLS[k].some((p) => p.test(t.toLowerCase())), weight: 1 })),
+    // A posting phrase whose words the passage uses ("competitive decks":
+    // competitor research and enablement decks in one write-up).
+    ...(ats.missingKeywords || []).filter((k) => /\s/.test(k)).map((k) => {
+      const stems = k.split(/\s+/).map((w) => w.replace(/(?:ies|es|s|ing|ed|ive|ion|ors?)$/, '')).filter((w) => w.length >= 4);
+      return { topic: k, test: (t) => stems.length >= 2 && stems.every((w) => t.toLowerCase().includes(w)), weight: 1, phrase: true };
+    }),
+  ];
+  // What adding a line would do for the ATS read, leaving out the title
+  // check: a bullet doesn't change your job title, so "corporate development"
+  // earns nothing toward a "Partner Development Manager" title.
+  const untitled = { ...job, title: '' };
+  // (One more line never changes the page's formatting, so that check is skipped.)
+  const opts = { profile, checkFormatting: false };
+  const base = atsScore(untitled, pageText, opts).score;
+  const gainOf = (line) => atsScore(untitled, `${pageText}\n- ${line}`, opts).score - base;
+  const out = [];
+  const roleOf = new Map();
+  for (const c of docCandidates(documents, bank, names)) {
+    if (!roleOf.has(c.docText)) roleOf.set(c.docText, roleFor(c.docText, roles).id);
+    const met = wants.filter((w) => w.test(c.draft));
+    out.push({ ...c, experienceId: roleOf.get(c.docText), topic: met.length ? met[0].topic : null, met, gain: 0 }); // gain: measured below, for the most promising only
   }
   if (!out.length) return [];
   // How strongly each passage proves what this posting is about, by the same
@@ -180,9 +205,9 @@ function documentEvidence({ job, bank, profile = {}, documents = [], pageText, a
   const scoreOf = new Map(ranked.map((r) => [r.id, r.score || 0]));
   const bankScores = ranked.filter((r) => !String(r.id).startsWith('doc-evidence-')).map((r) => r.score || 0).sort((a, b) => b - a);
   const bar = 0.8 * (bankScores[Math.min(4, bankScores.length - 1)] || 0); // close to your fifth-best bullet
-  // The ATS read for the dozen most promising (each read takes a few ms).
+  // The ATS read for the most promising few (each read takes a few ms on a big bank).
   const promise = (c, i) => (scoreOf.get(`doc-evidence-${i}`) || 0) / Math.max(1, bar) + c.met.reduce((n, w) => n + w.weight, 0);
-  out.map((c, i) => ({ c, p: promise(c, i) })).sort((a, b) => b.p - a.p).slice(0, 12).forEach(({ c }) => (c.gain = gainOf(c.draft)));
+  out.map((c, i) => ({ c, p: promise(c, i) })).sort((a, b) => b.p - a.p).slice(0, 6).forEach(({ c }) => (c.gain = gainOf(c.draft)));
   for (const [i, c] of out.entries()) {
     const rank = scoreOf.get(`doc-evidence-${i}`) || 0;
     c.strong = rank >= bar && rank > 0;
@@ -297,12 +322,15 @@ function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [
   const coveredByDocs = (t) => evidence.some((e) => e.topic.toLowerCase() === t.toLowerCase());
 
   // 2. Posting phrases your bullets cover in other words, best for the ATS first.
+  let wordingBaseScore = null;
+  const wordingBase = () => (wordingBaseScore ??= atsScore({ ...job, title: '' }, text, { profile, checkFormatting: false }).score);
   const bankLower = lowerText;
   const askedLower = asked.map((a) => String(a).toLowerCase());
   const wording = (ats.missingKeywords || [])
     .map((phrase) => ({ phrase, near: phrasedElsewhere(phrase, bankLower) }))
     .filter((x) => x.near && !x.near.includes(x.phrase))
-    .map((x) => ({ ...x, gain: atsScore({ ...job, title: '' }, `${text}\n${x.phrase}`, { profile }).score - atsScore({ ...job, title: '' }, text, { profile }).score }))
+    .slice(0, 6)
+    .map((x) => ({ ...x, gain: atsScore({ ...job, title: '' }, `${text}\n${x.phrase}`, { profile, checkFormatting: false }).score - wordingBase() }))
     .filter((x) => x.gain > 0)
     .sort((a, b) => b.gain - a.gain)
     .slice(0, 2)

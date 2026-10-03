@@ -1301,10 +1301,19 @@ const TUNE_ROUNDS = 5;
 const TUNE_POOL = 10;
 function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, summary }) {
   const ResumeDoc = require('../shared/resumeDoc');
-  const { atsScore } = require('./atsScore');
+  const { atsScore, skillsOfLines } = require('./atsScore');
   const { htmlToText } = require('./resumeRender');
-  const read = (d) => atsScore(job, htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(d))), { profile });
-  const score = (d) => read(d).score;
+  const read = (d) => {
+    const text = htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(d)));
+    return atsScore(job, text, { profile, skills: skillsOfLines(text.split('\n')) });
+  };
+  // Each arrangement of the page is read once (rounds and passes revisit them).
+  const seen = new Map();
+  const score = (d) => {
+    const key = `${d.summary}\u0000${d.roles.map((r) => r.bullets.map((b) => b.bulletId || b.text).join(',')).join('|')}`;
+    if (!seen.has(key)) seen.set(key, read(d).score);
+    return seen.get(key);
+  };
   const fits = (d) => ResumeDoc.fits(d, pages, { scale });
   const rankOf = new Map(ranked.map((r) => [r.id, r.score || 0]));
   const clone = (d) => ({ ...d, header: { ...d.header }, roles: d.roles.map((r) => ({ ...r, bullets: r.bullets.slice() })), skills: (d.skills || []).slice() });
@@ -1330,13 +1339,17 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
       const now = read(best);
       const missing = [...now.missingSkills.flatMap((m) => m.anyOf || [m.term]), ...now.missingKeywords, ...(now.wordingTerms || [])].map((t) => String(t).toLowerCase()).filter((t) => t.length > 2);
       const says = (r) => missing.some((t) => lower(r.text).includes(t));
-      const pool = [...new Set([...usable.slice(0, TUNE_POOL), ...usable.filter(says).slice(0, TUNE_POOL)])];
+      const pool = [...new Set([...usable.slice(0, TUNE_POOL), ...usable.filter(says).slice(0, TUNE_POOL)])].slice(0, TUNE_POOL + 2);
       let move = null;
       for (const c of pool) {
         const role = best.roles.find((x) => x.experienceId === c.experienceId);
         // Add it, or put it in place of one of the role's bullets, but never in
         // place of one that's far more relevant: keywords alone don't earn that.
-        for (const i of [null, ...role.bullets.map((_, k) => k)]) {
+        // The three least relevant bullets are the ones worth replacing, and
+        // the one it says again in other words (only a swap can bring it in).
+        const weakest = role.bullets.map((b, k) => ({ k, r: rankOf.get(b.bulletId) || 0 })).sort((x, y) => x.r - y.r).slice(0, 3).map((x) => x.k);
+        const twin = role.bullets.findIndex((b) => repeatOf(b.text, c.text));
+        for (const i of [null, ...new Set([...weakest, ...(twin >= 0 ? [twin] : [])])]) {
           if (i === null && page.length >= cap) continue;
           const out = i === null ? null : role.bullets[i];
           if (out && (rankOf.get(out.bulletId) || 0) > 2 * (rankOf.get(c.id) || 0) + 1) continue;

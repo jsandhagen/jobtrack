@@ -203,9 +203,14 @@ const FILLER = new Set(
 
 // Resumes are written in the past tense: "built" is "building", "led" is "leading".
 const IRREGULAR = { built: 'build', led: 'lead', ran: 'run', wrote: 'write', written: 'write', made: 'make', drove: 'drive', driven: 'drive', grew: 'grow', grown: 'grow', began: 'begin', brought: 'bring', taught: 'teach', bought: 'buy', sold: 'sell', thought: 'think', won: 'win', spent: 'spend', set: 'set', met: 'meet', held: 'hold', kept: 'keep', took: 'take', gave: 'give', chose: 'choose', saw: 'see', spoke: 'speak', oversaw: 'oversee', undertook: 'undertake', underwent: 'undergo' };
+const stems = new Map(); // the same few thousand words, read again and again
 function wordStem(w) {
-  w = IRREGULAR[w] || w;
-  return w.replace(/(?:ations?|ments?|ings?|ers?|ed|es|s)$/, '').replace(/(?:e|y|i)$/, '');
+  let out = stems.get(w);
+  if (out !== undefined) return out;
+  out = (IRREGULAR[w] || w).replace(/(?:ations?|ments?|ings?|ers?|ed|es|s)$/, '').replace(/(?:e|y|i)$/, '');
+  if (stems.size > 50000) stems.clear();
+  stems.set(w, out);
+  return out;
 }
 
 // The phrases a recruiter types into an ATS search: noun phrases from what the
@@ -438,11 +443,15 @@ function skillsMatchLabel(ratio) {
 }
 
 // Dictionary skills a resume mentions (the same resume is read against every posting).
-const skillsIn = memoize((resumeLower) => {
+const skillsIn = memoize((resumeLower) => readSkillsIn(resumeLower), { size: 100 });
+// One line's, kept for many reads of pages built from the same lines.
+const lineSkills = memoize((line) => readSkillsIn(lower(line)), { size: 4000 });
+const skillsOfLines = (lines) => new Set(lines.flatMap((l) => [...lineSkills(l)]));
+function readSkillsIn(resumeLower) {
   const found = new Set();
   for (const [skill, patterns] of Object.entries(SKILLS)) if (patterns.some((p) => p.test(resumeLower))) found.add(skill);
   return found;
-}, { size: 100 });
+}
 
 /**
  * @param {object} job   { title, text }
@@ -454,7 +463,9 @@ function atsScore(job, resumeText, opts = {}) {
   const checkFormatting = opts.checkFormatting !== false;
   const resumeLower = lower(resumeText);
   const jobSkills = classifyJobSkills(job.text);
-  const resumeSkills = skillsIn(resumeLower);
+  // A caller reading many versions of one page (the optimizer) can pass the
+  // skills it found line by line; a line's skills don't change between versions.
+  const resumeSkills = opts.skills || skillsIn(resumeLower);
 
   const skills = scoreSkills(jobSkills, resumeLower, resumeSkills);
   const title = scoreJobTitle(job.title, resumeLower);
@@ -753,4 +764,4 @@ function libraryAtsScore(job, documents, profile) {
 const degreeRequirements = memoize(readDegreeRequirements);
 const postingPhrases = memoize(readPostingPhrases);
 
-module.exports = { atsGaps, postingRewords, rewordTerms, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };
+module.exports = { skillsOfLines, atsGaps, postingRewords, rewordTerms, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };

@@ -48,10 +48,37 @@ const { contactFromResume, contactFromLibrary, contactPatch } = require('./conta
 const { resumeEnhancements } = require('./resumeContext');
 // Your documents count too: passages they show that the bank doesn't yet are
 // offered as draft bullets. Kept until the bank, the library or the posting changes.
-const contextSuggestions = memoize((opts) => resumeEnhancements({ ...opts, documents: evidenceDocs() }), {
-  size: 30,
-  key: (opts) => [store.bankVersion, store.documentsVersion, JSON.stringify(opts.profile || {}), jobKey(opts.job || {}), (opts.asked || []).join('|')].join('\u0000'),
-});
+const contextCache = new Map();
+const contextKey = (opts) => [store.bankVersion, store.documentsVersion, JSON.stringify(opts.profile || {}), jobKey(opts.job || {}), (opts.asked || []).join('|')].join('\u0000');
+function contextSuggestions(opts) {
+  const key = contextKey(opts);
+  if (!contextCache.has(key)) {
+    if (contextCache.size >= 30) contextCache.delete(contextCache.keys().next().value);
+    contextCache.set(key, resumeEnhancements({ ...opts, documents: evidenceDocs() }));
+  }
+  return contextCache.get(key);
+}
+// Opening a job doesn't wait for them: with a big library, reading every
+// document against the posting takes a moment. The page shows at once, and
+// "Ask if applicable" fills in when they're ready (app-updated redraws it).
+const contextPending = new Set();
+function contextSuggestionsSoon(opts, appId) {
+  const key = contextKey(opts);
+  if (contextCache.has(key)) return contextCache.get(key);
+  if (!contextPending.has(key)) {
+    contextPending.add(key);
+    setTimeout(() => {
+      contextPending.delete(key);
+      try {
+        if (contextKey(opts) === key) contextSuggestions(opts); // skip if the bank or library changed meanwhile
+      } catch (err) {
+        console.warn('Ask if applicable:', err.message);
+      }
+      broadcast('app-updated', { id: appId });
+    }, 0);
+  }
+  return [];
+}
 const outreach = require('../shared/outreach');
 const finder = require('../shared/finder');
 const careers = require('./careers');
@@ -677,7 +704,7 @@ function withAts(rec) {
   // "Ask if applicable": what the fit is missing that you may have done but not written down.
   // Not what "Do you have it?" already asks on the same page.
   const asked = rec.quick ? missingAsks(rec.job, rec.quick).map((x) => x.ask) : [];
-  const contextAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined, asked }) : [];
+  const contextAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestionsSoon({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined, asked }, rec.id) : [];
   return { ...rec, ats: { before, after, nudges }, evidence, contextAsks };
 }
 
