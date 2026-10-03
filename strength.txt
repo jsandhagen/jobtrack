@@ -4,7 +4,7 @@ RESUME STRENGTH SCORE: RATIONALE
 Status (October 2026): in UAT (src/main/resumeStrength.js). The one-click
 optimizer scores every candidate page for strength, which takes "optimize"
 from about 250 ms to about 420 ms. That's accepted: optimize shows a spinner
-from the click. Caching can still bring it down (see Open items).
+from the click. The follow-up below caches strength reads; desktop timings still need checking.
 
 
 WHY A SECOND SCORE
@@ -123,19 +123,48 @@ Before the summary changes, 4 of 16 pages had a summary that repeated the
 first bullet (Salesforce PubSec CI, EvenUp CI, Mark43 CI, AWS SAP alliances),
 and one public-sector page had a summary with no public-sector proof. After
 them, none repeat the first bullet and every page grades A or B. The pages
-still marked down are:
+marked down in that earlier run were:
   - Supply Chain Analyst and Financial Analyst: the person's own summary is
     about their CI and partnerships work, not the posting's. The one generated
     alternative is a template, so the honest signal is the note.
   - Weyerhaeuser and A-LIGN: the pages show only 20-40% of the must-haves
     (wood products industry; M&A execution), because the documents don't.
 
-Open items before release:
-  1. Speed (accepted at ~420 ms with a spinner): caching the posting-side
-     work (requirements, sectors, themes) once per posting, and each line's
-     matches once per line, would bring optimize back toward ~250 ms.
-  2. Tests for resumeStrength itself (echo, objective, sector, lead), and
-     running the strength grade in test/e2e/pipeline.js so each e2e report
-     shows it.
-  3. A second candidate in another field, to check the weights and grade
-     edges hold beyond this persona.
+FOLLOW-UP: QUALITY AND COVERAGE
+-------------------------------
+The final summary search now considers the existing general ATS summary for
+roles outside the strategy lane, and retains the current page summary as a
+candidate. A skill-list sentence ("Experience includes SQL, dashboards and
+Python.") no longer counts as retelling an accomplishment simply because it
+shares the bullet's tools. Hidden bullets cannot supply summary proof.
+
+Projects now count toward must-haves, results and duplicate checks. The lead
+continues to mean the latest employment role.
+
+createStrengthScorer prepares requirements, sectors, themes and the rank map
+once per optimization; bounded caches reuse line evidence and duplicate checks.
+The standalone resumeStrength API remains available for editor reads. Repeated
+strength reads in the offline benchmark average about 0.041 ms instead of
+0.347 ms; whole-optimizer median remains about 20 ms on this machine.
+
+Validation: scripts/strength-eval.js evaluates the original 16 roles plus six
+related analyst roles for a second fictional candidate, Morgan Chen. Two analyst
+titles are held out of the initial four-role set. In this workspace all 22 pages
+grade A/B (17 A, 5 B), compared with 14 A/8 B before. Eight off-topic summaries
+improve to full summary credit; all 22 ATS scores remain unchanged. Unsupported
+Snowflake/dbt requirements remain missing. No weights or grade thresholds changed.
+
+Direct tests cover echo, objective, sector, available lead proof, projects,
+duplicates and reusable scoring after edits. The optimizer matrix also checks
+page fit, documented bullets, unchanged source banks and no repeated achievements.
+The offline pipeline now includes strength parts and notes and defaults to all
+39 saved alliance/random postings. scripts/strength-eval.js writes JSON and
+Markdown quality/timing reports for both personas.
+
+Remaining release checks:
+  - Measure desktop optimize latency with a large library. Offline timings on
+    this machine are not comparable to the prior ~420 ms desktop measurement.
+  - Add independent candidates in more fields, especially project-heavy careers.
+  - Run the complete app/browser checks with dependencies installed. This
+    workspace's partial source snapshot and absent npm dependencies prevent a
+    clean full-suite run; the same 18 test-file failures occur on the UAT baseline.

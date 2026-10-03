@@ -1339,11 +1339,12 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   // is valued by its ATS score plus how strongly it reads to a recruiter
   // (resumeStrength.js), 0.05 of strength (a summary that stops repeating the
   // first bullet) being worth about one ATS point.
-  const { resumeStrength } = require('./resumeStrength');
+  const { createStrengthScorer } = require('./resumeStrength');
+  const strength = createStrengthScorer(job, { ranked });
   const seen = new Map();
   const score = (d) => {
     const key = `${d.summary}\u0000${d.roles.map((r) => r.bullets.map((b) => b.bulletId || b.text).join(',')).join('|')}`;
-    if (!seen.has(key)) seen.set(key, read(d).score + STRENGTH_WEIGHT * resumeStrength(d, job, { ranked }).score);
+    if (!seen.has(key)) seen.set(key, read(d).score + STRENGTH_WEIGHT * strength(d).score);
     return seen.get(key);
   };
   const fits = (d) => ResumeDoc.fits(d, pages, { scale });
@@ -1404,10 +1405,11 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   // The opening lines: the evidence-led summary for this page (when there is
   // one), or whichever of your own summaries reads best for this posting.
   const own = (Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText);
+  const fallbackSummary = summary ? null : atsSummary(job, bank);
   const pickSummary = () => {
-    const generated = summary ? strategySummary(job, best, ranked) : null;
+    const generated = summary ? strategySummary(job, best, ranked) : fallbackSummary;
     let chosen = null;
-    for (const text of [...new Set([generated || best.summary, ...own].filter(Boolean))]) {
+    for (const text of [...new Set([best.summary, generated, ...own].filter(Boolean))]) {
       const d = clone(best);
       d.summary = text;
       const added = addIndustryWords(d, job).added;
@@ -1550,3 +1552,4 @@ module.exports = {
   atsSummary,
   isTeamName: (s) => TEAM.test(String(s || '').trim()),
 };
+

@@ -101,7 +101,7 @@ function strategySummary(job, doc, ranked) {
   const pageFigures = new Set(onPage.flatMap((b) => figuresOf(b.text)));
   const repeatsFigure = (t) => figuresOf(t).some((f) => pageFigures.has(f));
   const offPage = ranked
-    .filter((b) => !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6) && !repeatsFigure(mainClause(b.text)) && !onPage.some((o) => repeatOf(o.text, mainClause(b.text))))
+    .filter((b) => !b.hidden && !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6) && !repeatsFigure(mainClause(b.text)) && !onPage.some((o) => repeatOf(o.text, mainClause(b.text))))
     .map((b) => ({ bulletId: b.id, text: b.text, role: roleOf.get(b.experienceId), rank: b, offPage: true }));
   // Best first: work in the posting's sector ("public sector sales meetings"
   // for a PubSec role), then the title's own kind of work, then the current
@@ -169,3 +169,4 @@ function strategyChecks(job, doc) {
 }
 
 module.exports = { strategyFocus, strategyEvidence, strategySummary, strategyChecks };
+
