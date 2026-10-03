@@ -1066,6 +1066,9 @@ p.way-next { display: flex; }
 .tray-more-toggle[aria-expanded='true'] i { transform: translateY(2px) rotate(-135deg); }
 @media (prefers-reduced-motion: reduce) { .tray-more-toggle i { transition: none; } }
 .tray-card h4 .n, .tray-fold .n { min-width: 17px; height: 17px; border-radius: 9px; background: var(--butter-soft); color: #a0651c; font-size: 10.5px; display: inline-grid; place-items: center; padding: 0 4px; }
+/* Add context: the passage in your own document a suggested bullet came from */
+.context-source { margin: 4px 0 12px; }
+.context-source blockquote { margin: 4px 0 0; padding: 8px 12px; border-left: 3px solid var(--sage); background: var(--surface-2); color: var(--ink-soft); font-size: 13px; line-height: 1.45; max-height: 160px; overflow: auto; border-radius: 0 8px 8px 0; }
 .nudge-literal { display: flex; align-items: center; gap: 6px; margin: -2px 2px 2px; font-size: 12px; color: var(--ink-faint); }
 .ats-plain { margin-top: 4px; font-size: 13px; color: var(--ink-soft); line-height: 1.4; max-width: 220px; }
 .show-more { display: flex; justify-content: center; margin: 12px 0 4px; }

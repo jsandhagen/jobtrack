@@ -46,7 +46,12 @@ const { INTERPERSONAL, SOFT_SKILLS } = require('./fitScore');
 const fitScale = require('../shared/fitScale');
 const { contactFromResume, contactFromLibrary, contactPatch } = require('./contact');
 const { resumeEnhancements } = require('./resumeContext');
-const contextSuggestions = memoize(resumeEnhancements, { size: 30 });
+// Your documents count too: passages they show that the bank doesn't yet are
+// offered as draft bullets. Kept until the bank, the library or the posting changes.
+const contextSuggestions = memoize((opts) => resumeEnhancements({ ...opts, documents: evidenceDocs() }), {
+  size: 30,
+  key: (opts) => [store.bankVersion, store.documentsVersion, JSON.stringify(opts.profile || {}), jobKey(opts.job || {}), (opts.asked || []).join('|')].join('\u0000'),
+});
 const outreach = require('../shared/outreach');
 const finder = require('../shared/finder');
 const careers = require('./careers');
@@ -500,7 +505,9 @@ function missingAsks(job, quick) {
   if (asksCache.has(key)) return asksCache.get(key);
   const docs = scoringDocuments();
   const profile = store.getProfile();
-  const asks = haveIt.asksFor(quick, (extra) => shownFit(localFitScore(job, [...docs, { kind: 'bank', text: extra }], profile)), { declined });
+  const shown = docs.map((d) => d.text || '').join('\n').toLowerCase();
+  const has = (term) => new RegExp(`(^|[^a-z0-9])${String(term).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(shown);
+  const asks = haveIt.asksFor(quick, (extra) => shownFit(localFitScore(job, [...docs, { kind: 'bank', text: extra }], profile)), { declined, has });
   if (asksCache.size > 100) asksCache.delete(asksCache.keys().next().value);
   asksCache.set(key, asks);
   return asks;
@@ -668,7 +675,9 @@ function withAts(rec) {
     ? atsNudges({ ats: after, job: rec.job, pageText: htmlToText(rec.resumeHtml), bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true })
     : atsNudges({ ats: before, job: rec.job, pageText: before ? evidenceDocs().map((d) => d.text).join('\n') : '', bank, onPage: false });
   // "Ask if applicable": what the fit is missing that you may have done but not written down.
-  const contextAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined }) : [];
+  // Not what "Do you have it?" already asks on the same page.
+  const asked = rec.quick ? missingAsks(rec.job, rec.quick).map((x) => x.ask) : [];
+  const contextAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined, asked }) : [];
   return { ...rec, ats: { before, after, nudges }, evidence, contextAsks };
 }
 

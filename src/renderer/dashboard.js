@@ -945,6 +945,14 @@ function askBlock(a) {
   return `<div class="section-title">Ask if applicable</div>${nudgeCard({ context: true, headline: '', fixed: [], nudges: asks, more: 0 }, { appId: a.id, compact: true })}`;
 }
 
+// Where a suggested bullet came from: the passage in your own document, so
+// you can check the draft against it (and take more from it) before saving.
+function contextSourceHtml(s) {
+  if (!s || !s.source) return '';
+  const passage = s.source.passage || s.source.quote || '';
+  return `<div class="context-source"><div class="faint">From your ${esc(s.source.name)}:</div><blockquote>${esc(passage.length > 700 ? `${passage.slice(0, 698)}…` : passage)}</blockquote></div>`;
+}
+
 // An example you add from the fit card: into your bullet bank, then the fit is read again.
 async function openFitContext(appId, key) {
   const a = await S.getApplication(appId);
@@ -953,9 +961,10 @@ async function openFitContext(appId, key) {
   const bank = await S.getBank();
   const roles = bank.experiences.filter((r) => !r.hidden && !r.isProject);
   const card = openModal(`<h2>Add context (optional)</h2><p class="muted">${esc(suggestion.question)}</p>
-    <label for="contextRole">Which role was this part of?</label><select id="contextRole">${roles.map((r) => `<option value="${esc(r.id)}">${esc([r.title, r.organization].filter(Boolean).join(' · '))}</option>`).join('')}</select>
-    <label for="contextExample" style="margin-top:12px">Your example, in the words you'd use on a resume</label>
-    <textarea id="contextExample" rows="4" placeholder="What you did, your contribution, and the result. Keep the scope accurate."></textarea>
+    ${contextSourceHtml(suggestion)}
+    <label for="contextRole">Which role was this part of?</label><select id="contextRole">${roles.map((r) => `<option value="${esc(r.id)}"${r.id === suggestion.experienceId ? ' selected' : ''}>${esc([r.title, r.organization].filter(Boolean).join(' · '))}</option>`).join('')}</select>
+    <label for="contextExample" style="margin-top:12px">${suggestion.draft ? 'A draft from that passage: edit it into your own resume wording' : "Your example, in the words you'd use on a resume"}</label>
+    <textarea id="contextExample" rows="${suggestion.draft ? 5 : 4}" placeholder="What you did, your contribution, and the result. Keep the scope accurate.">${esc(suggestion.draft || '')}</textarea>
     <p class="faint">I'll keep your wording in your bullet bank, count it toward this fit, and use it in resumes when it fits. For another role or additional years, <a href="#bank" id="contextBank">add the role and dates in your bullet bank</a>.</p>
     <div class="inline" style="margin-top:14px"><button class="primary" id="contextSave" ${roles.length ? '' : 'disabled'}>Save and update the fit</button><button class="ghost" id="contextSkip">Not this one</button></div>`);
   $('#contextSkip', card).addEventListener('click', closeModal);
@@ -963,7 +972,7 @@ async function openFitContext(appId, key) {
   $('#contextSave', card).addEventListener('click', () => run($('#contextSave', card), async () => {
     const text = $('#contextExample', card).value.trim();
     if (text.length < 10) throw new Error('Add a short example first, or skip this one.');
-    await S.addBullet({ experienceId: $('#contextRole', card).value, text, source: `Context you added for ${(a.job && a.job.title) || 'this application'}` });
+    await S.addBullet({ experienceId: $('#contextRole', card).value, text, source: suggestion.source ? `From your ${suggestion.source.name}, for ${(a.job && a.job.title) || 'this application'}` : `Context you added for ${(a.job && a.job.title) || 'this application'}` });
     const before = a.quick && a.quick.score;
     const after = await S.rescoreLocal(appId);
     closeModal();

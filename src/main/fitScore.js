@@ -501,6 +501,12 @@ function alternativeRuns(line, items) {
 // skill -> { kind, term, mentions, group? }. `group` is set only when every mention of
 // the skill was one option in a list of alternatives; the map's `groups`
 // property lists each such set of skills.
+// "Comfort working without a clear roadmap" describes a working style; it
+// doesn't ask for roadmapping. The word after "without" isn't a requirement.
+function withoutNegated(text) {
+  return String(text || '').replace(/\bwithout (?:a |an |any )?(?:clear |defined |formal |set |fixed |much )?[a-z][\w-]*/gi, ' ');
+}
+
 function readJobSkills(jobText) {
   const out = new Map();
   const groups = [];
@@ -510,8 +516,7 @@ function readJobSkills(jobText) {
     .flatMap((l) => clauses(l.original, l.kind, l.section));
   for (const part of parts) {
     const { kind } = part;
-    // "Comfort working without a clear roadmap" doesn't ask for roadmapping.
-    const line = stripFieldsOfStudy(part.line).replace(/\bwithout (?:a |an |any )?(?:clear |defined |formal |set |fixed )?[a-z][\w-]*/gi, ' ');
+    const line = withoutNegated(stripFieldsOfStudy(part.line));
     const found = [];
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       for (const p of patterns) {
@@ -724,6 +729,7 @@ const classifyJobSkills = memoize(readJobSkills);
 const requiredYears = memoize(readRequiredYears);
 
 module.exports = {
+  withoutNegated,
   SKILLS,
   RELATED,
   EMPLOYER_EVIDENCE,

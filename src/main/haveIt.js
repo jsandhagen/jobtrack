@@ -18,11 +18,12 @@ const { SKILLS } = require('./fitScore');
 
 const lower = (s) => String(s || '').trim().toLowerCase();
 
-// "one of Tableau, Power BI" -> ['Tableau', 'Power BI']; anything else -> null.
+// "one of Tableau, Power BI" -> ['Tableau', 'Power BI'] (and "several of
+// AWS, ACE, CPPO, PPO…" the same, without the ellipsis); anything else -> null.
 function optionsOf(label) {
-  const m = String(label || '').match(/^one of (.+)$/i);
+  const m = String(label || '').match(/^(?:one|several) of (.+?)…?$/i);
   if (!m) return null;
-  const opts = m[1].split(/\s*,\s*|\s+or\s+/).map((x) => x.trim()).filter(Boolean);
+  const opts = m[1].split(/\s*,\s*|\s+or\s+/).map((x) => x.replace(/…$/, '').trim()).filter(Boolean);
   return opts.length >= 2 ? opts : null;
 }
 
@@ -44,9 +45,11 @@ function isSkill(label) {
 
 // How the card asks about it: "AWS, GCP or Azure", "Experience managing
 // people", "Legal / Compliance experience", "Consolidations".
-function question(label) {
-  const opts = optionsOf(label);
-  if (opts) return opts.slice(0, -1).join(', ') + ' or ' + opts[opts.length - 1];
+function question(label, has = () => false) {
+  const all = optionsOf(label);
+  // Options your documents already show aren't asked about ("AWS" for someone with AWS on every page).
+  const opts = all && (all.filter((o) => !has(o)).length ? all.filter((o) => !has(o)) : all);
+  if (opts) return opts.length > 1 ? opts.slice(0, -1).join(', ') + ' or ' + opts[opts.length - 1] : opts[0];
   let t = String(label).trim();
   if (/^(?:managing|leading|working|building|running)\b/i.test(t)) t = `experience ${t}`;
   else if (AREA.test(t)) t = `${t} experience`;
@@ -57,17 +60,18 @@ function question(label) {
  * The missing must-haves worth asking about, most points first.
  * @param {object} quick     the free score (localFitScore's result)
  * @param {(extra:string) => object} scoreWith  the free score again, as if your documents also said `extra`
- * @param {{declined?: string[], limit?: number, minGain?: number, look?: number}} [opts]
+ * @param {{declined?: string[], limit?: number, minGain?: number, look?: number, has?: (option: string) => boolean}} [opts]  `has`: whether your documents already show an option
  * @returns {{label:string, ask:string, options:string[]|null, gain:number}[]}
  */
-function asksFor(quick, scoreWith, { declined = [], limit = 3, minGain = 3, look = 6 } = {}) {
+function asksFor(quick, scoreWith, { declined = [], limit = 3, minGain = 3, look = 6, has = () => false } = {}) {
   if (!quick || !Array.isArray(quick.missingSkills) || !quick.missingSkills.length) return [];
   // Already capped by a dealbreaker: no skill changes that.
   if (quick.dealbreakers && quick.dealbreakers.length) return [];
   const no = new Set(declined.map(lower));
   const out = [];
   for (const label of quick.missingSkills.filter((l) => !no.has(lower(l))).slice(0, look)) {
-    const opts = optionsOf(label);
+    const all = optionsOf(label);
+    const opts = all && (all.filter((o) => !has(o)).length ? all.filter((o) => !has(o)) : all);
     let after;
     try {
       after = scoreWith(opts ? opts[0] : label);
@@ -75,7 +79,7 @@ function asksFor(quick, scoreWith, { declined = [], limit = 3, minGain = 3, look
       continue;
     }
     const gain = Math.round(after.score - quick.score);
-    if (gain >= minGain) out.push({ label, ask: question(label), options: opts, gain });
+    if (gain >= minGain) out.push({ label, ask: question(label, has), options: opts, gain });
   }
   return out.sort((a, b) => b.gain - a.gain).slice(0, limit);
 }

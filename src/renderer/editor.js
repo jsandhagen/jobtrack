@@ -1286,9 +1286,10 @@ async function openResumeContext(key) {
   const roles = bank.experiences.filter((r) => !r.hidden && !r.isProject);
   if (typeof setPanelOpen === 'function') setPanelOpen(false);
   const card = openModal(`<h2>Add context (optional)</h2><p class="muted">${esc(suggestion.question)}</p>
-    <label for="contextRole">Which role was this part of?</label><select id="contextRole">${roles.map((r) => `<option value="${esc(r.id)}">${esc([r.title, r.organization].filter(Boolean).join(' · '))}</option>`).join('')}</select>
-    <label for="contextExample" style="margin-top:12px">Your example, in the words you'd use on a resume</label>
-    <textarea id="contextExample" rows="4" placeholder="What you did, your contribution, and the result. Keep the scope accurate."></textarea>
+    ${contextSourceHtml(suggestion)}
+    <label for="contextRole">Which role was this part of?</label><select id="contextRole">${roles.map((r) => `<option value="${esc(r.id)}"${r.id === suggestion.experienceId ? ' selected' : ''}>${esc([r.title, r.organization].filter(Boolean).join(' · '))}</option>`).join('')}</select>
+    <label for="contextExample" style="margin-top:12px">${suggestion.draft ? 'A draft from that passage: edit it into your own resume wording' : "Your example, in the words you'd use on a resume"}</label>
+    <textarea id="contextExample" rows="${suggestion.draft ? 5 : 4}" placeholder="What you did, your contribution, and the result. Keep the scope accurate.">${esc(suggestion.draft || '')}</textarea>
     <p class="faint">I'll keep your wording in your bullet bank and use it when it fits. For another role or additional years, <a href="#bank" id="contextBank">add the role and dates in your bullet bank</a>.</p>
     <div class="inline" style="margin-top:14px"><button class="primary" id="contextSave" ${roles.length ? '' : 'disabled'}>Save and optimize (free)</button><button class="ghost" id="contextSkip">Keep this resume</button></div>`);
   $('#contextSkip', card).addEventListener('click', closeModal);
@@ -1302,7 +1303,7 @@ async function openResumeContext(key) {
     if (ed.appId !== appId) throw new Error('Reopen this option from the resume you want to update.');
     if (!(await saveNow())) return;
     if (text !== savedText || experienceId !== savedRole) {
-      await S.addBullet({ experienceId, text, source: `Context you added for ${ed.info.jobTitle || 'this application'}` });
+      await S.addBullet({ experienceId, text, source: suggestion.source ? `From your ${suggestion.source.name}, for ${ed.info.jobTitle || 'this application'}` : `Context you added for ${ed.info.jobTitle || 'this application'}` });
       savedText = text;
       savedRole = experienceId;
     }

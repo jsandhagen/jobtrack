@@ -18,7 +18,7 @@
 // Roles two or more levels below yours, in your own line of work, are capped
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
-const { SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel } = require('./fitScore');
+const { SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel, withoutNegated } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
@@ -333,7 +333,7 @@ function requirementLines(text) {
     if (PAY_LINE.test(l.line)) return false;
     if (!BOILERPLATE_LINE.test(l.line)) return !perks || l.isHeading;
     return !perks && !l.isHeading && DUTY_START.test(l.line);
-  });
+  }).map((l) => (/\bwithout\b/i.test(l.line) ? { ...l, line: withoutNegated(l.line), original: withoutNegated(l.original) } : l));
 }
 
 // "3+ years in technology consulting or IT strategy roles": the kind of
