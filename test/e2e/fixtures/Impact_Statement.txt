@@ -1,0 +1,9 @@
+Overview
+Over the last two years, Jordan has grown from supporting projects to leading initiatives for the CTO team at Northwind.
+● Public Sector Strategy – Drawing on executive meetings and research on competitors, Jordan developed several pitches highlighting Northwind's key selling points. These materials have been used in public sector sales meetings, influencing deals with the Army, Navy and DARPA. The repository, comprising over 120 unique slides, has also served as a training resource for the federal sales team at the most recent SKO.
+● Sales Plays – Jordan collaborated with banking leaders, conducted competitive intelligence research, and incorporated internal feedback to develop the messaging for a financial services sales play. These materials were featured in SKO training, reviewed by over 300 people at Northwind, and are now used with customers.
+● Research
+○ Providing insights to sales teams on competitor technologies (ex. SAP, ServiceNow, Microsoft).
+○ Exploring over 60 corporate development opportunities.
+● Partnerships – Jordan has researched, launched, and managed technology partnerships with Contoso and Fabrikam, and supported the AWS partnership by managing marketplace orders and internal enablement.
+● Executive Initiatives – Jordan has played a significantly larger role in supporting the CTO over the last year.

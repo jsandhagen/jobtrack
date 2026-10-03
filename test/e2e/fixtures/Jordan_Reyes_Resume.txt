@@ -1,0 +1,30 @@
+Jordan Reyes
+Arlington, VA | 555-010-2000 | jordan.reyes@example.com
+
+PROFESSIONAL SUMMARY
+Strategy consultant in the Office of the CTO at a B2B SaaS company, with 5 years of experience in competitive intelligence, partnerships and go-to-market strategy.
+
+RELEVANT WORK EXPERIENCE
+Northwind Software | B2B SaaS company                                   Reston, VA
+Sr. Strategy Consultant - Office of the CTO                              Oct. 2021 – Current
+● Led competitive intelligence for the CTO, tracking competitor launches and pricing to produce battlecards, positioning briefs, and objection handling guides used by sales
+● Advised product and GTM leaders by identifying patterns across win/loss trends and deal data for 200+ customer and analyst engagements
+● Executed $9M in customer transactions via AWS Marketplace by collaborating with marketing, sales, and product teams to develop enablement materials
+● Led quarterly business reviews (QBRs) and joint business planning across seven strategic partnerships (AWS, SAP, Red Hat), forecasting partnership-driven revenue and driving $9M+ in customer transactions
+● Built analytical reports and dashboards using SQL and Excel to track program performance and deliver recommendations to senior leadership
+● Translated technical concepts into executive-ready insights through business review presentations and Excel- and SQL-driven dashboards for senior leadership
+Fabrikam Advisory                                                        Washington, D.C.
+Consultant                                                               Aug. 2019 – Oct. 2021
+● Designed financial reporting programs for Fortune 500 clients using SQL, Power BI, and Python, translating complex datasets into forecasting models
+● Built and maintained client databases from raw datasets and delivered ad-hoc reports to client cadences
+Tailspin Coaching                                                        Seattle, WA
+Finance Intern                                                           Jun. 2018 – Aug. 2018
+● Produced reports on customer engagement trends and competitor strategy
+
+RELEVANT SKILLS
+● Competitive Intelligence   ● Sales Enablement   ● Go-To-Market (GTM) Strategy
+● Data Analysis (SQL, Excel, Python)   ● Partnership Management   ● Executive Presentations
+
+EDUCATION
+State University                                                         Richmond, VA
+B.A. in Economics and Finance                                            May 2019
