@@ -233,7 +233,8 @@ function documentEvidence({ job, bank, profile = {}, documents = [], pageText, a
   for (const [i, c] of out.entries()) {
     const rank = scoreOf.get(`doc-evidence-${i}`) || 0;
     c.strong = rank >= bar && rank > 0 && proves.get(`doc-evidence-${i}`);
-    c.worth = c.gain * 2 + c.met.reduce((n, w) => n + w.weight, 0) + (c.strong ? 3 + (2 * rank) / Math.max(1, bar) : 0) - (c.weak ? 2 : 0);
+    // Deals it moved ("with the Army, Navy and DARPA") say more to a recruiter than its size ("120 slides").
+    c.worth = c.gain * 2 + c.met.reduce((n, w) => n + w.weight, 0) + (c.strong ? 3 + (2 * rank) / Math.max(1, bar) : 0) - (c.weak ? 2 : 0) + (DEAL_OUTCOME.test(c.draft) ? 1 : 0);
   }
   // A longer version proves at least what its lead sentence does; one that
   // adds what came of it ("reviewed by over 250…") proves more.

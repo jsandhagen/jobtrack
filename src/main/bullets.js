@@ -1291,8 +1291,30 @@ function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale
     // The tuning keeps your own summary when it reads better for this posting: say what's on the page.
     ...(summary ? [(Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText).includes(doc.summary) ? 'Kept your own summary, which reads best for this posting; kept your job titles and contribution level.' : 'Put the most relevant documented achievement in the summary; kept your job titles and contribution level.'] : []),
     ...ats.knockouts.filter((gap) => gap.includes('(posting says')).map((gap) => `Posting wording not on the page: ${gap}. Check whether your documented experience supports this wording; a keyword mismatch does not establish a qualification gap.`),
+    ...twinNotes(doc, { job, ranked, allowed, profile, pageText, score: ats.score }),
   ];
   return { doc, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes };
+}
+
+// Two bank bullets that tell one result ("$9M in customer transactions" in
+// each) can't both be on a page, so the one left out takes its other words
+// with it ("collaborating with marketing, sales, and product"). Merging them
+// is a rewrite only you can make: say so when the words it would bring back count here.
+function twinNotes(doc, { job, ranked, allowed, profile, pageText, score }) {
+  const { atsScore } = require('./atsScore');
+  const page = doc.roles.flatMap((r) => r.bullets);
+  const onPage = new Set(page.map((b) => b.bulletId).filter(Boolean));
+  const shown = new Set(doc.roles.map((r) => r.experienceId));
+  const clip = (t) => (t.length <= 60 ? t : `${t.slice(0, 60).replace(/\s+\S*$/, '')}…`);
+  const out = [];
+  for (const r of ranked) {
+    if (out.length >= 2 || onPage.has(r.id) || r.hidden || !allowed.has(r.experienceId) || !shown.has(r.experienceId)) continue;
+    const twin = page.find((b) => repeatOf(b.text, r.text));
+    if (!twin) continue;
+    const gain = atsScore(job, `${pageText}\n- ${r.text}`, { profile }).score - score;
+    if (gain >= 2) out.push(`Left out “${clip(r.text)}”: it tells the same result as “${clip(twin.text)}”, so only one can be on the page. Merging the two into one bullet in your bullet bank keeps what each adds (about +${gain} ATS for this posting).`);
+  }
+  return out;
 }
 
 // The free optimizer's last step. Its picks come from the bullet ranker, which

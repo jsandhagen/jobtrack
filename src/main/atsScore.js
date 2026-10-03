@@ -198,7 +198,7 @@ function scoreExperience(jobText, resumeText) {
 // Benefits, pay and EEO boilerplate aren't things a resume should echo.
 const BOILERPLATE_LINE = /benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|apply|perks|parental leave|stock|equity|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records/i;
 const FILLER = new Set(
-  'delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional used focus possible various unique primarily motivates'.split(' ')
+  'advice gaps topics deliverables record basic another advanced accuracy analyze tech-savvy delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional used focus possible various unique primarily motivates'.split(' ')
 );
 
 // Resumes are written in the past tense: "built" is "building", "led" is "leading".
@@ -227,12 +227,15 @@ const PHRASE_EDGE = new Set(
     'decision decisions professional track performance launch evaluate change variety primary large enhance clear complex expert expertise dynamic diverse leading ' +
     'excellence customer customers client clients service services office remote hybrid onsite comfort comfortable bring special sets definition through problem ' +
     'problems proven exceptional crafting senior recommendations insights priorities run lead such similar active accredited top-tier end detailed core cto ceo cio ' +
-    'cfo coo ideally preferably plus demonstrated deep solid hands-on excellent outstanding superb minimum least high-quality actual').split(' ')
+    'cfo coo ideally preferably plus demonstrated deep solid hands-on excellent outstanding superb minimum least high-quality actual ' +
+    // How much or which one, not what: "enough technical depth", "broader legal", "first point", "respective products".
+    'enough broader broad first respective mutual compelling').split(' ')
 );
 const PHRASE_VERBS = new Set(
   ('prepare prepares analyze analyzing monitor maintain brief surface size continuously evaluate define develop lead manage run drive track build partner own report ' +
     'present facilitate support provide identify deliver translate synthesize coordinate shape set align communicate act sign negotiate design write ship work serve ' +
-    'help structure complete formulate generate mentor educate administer conduct perform create establish oversee ensure assist operate execute bring').split(' ')
+    'help structure complete formulate generate mentor educate administer conduct perform create establish oversee ensure assist operate execute bring ' +
+    'recommend maximize distill articulate accelerate remove enables validate gather').split(' ')
 );
 // Verbs that are rarely nouns: at either end of a phrase they make it an
 // instruction ("maintaining structured frameworks", "activate co-sell
@@ -253,7 +256,7 @@ const isVerbForm = (w) => {
 const PITCH_WORDS = new Set('together without toward towards pushing sound tolerance organizational follow-through chance full range challenges apprenticeship versatility ambiguity roadmap-less'.split(' '));
 // A phrase that ends on one of these names a quality, not a skill: "sound
 // judgment", "organizational levels", "business sense", "cross-functional fluency".
-const GENERIC_HEAD = new Set('sense judgment judgement mindset contexts context capabilities capability levels lines fluency points manner way ways'.split(' '));
+const GENERIC_HEAD = new Set('sense judgment judgement mindset contexts context capabilities capability levels lines fluency points point manner way ways background depth voice'.split(' '));
 // "win/loss" and "CI/CD" are one word; "Sales / Marketing" are two.
 const phraseWords = (s) =>
   (lower(s).replace(/&/g, ' and ').replace(/['’]s\b/g, '').match(/[a-z][a-z0-9+#'-]*(?:\/[a-z][a-z0-9+#'-]*)*/g) || [])

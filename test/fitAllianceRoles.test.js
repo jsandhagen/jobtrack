@@ -133,3 +133,32 @@ test('no bullet is tagged as proving a degree ("or equivalent professional exper
   const tags = ranked.flatMap((r) => r.covers.map((c) => c.label));
   assert.ok(!tags.some((l) => /degree/i.test(l)), [...new Set(tags)].join(' | '));
 });
+
+// Grading the final pages (October 2026): the optimized page read lower than
+// the untailored one for three good fits. Two bank bullets told one $9M result,
+// so one was left out with the page's only "collaborating" and "AWS
+// Marketplace": the optimizer can't merge them, so it says so. And the posting
+// phrases it checked included "first point", "enough technical depth" and
+// "respective products", which no recruiter searches for.
+test('the optimizer says when a left-out repeat costs ATS, and which bullets to merge', () => {
+  const opt = B.optimizeResume({ profile, bank: bank(), job: P.awsSapAlliances });
+  assert.ok(opt.notes.some((n) => /^Left out “Executed \$9M.*same result as “Led quarterly business reviews.*Merging the two/.test(n)), opt.notes.join('\n'));
+});
+
+test('posting phrases checked are search terms, not fragments', () => {
+  const { atsScore } = require('../src/main/atsScore');
+  for (const job of [P.salesforcePubSecCI, P.evenupCI, P.awsSapAlliances, P.ctoChiefOfStaff]) {
+    const { missingKeywords } = atsScore(job, RESUME.text, { profile });
+    for (const junk of ['first point', 'enough technical depth', 'broader legal', 'respective products', 'enables engagement', 'business background', 'recommend actions', 'advice', 'gaps', 'topics', 'record', 'basic']) assert.ok(!missingKeywords.includes(junk), `${job.title}: ${missingKeywords.join(' | ')}`);
+  }
+});
+
+test('the public sector draft names the deals it influenced, with the bank merged too', () => {
+  const b = bank();
+  const find = (re) => b.bullets.find((x) => re.test(x.text));
+  find(/^Led quarterly/).text = 'Led quarterly business reviews (QBRs) and joint business planning across seven strategic partnerships (AWS, SAP, Red Hat), collaborating with marketing, sales, and product teams to drive $9M+ in customer transactions via AWS Marketplace';
+  find(/^Built analytical/).text = 'Built analytical reports and Excel- and SQL-driven dashboards, translating technical concepts into executive-ready insights through business review presentations for senior leadership';
+  b.bullets = b.bullets.filter((x) => !/^(?:Executed \$9M|Translated technical)/.test(x.text));
+  const asks = resumeEnhancements({ job: P.salesforcePubSecCI, bank: b, profile, documents: [RESUME, IMPACT], fit: 79 });
+  assert.match((asks.find((a) => a.draft && /pitches/.test(a.draft)) || {}).draft || '', /Army, Navy and DARPA/);
+});
