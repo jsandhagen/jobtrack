@@ -184,6 +184,12 @@
     return h;
   }
 
+  // "Oct 2022 – Current" as "Oct 2022 – Present": the word ATS parsers read
+  // as an open-ended date. Only the wording changes, never the date.
+  function presentDates(dates) {
+    return String(dates || '').replace(/\b(?:current(?:ly)?|now|to date|today|ongoing)\s*$/i, 'Present');
+  }
+
   function labelLines(details) {
     if (!details) return [];
     return String(details)
@@ -464,5 +470,5 @@
     return measure(doc, { scale }).height <= pages * PAGE_H - LINE / 2;
   }
 
-  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, fillHeader, normalize, compact, labelLines, esc, measure, fits, lineCount, textWidth, skillColumns, skillTooLong, splitSkill };
+  return { CSS, PRINT_CSS, MARGINS, TITLES, renderBody, renderHtml, fromResume, toMarkdown, headerFromProfile, fillHeader, normalize, compact, labelLines, presentDates, esc, measure, fits, lineCount, textWidth, skillColumns, skillTooLong, splitSkill };
 });

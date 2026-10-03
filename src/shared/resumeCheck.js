@@ -44,6 +44,39 @@
   }
   const firstWord = (s) => (words(s)[0] || '');
 
+  // The same accomplishment in different words, which word overlap misses:
+  // "Executed $9M in customer transactions via AWS Marketplace" and "…driving
+  // $9M+ in customer transactions" (one figure, attached to the same thing),
+  // or two bullets about dashboards built in SQL and Excel (one deliverable,
+  // made with the same tools).
+  const NUMBER_WORDS = 'two three four five six seven eight nine ten eleven twelve twenty fifty hundred'.split(' ');
+  const stem = (w) => w.replace(/(?:ing|ed|es|s)$/, '');
+  function figures(text) {
+    const ws = String(text || '').toLowerCase().replace(/(\d),(\d)/g, '$1$2').match(/\$?\d+(?:\.\d+)?[kmb]?\+?%?|[a-z]+/g) || [];
+    const out = [];
+    ws.forEach((w, i) => {
+      const isNum = /^\$?\d/.test(w) && !/^(?:19|20)\d\d$/.test(w);
+      if (!isNum && !NUMBER_WORDS.includes(w)) return;
+      const after = ws.slice(i + 1, i + 5).filter((x) => x.length > 3 && !STOP.has(x) && !/^\$?\d/.test(x)).map(stem);
+      out.push({ n: w.replace(/\+$/, ''), after });
+    });
+    return out;
+  }
+  const ARTIFACTS = /\b(?:dashboards?|battlecards?|playbooks?|databases?|forecasting models?|financial models?|keynotes?|pitch(?:es)?|newsletters?|curricul(?:um|a))\b/gi;
+  const NAMES = /\b(?:[A-Z]{2,}[a-z]?|[A-Z][a-z]+[A-Z]\w*|Excel|Tableau|Python|Looker|Salesforce|Snowflake|Figma|Jira|Asana|Airtable|HubSpot)\b/g;
+  function sameFact(a, b) {
+    const fb = figures(b);
+    for (const x of figures(a)) if (fb.some((y) => y.n === x.n && y.after.some((w) => x.after.includes(w)))) return true;
+    const art = (t) => new Set((String(t || '').match(ARTIFACTS) || []).map((w) => stem(w.toLowerCase())));
+    const named = (t) => new Set(String(t || '').match(NAMES) || []);
+    const aArt = art(a);
+    const shared = [...art(b)].some((w) => aArt.has(w));
+    const aNames = named(a);
+    return shared && [...named(b)].filter((n) => aNames.has(n)).length >= 2;
+  }
+  // Two bullets that would read as one accomplishment told twice.
+  const repeatOf = (a, b) => overlap(a, b) >= 0.6 || sameFact(a, b);
+
   const LINE_W = 468 - 18; // the template's bullet width in points (6.5in less the hanging indent)
   const lines = (text) => (ResumeDoc && ResumeDoc.lineCount ? ResumeDoc.lineCount(text, LINE_W) : Math.ceil(String(text || '').length / 95));
 
@@ -138,7 +171,7 @@
           : { id: 'length', ok: true, label: `${n} line${n === 1 ? '' : 's'}: easy to skim` }
     );
     out.push(FIRST_PERSON_RE.test(t) ? { id: 'voice', ok: false, label: 'Uses "I" or "my"', fix: 'Drop the pronoun: "Led the migration", not "I led the migration".' } : { id: 'voice', ok: true, label: 'No "I" or "my"' });
-    const dup = (ctx.others || []).find((o) => o && o !== t && overlap(t, o) >= 0.6);
+    const dup = (ctx.others || []).find((o) => o && o !== t && repeatOf(t, o));
     const fw = firstWord(t);
     const sameStart = fw && fw.length > 2 && (ctx.siblings || []).some((o) => o && o !== t && firstWord(o) === fw);
     out.push(
@@ -241,5 +274,5 @@
 
   const ALL = Object.fromEntries([...BULLET_CHECKS, ...RESUME_CHECKS].map((c) => [c.id, c]));
 
-  return { checkBullet, checkResume, hasResult, overlap, BULLET_CHECKS, RESUME_CHECKS, CHECKS: ALL, WEAK_OPENERS };
+  return { checkBullet, checkResume, hasResult, overlap, sameFact, repeatOf, BULLET_CHECKS, RESUME_CHECKS, CHECKS: ALL, WEAK_OPENERS };
 });

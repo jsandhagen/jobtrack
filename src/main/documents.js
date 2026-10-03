@@ -12,6 +12,10 @@ function guessKind(name, text) {
   const t = text.slice(0, 4000).toLowerCase();
   if (/writing[\s_-]?sample|\bessay\b|\bblog\b|\barticle\b|(?:^|[\s_-])paper(?:[\s_.-]|$)/.test(n)) return 'writing-sample';
   if (/cover[\s_-]?letter/.test(n) || /^dear\b/m.test(t)) return 'cover-letter';
+  // What others (or you, for a review) say about your work: an impact
+  // statement, self-assessment or performance review reads like a resume but
+  // isn't one, so it isn't scored as your resume.
+  if (/impact[\s_-]?statement|self[\s_-]?(?:assessment|review|evaluation)|performance[\s_-]?(?:review|evaluation)|brag[\s_-]?(?:doc|document|sheet)/.test(n)) return 'recommendation';
   if (/resume|résumé|\bcv\b/.test(n)) return 'resume';
   if (/transcript/.test(n)) return 'transcript';
   if (/cert/.test(n)) return 'certification';

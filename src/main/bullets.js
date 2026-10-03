@@ -2,7 +2,7 @@
 // under the role it belongs to, so resumes can be assembled from the ones
 // that fit a posting best. Everything here is offline and free.
 const crypto = require('crypto');
-const { overlap, checkBullet } = require('../shared/resumeCheck');
+const { overlap, repeatOf, checkBullet } = require('../shared/resumeCheck');
 const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
@@ -285,6 +285,16 @@ function parseEducation(lines) {
     .map((e) => ({ ...e, details: e.lines.map((l) => (l.label ? `${l.label}: ${l.text}` : l.text)).join(' ') }));
 }
 
+// PDF text joins wrapped lines with a space: "fast-\nmoving" arrives as
+// "fast- moving", and justified lines as "Senior  Technology". Put both back.
+// "Excel- and SQL-driven" keeps its space: the hyphen there is a real one.
+function tidyText(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\b([A-Za-z]{2,})- (?!(?:and|or|to|nor)\b)([a-z]{2,})/g, '$1-$2')
+    .trim();
+}
+
 /**
  * Pull roles, bullets, education and skills out of a resume's plain text.
  * @returns {{experiences: object[], education: object[], skills: string[], summary: string}}
@@ -324,12 +334,13 @@ function parseResume(text) {
       experiences.push(...parseRoles(sec.lines, sec.name === 'projects', sec.name === null));
     }
   }
+  for (const e of experiences) for (const b of e.bullets) b.text = tidyText(b.text);
   return {
     experiences: experiences.filter((e) => e.bullets.length || e.dates),
     education: education.filter((e) => e.degree || e.school),
     skills: [...new Set(skills)],
     certifications: [...new Set(certifications)],
-    summary: summary.join(' ').trim(),
+    summary: tidyText(summary.join(' ')),
   };
 }
 
@@ -545,6 +556,12 @@ function mergeIntoBank(bank, parsed, source = {}) {
   for (const s of parsed.skills || []) if (!have.has(norm(s))) (b.skills.push(s), have.add(norm(s)));
   b.certifications = [...new Map([...(b.certifications || []), ...(parsed.certifications || [])].map((c) => [norm(c), c])).values()];
   if (!b.summary && parsed.summary) b.summary = parsed.summary;
+  // Every resume's summary, so a tailored resume can open with the one
+  // written for the closest kind of role.
+  if (parsed.summary) {
+    const all = Array.isArray(b.summaries) ? b.summaries : (b.summaries = b.summary ? [b.summary] : []);
+    if (!all.some((x) => norm(x) === norm(parsed.summary))) all.push(parsed.summary);
+  }
   return { bank: b, added, merged, roles };
 }
 
@@ -725,7 +742,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     // Two bullets that say much the same thing (the same accomplishment from
     // two resumes, or listed under two roles) never share a page: the
     // stronger one, ranked first, keeps its place. Same rule as the Check tab.
-    const repeats = (r) => [...picked.values()].some((list) => list.some((x) => overlap(x.text, r.text) >= 0.6));
+    const repeats = (r) => [...picked.values()].some((list) => list.some((x) => repeatOf(x.text, r.text)));
     const fits = (r) => {
       if (repeats(r)) return false;
       const fresh = !shown.has(r.experienceId);
@@ -1250,6 +1267,12 @@ function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale
     industry = refreshSummary();
     if (!trimmed.removed.length && !trimmed.skills.length && !trimmed.roles.length) break;
   }
+  // Then tune it for this posting's ATS read, one change at a time.
+  const tuned = tuneForAts(doc, { job, bank, profile, ranked, allowed, pages: sel.pages, scale, summary: !!summary });
+  doc = tuned.doc;
+  if (tuned.industry) industry = tuned.industry;
+  // "Present", the word parsers read as an open-ended date ("Current" isn't).
+  for (const r of doc.roles) r.dates = ResumeDoc.presentDates(r.dates);
   const pageText = htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(doc)));
   const ats = atsScore(job, pageText, { profile });
   const gates = requirementUnits(job).units.filter((u) => u.kind === 'required' && u.gate && u.match(lower(pageText)) < 0.6).map((u) => u.label);
@@ -1266,6 +1289,80 @@ function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale
     ...ats.knockouts.filter((gap) => gap.includes('(posting says')).map((gap) => `Posting wording not on the page: ${gap}. Check whether your documented experience supports this wording; a keyword mismatch does not establish a qualification gap.`),
   ];
   return { doc, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes };
+}
+
+// The free optimizer's last step. Its picks come from the bullet ranker, which
+// reads requirements; an ATS search reads the posting's own words. So, one
+// change at a time: swap in (or add) a bank bullet from a role on the page,
+// then try each of your summaries, keeping a change only when the ATS read
+// improves, the page still fits, and no accomplishment shows twice. Nothing
+// is reworded, so every line stays one you wrote.
+const TUNE_ROUNDS = 5;
+const TUNE_POOL = 10;
+function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, summary }) {
+  const ResumeDoc = require('../shared/resumeDoc');
+  const { atsScore } = require('./atsScore');
+  const { htmlToText } = require('./resumeRender');
+  const score = (d) => atsScore(job, htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(d))), { profile }).score;
+  const fits = (d) => ResumeDoc.fits(d, pages, { scale });
+  const rankOf = new Map(ranked.map((r) => [r.id, r.score || 0]));
+  const clone = (d) => ({ ...d, header: { ...d.header }, roles: d.roles.map((r) => ({ ...r, bullets: r.bullets.slice() })), skills: (d.skills || []).slice() });
+  const strongestFirst = (r) => r.bullets.sort((a, b) => (rankOf.get(b.bulletId) || 0) - (rankOf.get(a.bulletId) || 0));
+  const cap = BULLETS_PER_PAGE * pages;
+  // How much of what this posting asks for the page shows (the ranker's view).
+  const relevance = (d) => d.roles.reduce((s, r) => s + r.bullets.reduce((t, b) => t + (rankOf.get(b.bulletId) || 0), 0), 0);
+  const better = (a, b) => a.sc > b.sc || (a.sc === b.sc && a.rel > b.rel + 1);
+  // The posting's most relevant bullets are candidates even when their opener
+  // is a weak one ("Served as…"): what they prove matters more.
+  const topIds = new Set(ranked.filter((r) => allowed.has(r.experienceId)).slice(0, 3).map((r) => r.id));
+  let best = clone(start);
+  let cur = { sc: score(best), rel: relevance(best) };
+  for (let round = 0; round < TUNE_ROUNDS; round++) {
+    const page = best.roles.flatMap((r) => r.bullets);
+    const onPage = new Set(page.map((b) => b.bulletId).filter(Boolean));
+    const shownRoles = new Set(best.roles.map((r) => r.experienceId));
+    const pool = ranked.filter((r) => allowed.has(r.experienceId) && shownRoles.has(r.experienceId) && !onPage.has(r.id) && !r.hidden && (writing(r.text) >= 0 || topIds.has(r.id))).slice(0, TUNE_POOL);
+    let move = null;
+    for (const c of pool) {
+      const role = best.roles.find((x) => x.experienceId === c.experienceId);
+      // Add it, or put it in place of one of the role's bullets, but never in
+      // place of one that's far more relevant: keywords alone don't earn that.
+      for (const i of [null, ...role.bullets.map((_, k) => k)]) {
+        if (i === null && page.length >= cap) continue;
+        const out = i === null ? null : role.bullets[i];
+        if (out && (rankOf.get(out.bulletId) || 0) > 2 * (rankOf.get(c.id) || 0) + 1) continue;
+        if (page.some((b) => b !== out && repeatOf(b.text, c.text))) continue;
+        const d = clone(best);
+        const r = d.roles.find((x) => x.experienceId === c.experienceId);
+        if (i === null) r.bullets.push({ bulletId: c.id, text: c.text });
+        else r.bullets[i] = { bulletId: c.id, text: c.text };
+        strongestFirst(r);
+        const next = { d, sc: score(d), rel: relevance(d) };
+        if (!better(next, move || cur) || !fits(d)) continue;
+        move = next;
+      }
+    }
+    if (!move) break;
+    best = move.d;
+    cur = move;
+  }
+  // The opening lines: the evidence-led summary for this page (when there is
+  // one), or whichever of your own summaries reads best for this posting.
+  const generated = summary ? strategySummary(job, best, ranked) : null;
+  const own = (Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText);
+  const candidates = [...new Set([generated || best.summary, ...own].filter(Boolean))];
+  let industry = null;
+  let chosen = null;
+  for (const text of candidates) {
+    const d = clone(best);
+    d.summary = text;
+    const added = addIndustryWords(d, job).added;
+    if (!fits(d)) continue;
+    const sc = score(d);
+    if (!chosen || sc > chosen.sc) chosen = { d, sc, added };
+  }
+  if (chosen) (best = chosen.d), (industry = chosen.added);
+  return { doc: best, industry };
 }
 
 /**
@@ -1363,6 +1460,7 @@ function linkDocToBank(doc, bank) {
 }
 
 module.exports = {
+  tidyText,
   buildDoc,
   optimizeResume,
   pickSkills,

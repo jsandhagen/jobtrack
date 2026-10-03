@@ -147,8 +147,8 @@ function scoreSkills(jobSkills, resumeLower, resumeSkills) {
     if (u.met) {
       bucket.have += w;
       for (const skill of have.filter((s) => u.skills.includes(s))) {
-        bucket.matched.push({ skill, kind: u.kind });
         const term = u.terms[u.skills.indexOf(skill)];
+        bucket.matched.push({ skill, kind: u.kind, term });
         if (isKeyword(term) && !containsTerm(resumeLower, term)) wordingTips.push({ skill, term });
       }
     } else {
@@ -222,14 +222,32 @@ const PHRASE_EDGE = new Set(
     'decision decisions professional track performance launch evaluate change variety primary large enhance clear complex expert expertise dynamic diverse leading ' +
     'excellence customer customers client clients service services office remote hybrid onsite comfort comfortable bring special sets definition through problem ' +
     'problems proven exceptional crafting senior recommendations insights priorities run lead such similar active accredited top-tier end detailed core cto ceo cio ' +
-    'cfo coo ideally preferably plus demonstrated deep solid hands-on excellent outstanding superb minimum least').split(' ')
+    'cfo coo ideally preferably plus demonstrated deep solid hands-on excellent outstanding superb minimum least high-quality actual').split(' ')
 );
 const PHRASE_VERBS = new Set(
   ('prepare prepares analyze analyzing monitor maintain brief surface size continuously evaluate define develop lead manage run drive track build partner own report ' +
     'present facilitate support provide identify deliver translate synthesize coordinate shape set align communicate act sign negotiate design write ship work serve ' +
     'help structure complete formulate generate mentor educate administer conduct perform create establish oversee ensure assist operate execute bring').split(' ')
 );
-const phraseWords = (s) => lower(s).replace(/&/g, ' and ').replace(/['’]s\b/g, '').match(/[a-z][a-z0-9+#'-]*/g) || [];
+// Verbs that are rarely nouns: at either end of a phrase they make it an
+// instruction ("maintaining structured frameworks", "activate co-sell
+// motions", "products execute optimally"), not something a recruiter searches.
+const ACTION_VERBS = new Set(
+  ('maintain produce identify implement escalate exceed activate measure influence execute learn think align enable ensure feed shape ' +
+    'keep conduct feel thrive grow adapt balance juggle').split(' ')
+);
+const isVerbForm = (w) => {
+  if (PHRASE_VERBS.has(w) || ACTION_VERBS.has(w)) return ACTION_VERBS.has(w) || /ing$|ed$/.test(w) === false;
+  const base = w.replace(/(?:ing|ed|es|s)$/, '');
+  return /(?:ing|ed)$/.test(w) && [base, `${base}e`, base.replace(/(.)\1$/, '$1')].some((b) => PHRASE_VERBS.has(b) || ACTION_VERBS.has(b));
+};
+// A phrase that ends on one of these names a quality, not a skill: "sound
+// judgment", "organizational levels", "business sense", "cross-functional fluency".
+const GENERIC_HEAD = new Set('sense judgment judgement mindset contexts context capabilities capability levels lines fluency points manner way ways'.split(' '));
+// "win/loss" and "CI/CD" are one word; "Sales / Marketing" are two.
+const phraseWords = (s) =>
+  (lower(s).replace(/&/g, ' and ').replace(/['’]s\b/g, '').match(/[a-z][a-z0-9+#'-]*(?:\/[a-z][a-z0-9+#'-]*)*/g) || [])
+    .flatMap((w) => (w.includes('/') && w.split('/').some((p) => p.length > 4) ? w.split('/').flatMap((p, i) => (i ? ['', p] : [p])) : [w])); // '' breaks the phrase
 function readPostingPhrases(jobText, company = '') {
   const companyWords = new Set(phraseWords(company));
   const counts = new Map();
@@ -241,12 +259,13 @@ function readPostingPhrases(jobText, company = '') {
     if (!started && l.kind === 'neutral') continue;
     if (degreeLevels(l.original, true).length) continue;
     // "point-of-view papers" stays one phrase: a joining word inside a hyphenated one isn't a break.
-    const segments = l.original.replace(/^[-•*▪●◦]\s*/, '').split(/[,;:()/.]|\s[-–—]\s|(?<![\w-])(?:and|or|with|for|to|in|of|on|across|such as|from|through|by|at)(?![\w-])/i);
+    const segments = l.original.replace(/^[-•*▪●◦]\s*/, '').split(/[,;:().]|(?<![a-z])\/|\/(?![a-z])|\s[-–—]\s|(?<![\w-])(?:and|or|with|for|to|in|of|on|across|such as|from|through|by|at|among|toward|towards|into|without)(?![\w-])/i);
     for (const seg of segments) {
       let run = [];
       const flush = () => {
-        while (run.length && (PHRASE_EDGE.has(run[0]) || PHRASE_VERBS.has(run[0]))) run.shift();
-        while (run.length && PHRASE_EDGE.has(run[run.length - 1])) run.pop();
+        while (run.length && (PHRASE_EDGE.has(run[0]) || PHRASE_VERBS.has(run[0]) || isVerbForm(run[0]))) run.shift();
+        while (run.length && (PHRASE_EDGE.has(run[run.length - 1]) || /ly$/.test(run[run.length - 1]) || ACTION_VERBS.has(run[run.length - 1]) || (/ed$/.test(run[run.length - 1]) && isVerbForm(run[run.length - 1])))) run.pop();
+        if (run.length && GENERIC_HEAD.has(run[run.length - 1])) run = [];
         const key = run.join(' ');
         if (run.length >= 2 && run.length <= 4 && !run.some((w) => companyWords.has(w)) && !run.every((w) => SOFT_TERM_WORDS.has(w))) counts.set(key, (counts.get(key) || 0) + (l.kind === 'required' ? 1.5 : 1));
         run = [];
@@ -512,6 +531,8 @@ function atsScore(job, resumeText, opts = {}) {
     titleExact: title ? !!title.exact : null,
     screening,
     matchedSkills: [...skills.hard.matched, ...skills.soft.matched].map((m) => m.skill),
+    // The posting's required terms the resume already has, in the posting's words.
+    matchedRequired: [...new Set([...skills.hard.matched, ...skills.soft.matched].filter((m) => m.kind === 'required' && m.term).map((m) => m.term))],
     missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),
     wordingTerms: skills.wordingTips.map((w) => w.term),
     wordingTips: skills.wordingTips,

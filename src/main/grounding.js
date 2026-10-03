@@ -69,7 +69,8 @@ function namedTerms(text) {
   for (const s of sentences) {
     const ws = s.split(/\s+/);
     for (let i = 1; i < ws.length; i++) {
-      const w = ws[i].replace(/[^A-Za-z0-9+#.-]/g, '');
+      // "Appian's" names Appian: drop the possessive before the punctuation.
+      const w = ws[i].replace(/['’]s\b/g, '').replace(/[^A-Za-z0-9+#.-]/g, '');
       if (/^[A-Z][a-z]{2,}/.test(w)) out.add(w.replace(/[.]$/, '').toLowerCase());
     }
   }

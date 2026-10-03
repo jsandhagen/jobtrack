@@ -86,13 +86,15 @@ function draftToDoc(out, { bank, profile, library, posting, ids }) {
       const flag = problems.length ? problems.join('; ') : undefined;
       bullets.push({ bulletId: src ? src.id : null, text, ...(flag ? { flag } : {}) });
     }
-    roles.push({ experienceId: e.id, isProject: !!e.isProject, organization: e.organization || '', location: e.location || '', title: e.title || '', dates: e.dates || '', bullets });
+    roles.push({ experienceId: e.id, isProject: !!e.isProject, organization: e.organization || '', location: e.location || '', title: e.title || '', dates: ResumeDoc.presentDates(e.dates), bullets });
   }
-  // The work history must not have unexplained gaps: put back any job left out.
-  for (const e of bank.experiences) {
+  // The work history must not have unexplained gaps: put back any job left
+  // out of the ones Claude was given. Roles the prompt left off on purpose
+  // (an internship once there's real work to show) stay off.
+  for (const e of ids.roleById.values()) {
     if (e.isProject || seen.has(e.id)) continue;
     const top = bank.bullets.find((x) => x.experienceId === e.id && !x.hidden);
-    roles.push({ experienceId: e.id, isProject: false, organization: e.organization || '', location: e.location || '', title: e.title || '', dates: e.dates || '', bullets: top ? [{ bulletId: top.id, text: top.text }] : [] });
+    roles.push({ experienceId: e.id, isProject: false, organization: e.organization || '', location: e.location || '', title: e.title || '', dates: ResumeDoc.presentDates(e.dates), bullets: top ? [{ bulletId: top.id, text: top.text }] : [] });
     checks.push(`Added “${e.title || e.organization}” back so your work history has no gap — trim it if you prefer.`);
   }
   // Jobs in the bank's order (most recent first), then projects.

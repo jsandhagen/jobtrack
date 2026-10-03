@@ -42,18 +42,49 @@ const overlap = (a, b) => (a.size && b.size ? [...a].filter((w) => b.has(w)).len
 // parenthetical, so it reads as a line of summary rather than the bullet again.
 function mainClause(text) {
   const t = String(text || '').replace(/[.!?]+$/, '').replace(/\s*\([^)]*\)/g, '');
-  const cut = t.search(/,\s+(?:by|while|\w+ing)\b|\s+by\s+\w+ing\b|\s+(?:used (?:in|by|for)|that|which)\s|;\s|\s+[—–-]\s+/);
+  // A lowercase "-ing" word starts a clause; "Marketing" in a list doesn't.
+  const cut = t.search(/,\s+(?:by|while|[a-z]\w*ing)\b|\s+by\s+\w+ing\b|\s+(?:used (?:in|by|for)|that|which)\s|;\s|\s+[—–-]\s+/);
   const out = cut > 0 && t.slice(0, cut).split(/\s+/).length >= 5 ? t.slice(0, cut) : t;
   return out.trim();
 }
 
+// How each kind of strategy work is named in a summary.
+const AREA_NAMES = {
+  commercial: 'go-to-market strategy',
+  delivery: 'program management',
+  analytics: 'data analysis',
+  competition: 'competitive intelligence',
+  research: 'technology research',
+  experiments: 'prototyping',
+  deals: 'due diligence',
+  partnerships: 'technology partnerships',
+  planning: 'business planning',
+  investment: 'financial analysis',
+  transformation: 'technology strategy',
+  executive: 'executive communications',
+};
+
+// "Sr. Consultant - Chief Technology Office" reads as a title and its team:
+// "Sr. Consultant in the Chief Technology Office".
+function titleInWords(title) {
+  const m = String(title || '').match(/^(.+?)\s+[-–—|,]\s+(.+)$/);
+  if (!m || !/\b(?:office|team|group|department|division|practice|organi[sz]ation|unit|lab)\b/i.test(m[2])) return String(title || '');
+  return `${m[1]} in ${/^the\b/i.test(m[2]) ? '' : 'the '}${m[2]}`;
+}
+
+const listOf = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0] || '');
+
 function strategySummary(job, doc, ranked) {
-  if (!strategyFocus(job).length) return null;
+  const focus = strategyFocus(job);
+  if (!focus.length) return null;
   const current = doc.roles.find((r) => !r.isProject && r.title);
   if (!current) return null;
   // Total dated work, not "N years in consulting" because one old role is consulting.
   const years = Math.floor(yearsOfExperience(doc.roles.filter((r) => !r.isProject).map((r) => `${r.title}, ${r.dates}`).join('\n')) || 0);
-  const lead = `${current.title}${current.organization ? ` at ${current.organization}` : ''}${years >= 2 ? `, with ${years} years of experience` : ''}.`;
+  // The kinds of work this posting is about that the page shows, most important first.
+  const pageText = doc.roles.flatMap((r) => r.bullets.map((b) => b.text)).join('\n');
+  const areas = strategyEvidence(focus, pageText).sort((a, b) => b.weight - a.weight).map((t) => AREA_NAMES[t.key]).filter(Boolean).slice(0, 3);
+  const lead = `${titleInWords(current.title)}${current.organization ? ` at ${current.organization}` : ''}${years >= 2 ? ` with ${years} years of experience` : ''}${areas.length >= 2 ? `, working across ${listOf(areas)}` : ''}.`;
   const byId = new Map(ranked.map((b) => [b.id, b]));
   const proofLimit = Math.max(20, 75 - lead.split(/\s+/).length);
   const roleOf = new Map(doc.roles.map((r) => [r.experienceId, r]));

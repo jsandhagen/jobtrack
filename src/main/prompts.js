@@ -22,7 +22,7 @@ const { isEvidenceDoc, isFictionalSample } = require('./sourceEvidence');
 // bullets from anything in the documents) inside the fixed layout and the
 // truthfulness rules; the page goes to the most relevant roles. Repeated
 // bullets across documents are sent once.
-const PROMPT_VERSION = '2026-10-02.7';
+const PROMPT_VERSION = '2026-10-03.1';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -398,8 +398,9 @@ function atsBlock(job, ats) {
   if (!ats) return '';
   const terms = [...new Set([...(ats.missingSkills || []).flatMap((m) => m.anyOf || [m.term]), ...(ats.wordingTerms || [])])];
   const phrases = (ats.missingKeywords || []).filter((k) => k.includes(' ') && !terms.includes(k)).slice(0, 6);
+  const keep = (ats.matchedRequired || []).filter((t) => !terms.includes(t)).slice(0, 12);
   return `<ats_notes>
-The candidate's current resume scores ${ats.score}% on Sprout's ATS check for this posting.${terms.length ? ` Posting terms it lacks or words differently: ${terms.join(', ')}. Use the posting's exact wording for any of these the documents support; leave the rest out.` : ''}${phrases.length ? ` Phrases from the posting a recruiter might search for: ${phrases.join(', ')}. Use one only where a document shows that work; an exact phrase matters to strict systems ("program-managed" doesn't match "program management").` : ''}${job.title ? ` If the candidate has held the title "${job.title}" or its equivalent, use that wording in the summary.` : ''}${(ats.fixable || []).length ? ` A keyword search can't tell from an employer's name what industry it is in: ${ats.fixable.map((f) => `${f.employer} is ${f.term}`).join('; ')}. Say ${ats.fixable.length === 1 ? 'that word' : 'those words'} once, in the summary.` : ''}
+The candidate's current resume scores ${ats.score}% on Sprout's ATS check for this posting.${keep.length ? ` Required terms it already uses, which the new page should keep in the posting's words: ${keep.join(', ')}.` : ''}${terms.length ? ` Posting terms it lacks or words differently: ${terms.join(', ')}. Use the posting's exact wording for any of these the documents support; leave the rest out.` : ''}${phrases.length ? ` Phrases from the posting a recruiter might search for: ${phrases.join(', ')}. Use one only where a document shows that work; an exact phrase matters to strict systems ("program-managed" doesn't match "program management").` : ''}${job.title ? ` If the candidate has held the title "${job.title}" or its equivalent, use that wording in the summary.` : ''}${(ats.fixable || []).length ? ` A keyword search can't tell from an employer's name what industry it is in: ${ats.fixable.map((f) => `${f.employer} is ${f.term}`).join('; ')}. Say ${ats.fixable.length === 1 ? 'that word' : 'those words'} once, in the summary.` : ''}
 </ats_notes>`;
 }
 
