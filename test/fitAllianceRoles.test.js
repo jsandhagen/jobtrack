@@ -162,3 +162,19 @@ test('the public sector draft names the deals it influenced, with the bank merge
   const asks = resumeEnhancements({ job: P.salesforcePubSecCI, bank: b, profile, documents: [RESUME, IMPACT], fit: 79 });
   assert.match((asks.find((a) => a.draft && /pitches/.test(a.draft)) || {}).draft || '', /Army, Navy and DARPA/);
 });
+
+// Every saved live posting, in the band it belongs in for this candidate
+// (shown scale: Excellent 90+, Strong 80+, Good potential 65+, else Stretch).
+// Judged as a recruiter would: their own lane is Excellent or Strong, a step
+// up or an adjacent lane is Good potential or better (people often move up a
+// level when they change jobs), and twelve years asked of seven is a stretch.
+const BANDS = {
+  kickboardCI: [90, 100], workivaAlliance: [90, 100], zendeskAlliance: [80, 100], googlePublicSector: [80, 100],
+  openaiPartnerMarketing: [65, 89], alignCorpDev: [65, 89], weyerhaeuserMarketIntel: [65, 89], ctoChiefOfStaff: [45, 64],
+  salesforcePubSecCI: [65, 100], evenupCI: [65, 100], mark43SeniorCI: [80, 100], cyeraOctoStrategyOps: [80, 100], awsSapAlliances: [80, 100],
+};
+test('every saved live posting lands in its band', () => {
+  assert.deepEqual(Object.keys(BANDS).sort(), Object.keys(P).sort(), 'a new posting in the fixture needs a band here');
+  const off = Object.entries(BANDS).map(([k, [lo, hi]]) => [k, fit(P[k]).score, lo, hi]).filter(([, s, lo, hi]) => s < lo || s > hi);
+  assert.deepEqual(off, [], off.map(([k, s, lo, hi]) => `${k}: ${s} (expected ${lo}-${hi})`).join('; '));
+});

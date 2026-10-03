@@ -36,6 +36,11 @@ Headless Linux needs `xvfb-run` (preinstalled in Claude Code cloud sessions).
   nothing search didn't report, and note the source URL. This is the
   convention in `test/fixtures/ctoOfficeOpportunities.js`. Save them as a JSON
   array of `{ title, company, location, url, text }` in the scratchpad.
+  Postings worth keeping (they found a bug, or pin a band) go in a fixture
+  with a band test: `test/fixtures/allianceOpportunities.js` holds 13 for the
+  fictional candidate (CI, partnerships, GTM, step-ups and stretches), checked
+  by `test/fitAllianceRoles.test.js`. Rerun them end to end with
+  `JOBS=test/fixtures/allianceOpportunities.js`; add a band for each new one.
 - **Random postings.** The journey adds three random jobs from
   `test/fixtures/randomJobs*.js` by default (nurses, electricians, tellers…),
   to check how the app treats jobs the person doesn't fit.
@@ -149,6 +154,14 @@ Found the hard way. Check each one, in the report or the screenshots.
   for roadmapping (`withoutNegated`).
 
 **ATS and the free optimizer**
+- Read ATS against what the person can reach, not against 100. For the
+  fictional candidate (Oct 2026), optimized pages for 80+ fits score 60–81
+  (median 74), Good potential 55–76, stretches 24–66 (median 40). Job title
+  (10%) and posting phrases (10%) rarely score unless the person already uses
+  the posting's exact words, so 80+ is rare.
+- When the optimized page reads lower than the untailored one, check for two
+  bank bullets that tell one result: the optimizer keeps one, and its note
+  ("Left out … Merging the two …") should say which to merge.
 - The optimized page should score ≥ the untailored bank page. Exception: −1/−2
   when the untailored page repeats an accomplishment and the optimizer
   drops the repeat (shown ⚠️ in `pipeline.md`; acceptable).
