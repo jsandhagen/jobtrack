@@ -44,6 +44,7 @@ setTimeout(async () => {
   } catch (err) {
     out.crash = err.stack;
   }
-  process.stdout.write(JSON.stringify(out));
-  process.exit(0);
+  // Exit once the output is written: a pipe on macOS takes it asynchronously,
+  // and exiting at once cut the JSON off at 64 KB.
+  process.stdout.write(JSON.stringify(out), () => process.exit(0));
 }, 2500); // after the background housekeeping (bullet bank, rescoring) has run

@@ -115,6 +115,6 @@ setImmediate(async () => {
     const application = await call('applicationHeader', 'app:get', 'a0');
     out.applicationHeader.header = application.builder.doc.header;
   } catch (error) { out.crash = error.stack; }
-  process.stdout.write(JSON.stringify(out));
-  process.exit(0);
+  // Exit once the output is written (a macOS pipe takes it asynchronously).
+  process.stdout.write(JSON.stringify(out), () => process.exit(0));
 });

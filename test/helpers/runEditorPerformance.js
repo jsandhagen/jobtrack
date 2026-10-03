@@ -82,6 +82,6 @@ setImmediate(async () => {
     const hidden = await call('afterHide', 'builder:get', 'app');
     out.afterHide.offered = hidden.roles.some((r) => r.more.some((b) => b.bulletId === 'b0-29'));
   } catch (error) { out.crash = error.stack; }
-  process.stdout.write(JSON.stringify(out));
-  process.exit(0);
+  // Exit once the output is written (a macOS pipe takes it asynchronously).
+  process.stdout.write(JSON.stringify(out), () => process.exit(0));
 });
