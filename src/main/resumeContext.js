@@ -36,6 +36,11 @@ function topicOf(label, shownText = '') {
   return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} or ${parts[parts.length - 1]}` : parts[0];
 }
 
+const optionsIn = (label) => {
+  const m = String(label).match(/^(?:one|several) of (.+?)…?$/);
+  return m ? m[1].replace(/…$/, '').split(/,\s*/).filter(Boolean) : null;
+};
+
 // A one-word topic ("Content") is too vague to answer: name it the way the
 // posting does ("content work such as course content or marketing assets").
 function specific(topic, job) {
@@ -172,7 +177,7 @@ function documentEvidence({ job, bank, profile = {}, documents = [], pageText, a
   const names = String(profile.name || '').split(/\s+/).filter((w) => /^[A-Z][a-z]{2,}$/.test(w));
   // What the posting asks for that the full bank doesn't show.
   const wants = [
-    ...units.filter((u) => u.kind !== 'preferred' && !INTERPERSONAL.has(u.label) && !SOFT_SKILLS.has(u.label) && !/degree|^PhD/.test(u.label) && shown(u) < 0.6).map((u) => ({ topic: topicOf(u.label, pageText.toLowerCase()), test: (t) => u.match(t.toLowerCase(), t) >= 0.6, weight: u.kind === 'required' ? 3 : 1.5 })),
+    ...units.filter((u) => u.kind !== 'preferred' && !INTERPERSONAL.has(u.label) && !SOFT_SKILLS.has(u.label) && !/degree|^PhD/.test(u.label) && shown(u) < 0.6).map((u) => ({ topic: topicOf(u.label, pageText.toLowerCase()), options: optionsIn(u.label), test: (t) => u.match(t.toLowerCase(), t) >= 0.6, weight: u.kind === 'required' ? 3 : 1.5 })),
     ...(ats.missingSkills || []).flatMap((m) => [m.skill, ...(m.anyOf || [])]).filter((k) => SKILLS[k]).map((k) => ({ topic: plainName(k), test: (t) => SKILLS[k].some((p) => p.test(t.toLowerCase())), weight: 1 })),
     // A posting phrase whose words the passage uses ("competitive decks":
     // competitor research and enablement decks in one write-up).
@@ -194,15 +199,29 @@ function documentEvidence({ job, bank, profile = {}, documents = [], pageText, a
   for (const c of docCandidates(documents, bank, names)) {
     if (!roleOf.has(c.docText)) roleOf.set(c.docText, roleFor(c.docText, roles).id);
     const met = wants.filter((w) => w.test(c.draft));
-    out.push({ ...c, experienceId: roleOf.get(c.docText), topic: met.length ? met[0].topic : null, met, gain: 0 }); // gain: measured below, for the most promising only
+    // "public sector", not "public sector or Cloud", when that's what the passage shows.
+    const said = `${c.draft} ${c.quote}`.toLowerCase();
+    const named = met.length && met[0].options && met[0].options.find((o) => said.includes(o.toLowerCase()) || (SKILLS[o] && SKILLS[o].some((re) => re.test(said)))); // "federal sales" is public sector
+    out.push({ ...c, experienceId: roleOf.get(c.docText), topic: met.length ? (named ? plainName(named) : met[0].topic) : null, met, gain: 0 }); // gain: measured below, for the most promising only
   }
   if (!out.length) return [];
   // How strongly each passage proves what this posting is about, by the same
   // ranking that picks bullets: one that would rank among your best bullets
   // is worth adding even when your bank already covers the topic.
   const trial = { ...bank, bullets: [...bank.bullets, ...out.map((c, i) => ({ id: `doc-evidence-${i}`, experienceId: c.experienceId, text: c.draft }))] };
-  const ranked = B.rankBullets(job, trial).ranked;
+  const trialRank = B.rankBullets(job, trial);
+  const ranked = trialRank.ranked;
   const scoreOf = new Map(ranked.map((r) => [r.id, r.score || 0]));
+  // What it proves: for a job the library is far from (an underwriter or a
+  // teacher, for a strategist), even the best passage only beats bullets that
+  // prove nothing. It has to show a requirement the posting states, and more
+  // than communication or teamwork.
+  const unitByKey = new Map((trialRank.units || []).map((u) => [u.key, u]));
+  const real = (c) => {
+    const u = unitByKey.get(c.key);
+    return c.m >= 0.6 && c.kind !== 'preferred' && (!u || ![u.label, ...(u.skills || [])].some((k) => INTERPERSONAL.has(k) || SOFT_SKILLS.has(k)));
+  };
+  const proves = new Map(ranked.map((r) => [r.id, (r.covers || []).some(real)]));
   const bankScores = ranked.filter((r) => !String(r.id).startsWith('doc-evidence-')).map((r) => r.score || 0).sort((a, b) => b - a);
   const bar = 0.8 * (bankScores[Math.min(4, bankScores.length - 1)] || 0); // close to your fifth-best bullet
   // The ATS read for the most promising few (each read takes a few ms on a big bank).
@@ -210,7 +229,7 @@ function documentEvidence({ job, bank, profile = {}, documents = [], pageText, a
   out.map((c, i) => ({ c, p: promise(c, i) })).sort((a, b) => b.p - a.p).slice(0, 6).forEach(({ c }) => (c.gain = gainOf(c.draft)));
   for (const [i, c] of out.entries()) {
     const rank = scoreOf.get(`doc-evidence-${i}`) || 0;
-    c.strong = rank >= bar && rank > 0;
+    c.strong = rank >= bar && rank > 0 && proves.get(`doc-evidence-${i}`);
     c.worth = c.gain * 2 + c.met.reduce((n, w) => n + w.weight, 0) + (c.strong ? 3 + (2 * rank) / Math.max(1, bar) : 0) - (c.weak ? 2 : 0);
   }
   // A longer version proves at least what its lead sentence does; one that
@@ -228,13 +247,21 @@ function documentEvidence({ job, bank, profile = {}, documents = [], pageText, a
   // Best first, one per topic, and never the same accomplishment twice.
   const picked = [];
   for (const c of out.filter((x) => x.topic && x.worth > 0 && (x.met.length || x.strong || x.gain >= 1)).sort((a, b) => b.worth - a.worth)) {
-    if (picked.some((p) => (p.topic === c.topic && !c.general) || repeatOf(p.draft, c.draft))) continue;
+    if (picked.some((p) => (p.topic === c.topic && !c.general) || p.lead === c.lead || repeatOf(p.draft, c.draft))) continue;
     picked.push(c);
   }
   return picked;
 }
 
-const docLabel = (name) => String(name || 'your documents').replace(/\.[a-z0-9]+$/i, '').replace(/^[0-9a-f]{8}-/, '').replace(/[_]+/g, ' ').replace(/\s+-\s+/g, ' – ').trim();
+// How a document is named in a sentence: "Impact Statement", not
+// "Impact_Statement_-_Third_Person_Perspective_1.pdf".
+const docLabel = (name) => {
+  const t = String(name || 'your documents').replace(/\.[a-z0-9]+$/i, '').replace(/^[0-9a-f]{8}-/, '').replace(/[_]+/g, ' ').replace(/\s+(?:v?\d+|\(\d+\)|copy|final)$/i, '').trim();
+  const [first] = t.split(/\s+-\s+|\s+[–—]\s+/);
+  return (first && first.length >= 6 ? first : t).trim();
+};
+// A quote cut at a word, not mid-word.
+const clip = (t, n) => (t.length <= n ? t : `${t.slice(0, n).replace(/\s+\S*$/, '')}…`);
 
 // A posting phrase you've covered in other words ("secondary research" when
 // your bullets say "competitive research"): ask whether it's the same work.
@@ -257,7 +284,13 @@ function phrasedElsewhere(phrase, bankLower) {
   return null;
 }
 
-function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [], asked = [] }) {
+const { BANDS } = require('../shared/fitScale');
+
+// `fit`: the job's shown fit score, when known. Passages from your documents
+// are offered only for a job you're a real candidate for ("Good potential"
+// or better): for a stretch role (a pharmacist posting, for a strategist)
+// they'd change nothing and read as noise.
+function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [], asked = [], fit = null }) {
   if (!String(job.text || '').trim() || !bank || !bank.experiences.length) return [];
   const eligible = B.resumeExperiences(bank, job);
   const roles = eligible.map((e) => ({ experienceId: e.id, bullets: bank.bullets.filter((b) => b.experienceId === e.id && !b.hidden).map((b) => ({ bulletId: b.id, text: b.text })) }));
@@ -303,23 +336,27 @@ function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [
   for (const m of ats.missingSkills || []) {
     if (m.kind !== 'required' || INTERPERSONAL.has(m.skill) || SOFT_SKILLS.has(m.skill) || shownAs(m.skill) || implied.has(m.skill)) continue;
     if (SKILLS[m.skill] && SKILLS[m.skill].some((p) => p.test(docsLower)) && (EMPLOYER_EVIDENCE[m.skill] || /^(?:Enterprise Software|SaaS)$/i.test(m.skill))) continue;
-    const term = (m.anyOf || [m.term || m.skill])[0];
-    if (!topics.some((t) => t.toLowerCase().includes(term.toLowerCase()))) topics.push(term);
+    // The posting's word, unless it's one bare word ("federal"): then the skill's name ("public sector").
+    let term = (m.anyOf || [m.term || m.skill])[0];
+    if (!m.anyOf && !/\s/.test(term) && m.skill && /\s/.test(m.skill)) term = plainName(m.skill);
+    if (!topics.some((t) => t.toLowerCase().includes(term.toLowerCase()) || term.toLowerCase().includes(t.toLowerCase()))) topics.push(term);
   }
 
   // 1. What your other documents already show: a draft bullet to approve.
-  const evidence = documentEvidence({ job, bank, profile, documents, pageText: text, ats, units: requirements, shown }).slice(0, 3);
+  const candidate = typeof fit !== 'number' || fit >= BANDS.good;
+  const evidence = candidate ? documentEvidence({ job, bank, profile, documents, pageText: text, ats, units: requirements, shown }).slice(0, 3) : [];
   const fromDocs = evidence.map((e) => {
     const role = bank.experiences.find((x) => x.id === e.experienceId) || {};
     const where = docLabel(e.doc);
     return {
       id: `evidence:${e.draft.toLowerCase().slice(0, 60)}`, topic: (e.topic = e.general ? e.topic : specific(e.topic, job)), draft: e.draft, experienceId: e.experienceId, source: { name: where, quote: e.quote, passage: e.passage },
       question: `Your ${where} shows this, but your bullet bank doesn't yet. Edit it into your own resume wording (keep the scope as written), then add it under ${[role.title, role.organization].filter(Boolean).join(', ') || 'its role'}.`,
-      tone: 'ask', text: `${e.general ? `Your ${where} has strong evidence for this posting that isn't in your bullet bank` : `Your ${where} shows ${e.topic}`}: “${e.quote.length > 160 ? `${e.quote.slice(0, 158)}…` : e.quote}” Add it as a bullet?`,
+      tone: 'ask', text: `${e.general ? `Your ${where} has strong evidence for this posting that isn't in your bullet bank` : `Your ${where} shows ${e.topic}`}: “${clip(e.quote, 160)}” Add it as a bullet?`,
       action: { type: 'add-context', key: `evidence:${e.draft.toLowerCase().slice(0, 60)}`, label: 'Review and add' },
     };
   });
-  const coveredByDocs = (t) => evidence.some((e) => e.topic.toLowerCase() === t.toLowerCase());
+  // "public sector or Cloud" is answered by a passage that shows public sector.
+  const coveredByDocs = (t) => evidence.some((e) => !e.general && (t.toLowerCase().includes(e.topic.toLowerCase()) || e.topic.toLowerCase().includes(t.toLowerCase())));
 
   // 2. Posting phrases your bullets cover in other words, best for the ATS first.
   let wordingBaseScore = null;

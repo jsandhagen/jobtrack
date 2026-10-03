@@ -236,7 +236,7 @@ function docRow(d) {
   const [ic, label] = KIND_LABEL[d.kind] || KIND_LABEL.other;
   return `<div class="row-item" data-doc="${d.id}"><div class="doc-icon">${icon(ic, 22)}</div>
     <div class="grow"><div class="title">${esc(d.name)}</div><div class="sub"><span class="doc-kind">${label}</span> · ${Math.round(d.chars / 5)} words · added ${timeAgo(d.addedAt)}</div></div>
-    <select class="kindSel" data-id="${d.id}" style="width:150px">${Object.entries(KIND_LABEL)
+    <select class="kindSel" data-id="${d.id}" style="width:170px">${Object.entries(KIND_LABEL)
       .map(([k, [, l]]) => `<option value="${k}" ${k === d.kind ? 'selected' : ''}>${l}</option>`)
       .join('')}</select>
     <button class="small ghost danger delDoc" data-id="${d.id}">Remove</button></div>`;
@@ -937,6 +937,16 @@ function nudgeCard(n, { appId, compact = false } = {}) {
   </div>`;
 }
 
+// A requirement as people say it: "one of Public Sector, Cloud" reads as
+// "Public Sector or Cloud", "several of AWS, ACE, CPPO, PPO…" as "AWS, ACE,
+// CPPO or PPO". Display only: buttons keep the label the app knows.
+function reqLabel(label) {
+  const m = String(label || '').match(/^(?:one|several) of (.+?)…?$/);
+  if (!m) return String(label || '');
+  const parts = m[1].replace(/…$/, '').split(/,\s*/).filter(Boolean);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} or ${parts[parts.length - 1]}` : parts[0] || label;
+}
+
 // "Ask if applicable" on the fit card: documents rarely tell the whole story,
 // so ask about what the fit is missing before it counts against you.
 function askBlock(a) {
@@ -1122,9 +1132,9 @@ async function renderApplication(id, { ifChanged = false } = {}) {
     ? `<div class="have-box"><div class="have-title">Do you have these? <span class="faint">Your documents don't show them, and a yes would raise your score.</span></div>${a.asks.map(haveRow).join('')}</div>`
     : '';
   const skills = `${asks}<div class="section-title">Skills from the posting</div><div>
-    ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(s)}</span>`).join('')}
+    ${q.matchedSkills.map((s) => `<span class="chip good">✓ ${esc(reqLabel(s))}</span>`).join('')}
     ${(q.partialSkills || []).map((s) => `<span class="chip" title="Partly shown: a related skill, an older role or only a skills-list mention">~ ${esc(s)}</span>`).join('')}
-    ${q.missingSkills.map((s) => (a.asks || []).some((x) => x.label === s) ? `<span class="chip grow" title="Not in your documents yet (asked above)">＋ ${esc(s)}</span>` : `<span class="chip grow" title="Not in your documents yet">＋ ${esc(s)} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
+    ${q.missingSkills.map((s) => (a.asks || []).some((x) => x.label === s) ? `<span class="chip grow" title="Not in your documents yet (asked above)">＋ ${esc(reqLabel(s))}</span>` : `<span class="chip grow" title="Not in your documents yet">＋ ${esc(reqLabel(s))} <button class="have-skill" data-have="${esc(s)}" title="Add it to the skills in your bullet bank: it counts toward the fit score and goes in your resumes' skills">I have this</button></span>`).join('')}
     ${(q.matchedPreferred || []).map((s) => `<span class="chip good" title="Nice to have">✓ ${esc(s)} <em>(nice to have)</em></span>`).join('')}
     ${(q.missingPreferred || []).map((s) => `<span class="chip" title="Nice to have, not in your documents yet">＋ ${esc(s)} <em>(nice to have)</em></span>`).join('')}
     ${q.matchedSkills.length + q.missingSkills.length ? '' : '<span class="faint">No specific skills recognised in this posting.</span>'}</div>`;

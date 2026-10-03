@@ -122,3 +122,14 @@ test('a posting phrase covered in other words is asked about, but not a look-ali
   assert.ok(!wording.some((a) => /analytical reports|executive reports/.test(a.text)), wording.map((a) => a.text).join('\n'));
   assert.ok(wording.some((a) => /competitor launches/.test(a.text) && /product launches/.test(a.text)), wording.map((a) => a.text).join('\n'));
 });
+
+test('passages from your documents are offered for jobs you fit, not for stretch roles or on soft skills alone', () => {
+  const b = bank();
+  const docs = [{ name: 'resume.pdf', kind: 'resume', text: RESUME }, IMPACT];
+  const offered = (job, fit) => resumeEnhancements({ job, bank: b, profile, documents: docs, fit }).filter((a) => a.draft);
+  assert.ok(offered(GOV_JOB, 85).length, 'a good fit gets them');
+  assert.equal(offered(GOV_JOB, 40).length, 0, 'a stretch role does not');
+  // Communication alone isn't "strong evidence": a teaching job asks for it too.
+  const teacher = { title: 'Elementary School Teacher', company: 'Contoso Schools', text: 'Responsibilities\n- Plan and deliver lessons for a class of 25 students\n- Communicate with parents and colleagues\n- Excellent communication and collaboration skills' };
+  assert.ok(!offered(teacher, 70).some((a) => /strong evidence/.test(a.text)), offered(teacher, 70).map((a) => a.text).join('\n'));
+});

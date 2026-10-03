@@ -278,8 +278,8 @@ function evidenceBlock(a) {
     <ul class="evidence">${ev
       .map((e) =>
         e.bullet
-          ? `<li class="ok" title="${esc(e.bullet.text)}"><b>${esc(e.label)}</b><span>${esc(e.bullet.text.length > 90 ? e.bullet.text.slice(0, 88) + '…' : e.bullet.text)}</span></li>`
-          : `<li class="gap"><b>${esc(e.label)}</b><span>No bullet shows this yet — <a href="#bank">add one</a> if you have it.</span></li>`
+          ? `<li class="ok" title="${esc(e.bullet.text)}"><b>${esc(reqLabel(e.label))}</b><span>${esc(e.bullet.text.length > 90 ? e.bullet.text.slice(0, 88) + '…' : e.bullet.text)}</span></li>`
+          : `<li class="gap"><b>${esc(reqLabel(e.label))}</b><span>No bullet shows this yet — <a href="#bank">add one</a> if you have it.</span></li>`
       )
       .join('')}</ul>`;
 }

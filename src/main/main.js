@@ -49,7 +49,7 @@ const { resumeEnhancements } = require('./resumeContext');
 // Your documents count too: passages they show that the bank doesn't yet are
 // offered as draft bullets. Kept until the bank, the library or the posting changes.
 const contextCache = new Map();
-const contextKey = (opts) => [store.bankVersion, store.documentsVersion, JSON.stringify(opts.profile || {}), jobKey(opts.job || {}), (opts.asked || []).join('|')].join('\u0000');
+const contextKey = (opts) => [store.bankVersion, store.documentsVersion, JSON.stringify(opts.profile || {}), jobKey(opts.job || {}), (opts.asked || []).join('|'), opts.fit ?? ''].join('\u0000');
 function contextSuggestions(opts) {
   const key = contextKey(opts);
   if (!contextCache.has(key)) {
@@ -704,7 +704,7 @@ function withAts(rec) {
   // "Ask if applicable": what the fit is missing that you may have done but not written down.
   // Not what "Do you have it?" already asks on the same page.
   const asked = rec.quick ? missingAsks(rec.job, rec.quick).map((x) => x.ask) : [];
-  const contextAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestionsSoon({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined, asked }, rec.id) : [];
+  const contextAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestionsSoon({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined, asked, fit: rec.quick ? rec.quick.score : null }, rec.id) : [];
   return { ...rec, ats: { before, after, nudges }, evidence, contextAsks };
 }
 
@@ -1108,7 +1108,7 @@ function builderState(rec) {
     // ...and ones that need rewriting rather than a swap ("statistical" for "statistics"): Polish wording's job.
     rewordTerms: rec.job && rec.job.text ? rewordTerms(rec.job, doc).map((t) => t.theirs) : [],
     nudges: rec.job && String(rec.job.text || '').trim() ? atsNudges({ ats, job: rec.job, pageText, bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true }) : null,
-    enhancements: contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units }),
+    enhancements: contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units, fit: rec.quick ? rec.quick.score : null }),
     // The posting's title, for the "role named up top" check.
     jobTitle: (rec.job && rec.job.title) || '',
     bankSize: bank.bullets.length,

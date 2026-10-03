@@ -291,9 +291,24 @@ function previewFresh() {
   }
 }
 
+// A button's busy look (spinner and label, no second click) until the returned function undoes it.
+function showBusy(btn, label) {
+  const old = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> ${esc(label)}`;
+  return () => {
+    if (!btn.isConnected) return;
+    btn.disabled = false;
+    btn.innerHTML = old;
+  };
+}
+
 async function switchMode(mode, btn = null) {
   if (mode === 'settings') return void (location.hash = '#settings');
-  if (!await saveNow()) return;
+  // The button shows it's working from the click, including while what
+  // you typed is saved first.
+  const busy = btn && mode !== 'claude' ? showBusy(btn, mode === 'ats' ? 'Optimizing…' : mode === 'baseline' ? 'Restoring…' : 'Undoing…') : () => {};
+  if (!await saveNow()) return busy();
   ed.polish = new Map();
   ed.held = [];
   const appId = ed.appId;
@@ -311,13 +326,13 @@ async function switchMode(mode, btn = null) {
     if (ok) (previewFresh(), toast(say('claudeDone'), 'good', 5000, 'proud'));
     return;
   }
-  // The clicked button shows it's working: on a big library, optimizing takes a moment.
-  const done = await run(btn, async () => {
+  const done = await run(null, async () => {
     if (mode === 'ats') await S.atsResume(appId);
     else if (mode === 'baseline') await S.baselineResume(appId);
     else await S.undoResume(appId);
     return true;
-  }, mode === 'ats' ? 'Optimizing…' : mode === 'baseline' ? 'Restoring…' : 'Undoing…');
+  });
+  busy();
   if (!done || ed.appId !== appId) return;
   await renderEditor(appId, ed.app);
   previewFresh();
@@ -501,7 +516,7 @@ function fitZoom() {
   desk.classList.toggle('zoomed', z > fit + 0.001);
   const pct = document.getElementById('edZoomPct');
   if (pct) {
-    pct.textContent = ed.zoom === 'fit' ? `Fit · ${Math.round(z * 100)}%` : `${Math.round(z * 100)}%`;
+    pct.textContent = ed.zoom === 'fit' ? `Zoom ${Math.round(z * 100)}% (fit)` : `Zoom ${Math.round(z * 100)}%`; // not "Fit · 76%": it sat beside the fit score and read like one
     pct.title = ed.zoom === 'fit' ? 'Sized to fit the window' : 'Fit the page to the window';
   }
   const wide = document.getElementById('edWide');
