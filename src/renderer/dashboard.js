@@ -536,7 +536,7 @@ const views = {
       <div class="tabs">${FILTERS.map(([k, label, fn]) => `<button class="${appFilter === k ? 'on' : ''}" data-filter="${k}">${label} <span class="faint">${all.filter(fn).length}</span></button>`).join('')}</div>
       <div class="inline" style="margin-bottom:12px"><input id="appSearch" data-live placeholder="Search title or company…" value="${esc(appSearch)}" style="flex:1">
         <select id="appSort" style="width:190px"><option value="recent">Newest first</option><option value="fit" ${appSort === 'fit' ? 'selected' : ''}>Best fit first</option><option value="applied" ${appSort === 'applied' ? 'selected' : ''}>Recently applied</option></select></div>
-      ${apps.length ? `${bulkBar(apps)}<div class="list">${apps.map((a) => appRow(a, true)).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>${all.length ? 'No roles match this filter.' : 'Your checked roles will show up here.'}</p></div>`}
+      ${apps.length ? `${bulkBar(apps)}<div class="list">${apps.map((a) => appRow(a, true)).join('')}</div>` : `<div class="card empty">${mascotSvg('curious', 80)}<h3>Nothing here yet</h3><p>${all.length ? 'No roles match this filter.' : 'Roles you save show up here.'}</p></div>`}
     </div>`;
   },
 
@@ -699,11 +699,13 @@ function applicationsMood(all) {
   return all.length ? 'happy' : 'curious';
 }
 
+// This page lists the roles you've saved: a job you only checked stays off it
+// until you save it, make a resume for it or mark it applied.
 function applicationsLine(all) {
   const applied = all.filter((a) => a.appliedAt).length;
-  if (!all.length) return 'Every role you check lands here, so nothing slips through the cracks.';
-  if (!applied) return `You've checked <b>${all.length}</b> role${all.length === 1 ? '' : 's'} so far. Ready to send one out?`;
-  return `<b>${all.length}</b> role${all.length === 1 ? '' : 's'} checked, <b>${applied}</b> applied. That's steady progress.`;
+  if (!all.length) return 'Roles you save land here, so nothing slips through the cracks. Checking a job doesn\'t save it: press <b>Save to applications</b> on the ones you want to keep.';
+  if (!applied) return `You've saved <b>${all.length}</b> role${all.length === 1 ? '' : 's'} so far. Ready to send one out?`;
+  return `<b>${all.length}</b> role${all.length === 1 ? '' : 's'} saved, <b>${applied}</b> applied. That's steady progress.`;
 }
 
 function usageSummary() {

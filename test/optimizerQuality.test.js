@@ -218,3 +218,12 @@ Required qualifications
   const missing = atsScore(job, 'Nothing relevant here.', {}).missingKeywords;
   for (const junk of ['apprenticeship', 'chance', 'full', 'range', 'challenges', 'excellent', 'minimum', 'internally', 'externally']) assert.ok(!missing.includes(junk), `${junk}: ${missing.join(', ')}`);
 });
+
+test('a name joined by "&" is one requirement: "MITRE ATT&CK", not "ATT" and "CK"', () => {
+  const { requirementUnits } = require('../src/main/localFit');
+  const job = { title: 'SOC Analyst', company: 'Contoso', text: 'Requirements\n- Knowledge of networking, Windows and Linux logs, and the MITRE ATT&CK framework' };
+  const labels = requirementUnits(job).units.map((u) => u.label);
+  const items = labels.flatMap((l) => l.replace(/^(?:one|several) of /, '').replace(/…$/, '').split(/,\s*/));
+  assert.ok(items.includes('MITRE ATT&CK'), labels.join(' | '));
+  assert.ok(!items.includes('ATT') && !items.includes('CK'), labels.join(' | '));
+});

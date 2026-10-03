@@ -145,6 +145,8 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
   // Blank out anything the skills dictionary already covers ("Power BI", "REST APIs").
   // Whole words, so "A/B testing" doesn't leave "ing" behind.
   body = blankSkills(body, ' ; ');
+  // A name joined by "&" is one term: "MITRE ATT&CK", "AT&T" (not "ATT" and "CK").
+  body = body.replace(/\b(?:[A-Z]{2,6}\s)?[A-Z]{1,6}&[A-Z]{1,6}\b/g, (m) => (add(m), ' ; '));
   // Acronyms / mixed-case tokens: ACLS, HubSpot, AutoCAD, SAP, CPA, iOS
   // A code with its number is one term: "SR 11-7", "Series 7", "ISO 27001".
   for (const m of body.matchAll(/\b([A-Z]{2,6}|[A-Z][a-z]+)\s(\d{1,5}(?:-\d{1,3})?)\b/g)) if (/^[A-Z]{2,6}$|^Series$/.test(m[1])) add(`${m[1]} ${m[2]}`);
