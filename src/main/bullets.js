@@ -1285,7 +1285,8 @@ function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale
     ...reworded.map((x) => ({ kind: 'wording', term: x.to, text: `Wrote “${x.to}” in your skills, so a search for the posting's words finds it.` })),
   ];
   const notes = [
-    ...(summary ? ['Put the most relevant documented achievement in the summary; kept your job titles and contribution level.'] : []),
+    // The tuning keeps your own summary when it reads better for this posting: say what's on the page.
+    ...(summary ? [(Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText).includes(doc.summary) ? 'Kept your own summary, which reads best for this posting; kept your job titles and contribution level.' : 'Put the most relevant documented achievement in the summary; kept your job titles and contribution level.'] : []),
     ...ats.knockouts.filter((gap) => gap.includes('(posting says')).map((gap) => `Posting wording not on the page: ${gap}. Check whether your documented experience supports this wording; a keyword mismatch does not establish a qualification gap.`),
   ];
   return { doc, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes };

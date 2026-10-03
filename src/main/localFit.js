@@ -19,7 +19,7 @@
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
 const { SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel, withoutNegated } = require('./fitScore');
-const { degreeLevel, degreeLevels, degreeRequirements } = require('./atsScore');
+const { degreeLevel, degreeLevels, degreeRequirements, isVerbForm } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
 const { memoize } = require('./memo');
@@ -67,7 +67,7 @@ function showsProgramming(textLower) {
 const NOT_TERMS = new Set(
   (
     'we you our your the this that they their a an and or of in on for to with as at by is are be will no not it executive executives cloud enterprise applications engagements industry such framework frameworks database databases interest passion curiosity obtain comfort communication communications tracking programs design optimization technology ' +
-    'about role team company position job candidate candidates applicants responsibilities requirements qualifications ' +
+    'about role team company position job candidate candidates applicants responsibility responsibilities requirements qualifications ' +
     'preferred required minimum basic nice bonus plus benefits experience knowledge ability skills strong excellent ' +
     'proven demonstrated working work must should including include etc ideal ideally equivalent degree bachelor ' +
     'master bachelors masters years year what who why how join help build support manage develop create ensure ' +
@@ -122,6 +122,9 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     if (/\d\s*\+?\s*(?:years?|yrs)\b/i.test(clean)) return; // "4+ years leading teams" is a years requirement
     // A piece of a sentence, not a thing: "positioning shift often", "market where competitors".
     if (/\b(?:actually|often|always|usually|really|where|when|while|whether)\b/.test(lower(clean))) return;
+    // A verb from a clause, not a thing: "Experience defining, planning, and
+    // driving top-level strategic initiatives" asks for neither "defining" nor "driving top-level".
+    if (/ing$/.test(words[0]) && isVerbForm(words[0]) && words.length <= 2) return;
     // "regulatory expectations", "industry standards": what about them is the requirement, not the phrase.
     if (GENERIC_HEAD.test(lower(clean))) return;
     if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w) || TERM_ONLY_STOP.has(w))) return;
@@ -426,14 +429,30 @@ function kindMatch(alts) {
     // A department named in a bullet is usually who you worked with ("launched
     // with sales and marketing"), so with the title's help it has to come from the title.
     const title = hasIn(tokens(lines[0] || ''));
+    const pieceToks = lines.map((x, i) => tokens(`${x} ${lines[i + 1] || ''}`));
     const pieces = lines.map((x, i) => {
-      const own = hasIn(tokens(`${x} ${lines[i + 1] || ''}`));
+      const own = hasIn(pieceToks[i]);
       if (!i) return own;
       return (w) => own(w) || (title(w) && !DEPARTMENT_KIND.has(w)) || (DEPARTMENT_KIND.has(w) && title(w));
     });
     const piecesOk = (ss, h, i) => i === 0 || !ss.some((w) => DEPARTMENT_KIND.has(w) && !title(w)) || ss.every((w) => BROAD_KIND.has(w) || hasIn(tokens(`${lines[i]} ${lines[i + 1] || ''}`))(w));
+    // Within one line, a kind named in specific words is those words together:
+    // "financial services … used with customers" isn't customer service.
+    const same = (x, w) => x === w || (Math.min(x.length, w.length) >= 5 && (x.startsWith(w) || w.startsWith(x)));
+    const near = (toks, ss) => {
+      const at = ss.map((w) => toks.reduce((ks, x, k) => (same(x, w) ? (ks.push(k), ks) : ks), []));
+      if (at.some((ks) => !ks.length)) return null; // not all in this line (one came from the title)
+      const span = ss.length + 2;
+      return at[0].some((k) => at.every((ks) => ks.some((j) => Math.abs(j - k) <= span)));
+    };
+    const pieceScore = (ss, h, i) => {
+      if (!piecesOk(ss, h, i)) return 0;
+      const found = ss.filter((w) => (BROAD_KIND.has(w) ? has(w) : h(w))).length;
+      if (found === ss.length && ss.length > 1 && ss.every((w) => !BROAD_KIND.has(w) && !DEPARTMENT_KIND.has(w)) && near(pieceToks[i], ss) === false) return Math.pow((ss.length - 1) / ss.length, 2);
+      return Math.pow(found / ss.length, 2);
+    };
     // Broad words ("… strategy", "… management") can sit anywhere.
-    return Math.max(...stems.map((ss) => (ss.length === 1 ? (has(ss[0]) ? 1 : 0) : Math.max(...pieces.map((h, i) => (piecesOk(ss, h, i) ? Math.pow(ss.filter((w) => (BROAD_KIND.has(w) ? has(w) : h(w))).length / ss.length, 2) : 0))))));
+    return Math.max(...stems.map((ss) => (ss.length === 1 ? (has(ss[0]) ? 1 : 0) : Math.max(...pieces.map((h, i) => pieceScore(ss, h, i))))));
   };
 }
 
@@ -1151,7 +1170,10 @@ function localFitScore(job, documents, profile = {}) {
   // Under-qualified: recruiters screen out well short of the years asked
   // (half or less) or two levels up, whatever else matches.
   const yearsRatio = needYears >= 3 && haveYears !== null ? haveYears / needYears : null;
-  const shortYears = yearsRatio === null ? null : yearsRatio < 0.25 ? 20 : yearsRatio < 0.4 ? 30 : yearsRatio < 0.6 ? 45 : yearsRatio < 0.8 ? 64 : null;
+  // Years short count too: 7 of the 12 asked is five years from a senior
+  // executive role, though more than half the number.
+  const yearsShort = yearsRatio === null ? 0 : needYears - haveYears;
+  const shortYears = yearsRatio === null ? null : yearsRatio < 0.25 ? 20 : yearsRatio < 0.4 ? 30 : yearsRatio < 0.6 ? 45 : yearsRatio < 0.7 && yearsShort >= 4 ? 44 : yearsRatio < 0.8 ? 64 : null;
   const stretch = seniority !== null && -levelsBelow >= 2;
 
   const components = { required, preferred: mean(pref), role, domain, experience, seniority };

@@ -273,6 +273,8 @@ const NOT_MODIFIERS = /^(?:the|a|an|and|or|of|to|for|with|in|on|by|our|their|its
 function phrasedElsewhere(phrase, bankLower) {
   const words = phrase.split(/\s+/);
   if (words.length < 2) return null;
+  // People, not documents: "direct reports" isn't "analytical reports" said another way.
+  if (/^(?:direct|indirect) reports?$/.test(phrase)) return null;
   const head = words[words.length - 1].replace(/s$/, '');
   if (head.length < 4 || GENERIC_HEADS.has(words[words.length - 1]) || GENERIC_HEADS.has(head)) return null;
   for (const m of bankLower.matchAll(new RegExp(`\\b([a-z/-]+)\\s+(${head}\\w*)\\b`, 'g'))) {
@@ -286,6 +288,13 @@ function phrasedElsewhere(phrase, bankLower) {
 }
 
 const { BANDS } = require('../shared/fitScale');
+
+// Years aren't an example to give: "12+ years of experience (the dated roles
+// show about 7)" asks about work your documents leave out.
+function yearsAsk(topic) {
+  const m = String(topic).match(/^(\d+)\+ years of experience \(the dated roles show about (\d+)\)$/);
+  return m ? `The posting asks for ${m[1]}+ years; your dated roles show about ${m[2]}. If you have experience they leave out (earlier jobs, freelance or military work), adding it could strengthen this application.` : null;
+}
 
 // `fit`: the job's shown fit score, when known. Passages from your documents
 // are offered only for a job you're a real candidate for ("Good potential"
@@ -387,7 +396,7 @@ function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [
     .filter((t) => !coveredByDocs(t) && !askedLower.some((a) => a.includes(t.toLowerCase()) || t.toLowerCase().includes(a)))
     .map((topic) => ({
       id: `context:${topic.toLowerCase()}`, topic, question: contextQuestion(topic),
-      tone: 'ask', text: mentioned.has(topic.toLowerCase()) ? `Your documents mention ${topic}, but none of your bullets show it. An example could strengthen this application.` : `An example of ${topic} could strengthen this application, if you've done it.`,
+      tone: 'ask', text: yearsAsk(topic) || (mentioned.has(topic.toLowerCase()) ? `Your documents mention ${topic}, but none of your bullets show it. An example could strengthen this application.` : `An example of ${topic} could strengthen this application, if you've done it.`),
       action: { type: 'add-context', key: `context:${topic.toLowerCase()}`, label: 'Add context (optional)' },
     }));
   return [...fromDocs, ...questions.slice(0, 3), ...wording].slice(0, 6);

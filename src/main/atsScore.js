@@ -764,4 +764,4 @@ function libraryAtsScore(job, documents, profile) {
 const degreeRequirements = memoize(readDegreeRequirements);
 const postingPhrases = memoize(readPostingPhrases);
 
-module.exports = { skillsOfLines, atsGaps, postingRewords, rewordTerms, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };
+module.exports = { isVerbForm, skillsOfLines, atsGaps, postingRewords, rewordTerms, postingPhrases, atsScore, libraryAtsScore, degreeLevels, hiredScoreStyleGrade, gradeFromQualifications, skillsMatchLabel, degreeLevel, degreeRequirements, WEIGHTS };

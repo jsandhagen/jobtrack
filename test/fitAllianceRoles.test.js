@@ -54,3 +54,44 @@ test('no question about cloud work when the documents show AWS', () => {
   const asks = resumeEnhancements({ job: P.zendeskAlliance, bank: bank(), profile, documents: [RESUME, IMPACT], fit: 80 });
   assert.ok(!asks.some((a) => /\bcloud\b/i.test(a.topic || '') && !a.draft), asks.map((a) => a.text).join('\n'));
 });
+
+// Second run, with adjacent lanes, stretches and random jobs:
+//
+// - A Bank Teller read 76 "Good potential": "cash handling or customer
+//   service" was met by one sentence saying "financial services" and "used
+//   with customers".
+// - A Chief of Staff asking for 12-15 years in executive management read as
+//   Good potential for seven years as an individual contributor, and asked for
+//   "an example of defining" and "of driving top-level" (verbs from "Experience
+//   defining, planning, and driving top-level strategic initiatives").
+// - "direct reports" was offered as "analytical reports" said another way, and
+//   "An example of 12+ years of experience" read as no sentence does.
+test('a bank teller is a stretch for a strategist whose documents mention customers and financial services', () => {
+  const R = require('./fixtures/randomJobs');
+  const teller = Object.values(R.POSTINGS || R.P || R).find((p) => p && p.title === 'Bank Teller');
+  const f = fit(teller);
+  assert.ok(f.score < 65, `${f.score} ${f.label}`);
+});
+
+test('twelve years asked of someone with seven is a stretch, and clause verbs are not requirements', () => {
+  const f = fit(P.ctoChiefOfStaff);
+  assert.ok(f.score < 65, `${f.score} ${f.label}`);
+  const { requirementUnits } = require('../src/main/localFit');
+  const labels = requirementUnits(P.ctoChiefOfStaff).units.map((u) => u.label);
+  for (const bad of ['defining', 'driving top-level', 'responsibility']) assert.ok(!labels.includes(bad), labels.join(' | '));
+});
+
+test('questions about years and wording read plainly', () => {
+  const asks = resumeEnhancements({ job: P.ctoChiefOfStaff, bank: bank(), profile, documents: [RESUME, IMPACT], fit: 64 });
+  const text = asks.map((a) => a.text).join('\n');
+  assert.doesNotMatch(text, /An example of \d+\+ years/);
+  assert.doesNotMatch(text, /direct reports/);
+  assert.match(text, /The posting asks for 12\+ years; your dated roles show about 7\./);
+});
+
+test('the optimizer says so when it keeps your own summary', () => {
+  const opt = B.optimizeResume({ profile, bank: bank(), job: P.ctoChiefOfStaff });
+  const own = bank().summary;
+  if (opt.doc.summary === own) assert.ok(opt.notes.some((n) => /Kept your own summary/.test(n)), opt.notes.join(' '));
+  else assert.ok(opt.notes.some((n) => /achievement in the summary/.test(n)), opt.notes.join(' '));
+});
