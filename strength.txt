@@ -1,0 +1,142 @@
+RESUME STRENGTH SCORE: RATIONALE
+================================
+
+Status (October 2026): designed and prototyped on branch ccr-1e257401-72fthp
+(src/main/resumeStrength.js). Not yet in UAT: in the prototype the one-click
+optimizer scores every candidate page for strength, and that made "optimize"
+too slow (about 420 ms against about 250 ms, over the ~400 ms limit). It ships
+once caching brings it back under the limit.
+
+
+WHY A SECOND SCORE
+------------------
+The goal of the one-click optimizer is the best resume for the posting, not
+the best ATS number. Until now it maximized the ATS score and used relevance
+only to break exact ties. The ATS score answers one question: will screening
+software pass this page? A recruiter then spends a few seconds on the page and
+asks a different one: do I want to talk to this person? Pages can pass the
+first and fail the second:
+
+  - The summary restated the first bullet ("Led competitive intelligence for
+    the CTO." directly above "Led competitive intelligence for the CTO,
+    tracking ..."), spending the most-read line on a repeat.
+  - On a public-sector role the summary's proof was a banking sales play.
+  - Bullets of near-equal ATS value were swapped by score alone, sometimes
+    for the weaker one in a reader's eyes.
+
+The fit score doesn't cover this either: it judges the person against the job
+from all their documents, not how well one page presents them.
+
+So the strength score measures the page as a recruiter screens it, and the
+optimizer now aims at ATS and strength together.
+
+
+WHAT IT MEASURES
+----------------
+A 0-1 score with a grade (A >= 0.85, B >= 0.72, C >= 0.58, else D), from four
+parts. Parts that don't apply to a posting are left out and the rest
+re-weighted.
+
+1. Lead (35%): are the first two bullets of the latest role the strongest
+   proof the person has for this posting? Compared with the two best bullets
+   the page could carry, as ranked by the same bullet ranker the optimizer
+   uses. A bullet that tells the same result as one already on the page
+   doesn't count as available. Weighted most because the top of the latest
+   role is what a skimming reader actually reads.
+
+2. Must-haves shown (30%): the share of the posting's required
+   qualifications that a bullet or the summary shows, read the way the fit
+   score reads them. Degrees (Education shows them), the kind of experience
+   asked for (the role shows it) and soft skills (nobody screens on them) are
+   left out.
+
+3. Summary (20%): three checks, multiplied together.
+     - On topic: it names a skill, must-have or kind of work the posting is
+       about. Industry words the optimizer appends for keyword searches
+       ("Enterprise Software experience at Appian.") don't count. Off topic: 0.4.
+     - Not an objective: "Looking for opportunities in ..." says what you
+       want, not what you bring. 0.5.
+     - No echo: restating the first bullet 0.4; the second bullet 0.75.
+   Sector: if the posting is set in a sector (public sector, financial
+   services, healthcare) and the page has proof from it, that proof should be
+   in the summary or the first two bullets. Otherwise 0.7.
+
+4. Results (15%): the share of bullets with a number or a scale, full credit
+   at 60%. Weighted least because the optimizer can't add numbers that aren't
+   in the person's documents.
+
+Two bullets that tell the same accomplishment cost 15% of the total. The
+optimizer already never does this; the check is there for hand edits.
+
+The score also returns plain-language notes ("The summary repeats your first
+bullet.") for the editor to show.
+
+
+HOW THE OPTIMIZER USES IT
+-------------------------
+Each candidate arrangement of the page is valued at:
+
+    ATS score + 20 x strength
+
+So a 0.05 gain in strength (a summary that stops echoing the first bullet) is
+worth about one ATS point. The weight is set so neither can be bought cheaply
+with the other: a change that costs several ATS points must buy a clearly
+better read, and a small strength gain can't sink a real ATS gain.
+
+The summary generator was changed to aim at the same things:
+  - Its proof sentence is never the first bullet. It prefers an accomplishment
+    from further down the page, then the second bullet.
+  - It prefers proof from the posting's sector.
+  - The proof must be strong evidence for this posting: at least about a
+    third as relevant as the best bullet on the page, and a clause that says
+    something (seven words or a result; "Advised product and GTM leaders" is
+    not enough).
+  - With nothing that strong (one bullet carries the role), the summary names
+    the kinds of work and stops, rather than restate the first bullet. This
+    reverses an older rule that the summary always quotes an accomplishment.
+  - Off-page proof that tells the same result as a bullet on the page is
+    never used.
+
+
+WHAT IT CAN'T JUDGE
+-------------------
+  - Whether an achievement is impressive for this employer, or a number right.
+  - Gaps in the person's documents. A page can grade A against a posting the
+    person isn't qualified for; that's the fit score's job.
+  - Taste. The bullet ranker decides which bullet is "strongest", and it can
+    disagree with a reader. Example: for a CI role it prefers "Built analytical
+    reports and dashboards ..." over "Translated technical concepts into
+    executive-ready insights ...".
+  - It never writes anything. Rewording, merging two bullets that tell one
+    result, or adding a documented passage stays with the person (the
+    optimizer's notes and "Ask if applicable" say which) or the Claude path.
+
+
+EVIDENCE SO FAR
+---------------
+Calibrated on the fictional e2e candidate (test/e2e/fixtures) against 16
+good-fit postings: the 13 live postings saved in
+test/fixtures/allianceOpportunities.js (on UAT, with fit bands in
+test/fitAllianceRoles.test.js and ATS bands in test/atsApplied.test.js) plus
+3 from test/fixtures/randomJobs*.js.
+
+Before the summary changes, 4 of 16 pages had a summary that repeated the
+first bullet (Salesforce PubSec CI, EvenUp CI, Mark43 CI, AWS SAP alliances),
+and one public-sector page had a summary with no public-sector proof. After
+them, none repeat the first bullet and every page grades A or B. The pages
+still marked down are:
+  - Supply Chain Analyst and Financial Analyst: the person's own summary is
+    about their CI and partnerships work, not the posting's. The one generated
+    alternative is a template, so the honest signal is the note.
+  - Weyerhaeuser and A-LIGN: the pages show only 20-40% of the must-haves
+    (wood products industry; M&A execution), because the documents don't.
+
+Open items before release:
+  1. Speed: cache the posting-side work (requirements, sectors, themes) once
+     per posting, and each line's matches once per line, so optimize is back
+     under ~400 ms.
+  2. Tests for resumeStrength itself (echo, objective, sector, lead), and
+     running the strength grade in test/e2e/pipeline.js so each e2e report
+     shows it.
+  3. A second candidate in another field, to check the weights and grade
+     edges hold beyond this persona.
