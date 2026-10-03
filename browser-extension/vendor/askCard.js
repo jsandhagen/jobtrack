@@ -15,11 +15,13 @@
     if (q.kind === 'yes_no') return `<div class="qa-yn" role="radiogroup" aria-label="Answer">
         ${['yes', 'no'].map((v) => `<label class="qa-chip"><input type="radio" name="qa-${id}" value="${v}"> ${v === 'yes' ? 'Yes' : 'No'}</label>`).join('')}
       </div><textarea data-qa-detail="${id}" rows="2" placeholder="${ph}"></textarea>`;
+    // Every answer box is a textarea that grows with its text (see grow()), so
+    // nothing typed or prefilled hides behind a scrollbar and hints wrap in a narrow card.
     if (q.kind === 'pick') return `<div class="qa-yn">${(q.options || []).map((o) => `<label class="qa-chip"><input type="checkbox" name="qa-${id}" value="${esc(o)}"> ${esc(o)}</label>`).join('')}</div>
-      <input type="text" data-qa-detail="${id}" placeholder="${ph}" autocomplete="off">`;
-    if (q.kind === 'bullet') return `<textarea data-qa-detail="${id}" data-qa-was="${esc(q.bullet)}" rows="3">${esc(q.prefill || q.bullet)}</textarea>`;
-    if (q.kind === 'number') return `<input type="text" data-qa-detail="${id}" placeholder="${ph}" autocomplete="off">`;
-    return `<textarea data-qa-detail="${id}" rows="3" placeholder="${ph}"></textarea>`;
+      <textarea data-qa-detail="${id}" rows="1" placeholder="${ph}"></textarea>`;
+    if (q.kind === 'bullet') return `<textarea data-qa-detail="${id}" data-qa-was="${esc(q.bullet)}" rows="2">${esc(q.prefill || q.bullet)}</textarea>`;
+    if (q.kind === 'number') return `<textarea data-qa-detail="${id}" rows="1" placeholder="${ph}"></textarea>`;
+    return `<textarea data-qa-detail="${id}" rows="2" placeholder="${ph}"></textarea>`;
   }
 
   /**
@@ -69,8 +71,19 @@
    * Keeps the count (and Spike's strength total) current, and calls onSkip /
    * onSave(replies) from the pinned buttons. Returns a function to remove it.
    */
+  // A box as tall as its text (or its wrapped hint), up to a limit, then it scrolls.
+  function grow(t) {
+    t.style.height = 'auto';
+    const hint = !t.value && t.placeholder;
+    if (hint) t.value = t.placeholder; // measure the wrapped hint, not one empty line
+    const h = t.scrollHeight;
+    if (hint) t.value = '';
+    t.style.height = `${Math.min(h + 2, 240)}px`;
+  }
+
   function wire(el, { who, questions, strength = 0, onSkip, onSave, onChange }) {
     const root = who === 'root';
+    el.querySelectorAll('.qa-row textarea').forEach(grow);
     const count = () => {
       const done = new Set(replies(el, questions).map((r) => r.id));
       const gain = questions.filter((q) => done.has(q.id)).reduce((n, q) => n + Math.max(0, (q.boost && q.boost.strength) || 0), 0);
@@ -95,11 +108,14 @@
         throw err;
       }
     };
+    const typed = (e) => { if (e.target.matches && e.target.matches('.qa-row textarea')) grow(e.target); };
+    el.addEventListener('input', typed);
     el.addEventListener('input', count);
     el.addEventListener('change', count);
     el.addEventListener('click', click);
     count();
     return () => {
+      el.removeEventListener('input', typed);
       el.removeEventListener('input', count);
       el.removeEventListener('change', count);
       el.removeEventListener('click', click);
