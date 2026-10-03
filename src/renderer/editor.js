@@ -273,7 +273,7 @@ function modeBar(info) {
   return `<div class="mode-strip mode-is-${cur}">
     <div class="mode-status">${who}<div><b>${st.title}</b><p>${st.line}</p>${cur === 'ats' && info.length && info.length.why ? `<p class="mode-why">${icon('doc', 13)} ${esc(info.length.why)}</p>` : ''}${cur === 'ats' && info.checks && info.checks.length ? `<p class="mode-why">${icon('warn', 13)} ${info.checks.length} item${info.checks.length === 1 ? '' : 's'} to review before submitting. See the Check tab.</p>` : ''}${undo || back ? `<div class="inline mode-links">${undo}${back}</div>` : ''}</div></div>
     <div class="mode-actions">
-      <button class="peek mode-ats" data-mode-go="ats">${window.SproutMascot.peekPal('ats', 54)}<b>${aimed ? (cur === 'ats' ? 'Optimize again' : 'Optimize for ATS') : 'Pick my best bullets'}</b><small>Free · instant</small></button>
+      <button class="peek mode-ats" data-mode-go="ats">${window.SproutMascot.peekPal('ats', 54)}<b>${aimed ? (cur === 'ats' ? 'Optimize again' : 'Optimize for ATS') : 'Pick my best bullets'}</b><small>Free · quick</small></button>
       <button class="peek mode-claude" data-mode-go="${locked ? 'settings' : 'claude'}" title="${locked ? 'Add a Claude API key in Settings' : aimed ? 'Claude writes an updated version for this posting' : 'Claude writes a version from your records'}">${window.SproutMascot.peekPal('claude', 54)}<b>${cur === 'claude' ? 'Rewrite with Claude' : 'Write with Claude'}</b><small>${locked ? 'Add an API key first' : 'Uses Claude · ~1 min'}</small></button>
     </div>
   </div>`;
@@ -291,7 +291,7 @@ function previewFresh() {
   }
 }
 
-async function switchMode(mode) {
+async function switchMode(mode, btn = null) {
   if (mode === 'settings') return void (location.hash = '#settings');
   if (!await saveNow()) return;
   ed.polish = new Map();
@@ -311,12 +311,13 @@ async function switchMode(mode) {
     if (ok) (previewFresh(), toast(say('claudeDone'), 'good', 5000, 'proud'));
     return;
   }
-  const done = await run(null, async () => {
+  // The clicked button shows it's working: on a big library, optimizing takes a moment.
+  const done = await run(btn, async () => {
     if (mode === 'ats') await S.atsResume(appId);
     else if (mode === 'baseline') await S.baselineResume(appId);
     else await S.undoResume(appId);
     return true;
-  });
+  }, mode === 'ats' ? 'Optimizing…' : mode === 'baseline' ? 'Restoring…' : 'Undoing…');
   if (!done || ed.appId !== appId) return;
   await renderEditor(appId, ed.app);
   previewFresh();
@@ -332,7 +333,7 @@ async function switchMode(mode) {
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-mode-go]');
-  if (b && document.getElementById('editorSlot')) switchMode(b.dataset.modeGo);
+  if (b && document.getElementById('editorSlot') && !b.disabled) switchMode(b.dataset.modeGo, b);
 });
 
 async function renderEditor(appId, app) {
