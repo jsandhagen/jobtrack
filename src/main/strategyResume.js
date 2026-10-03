@@ -1,17 +1,18 @@
 // Strategy work is not interchangeable: research, investment decisions and
 // running a CTO's operating cadence need different evidence at the top.
 // These signals rank existing facts; they never add a skill or change ownership.
-const { yearsOfExperience, classifyLines } = require('./fitScore');
+const { yearsOfExperience, classifyLines, SKILLS } = require('./fitScore');
+const { repeatOf } = require('../shared/resumeCheck');
 
 const THEMES = [
-  { key: 'commercial', posting: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|co[- ]sell\w*|joint business planning)\b/gi, evidence: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|enablement materials|joint business planning|customer transactions)\b/i, title: /gtm|go[- ]to[- ]market|revenue operations|sales strategy|partnership|alliances/i },
+  { key: 'commercial', posting: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|co[- ]sell\w*|joint business planning)\b/gi, evidence: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|enablement materials|joint business planning|customer transactions)\b/i, title: /gtm|go[- ]to[- ]market|revenue operations|sales strategy|partnership|allian(?:ce|ces)\b/i },
   { key: 'delivery', posting: /\b(?:program management|project management|process (?:improvement|documentation)|operating processes|release process|workstreams?|milestones?|cross[- ]functional coordination)\b/gi, evidence: /\b(?:program management|program coordinator|project manager|process (?:improvement|documentation)|operating cadences?|standardizing.*processes|workstreams?|milestones?)\b/i, proof: /\b(?:program management of \d|across \d+ .*accounts|release (?:process|notes)|process improvement|standardizing.*processes|operating cadences?)\b/i, title: /operations|program manager|chief of staff/i },
   { key: 'analytics', posting: /\b(?:dashboards?|analytics|analytical|reporting|forecast\w*|data models?|metrics|kpis?)\b/gi, evidence: /\b(?:dashboards?|analytics|analytical|reporting|forecast\w*|data models?|metrics|kpis?)\b/i, title: /gtm|revenue operations|sales strategy|business operations|product operations/i },
   { key: 'competition', posting: /\b(?:competitiv\w*|competitors?|market (?:research|analysis|intelligence|trends|expansion))\b/gi, evidence: /\b(?:competitiv\w*|competitors?|market (?:research|analysis|intelligence))\b/i, proof: /\b(?:competitive analysis|competitive intelligence|battlecards?|positioning briefs|win\/loss|objection handling)\b/i, title: /competitive|product strategy|corporate strategy/i },
   { key: 'research', posting: /\b(?:emerging technolog\w*|technology trends|research|scout\w*|incubat\w*)\b/gi, evidence: /\b(?:research|emerging technolog\w*|technology trends|analyses|market and company research)\b/i, title: /emerging|innovation|research/i },
   { key: 'experiments', posting: /\b(?:prototyp\w*|proofs? of concept|pilots?|incubat\w*)\b/gi, evidence: /\b(?:prototyp\w*|proofs? of concept|pilots?)\b/i, title: /emerging|innovation/i },
   { key: 'deals', posting: /\b(?:acquisition\w*|due diligence|build\/buy\/partner|m&a)\b/gi, evidence: /\b(?:acquisition\w*|due diligence|m&a)\b/i, title: /corporate development|corporate strategy/i },
-  { key: 'partnerships', posting: /\b(?:partnership\w*|vendor evaluations?|evaluate (?:startups|vendors)|vendor selection\w*|sourcing strateg\w*)\b/gi, evidence: /\b(?:partnership\w*|evaluated.*vendors?|vendor selection\w*|sourcing strateg\w*)\b/i, title: /partnership|alliances/i },
+  { key: 'partnerships', posting: /\b(?:partnership\w*|vendor evaluations?|evaluate (?:startups|vendors)|vendor selection\w*|sourcing strateg\w*)\b/gi, evidence: /\b(?:partnership\w*|evaluated.*vendors?|vendor selection\w*|sourcing strateg\w*)\b/i, title: /partnership|allian(?:ce|ces)\b/i },
   { key: 'planning', posting: /\b(?:annual.*planning|quarterly.*planning|planning (?:process|cycle)|operating (?:cadence|rhythm)|okrs?|business reviews|budget planning|headcount)\b/gi, evidence: /\b(?:annual.*planning|quarterly.*planning|planning (?:process|cycle)|operating (?:cadence|rhythm)|okrs?|business reviews|budget planning|headcount)\b/i, title: /chief of staff|strategy\s*(?:&|and)\s*operations|strategy\s*(?:&|and)\s*planning/i },
   { key: 'investment', posting: /\b(?:business cases?|financial models?|financial modeling|investment\w*|cost optimization|it spend|cost models?|budgets?)\b/gi, evidence: /\b(?:business cases?|financial models?|financial modeling|investment\w*|cost optimization|it spend|cost models?|budgets?|due diligence|evaluated.*vendors?)\b/i, title: /corporate strategy|cio advisory|finance/i },
   { key: 'transformation', posting: /\b(?:technology roadmaps?|it roadmaps?|operating models?|modernization|cloud (?:migration|strategy)|transformation)\b/gi, evidence: /\b(?:technology roadmaps?|it strategies|operating models?|modernization|cloud (?:migration|strategy)|transformation)\b/i, title: /technology strategy|it strategy|cio advisory|modernization|transformation/i },
@@ -19,7 +20,7 @@ const THEMES = [
 ];
 
 function strategyFocus(job = {}) {
-  if (!/strateg(?:y|ist)|competitive intelligence|chief of staff|emerging technology|office of the cto|operations|program manager|partnership|alliances/i.test(job.title || '')) return [];
+  if (!/strateg(?:y|ist)|competitive intelligence|chief of staff|emerging technology|office of the cto|operations|program manager|partnership|allian(?:ce|ces)\b/i.test(job.title || '')) return [];
   const text = String(job.text || '');
   const required = classifyLines(text).filter((line) => line.kind === 'required').map((line) => line.original).join('\n');
   return THEMES.flatMap((theme) => {
@@ -74,6 +75,8 @@ function titleInWords(title) {
 
 const listOf = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0] || '');
 
+const SECTORS = ['Public Sector', 'Financial Services', 'Healthcare'];
+
 function strategySummary(job, doc, ranked) {
   const focus = strategyFocus(job);
   if (!focus.length) return null;
@@ -98,23 +101,35 @@ function strategySummary(job, doc, ranked) {
   const pageFigures = new Set(onPage.flatMap((b) => figuresOf(b.text)));
   const repeatsFigure = (t) => figuresOf(t).some((f) => pageFigures.has(f));
   const offPage = ranked
-    .filter((b) => !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6) && !repeatsFigure(mainClause(b.text)))
+    .filter((b) => !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6) && !repeatsFigure(mainClause(b.text)) && !onPage.some((o) => repeatOf(o.text, mainClause(b.text))))
     .map((b) => ({ bulletId: b.id, text: b.text, role: roleOf.get(b.experienceId), rank: b, offPage: true }));
-  // Best first: the title's own kind of work, then the current role, then the strongest.
+  // Best first: work in the posting's sector ("public sector sales meetings"
+  // for a PubSec role), then the title's own kind of work, then the current
+  // role, then the strongest.
   const primaryKeys = new Set(strategyFocus(job).filter((t) => t.primary).map((t) => t.key));
   const isPrimary = (b) => b.rank.strategy.some((t) => primaryKeys.has(t.key));
+  const sectors = SECTORS.filter((k) => SKILLS[k].some((re) => re.test(String(job.text || '').toLowerCase())));
+  const inSector = (b) => sectors.some((k) => SKILLS[k].some((re) => re.test(b.text.toLowerCase())));
+  // Strong evidence for this posting, not just on theme: at least about as
+  // relevant as the best bullet on the page (a third of it).
+  const bar = 0.35 * Math.max(0, ...onPage.map((b) => (b.rank && b.rank.score) || 0));
   const order = (pool) => pool
-    .filter((b) => b.rank && b.rank.strategy.length && b.text.split(/\s+/).length <= proofLimit)
-    .sort((a, b) => isPrimary(b) - isPrimary(a) || (b.role === current) - (a.role === current) || b.rank.score - a.rank.score);
+    .filter((b) => b.rank && b.rank.strategy.length && (b.rank.score || 0) >= bar && b.text.split(/\s+/).length <= proofLimit)
+    .sort((a, b) => inSector(b) - inSector(a) || isPrimary(b) - isPrimary(a) || (b.role === current) - (a.role === current) || b.rank.score - a.rank.score);
   // A verbatim, relevant accomplishment is stronger than a list of skills,
   // and cannot turn "supported" into "led" or borrow a metric from another job.
   // One the page already shows isn't repeated whole: the summary keeps its
   // main clause ("Led competitive intelligence for the CTO") and the bullet
   // below gives the detail. One that has no shorter clause isn't used at all.
+  // Not one of the first two bullets of the latest role, though: the reader
+  // gets there a second later, so up top it would only say it twice.
   const fresh = order(offPage)[0];
   const wordCount = (t) => String(t).replace(/\s*\([^)]*\)/g, '').split(/\s+/).filter(Boolean).length;
-  const shown = order(onPage).find((b) => wordCount(mainClause(b.text)) <= 0.8 * wordCount(b.text));
-  const proof = fresh && (!shown || isPrimary(fresh) || !isPrimary(shown)) ? fresh : shown;
+  const [firstBullet, secondBullet] = (current.bullets || []).slice(0, 2).map((b) => b.text);
+  // A clause that says something ("Advised product and GTM leaders" doesn't): seven words, or a result.
+  const clauseOk = (b) => { const c = mainClause(b.text); return wordCount(c) <= 0.8 * wordCount(b.text) && (wordCount(c) >= 7 || /\d/.test(c)); };
+  const shown = order(onPage.filter((b) => b.text !== firstBullet && b.text !== secondBullet)).find(clauseOk) || order(onPage.filter((b) => b.text === secondBullet)).find(clauseOk);
+  const proof = fresh && (!shown || inSector(fresh) >= inSector(shown)) && (!shown || isPrimary(fresh) || !isPrimary(shown) || inSector(fresh) > inSector(shown)) ? fresh : shown;
   if (!proof) return lead;
   // A long one reads as a second bullet up top: its main clause says enough.
   const text = proof.offPage && wordCount(proof.text) <= 30 && !repeatsFigure(proof.text) ? proof.text.replace(/[.!?]+$/, '') : mainClause(proof.text);

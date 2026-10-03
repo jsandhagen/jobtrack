@@ -29,8 +29,18 @@ test('one-click strategy optimization leads with the work the target role actual
   for (const [key, proof] of cases) {
     const out = B.optimizeResume({ profile, bank, job: F.POSTINGS[key] });
     assert.match(out.doc.roles[0].bullets[0].text, proof, key);
-    const source = sourceOf(bank, out.doc.summary);
-    assert.ok(source && achievementOf(out.doc.summary).length > 20, key + ': the summary quotes a documented accomplishment');
+    // The summary quotes a documented accomplishment when one other than the
+    // first bullet is strong evidence for this role; it never restates the first
+    // bullet (the reader is there a second later). With nothing else that strong
+    // (one bullet carries the role), it names the kinds of work and stops.
+    const proofText = achievementOf(out.doc.summary);
+    if (proofText) {
+      const source = sourceOf(bank, out.doc.summary);
+      assert.ok(source && proofText.length > 20, key + ': the summary quotes a documented accomplishment');
+      assert.ok(!plain(out.doc.roles[0].bullets[0].text).startsWith(proofText), key + ': not the first bullet again');
+    } else {
+      assert.match(out.doc.summary, /working across [^.]+ and [^.]+\.$/, key + ': names the kinds of work instead');
+    }
     assert.ok(!repeatsPage(out.doc), key + ": the summary doesn't repeat a bullet on the page");
     assert.equal(out.pages, 1, key);
     assert.equal(R.measure(out.doc).pages, 1, key);

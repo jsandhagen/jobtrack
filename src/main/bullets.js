@@ -1324,6 +1324,7 @@ function twinNotes(doc, { job, ranked, allowed, profile, pageText, score }) {
 // improves, the page still fits, and no accomplishment shows twice. Nothing
 // is reworded, so every line stays one you wrote.
 const TUNE_ROUNDS = 5;
+const STRENGTH_WEIGHT = 20;
 const TUNE_POOL = 10;
 function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, summary }) {
   const ResumeDoc = require('../shared/resumeDoc');
@@ -1334,10 +1335,15 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
     return atsScore(job, text, { profile, skills: skillsOfLines(text.split('\n')) });
   };
   // Each arrangement of the page is read once (rounds and passes revisit them).
+  // The aim is the best resume, not only the best ATS read: each arrangement
+  // is valued by its ATS score plus how strongly it reads to a recruiter
+  // (resumeStrength.js), 0.05 of strength (a summary that stops repeating the
+  // first bullet) being worth about one ATS point.
+  const { resumeStrength } = require('./resumeStrength');
   const seen = new Map();
   const score = (d) => {
     const key = `${d.summary}\u0000${d.roles.map((r) => r.bullets.map((b) => b.bulletId || b.text).join(',')).join('|')}`;
-    if (!seen.has(key)) seen.set(key, read(d).score);
+    if (!seen.has(key)) seen.set(key, read(d).score + STRENGTH_WEIGHT * resumeStrength(d, job, { ranked }).score);
     return seen.get(key);
   };
   const fits = (d) => ResumeDoc.fits(d, pages, { scale });
