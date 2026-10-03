@@ -118,7 +118,7 @@ const candidateCache = new Map();
 function docCandidates(documents, bank, names) {
   const docs = documents.filter((d) => d.kind !== 'bank' && d.kind !== 'resume' && d.text);
   const bankTexts = bank.bullets.filter((b) => !b.hidden).flatMap((b) => [b.text, ...(b.variants || [])]);
-  const key = [names.join(' '), ...docs.map((d) => `${d.id || d.name}:${d.text.length}`), bankTexts.length, bankTexts.reduce((n, t) => n + t.length, 0)].join('|');
+  const key = JSON.stringify([names, docs.map((d) => [d.id, d.name, d.text]), bankTexts]);
   if (candidateCache.has(key)) return candidateCache.get(key);
   const out = [];
   const seen = new Set(); // the same passage in two documents is one candidate
@@ -405,4 +405,51 @@ function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [
   return [...fromDocs, ...questions.slice(0, 3), ...wording].slice(0, 6);
 }
 
-module.exports = { resumeEnhancements, documentEvidence, contextQuestion, topicOf, asBullet, passagesOf };
+// The one-click path may use clearly attributable passages, without persisting
+// generated bullets in the user's bank. Ambiguous authors/employers stay suggestions.
+function optimizerEvidence({ documents = [], bank, profile = {}, job }) {
+  const { isEvidenceDoc } = require('./sourceEvidence');
+  const { createHash } = require('node:crypto');
+  const names = String(profile.name || '').split(/\s+/).filter((w) => /^[A-Z][a-z]{2,}$/.test(w));
+  if (!names.length) return { bank, sources: [] };
+  const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const roles = B.resumeExperiences(bank, job).filter((e) => !e.isProject);
+  const attributable = documents.filter((d) => isEvidenceDoc(d) && ['recommendation', 'project', 'other', 'cover-letter'].includes(d.kind) && d.text && names.some((n) => new RegExp(`\\b${escape(n)}\\b`).test(d.text)));
+  const candidates = docCandidates(attributable, bank, names);
+  const sources = [];
+  const bullets = [];
+  const leads = new Set();
+  const { hiringFocus, hiringEvidence } = require('./hiringEvidence');
+  const { strategyFocus, strategyEvidence } = require('./strategyResume');
+  const focus = hiringFocus(job);
+  const strategy = strategyFocus(job);
+  const hidden = bank.bullets.filter((b) => b.hidden).flatMap((b) => [b.text, ...(b.variants || [])]);
+  // Prefer a documented outcome over the shortest version of the same work.
+  const ordered = candidates.slice().sort((a, b) => Number(DEAL_OUTCOME.test(b.draft)) - Number(DEAL_OUTCOME.test(a.draft)) || Number(b.result) - Number(a.result) || a.draft.length - b.draft.length);
+  for (const c of ordered) {
+    if (leads.has(c.lead)) continue;
+    if (!hiringEvidence(focus, c.draft).score && !strategyEvidence(strategy, c.draft).length) continue;
+    const aliases = (e) => {
+      const full = e.organization || '';
+      const short = full.replace(/\s+(?:Software|Advisory|Inc\.?|LLC|Ltd\.?|Corporation|Corp\.?)$/i, '');
+      return [...new Set([full, short])].filter((n) => n.length >= 5);
+    };
+    const intro = c.docText.slice(0, c.docText.indexOf('●') >= 0 ? c.docText.indexOf('●') : 400);
+    const anchored = roles.filter((e) => aliases(e).some((n) => new RegExp(`\\b(?:at|for)\\s+${escape(n)}\\b`, 'i').test(intro)));
+    const mentioned = roles.filter((e) => e.organization && new RegExp(`\\b${escape(e.organization)}\\b`, 'i').test(c.docText));
+    // An explicit employer in the document introduction anchors the work;
+    // partner/client names later in the document do not change its employer.
+    const attributed = anchored.length ? anchored : mentioned;
+    if (attributed.length !== 1) continue;
+    const role = attributed[0];
+    if (hidden.some((t) => repeatOf(t, c.lead)) || bullets.some((b) => repeatOf(b.text, c.draft))) continue;
+    const id = `library-${createHash('sha256').update(JSON.stringify([role.id, c.doc, c.quote, c.draft])).digest('hex').slice(0, 16)}`;
+    leads.add(c.lead);
+    bullets.push({ id, experienceId: role.id, text: c.draft });
+    sources.push({ bulletId: id, experienceId: role.id, name: c.doc, quote: c.quote, text: c.draft });
+  }
+  return { bank: bullets.length ? { ...bank, bullets: [...bank.bullets, ...bullets] } : bank, sources };
+}
+
+module.exports = { optimizerEvidence, resumeEnhancements, documentEvidence, contextQuestion, topicOf, asBullet, passagesOf };
+

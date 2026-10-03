@@ -3,6 +3,7 @@
 // These signals rank existing facts; they never add a skill or change ownership.
 const { yearsOfExperience, classifyLines, SKILLS } = require('./fitScore');
 const { repeatOf } = require('../shared/resumeCheck');
+const { hiringFocus, hiringEvidence } = require('./hiringEvidence');
 
 const THEMES = [
   { key: 'commercial', posting: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|co[- ]sell\w*|joint business planning)\b/gi, evidence: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|enablement materials|joint business planning|customer transactions)\b/i, title: /gtm|go[- ]to[- ]market|revenue operations|sales strategy|partnership|allian(?:ce|ces)\b/i },
@@ -79,15 +80,21 @@ const SECTORS = ['Public Sector', 'Financial Services', 'Healthcare'];
 
 function strategySummary(job, doc, ranked) {
   const focus = strategyFocus(job);
-  if (!focus.length) return null;
+  const readerFocus = hiringFocus(job);
+  if (!focus.length && !readerFocus.signals.length) return null;
   const current = doc.roles.find((r) => !r.isProject && r.title);
   if (!current) return null;
   // Total dated work, not "N years in consulting" because one old role is consulting.
   const years = Math.floor(yearsOfExperience(doc.roles.filter((r) => !r.isProject).map((r) => `${r.title}, ${r.dates}`).join('\n')) || 0);
   // The kinds of work this posting is about that the page shows, most important first.
   const pageText = doc.roles.flatMap((r) => r.bullets.map((b) => b.text)).join('\n');
-  const areas = strategyEvidence(focus, pageText).sort((a, b) => b.weight - a.weight).map((t) => AREA_NAMES[t.key]).filter(Boolean).slice(0, 3);
-  const lead = `${titleInWords(current.title)}${current.organization ? ` at ${current.organization}` : ''}${years >= 2 ? ` with ${years} years of experience` : ''}${areas.length >= 2 ? `, working across ${listOf(areas)}` : ''}.`;
+  const readerAreas = readerFocus.signals.filter((s) => doc.roles.some((r) => r.bullets.some((b) => hiringEvidence(readerFocus, b.text).signals.includes(s)))).map((s) => s.label);
+  const supportingAreas = strategyEvidence(focus, pageText).sort((a, b) => b.weight - a.weight).map((t) => AREA_NAMES[t.key]).filter(Boolean);
+  const areas = [...new Set([...readerAreas, ...supportingAreas])].slice(0, 3);
+  const sectorAreas = readerFocus.sectors.filter((k) => doc.roles.some((r) => r.bullets.some((b) => hiringEvidence(readerFocus, b.text).sectors.includes(k))));
+  const sectorText = sectorAreas.map((s) => s.toLowerCase().replace('public sector', 'public-sector')).join(' and ');
+  const industry = /\bB2B SaaS\b/i.test(String(doc.summary || '')) ? ' (B2B SaaS)' : '';
+  const lead = `${titleInWords(current.title)}${current.organization ? ` at ${current.organization}${industry}` : ''}${years >= 2 ? ` with ${years} years of experience` : ''}${areas.length >= 2 ? `, working across ${listOf(areas)}` : areas.length ? `, focused on ${areas[0]}` : ''}${sectorText ? `, including ${sectorText} work` : ''}.`;
   const byId = new Map(ranked.map((b) => [b.id, b]));
   const proofLimit = Math.max(20, 75 - lead.split(/\s+/).length);
   const roleOf = new Map(doc.roles.map((r) => [r.experienceId, r]));
@@ -101,20 +108,20 @@ function strategySummary(job, doc, ranked) {
   const pageFigures = new Set(onPage.flatMap((b) => figuresOf(b.text)));
   const repeatsFigure = (t) => figuresOf(t).some((f) => pageFigures.has(f));
   const offPage = ranked
-    .filter((b) => !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6) && !repeatsFigure(mainClause(b.text)) && !onPage.some((o) => repeatOf(o.text, mainClause(b.text))))
+    .filter((b) => !b.hidden && !pageIds.has(b.id) && roleOf.has(b.experienceId) && !pageWords.some((w) => overlap(words(b.text), w) >= 0.6) && !repeatsFigure(mainClause(b.text)) && !onPage.some((o) => repeatOf(o.text, mainClause(b.text))))
     .map((b) => ({ bulletId: b.id, text: b.text, role: roleOf.get(b.experienceId), rank: b, offPage: true }));
   // Best first: work in the posting's sector ("public sector sales meetings"
   // for a PubSec role), then the title's own kind of work, then the current
   // role, then the strongest.
   const primaryKeys = new Set(strategyFocus(job).filter((t) => t.primary).map((t) => t.key));
-  const isPrimary = (b) => b.rank.strategy.some((t) => primaryKeys.has(t.key));
+  const isPrimary = (b) => readerFocus.signals.length ? hiringEvidence(readerFocus, b.text).signals.length > 0 : (b.rank.strategy || []).some((t) => primaryKeys.has(t.key));
   const sectors = SECTORS.filter((k) => SKILLS[k].some((re) => re.test(String(job.text || '').toLowerCase())));
   const inSector = (b) => sectors.some((k) => SKILLS[k].some((re) => re.test(b.text.toLowerCase())));
   // Strong evidence for this posting, not just on theme: at least about as
   // relevant as the best bullet on the page (a third of it).
   const bar = 0.35 * Math.max(0, ...onPage.map((b) => (b.rank && b.rank.score) || 0));
   const order = (pool) => pool
-    .filter((b) => b.rank && b.rank.strategy.length && (b.rank.score || 0) >= bar && b.text.split(/\s+/).length <= proofLimit)
+    .filter((b) => b.rank && ((b.rank.strategy || []).length || hiringEvidence(readerFocus, b.text).score > 0) && (isPrimary(b) || inSector(b)) && (b.rank.score || 0) >= bar && b.text.split(/\s+/).length <= proofLimit)
     .sort((a, b) => inSector(b) - inSector(a) || isPrimary(b) - isPrimary(a) || (b.role === current) - (a.role === current) || b.rank.score - a.rank.score);
   // A verbatim, relevant accomplishment is stronger than a list of skills,
   // and cannot turn "supported" into "led" or borrow a metric from another job.
@@ -128,9 +135,9 @@ function strategySummary(job, doc, ranked) {
   const [firstBullet, secondBullet] = (current.bullets || []).slice(0, 2).map((b) => b.text);
   // A clause that says something ("Advised product and GTM leaders" doesn't): seven words, or a result.
   const clauseOk = (b) => { const c = mainClause(b.text); return wordCount(c) <= 0.8 * wordCount(b.text) && (wordCount(c) >= 7 || /\d/.test(c)); };
-  const shown = order(onPage.filter((b) => b.text !== firstBullet && b.text !== secondBullet)).find(clauseOk) || order(onPage.filter((b) => b.text === secondBullet)).find(clauseOk);
+  const shown = order(onPage.filter((b) => b.text !== firstBullet && b.text !== secondBullet)).find(clauseOk);
   const proof = fresh && (!shown || inSector(fresh) >= inSector(shown)) && (!shown || isPrimary(fresh) || !isPrimary(shown) || inSector(fresh) > inSector(shown)) ? fresh : shown;
-  if (!proof) return lead;
+  if (!proof || (sectorAreas.length && !inSector(proof))) return lead;
   // A long one reads as a second bullet up top: its main clause says enough.
   const text = proof.offPage && wordCount(proof.text) <= 30 && !repeatsFigure(proof.text) ? proof.text.replace(/[.!?]+$/, '') : mainClause(proof.text);
   const achievement = proof.role !== current && proof.role.organization
@@ -168,4 +175,5 @@ function strategyChecks(job, doc) {
   return checks;
 }
 
-module.exports = { strategyFocus, strategyEvidence, strategySummary, strategyChecks };
+module.exports = { mainClause, strategyFocus, strategyEvidence, strategySummary, strategyChecks };
+
