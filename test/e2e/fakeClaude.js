@@ -2,10 +2,10 @@
 // key: `SPROUT_FAKE_CLAUDE=test/e2e/fakeClaude.js` (main.js claudeClient).
 // It answers the two calls of "Write with Claude" for the fictional e2e
 // candidate (test/e2e/fixtures) applying to Okta's Cloud Alliance Manager, AWS
-// (test/fixtures/allianceOpportunities.js): the questions Claude would ask,
-// and the draft it would write once the candidate has answered. Both were
-// written by hand to the app's real prompts (src/main/prompts.js
-// TASKS.interview and TASKS.resume); they show the flow, not Claude's quality.
+// (test/fixtures/allianceOpportunities.js): Root's questions, and the draft
+// once the candidate has answered (or skipped). Both are Claude's responses to
+// the exact prompts the app renders (src/main/prompts.js TASKS.interview and
+// TASKS.resume), written in this session rather than by an API call.
 // Any other call gets an empty but valid answer.
 
 const ROLE = /<role id="(R\d+)"[^>]*organization="([^"]*)"[^>]*>([\s\S]*?)<\/role>/g;
@@ -20,53 +20,62 @@ function idsFrom(content) {
   return { role, bullet };
 }
 
+// Root's questions: the response to the exact interview prompt the app
+// renders for this posting (system: the candidate's documents; user: the
+// posting, role list, ATS notes and TASKS.interview), written as Claude would
+// answer it. Each is about something no document says: co-selling with AWS
+// sellers and ACE, APN and the Partner Programs, and demand generation appear
+// nowhere; the impact statement says Jordan "supported" the AWS partnership
+// while the posting asks someone to own it. The $9M already has its number,
+// so it isn't asked about.
 function questions(content) {
   const { role, bullet } = idsFrom(content);
   if (!/Cloud Alliance Manager/.test(content)) return { questions: [] };
   const answered = (content.match(/<already_answered>([\s\S]*?)<\/already_answered>/) || ['', ''])[1];
+  const nw = role('Northwind');
   return {
     questions: [
       {
-        question: 'Have you co-sold with AWS account teams, for example registering opportunities in ACE or working joint deals with AWS sellers?',
+        question: 'Have you co-sold with AWS, for example worked opportunities with AWS account managers or registered deals in ACE?',
         kind: 'yes_no',
-        why: 'Driving co-sell revenue is the core of this role, and your documents show AWS Marketplace transactions but not co-selling with AWS.',
+        why: 'Co-selling with AWS is the core of this role; your documents show AWS Marketplace transactions, but not co-selling with AWS sellers.',
         requirement: 'driving co-sell revenue',
-        role_id: role('Northwind'), bullet_id: '',
-        placeholder: 'Which AWS teams, how many deals, and what came of them',
+        role_id: nw, bullet_id: '',
+        placeholder: 'Who you worked with, how many deals, and what came of them',
       },
       {
-        question: 'Your $9M in AWS Marketplace transactions: over what period, and across how many customer deals?',
-        kind: 'number',
-        why: 'A time frame and deal count make your strongest AWS result concrete for a reader skimming the top of the page.',
-        requirement: '',
-        role_id: role('Northwind'), bullet_id: bullet('Executed $9M'),
-        placeholder: 'A time frame and a deal count, as best you know them',
-      },
-      {
-        question: 'For the AWS partnership, did you own a joint business plan with AWS? If so, what was in it and what did it produce?',
+        question: 'In the AWS partnership, what did you own yourself (for example the relationship with AWS’s partner team, the joint business plan, or Marketplace operations), and what did others own?',
         kind: 'text',
-        why: 'The posting asks you to build joint business plans with territory leaders; your documents mention joint business planning but not what yours covered or produced.',
-        requirement: 'building specific joint business plans with territory leaders',
-        role_id: role('Northwind'), bullet_id: bullet('Led quarterly business reviews'),
-        placeholder: 'Who you planned with, what the plan set, and what it produced',
+        why: 'Your impact statement says you supported the AWS partnership and this role asks you to own one, so your exact part decides how the top of the page reads.',
+        requirement: 'own and lead the partnership with AWS',
+        role_id: nw, bullet_id: bullet('Led quarterly business reviews'),
+        placeholder: 'What was yours, what was someone else’s',
       },
       {
-        question: 'Have you used AWS Partner Programs such as ISV Accelerate or Marketplace private offers?',
+        question: 'Have you worked with the AWS Partner Network (APN) or AWS Partner Programs, such as ISV Accelerate or Marketplace private offers?',
         kind: 'yes_no',
-        why: 'The posting asks for a deep understanding of AWS Partner Programs; a yes with one example would show it.',
+        why: 'The posting asks for a deep understanding of APN and AWS Partner Programs; one concrete example would show it.',
         requirement: 'AWS Partner Programs',
-        role_id: role('Northwind'), bullet_id: '',
+        role_id: nw, bullet_id: '',
         placeholder: 'Which programs, and what you did with them',
+      },
+      {
+        question: 'Have you run demand generation with a partner, such as joint campaigns, events or webinars with AWS?',
+        kind: 'yes_no',
+        why: 'The role is measured on demand generation with AWS, and nothing in your documents shows it yet.',
+        requirement: 'Demand Generation',
+        role_id: nw, bullet_id: '',
+        placeholder: 'What you ran, with whom, and what it brought in',
       },
     ].filter((q) => !answered.includes(q.question)),
   };
 }
 
-// The draft, written to the resume prompt with the demo answers in the
-// candidate's library ("Answers you gave Sprout").
+// Root's draft, written to TASKS.resume with the answers in the library
+// ("Answers you gave Sprout"); and the one it writes when every question was skipped.
 function resume(content) {
   const { role, bullet } = idsFrom(content);
-  const answered = /I owned the AWS joint business plan for 2025/.test(content);
+  const answered = /I owned the day-to-day relationship with our AWS partner manager/.test(content);
   const nw = role('Northwind');
   const fab = role('Fabrikam');
   const b = (start) => bullet(start);
@@ -74,12 +83,12 @@ function resume(content) {
     {
       role_id: nw,
       bullets: answered ? [
-        { text: 'Owned Northwind’s 2025 AWS joint business plan with the AWS partner manager, setting quarterly pipeline targets and a Marketplace private-offer motion that produced 31 co-sell opportunities', from_bullet: '', source_quote: 'I owned the AWS joint business plan for 2025' },
-        { text: 'Co-sold with AWS account managers on 6 joint deals in 2025, 4 of which closed, registering each opportunity in ACE', from_bullet: '', source_quote: 'worked with AWS account managers on 6 joint deals in 2025; 4 closed' },
-        { text: 'Executed $9M in customer transactions across 23 deals over 18 months via AWS Marketplace, working with marketing, sales, and product teams on enablement materials', from_bullet: b('Executed $9M'), source_quote: '' },
+        { text: 'Managed the day-to-day relationship with Northwind’s AWS partner manager and owned the 2025 joint business plan, setting quarterly pipeline targets and an AWS Marketplace private-offer motion', from_bullet: '', source_quote: 'I owned the day-to-day relationship with our AWS partner manager and the 2025 joint business plan' },
+        { text: 'Co-sold with AWS account managers on 6 joint deals in 2025, registering each in ACE; 4 closed', from_bullet: '', source_quote: 'worked with AWS account managers on 6 joint deals in 2025 and registered each one in ACE; 4 closed' },
+        { text: 'Executed $9M in customer transactions via AWS Marketplace, including private offers set up with sales ops, working with marketing, sales, and product teams on enablement materials', from_bullet: b('Executed $9M'), source_quote: '' },
+        { text: 'Ran two co-marketing webinars with AWS in 2025 that brought in 140 registrants', from_bullet: '', source_quote: 'I ran two co-marketing webinars with AWS in 2025 that brought in 140 registrants' },
         { text: 'Led quarterly business reviews (QBRs) and joint business planning across seven strategic partnerships (AWS, SAP, Red Hat), forecasting partnership-driven revenue', from_bullet: b('Led quarterly business reviews'), source_quote: '' },
         { text: 'Researched, launched, and managed technology partnerships with Contoso and Fabrikam', from_bullet: '', source_quote: 'researched, launched, and managed technology partnerships with Contoso and Fabrikam' },
-        { text: 'Advised product and GTM leaders on win/loss trends and deal data from 200+ customer and analyst engagements', from_bullet: b('Advised product and GTM leaders'), source_quote: '' },
       ] : [
         { text: 'Executed $9M in customer transactions via AWS Marketplace, working with marketing, sales, and product teams on enablement materials', from_bullet: b('Executed $9M'), source_quote: '' },
         { text: 'Led quarterly business reviews (QBRs) and joint business planning across seven strategic partnerships (AWS, SAP, Red Hat), forecasting partnership-driven revenue', from_bullet: b('Led quarterly business reviews'), source_quote: '' },
@@ -97,17 +106,20 @@ function resume(content) {
   ].filter((r) => r.role_id);
   return {
     summary: answered
-      ? 'Sr. Strategy Consultant in the Office of the CTO at Northwind Software with 7 years of experience in technology partnerships and go-to-market strategy, focused on the AWS ecosystem: co-selling with AWS account teams, joint business planning, and AWS Marketplace private offers.'
+      ? 'Sr. Strategy Consultant in the Office of the CTO at Northwind Software with 7 years of experience in technology partnerships and go-to-market strategy, running the day-to-day AWS relationship: co-selling with AWS account teams, joint business planning, AWS Marketplace private offers and co-marketing.'
       : 'Sr. Strategy Consultant in the Office of the CTO at Northwind Software with 7 years of experience in technology partnerships and go-to-market strategy, including AWS Marketplace and joint business planning with strategic partners.',
     experience,
-    skills: ['AWS Marketplace', 'Co-Selling', 'Joint Business Planning', 'Partnership Management', 'Go-To-Market (GTM) Strategy', 'Sales Enablement', 'Competitive Intelligence', 'Data Analysis (SQL, Excel, Python)', 'Executive Presentations'],
+    skills: answered
+      ? ['Co-Selling', 'AWS Marketplace Private Offers', 'Joint Business Planning', 'Demand Generation', 'Partnership Management', 'Go-To-Market (GTM) Strategy', 'Sales Enablement', 'Competitive Intelligence', 'Data Analysis (SQL, Excel, Python)']
+      : ['AWS Marketplace', 'Joint Business Planning', 'Partnership Management', 'Go-To-Market (GTM) Strategy', 'Sales Enablement', 'Competitive Intelligence', 'Data Analysis (SQL, Excel, Python)', 'Executive Presentations', 'Forecasting'],
     notes: answered
       ? [
-        'Led with your 2025 AWS joint business plan and co-selling (from your answers): the posting is about driving co-sell revenue with AWS.',
-        'Added the deal count and time frame from your answer to the $9M Marketplace bullet; dropped "$9M+" from the QBR bullet so the result is told once.',
+        'Led with the AWS relationship and joint business plan you owned (your answer): the posting asks someone to own and lead the AWS partnership. Your VP’s executive relationship stays theirs.',
+        'Added co-selling (6 joint deals, 4 closed, registered in ACE) and the AWS co-marketing webinars from your answers; dropped "$9M+" from the QBR bullet so the result is told once.',
+        'You answered private offers but not APN itself, so the page names AWS Marketplace private offers, not APN.',
         'The posting prefers deep existing relationships in the AWS sales organization; your documents don’t name any, so the page doesn’t claim them.',
       ]
-      : ['The posting asks for co-sell revenue with AWS and AWS Partner Programs; your documents don’t show either.'],
+      : ['The posting asks for co-sell revenue with AWS, APN and AWS Partner Programs; your documents don’t show them.'],
   };
 }
 

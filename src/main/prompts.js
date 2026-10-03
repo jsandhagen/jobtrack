@@ -22,7 +22,7 @@ const { isEvidenceDoc, isFictionalSample } = require('./sourceEvidence');
 // bullets from anything in the documents) inside the fixed layout and the
 // truthfulness rules; the page goes to the most relevant roles. Repeated
 // bullets across documents are sent once.
-const PROMPT_VERSION = '2026-10-04.1';
+const PROMPT_VERSION = '2026-10-04.2';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -202,7 +202,7 @@ Before you answer, read the page as the hiring manager would, and fix whatever f
   interview: `<task>
 You will write this candidate's resume for the posting above next. First, decide whether a few answers from the candidate would make that page materially stronger. Don't write the resume now.
 
-Ask only when the answer could change what goes on the page:
+Ask only about what the documents don't say. Before each question, check every document, including Answers you gave Sprout and the experience the candidate confirmed: if any of them already shows it, don't ask; use it when you write. And ask only when the answer could change what goes on the page:
 - a basic requirement the documents don't evidence, when it is plausible from their work that they have done it (don't ask a strategist about a nursing license);
 - a missing number or scale for a bullet that would lead the page: how many, how much, how often, what changed;
 - unclear ownership of the top work (led or supported), when the posting cares;

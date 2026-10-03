@@ -32,10 +32,10 @@ E.__ready();
 
 // The answers the demo candidate gives.
 const REPLIES = [
-  { id: 'q1', answer: 'yes', detail: 'I registered our co-sell opportunities in ACE and worked with AWS account managers on 6 joint deals in 2025; 4 closed.' },
-  { id: 'q2', answer: null, detail: '23 customer deals over 18 months (2024 to 2025)' },
-  { id: 'q3', answer: null, detail: 'I owned the AWS joint business plan for 2025 with our AWS partner manager: quarterly pipeline targets and a Marketplace private-offer motion. It produced 31 co-sell opportunities.' },
-  { id: 'q4', answer: 'yes', detail: 'We sold through AWS Marketplace private offers; I set them up with sales ops.' },
+  { id: 'q1', answer: 'yes', detail: 'I worked with AWS account managers on 6 joint deals in 2025 and registered each one in ACE; 4 closed.' },
+  { id: 'q2', answer: null, detail: 'I owned the day-to-day relationship with our AWS partner manager and the 2025 joint business plan (quarterly pipeline targets and a Marketplace private-offer motion). Our VP owned the executive relationship.' },
+  { id: 'q3', answer: 'yes', detail: 'We sold through AWS Marketplace private offers, and I set them up with sales ops.' },
+  { id: 'q4', answer: 'yes', detail: 'I ran two co-marketing webinars with AWS in 2025 that brought in 140 registrants.' },
 ];
 
 setTimeout(async () => {
@@ -64,7 +64,9 @@ setTimeout(async () => {
     out.notes = ed.notes;
     const bank = await call('bank:get');
     out.newBullets = bank.bullets.filter((b) => b.source && b.source.name === 'Answers you gave Sprout').map((b) => b.text);
-    out.variants = bank.bullets.filter((b) => (b.variants || []).some((v) => /23 deals/.test(v))).map((b) => ({ text: b.text, variants: b.variants }));
+    out.variants = bank.bullets.filter((b) => (b.variants || []).some((v) => /private offers/.test(v))).map((b) => ({ text: b.text, variants: b.variants }));
+    // Spike, on the free path, for the same job.
+    out.spike = await call('app:atsQuestions', 'a0');
     // The free optimizer can use the answers too.
     await call('app:atsResume', 'a0');
     const free = await call('builder:get', 'a0');

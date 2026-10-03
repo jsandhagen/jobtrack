@@ -16,26 +16,85 @@ const run = () => JSON.parse(execFileSync(process.execPath, [path.join(__dirname
 test('ask, answer, write: the answers are kept in the library and the bank, and used', () => {
   const r = run();
   assert.equal(r.crash, undefined, r.crash);
-  assert.equal(r.questions.length, 4);
+  assert.equal(r.questions.length, 4, 'none of Root’s questions is about something the documents show');
   assert.ok(r.questions.every((q) => q.experienceId), 'each question is tied to a bank role, not a prompt id');
-  assert.ok(r.questions.find((q) => q.kind === 'number').bulletId, 'a number question names the bank bullet it strengthens');
+  assert.ok(r.questions.find((q) => /what did you own yourself/.test(q.question)).bulletId, 'a question names the bank bullet it strengthens');
   // Kept for good.
-  assert.deepEqual(r.answered, { saved: 4, document: 'Answers you gave Sprout' });
+  assert.deepEqual(r.answered, { saved: 4, bullets: 0, wordings: 0, document: 'Answers you gave Sprout' });
   assert.ok(r.library.includes('Answers you gave Sprout'));
   assert.match(r.answersDoc, /Role: Sr\. Strategy Consultant - Office of the CTO, Northwind Software/);
-  assert.match(r.answersDoc, /Q: Have you co-sold with AWS account teams[^\n]*\nA: Yes\. I registered our co-sell opportunities in ACE/);
-  assert.deepEqual(r.confirmed, ['driving co-sell revenue', 'AWS Partner Programs'], 'a yes is experience you have, not a skill on the page');
+  assert.match(r.answersDoc, /Q: Have you co-sold with AWS[^\n]*\nA: Yes\. I worked with AWS account managers on 6 joint deals/);
+  assert.deepEqual(r.confirmed, ['driving co-sell revenue', 'AWS Partner Programs', 'Demand Generation'], 'a yes is experience you have, not a skill on the page');
   assert.equal(r.answers, 4);
   assert.equal(r.questionsAfter, 0, 'what you answered is not asked again');
   // The draft uses them, nothing flagged, and its bullets from your answers go into the bank.
-  assert.match(r.page.roles[0].bullets[0].text, /^Owned Northwind’s 2025 AWS joint business plan/);
+  assert.match(r.page.roles[0].bullets[0].text, /^Managed the day-to-day relationship with Northwind’s AWS partner manager/);
   assert.ok(r.page.roles.every((role) => role.bullets.every((b) => !b.flag)), JSON.stringify(r.page));
   assert.ok(r.page.roles[0].bullets.slice(0, 2).every((b) => b.bulletId), 'bullets from answers now point at their bank entries');
-  assert.equal(r.newBullets.length, 2);
-  assert.match(r.variants[0].variants[0], /23 deals over 18 months/, 'a bank bullet strengthened by an answer keeps the new wording');
-  assert.ok(r.notes.some((n) => /Saved 2 new bullets and a new wording of a bullet written from your answers/.test(n)), r.notes.join(' | '));
-  // The free optimizer has them too.
-  assert.ok(r.freePage.some((t) => /31 co-sell opportunities/.test(t)), r.freePage.join(' | '));
+  assert.equal(r.newBullets.length, 3);
+  assert.ok(r.notes.some((n) => /Saved 3 new bullets written from your answers/.test(n)), r.notes.join(' | '));
+  // The free optimizer has them too, and Spike asks only what's still missing, with what it adds.
+  assert.ok(r.freePage.some((t) => /140 registrants|6 joint deals/.test(t)), r.freePage.join(' | '));
+  assert.ok(r.spike.questions.every((q) => q.boost && q.boost.strength >= 1), JSON.stringify(r.spike.questions));
+  assert.ok(!r.spike.questions.some((q) => /co-sell|demand generation/i.test(q.requirement)), 'not what was just answered');
+  assert.ok(r.spike.ifAll >= r.spike.strength);
+});
+
+test('the documents check: a requirement in the documents is not asked about, a broader one doesn’t count', () => {
+  const fs = require('fs');
+  const { shownInDocuments, notInDocuments } = require('../src/main/askFirst');
+  const job = require('./fixtures/allianceOpportunities').oktaAwsAlliance;
+  const lib = ['Jordan_Reyes_Resume.txt', 'Impact_Statement.txt'].map((f) => fs.readFileSync(path.join(__dirname, 'e2e', 'fixtures', f), 'utf8')).join('\n');
+  for (const r of ['AWS Marketplace', 'joint business planning', 'competitive intelligence', 'partnerships with Contoso']) assert.ok(shownInDocuments(r, job, lib), r);
+  for (const r of ['driving co-sell revenue', 'AWS Partner Programs', 'Demand Generation', 'own and lead the partnership with AWS']) assert.ok(!shownInDocuments(r, job, lib), r);
+  const qs = [{ question: 'Done AWS Marketplace work?', requirement: 'AWS Marketplace' }, { question: 'Co-sold?', requirement: 'driving co-sell revenue' }, { question: 'Skipped before?', requirement: '' }];
+  assert.deepEqual(notInDocuments(qs, { job, libraryText: lib, skipped: ['skipped before?'] }).map((q) => q.question), ['Co-sold?']);
+});
+
+test('Spike asks what the documents don’t show, with what answering adds, in plain words', () => {
+  const fs = require('fs');
+  const B = require('../src/main/bullets');
+  const { atsQuestions, postingLine } = require('../src/main/askFirst');
+  const { localFitScore, shownFit } = require('../src/main/localFit');
+  const read = (f) => fs.readFileSync(path.join(__dirname, 'e2e', 'fixtures', f), 'utf8');
+  const docs = [{ kind: 'resume', text: read('Jordan_Reyes_Resume.txt') }, { kind: 'recommendation', text: read('Impact_Statement.txt') }];
+  const bank = B.mergeIntoBank(null, B.parseResume(docs[0].text), { id: 'r', name: 'r' }).bank;
+  const P = require('./fixtures/allianceOpportunities');
+  const ask = (job) => { const q = shownFit(localFitScore(job, docs, {})); return atsQuestions({ job, bank, libraryText: docs.map((d) => d.text).join('\n'), fit: q.score, missing: q.missingSkills || [] }); };
+  const okta = ask(P.oktaAwsAlliance);
+  const pick = okta.questions.find((q) => q.kind === 'pick');
+  assert.deepEqual(pick.options, ['APN', 'ACE'], 'named programs in one question, not one each');
+  assert.ok(okta.questions.every((q) => q.boost.strength >= 1));
+  assert.ok(okta.ifAll > okta.strength);
+  assert.match(okta.questions.find((q) => q.requirement === 'partnerships organization').question, /^The posting asks for “An in-depth knowledge of the AWS sales and partnerships organization”/);
+  // A lead bullet with no number: edit it to add one.
+  const ci = ask(P.kickboardCI);
+  const num = ci.questions.find((q) => q.kind === 'bullet');
+  assert.match(num.bullet, /^Led competitive intelligence for the CTO/);
+  assert.ok(num.boost.strength >= 1, JSON.stringify(num.boost));
+  // A stretch role: no requirement questions.
+  assert.ok(!ask(P.ctoChiefOfStaff).questions.some((q) => q.kind !== 'bullet'));
+  assert.equal(postingLine('Qualifications\n- Experience with Salesforce; SQL a plus', 'Salesforce'), 'Experience with Salesforce');
+});
+
+test('Spike’s answers go into the bank as you wrote them: an example as a bullet, a number as a new wording', () => {
+  const qs = [
+    { id: 's1', kind: 'yes_no', question: 'Co-sold?', requirement: 'co-selling', experienceId: 'e1' },
+    { id: 's2', kind: 'bullet', question: 'Add a number?', bullet: 'Led competitive intelligence for the CTO', bulletId: 'b1', experienceId: 'e1' },
+    { id: 's3', kind: 'pick', question: 'Which?', options: ['APN', 'ACE'], experienceId: 'e1' },
+    { id: 's4', kind: 'bullet', question: 'Add a number?', bullet: 'Built dashboards', bulletId: 'b2' },
+  ];
+  const r = A.answerEntries(qs, [
+    { id: 's1', answer: 'yes', detail: 'Yes, I co-sold with AWS account teams on 6 joint deals in 2025.' },
+    { id: 's2', detail: 'Led competitive intelligence for the CTO, used by 40 sellers' },
+    { id: 's3', picked: ['ACE'], detail: 'for co-sell registrations' },
+    { id: 's4', detail: 'Built dashboards' },
+  ], { writeBullets: true });
+  assert.deepEqual(r.bullets, [{ experienceId: 'e1', text: 'Co-sold with AWS account teams on 6 joint deals in 2025' }]);
+  assert.deepEqual(r.variants, [{ bulletId: 'b1', text: 'Led competitive intelligence for the CTO, used by 40 sellers' }]);
+  assert.deepEqual(r.yes, ['co-selling', 'ACE']);
+  assert.equal(r.entries.find((e) => e.question === 'Which?').answer, 'Used ACE. for co-sell registrations');
+  assert.equal(r.entries.length, 3, 'an unchanged bullet is not an answer');
 });
 
 test('an answer is recorded as given: yes, no, a detail, or nothing', () => {
@@ -91,5 +150,6 @@ test('the resume prompt writes for the hiring manager, and the questions prompt 
   assert.match(i, /Ask at most 4/);
   assert.match(i, /Return no questions when the documents already make the strongest page they can/);
   assert.match(i, /Never suggest an answer or a number/);
+  assert.match(i, /Ask only about what the documents don't say/);
   assert.match(P.answeredBlock([{ question: 'Q?', answer: 'Yes.' }], ['co-selling'], ['M&A']), /- Q\? — Yes\.\n- Has: co-selling\n- Doesn't have: M&A/);
 });

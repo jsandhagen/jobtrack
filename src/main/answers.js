@@ -19,6 +19,12 @@ const clean = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
 // One answer as the text of record: "Yes. …" / "No." / the detail.
 function answerText(q, reply = {}) {
   const detail = clean(reply.detail).slice(0, 1200);
+  if (q.kind === 'pick') {
+    const picked = (reply.picked || []).filter((x) => (q.options || []).includes(x));
+    if (!picked.length) return detail;
+    return `Used ${picked.join(', ')}.${detail ? ` ${detail}` : ''}`;
+  }
+  if (q.kind === 'bullet') return detail && detail !== clean(q.bullet) ? detail : '';
   if (q.kind === 'yes_no') {
     if (reply.answer === 'no') return detail ? `No. ${detail}` : 'No.';
     if (reply.answer === 'yes') return detail ? `Yes. ${detail}` : 'Yes.';
@@ -69,11 +75,14 @@ function withAnswers(existingText, entries, experiences, name) {
  * @returns {{ entries: object[], yes: string[], no: string[] }} entries for bank.answers;
  *   the requirements answered yes and no (recorded like "Do you have these?")
  */
-function answerEntries(questions, replies, { job = {}, at = new Date().toISOString() } = {}) {
+function answerEntries(questions, replies, { job = {}, at = new Date().toISOString(), writeBullets = false } = {}) {
   const byId = new Map((replies || []).map((r) => [r.id, r]));
   const entries = [];
   const yes = [];
   const no = [];
+  // Without Claude (Spike's questions), what you wrote goes into your bank as you wrote it:
+  const bullets = []; // a new bullet under its role, from a yes with an example
+  const variants = []; // a bullet you added a number to, as a new wording of it
   for (const q of questions || []) {
     const r = byId.get(q.id);
     if (!r) continue;
@@ -85,11 +94,32 @@ function answerEntries(questions, replies, { job = {}, at = new Date().toISOStri
       job: { title: clean(job.title), company: clean(job.company) }, at,
     });
     if (q.kind === 'yes_no' && q.requirement) (r.answer === 'no' ? no : r.answer === 'yes' ? yes : []).push(clean(q.requirement));
+    if (q.kind === 'pick') for (const name of (r.picked || []).filter((x) => (q.options || []).includes(x))) yes.push(name);
+    if (!writeBullets) continue;
+    if (q.kind === 'bullet' && q.bulletId && /\d/.test(answer)) variants.push({ bulletId: q.bulletId, text: tidyText(answer) });
+    const example = q.kind === 'yes_no' && r.answer !== 'no' ? asResumeLine(r.detail) : null;
+    if (example && q.experienceId) bullets.push({ experienceId: q.experienceId, text: example });
   }
-  return { entries, yes, no };
+  return { entries, yes, no, bullets, variants };
 }
 
 const figures = (t) => (String(t || '').match(/\$?\d[\d.,]*[kmb%+]?/gi) || []).map((f) => f.toLowerCase().replace(/[,+]|\.$/g, ''));
+
+// An example you wrote as a resume line: "I co-sold with AWS on 6 deals" reads
+// "Co-sold with AWS on 6 deals"; one already in resume form stays as written.
+// Too short to stand as a bullet, or not about something you did: none.
+function asResumeLine(detail) {
+  const t = clean(detail).replace(/^(?:yes|yep|yeah)[.,!:;\s-]+/i, '');
+  if (t.split(/\s+/).length < 6) return null;
+  const { asBullet } = require('./resumeContext');
+  const first = t.split(/(?<=[.!?])\s+/)[0];
+  // "I co-sold…": the line from the verb on, without "our" or "my".
+  const mine = first.match(/^I\s+(?:also\s+)?([a-z]+(?:-[a-z]+)*)\b(.*)$/);
+  if (mine) return tidyText(`${mine[1].charAt(0).toUpperCase()}${mine[1].slice(1)}${mine[2]}`.replace(/\b(?:our|my) (?=[a-z])/gi, '').replace(/[.!?]+$/, ''));
+  const asLine = asBullet(first, []);
+  if (asLine) return asLine;
+  return /^[A-Z][a-z]+(?:ed|t)\b/.test(first) ? tidyText(first.replace(/[.!?]+$/, '')) : null;
+}
 
 /**
  * The bullets in a Claude draft that come from your answers, for your bank:
@@ -127,4 +157,4 @@ function bulletsFromAnswers(doc, { answersText, bank, quotes = [] }) {
   return { add, variants };
 }
 
-module.exports = { ANSWERS_DOC, isAnswersDoc, answerText, answersDocText, withAnswers, answerEntries, bulletsFromAnswers };
+module.exports = { ANSWERS_DOC, isAnswersDoc, answerText, answersDocText, withAnswers, answerEntries, bulletsFromAnswers, asResumeLine };

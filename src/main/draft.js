@@ -50,7 +50,16 @@ function skillSupported(skill, libraryNorm) {
   if (libraryNorm.includes(s)) return true;
   // A dictionary skill counts if the documents mention it in any of its forms.
   const entry = Object.entries(SKILLS).find(([name, ps]) => norm(name) === s || ps.some((p) => p.test(s)));
-  return !!entry && entry[1].some((p) => p.test(libraryNorm));
+  if (entry && entry[1].some((p) => p.test(libraryNorm))) return true;
+  // Or its words, in another form and next to each other: "co-selling" where
+  // the documents say "co-sell revenue" or "co-sold"; "demand generation" for
+  // "demand generation". Each word's stem must start a word there.
+  const words = s.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 4) return false;
+  const stem = (w) => w.replace(/(?:ing|ed|es|s|ion|ions)$/, '').replace(/(?<=sel)l$/, '');
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const forms = (w) => { const st = stem(w); return st.length < 3 ? esc(w) : `${esc(st)}\\w*${/sell$/.test(st) ? `|${esc(st.replace(/sell$/, 'sold'))}` : ''}`; };
+  return new RegExp(`(?:^|[^a-z0-9])${words.map((w) => `(?:${forms(w)})`).join('[^a-z0-9]+')}(?:$|[^a-z0-9])`).test(libraryNorm);
 }
 
 /**

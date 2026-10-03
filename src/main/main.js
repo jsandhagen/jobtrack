@@ -35,6 +35,7 @@ const { createUpdater } = require('./updater');
 const { installExtension } = require('./extensionFolder');
 const haveIt = require('./haveIt');
 const answersLib = require('./answers');
+const askFirst = require('./askFirst');
 const bulletBank = require('./bullets');
 const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
@@ -779,7 +780,8 @@ async function resumeQuestions(appId) {
   const bank = store.getBank();
   if (!bank.experiences.length || !evidenceDocs().length) return { questions: [] };
   const version = `${store.bankVersion}:${store.documentsVersion}:${P_VERSION()}`;
-  if (rec.resumeQuestions && rec.resumeQuestions.version === version) return { questions: rec.resumeQuestions.questions };
+  const skippedHere = new Set((rec.questionsSkipped || []).map((x) => String(x).toLowerCase()));
+  if (rec.resumeQuestions && rec.resumeQuestions.version === version) return { questions: rec.resumeQuestions.questions.filter((q) => !skippedHere.has(q.question.toLowerCase())) };
   const profile = store.getProfile();
   const ids = draft.promptIds(bank, currentDoc(rec).roles, bulletBank.resumeExperiences(bank, rec.job));
   const quick = rec.quick || null;
@@ -790,6 +792,8 @@ async function resumeQuestions(appId) {
   ].slice(0, 8);
   const answered = { answers: (bank.answers || []).slice(-30), confirmed: bank.confirmed || [], declined: (store.getSettings().declinedQualifications || []).slice(-30) };
   const out = await claude.askResumeQuestions(claudeClient(), { job: jobForClaude(rec), documents: docsForPrompt(), profile, analysis: rec.analysis, ats: libraryAts(rec.job), roles: ids.roles, answered, flagged, model: store.getSettings().model });
+  // Only what your documents don't already show, and nothing you skipped before.
+  out.questions = askFirst.notInDocuments(out.questions, { job: rec.job, libraryText: scoringDocuments().map((d) => d.text || '').join('\n'), skipped: rec.questionsSkipped || [] });
   // Ids that last beyond this prompt: the bank's own role and bullet ids.
   const roleLabel = (e) => (e ? [e.title, e.organization].filter(Boolean).join(' · ') : '');
   const questions = out.questions.map((q) => {
@@ -802,15 +806,53 @@ async function resumeQuestions(appId) {
 }
 const P_VERSION = () => require('./prompts').PROMPT_VERSION;
 
+// Spike's questions before a free optimize (askFirst.atsQuestions): a
+// must-have nothing in your documents shows, or a number for a lead bullet,
+// each with what answering adds to the page's resume strength.
+function atsQuestions(appId) {
+  const rec = getHost(appId);
+  if (!rec || !rec.job || !String(rec.job.text || '').trim()) return { questions: [] };
+  if (!store.getBank().experiences.length && store.allDocuments().length) importBullets(store.allDocuments());
+  const bank = store.getBank();
+  if (!bank.experiences.length) return { questions: [] };
+  const profile = store.getProfile();
+  const quick = rec.quick || null;
+  const evidence = contextSuggestions({ job: rec.job, bank, profile, fit: quick ? quick.score : null }).filter((a) => a.draft);
+  const out = askFirst.atsQuestions({
+    job: rec.job, bank, profile, evidence, fit: quick ? quick.score : null, missing: (quick && quick.missingSkills) || [],
+    libraryText: scoringDocuments().map((d) => d.text || '').join('\n'),
+    answered: (bank.answers || []).flatMap((a) => [a.requirement, a.question]).filter(Boolean),
+    declined: store.getSettings().declinedQualifications || [], skipped: rec.questionsSkipped || [],
+  });
+  updateHost(appId, { atsQuestions: { questions: out.questions, at: new Date().toISOString() } });
+  return out;
+}
+
+// Skipped: not asked again for this job.
+function skipQuestions(appId, who = 'root') {
+  const rec = getHost(appId);
+  if (!rec) return null;
+  const asked = ((who === 'spike' ? rec.atsQuestions : rec.resumeQuestions) || {}).questions || [];
+  const keys = asked.flatMap((q) => [q.question, q.topic, q.requirement]).filter(Boolean);
+  updateHost(appId, { questionsSkipped: [...new Set([...(rec.questionsSkipped || []), ...keys])].slice(-100) });
+  return { skipped: asked.length };
+}
+
 // Your answers, kept for good: in the library document "Answers you gave
 // Sprout", in your bank's answers, and a yes or no to a requirement recorded
-// as "Do you have these?" records it. Then every job is re-scored, since
-// what you told Sprout counts for all of them.
-function answerResumeQuestions(appId, replies = []) {
+// as "Do you have these?" records it. Spike's (no Claude to write with)
+// also put what you wrote into your bank: an example as a bullet under its
+// role, a bullet you added a number to as a new wording of it. Then every
+// job is re-scored, since what you told Sprout counts for all of them.
+function answerResumeQuestions(appId, replies = [], who = 'root') {
   const rec = getHost(appId);
   if (!rec) throw new Error('That resume no longer exists.');
-  const asked = (rec.resumeQuestions && rec.resumeQuestions.questions) || [];
-  const { entries, yes, no } = answersLib.answerEntries(asked, replies, { job: rec.job });
+  const asked = ((who === 'spike' ? rec.atsQuestions : rec.resumeQuestions) || {}).questions || [];
+  const { entries, yes, no, bullets, variants } = answersLib.answerEntries(asked, replies, { job: rec.job, writeBullets: who === 'spike' });
+  // The ones left unanswered aren't asked again for this job.
+  const answeredIds = new Set(replies.map((r) => r.id));
+  const left = asked.filter((q) => !answeredIds.has(q.id)).flatMap((q) => [q.question, q.topic, q.requirement]).filter(Boolean);
+  if (left.length) updateHost(appId, { questionsSkipped: [...new Set([...(rec.questionsSkipped || []), ...left])].slice(-100) });
   if (!entries.length) return { saved: 0 };
   store.updateBank((b) => void (b.answers = [...(b.answers || []), ...entries]));
   const bank = store.getBank();
@@ -835,10 +877,19 @@ function answerResumeQuestions(appId, replies = []) {
     if (declined.some((x) => said.has(x.toLowerCase()))) store.updateSettings({ declinedQualifications: declined.filter((x) => !said.has(x.toLowerCase())) });
   }
   for (const label of no) answerHaveIt({ label, answer: 'no' });
-  updateHost(appId, { resumeQuestions: null });
+  // What you wrote, into the bank (Spike's questions).
+  if (bullets.length || variants.length) {
+    const now = new Date().toISOString();
+    const docId = (store.allDocuments().find(answersLib.isAnswersDoc) || {}).id;
+    store.updateBank((b) => {
+      for (const x of bullets) if (!b.bullets.some((y) => y.text === x.text)) b.bullets.push({ id: crypto.randomUUID(), experienceId: x.experienceId, text: x.text, variants: [], tags: [], source: { docId, name: answersLib.ANSWERS_DOC }, createdAt: now, uses: 0 });
+      for (const v of variants) { const bl = b.bullets.find((y) => y.id === v.bulletId); if (bl && bl.text !== v.text && !bl.variants.includes(v.text)) bl.variants.push(v.text); }
+    });
+  }
+  updateHost(appId, who === 'spike' ? { atsQuestions: null } : { resumeQuestions: null });
   rescoreAllSoon();
   broadcast('state-changed');
-  return { saved: entries.length, document: answersLib.ANSWERS_DOC };
+  return { saved: entries.length, bullets: bullets.length, wordings: variants.length, document: answersLib.ANSWERS_DOC };
 }
 
 // After a Claude draft: the bullets it wrote from your answers, into the bank.
@@ -2092,7 +2143,9 @@ function registerIpc() {
   });
   handle('app:resume', (id) => makeResume(id));
   handle('app:resumeQuestions', (id) => resumeQuestions(id));
-  handle('app:answerResumeQuestions', (id, replies) => answerResumeQuestions(id, replies));
+  handle('app:answerResumeQuestions', (id, replies, who) => answerResumeQuestions(id, replies, who));
+  handle('app:atsQuestions', (id) => atsQuestions(id));
+  handle('app:skipQuestions', (id, who) => skipQuestions(id, who));
   handle('app:atsResume', (id) => makeAtsResume(id));
   // The fixes a nudge offers: industry words the employer proves ("SaaS" for
   // Appian), or the posting's word for a skill you show, added to the skills grid.

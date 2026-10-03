@@ -148,6 +148,20 @@ const slug = (s) => String(s || 'x').replace(/\W+/g, '-').slice(0, 40);
       const atClick = await page.evaluate(() => { const b = document.querySelector('[data-mode-go="ats"]'); b.click(); return { html: b.innerHTML, disabled: b.disabled }; });
       check('optimize', `${name}: spinner from the click`, /spinner/.test(atClick.html) && atClick.disabled);
       t = Date.now();
+      // Spike may ask first: only about what the documents don't show, each with its strength boost. One click skips.
+      const asked = await page.waitForSelector('.qa-list', { timeout: 4000 }).then(() => true).catch(() => false);
+      if (asked) {
+        await page.waitForTimeout(400);
+        await shot(`2${i}-spike-asks-${slug(r.job.company)}`);
+        const qa = await page.evaluate(() => ({
+          n: document.querySelectorAll('.qa-row').length,
+          boosts: [...document.querySelectorAll('.qa-boost')].map((b) => b.innerText),
+          footInView: (() => { const f = document.querySelector('.qa-foot'); const c = document.querySelector('#modalCard'); if (!f || !c) return false; const a = f.getBoundingClientRect(); const b = c.getBoundingClientRect(); return a.bottom <= b.bottom + 1 && a.top >= b.top; })(),
+        }));
+        check('spike', `${name}: Spike's questions show their strength boost`, qa.n > 0 && qa.boosts.length === qa.n, `${qa.n} questions; ${qa.boosts.join(', ')}`);
+        check('spike', `${name}: Skip and the count stay in view`, qa.footInView);
+        await page.click('#qaSkip');
+      } else check('spike', `${name}: (info) Spike had nothing to ask`, true);
       await page.waitForFunction(() => /Optimized for ATS/.test(document.querySelector('.page')?.innerText || ''), null, { timeout: 30000 }).catch(() => {});
       time('optimize', Date.now() - t);
       await page.waitForTimeout(800);

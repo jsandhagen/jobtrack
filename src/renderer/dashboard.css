@@ -1081,15 +1081,31 @@ p.way-next { display: flex; }
 /* An empty week says what will grow there, instead of a blank bed. */
 .week-empty { margin: 18px 0 -40px; text-align: center; font-size: 13px; }
 
-/* Questions before Claude writes a resume */
+/* Questions before a resume is made (Root before Claude writes, Spike before an ATS optimize) */
+.qa-card { padding-bottom: 0; }
+.qa-head { display: flex; gap: 14px; align-items: flex-start; }
+.qa-head svg { flex: none; }
+.qa-head h2 { margin: 2px 0 4px; }
+.qa-head p { margin: 0; }
+.qa-now { margin: 12px 0 0; padding: 10px 14px; border-radius: 12px; background: var(--sage-soft); color: var(--ink); font-size: 14px; }
 .qa-list { display: grid; gap: 14px; margin-top: 14px; }
-.qa-row { border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; background: var(--surface); display: grid; gap: 8px; }
+.qa-row { border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; background: var(--surface); display: grid; gap: 8px; transition: border-color 0.2s; }
+.qa-row.done { border-color: var(--sage-deep); }
 .qa-q { display: flex; gap: 10px; align-items: baseline; line-height: 1.4; }
+.qa-q b { flex: 1; }
 .qa-n { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 800; background: var(--sage-soft); color: var(--sage-deep); }
-.qa-why { margin-left: 32px; font-size: 13px; }
+.qa-row.done .qa-n { background: var(--sage-deep); color: var(--surface); }
+.qa-boost { flex: none; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; background: var(--butter-soft); color: #8a6614; white-space: nowrap; }
+@media (prefers-color-scheme: dark) { .qa-boost { color: var(--butter); } }
+.qa-why, .qa-bullet { margin-left: 32px; font-size: 13px; }
+.qa-bullet { font-style: italic; }
 .qa-role { font-weight: 700; }
-.qa-row textarea, .qa-row input[type="text"] { margin-left: 32px; width: calc(100% - 32px); }
-.qa-yn { display: flex; gap: 8px; margin-left: 32px; }
+.qa-row textarea, .qa-row input[type="text"] { margin-left: 32px; width: calc(100% - 32px); min-height: 0; }
+.qa-yn { display: flex; flex-wrap: wrap; gap: 8px; margin-left: 32px; }
 .qa-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; font-weight: 700; font-size: 14px; }
 .qa-chip:has(input:checked) { background: var(--sage-soft); border-color: var(--sage-deep); color: var(--sage-deep); }
 .qa-chip input { accent-color: var(--sage-deep); margin: 0; }
+/* Always in view: how many are answered, and Skip / Save. */
+.qa-foot { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 16px -28px 0; padding: 14px 28px 18px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -8px 16px -12px rgba(0, 0, 0, 0.18); }
+.qa-actions { display: flex; gap: 8px; margin-left: auto; }
+.qa-count { font-size: 14px; }
