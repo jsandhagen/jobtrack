@@ -1,5 +1,5 @@
 // Answers you give before Claude writes a resume ("Write with Claude" asks up
-// to four questions when an answer would make the page stronger). They are
+// to two questions when an answer would make the page stronger). They are
 // kept for good, not just for the one resume:
 // - in your library, as the document "Answers you gave Sprout": evidence for
 //   every fit score, every free optimize ("Ask if applicable" offers its

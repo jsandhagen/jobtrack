@@ -111,7 +111,7 @@ const ResumeQuestions = z.object({
         placeholder: z.string().describe('A short hint of the detail that helps ("who, what you did, what came of it"); never an example answer.'),
       })
     )
-    .describe('At most 4, most valuable first; empty when the documents already make the strongest page they can.'),
+    .describe('At most 2, the most valuable; empty when the documents already make the strongest page they can.'),
 });
 
 const BulletEdits = z.object({
@@ -354,7 +354,7 @@ async function generateResume(client, { job, documents, profile, analysis, ats, 
   return { ...out, promptVersion: P.PROMPT_VERSION };
 }
 
-// Before a resume is written: up to four questions whose answers would make
+// Before a resume is written: up to two questions whose answers would make
 // the page stronger (a requirement the documents don't show, a number for a
 // lead bullet, who owned the work). None is a fine answer.
 async function askResumeQuestions(client, { job, documents, profile, analysis, ats, roles, answered, flagged, model }) {
@@ -371,7 +371,7 @@ async function askResumeQuestions(client, { job, documents, profile, analysis, a
   const bulletIds = new Set((roles || []).flatMap((r) => (r.bullets || []).map((b) => b.id)));
   const questions = (out.questions || [])
     .filter((q) => String(q.question || '').trim())
-    .slice(0, 4)
+    .slice(0, 2)
     .map((q, i) => ({ ...q, id: `q${i + 1}`, question: q.question.trim(), role_id: roleIds.has(q.role_id) ? q.role_id : '', bullet_id: bulletIds.has(q.bullet_id) ? q.bullet_id : '' }));
   return { questions, promptVersion: P.PROMPT_VERSION };
 }

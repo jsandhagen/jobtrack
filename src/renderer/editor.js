@@ -1311,7 +1311,7 @@ function gotoBullet(r, b) {
   if (li) (li.scrollIntoView({ block: 'center', behavior: 'smooth' }), placeCaret(li, true));
 }
 
-// Questions before a resume is made, only about what your documents don't
+// Questions before a resume is made, at most two, only about what your documents don't
 // show: Root's before "Write with Claude", Spike's before "Optimize for ATS"
 // (each with what answering adds to the page's resume strength). Answers are
 // kept for good (your library's "Answers you gave Sprout" and your bullet

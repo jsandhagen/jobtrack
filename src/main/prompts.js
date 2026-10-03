@@ -22,7 +22,7 @@ const { isEvidenceDoc, isFictionalSample } = require('./sourceEvidence');
 // bullets from anything in the documents) inside the fixed layout and the
 // truthfulness rules; the page goes to the most relevant roles. Repeated
 // bullets across documents are sent once.
-const PROMPT_VERSION = '2026-10-04.2';
+const PROMPT_VERSION = '2026-10-04.3';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -207,7 +207,7 @@ Ask only about what the documents don't say. Before each question, check every d
 - a missing number or scale for a bullet that would lead the page: how many, how much, how often, what changed;
 - unclear ownership of the top work (led or supported), when the posting cares;
 - the posting's sector or domain, when the documents hint at it but don't show it.
-Don't ask about anything the documents already show, anything in <already_answered>, soft skills, or anything the candidate couldn't answer in a sentence or two. Ask at most 4, most valuable first. Return no questions when the documents already make the strongest page they can; that is a good outcome, not a failure.
+Don't ask about anything the documents already show, anything in <already_answered>, soft skills, or anything the candidate couldn't answer in a sentence or two. Ask at most 2, the two whose answers would change the page most: more at once is overwhelming, and anything else worth asking can wait for the next posting, where <already_answered> keeps it from being asked twice. Return no questions when the documents already make the strongest page they can; that is a good outcome, not a failure.
 
 <app_flagged> lists gaps Sprout's own checks found; use them as leads, and ask about one only when it meets the bar above, in better words if you can.
 

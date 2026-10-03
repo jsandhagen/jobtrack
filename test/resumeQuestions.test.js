@@ -16,11 +16,15 @@ const run = () => JSON.parse(execFileSync(process.execPath, [path.join(__dirname
 test('ask, answer, write: the answers are kept in the library and the bank, and used', () => {
   const r = run();
   assert.equal(r.crash, undefined, r.crash);
-  assert.equal(r.questions.length, 4, 'none of Root’s questions is about something the documents show');
+  assert.equal(r.questions.length, 2, 'two at a time, and none about something the documents show');
+  assert.equal(r.again, 2);
   assert.ok(r.questions.every((q) => q.experienceId), 'each question is tied to a bank role, not a prompt id');
   assert.ok(r.questions.find((q) => /what did you own yourself/.test(q.question)).bulletId, 'a question names the bank bullet it strengthens');
+  // Answers build up: the next two come up next time, never the same ones.
+  assert.deepEqual(r.next.map((q) => q.requirement), ['AWS Partner Programs', 'Demand Generation']);
   // Kept for good.
-  assert.deepEqual(r.answered, { saved: 4, bullets: 0, wordings: 0, document: 'Answers you gave Sprout' });
+  assert.deepEqual(r.answered, { saved: 2, bullets: 0, wordings: 0, document: 'Answers you gave Sprout' });
+  assert.equal(r.answeredNext.saved, 2);
   assert.ok(r.library.includes('Answers you gave Sprout'));
   assert.match(r.answersDoc, /Role: Sr\. Strategy Consultant - Office of the CTO, Northwind Software/);
   assert.match(r.answersDoc, /Q: Have you co-sold with AWS[^\n]*\nA: Yes\. I worked with AWS account managers on 6 joint deals/);
@@ -64,6 +68,7 @@ test('Spike asks what the documents don’t show, with what answering adds, in p
   const okta = ask(P.oktaAwsAlliance);
   const pick = okta.questions.find((q) => q.kind === 'pick');
   assert.deepEqual(pick.options, ['APN', 'ACE'], 'named programs in one question, not one each');
+  assert.ok(okta.questions.length <= 2, 'two at most');
   assert.ok(okta.questions.every((q) => q.boost.strength >= 1));
   assert.ok(okta.ifAll > okta.strength);
   assert.match(okta.questions.find((q) => q.requirement === 'partnerships organization').question, /^The posting asks for “An in-depth knowledge of the AWS sales and partnerships organization”/);
@@ -147,7 +152,7 @@ test('the resume prompt writes for the hiring manager, and the questions prompt 
   assert.doesNotMatch(ats, /Say that word once, in the summary/);
   assert.match(ats, /don't add a sentence for it/);
   const i = P.TASKS.interview;
-  assert.match(i, /Ask at most 4/);
+  assert.match(i, /Ask at most 2/);
   assert.match(i, /Return no questions when the documents already make the strongest page they can/);
   assert.match(i, /Never suggest an answer or a number/);
   assert.match(i, /Ask only about what the documents don't say/);

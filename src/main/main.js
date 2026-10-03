@@ -769,7 +769,7 @@ function jobForClaude(rec) {
 
 // ---------- questions before a Claude draft ----------
 
-// Up to four questions whose answers would make this resume stronger
+// Up to two questions whose answers would make this resume stronger
 // (claude.askResumeQuestions). None is a fine result: then the draft starts
 // right away. Remembered on the job until the bank or library changes.
 async function resumeQuestions(appId) {

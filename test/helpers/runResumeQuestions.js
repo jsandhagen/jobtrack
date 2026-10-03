@@ -31,12 +31,14 @@ require('../../src/main/main.js');
 E.__ready();
 
 // The answers the demo candidate gives.
-const REPLIES = [
-  { id: 'q1', answer: 'yes', detail: 'I worked with AWS account managers on 6 joint deals in 2025 and registered each one in ACE; 4 closed.' },
-  { id: 'q2', answer: null, detail: 'I owned the day-to-day relationship with our AWS partner manager and the 2025 joint business plan (quarterly pipeline targets and a Marketplace private-offer motion). Our VP owned the executive relationship.' },
-  { id: 'q3', answer: 'yes', detail: 'We sold through AWS Marketplace private offers, and I set them up with sales ops.' },
-  { id: 'q4', answer: 'yes', detail: 'I ran two co-marketing webinars with AWS in 2025 that brought in 140 registrants.' },
+// The answers the demo candidate gives, by question.
+const ANSWERS = [
+  [/co-sold with AWS/, { answer: 'yes', detail: 'I worked with AWS account managers on 6 joint deals in 2025 and registered each one in ACE; 4 closed.' }],
+  [/what did you own yourself/, { answer: null, detail: 'I owned the day-to-day relationship with our AWS partner manager and the 2025 joint business plan (quarterly pipeline targets and a Marketplace private-offer motion). Our VP owned the executive relationship.' }],
+  [/AWS Partner Network/, { answer: 'yes', detail: 'We sold through AWS Marketplace private offers, and I set them up with sales ops.' }],
+  [/demand generation/, { answer: 'yes', detail: 'I ran two co-marketing webinars with AWS in 2025 that brought in 140 registrants.' }],
 ];
+const replyTo = (qs) => qs.map((q) => ({ id: q.id, ...(ANSWERS.find(([re]) => re.test(q.question)) || [null, {}])[1] }));
 
 setTimeout(async () => {
   const out = {};
@@ -46,9 +48,12 @@ setTimeout(async () => {
     return r.value;
   };
   try {
+    // Two at a time: answer the first two, and the next two come up the next time.
     out.questions = (await call('app:resumeQuestions', 'a0')).questions;
     out.again = (await call('app:resumeQuestions', 'a0')).questions.length; // remembered
-    out.answered = await call('app:answerResumeQuestions', 'a0', REPLIES);
+    out.answered = await call('app:answerResumeQuestions', 'a0', replyTo(out.questions));
+    out.next = (await call('app:resumeQuestions', 'a0')).questions;
+    out.answeredNext = await call('app:answerResumeQuestions', 'a0', replyTo(out.next));
     const state = await call('state:get');
     out.library = state.documents.map((d) => d.name);
     const answersDoc = state.documents.find((d) => d.name === 'Answers you gave Sprout');

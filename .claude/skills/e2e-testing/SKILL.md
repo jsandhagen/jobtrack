@@ -68,7 +68,7 @@ Write the draft yourself to that prompt, then run it through
 `draft.draftToDoc` and `atsScore`, as `makeResume` in `src/main/main.js` does.
 Say plainly in the report that you stood in for the API.
 
-"Write with Claude" asks up to four questions first (`P.TASKS.interview`).
+"Write with Claude" asks up to two questions first (Optimize for ATS too) (`P.TASKS.interview`).
 To see that flow in the real app without a key, `SPROUT_FAKE_CLAUDE=test/e2e/fakeClaude.js`
 makes `claudeClient()` return a stand-in with hand-written questions and a
 draft for Okta's AWS alliance posting:

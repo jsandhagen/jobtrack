@@ -63,11 +63,13 @@ const clone = (d) => JSON.parse(JSON.stringify(d));
 const points = (s) => Math.round(s * 100);
 
 /**
- * Spike's questions for the free optimizer, best first, at most four.
+ * Spike's questions for the free optimizer, best first, at most two (on the
+ * 18 saved postings the top two carry 98% of the strength gain; the rest are
+ * asked on a later posting, since answers carry over).
  * @returns {{ questions: object[], strength: number, ifAll: number, ats: number }}
  *   strength: the optimized page's resume strength (0-100); ifAll: with every answer.
  */
-function atsQuestions({ job, bank, profile = {}, libraryText = '', evidence = [], missing = [], answered = [], declined = [], skipped = [], fit = null, max = 4 }) {
+function atsQuestions({ job, bank, profile = {}, libraryText = '', evidence = [], missing = [], answered = [], declined = [], skipped = [], fit = null, max = 2 }) {
   const out = { questions: [], strength: 0, ifAll: 0, ats: 0 };
   if (!job || !String(job.text || '').trim() || !bank || !bank.experiences.length) return out;
   const opt = B.optimizeResume({ profile, bank, job, evidence });

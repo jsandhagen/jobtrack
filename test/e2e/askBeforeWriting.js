@@ -15,10 +15,10 @@ const P = require('../fixtures/allianceOpportunities');
 const OUT = process.env.OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'sprout-ask-'));
 const DOCS = path.join(__dirname, 'fixtures');
 const ANSWERS = {
-  q1: { yes: true, detail: 'I worked with AWS account managers on 6 joint deals in 2025 and registered each one in ACE; 4 closed.' },
-  q2: { detail: 'I owned the day-to-day relationship with our AWS partner manager and the 2025 joint business plan (quarterly pipeline targets and a Marketplace private-offer motion). Our VP owned the executive relationship.' },
-  q3: { yes: true, detail: 'We sold through AWS Marketplace private offers, and I set them up with sales ops.' },
-  q4: { yes: true, detail: 'I ran two co-marketing webinars with AWS in 2025 that brought in 140 registrants.' },
+  q1: { match: /co-sold with AWS/, yes: true, detail: 'I worked with AWS account managers on 6 joint deals in 2025 and registered each one in ACE; 4 closed.' },
+  q2: { match: /what did you own yourself/, detail: 'I owned the day-to-day relationship with our AWS partner manager and the 2025 joint business plan (quarterly pipeline targets and a Marketplace private-offer motion). Our VP owned the executive relationship.' },
+  q3: { match: /AWS Partner Network/, yes: true, detail: 'We sold through AWS Marketplace private offers, and I set them up with sales ops.' },
+  q4: { match: /demand generation/, yes: true, detail: 'I ran two co-marketing webinars with AWS in 2025 that brought in 140 registrants.' },
 };
 
 (async () => {
@@ -62,11 +62,14 @@ const ANSWERS = {
     await page.waitForSelector('.qa-list', { timeout: 30000 });
     await page.waitForTimeout(500);
     await shot('ask-01-questions');
-    for (const [id, a] of Object.entries(ANSWERS)) {
+    // Answer the questions shown (two at most), by what they ask.
+    const shown = await page.evaluate(() => [...document.querySelectorAll('.qa-row')].map((r) => ({ id: r.dataset.qa, q: r.querySelector('.qa-q b').innerText })));
+    for (const { id, q } of shown) {
+      const a = Object.values(ANSWERS).find((x) => x.match.test(q));
+      if (!a) continue;
       if (a.yes) await page.check(`input[name="qa-${id}"][value="yes"]`);
       await page.fill(`[data-qa-detail="${id}"]`, a.detail);
     }
-    await page.evaluate(() => { const c = document.querySelector('#modalCard'); c.scrollTop = c.scrollHeight / 2.5; });
     await page.waitForTimeout(300);
     await shot('ask-02-answered');
     await page.click('#qaGo');
