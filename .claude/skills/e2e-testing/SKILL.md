@@ -124,10 +124,10 @@ and new, and run it 2–3 times because the numbers vary.
 | Action | Usable | Last measured (Oct 2026) |
 |---|---|---|
 | open a job, first / later | < ~250 ms / < ~100 ms | ~115 / ~30 ms |
-| optimize | < ~400 ms, with a spinner | ~230 ms |
+| optimize | < ~500 ms, with a spinner from the click (it also scores resume strength) | ~420 ms |
 | editor open | < ~100 ms | ~25 ms |
 | `state:get` while rescoring | < ~20 ms | 1–2 ms |
-| longest stall during clicks | < ~350 ms | ~270 ms |
+| longest stall during clicks | < ~500 ms (the optimize click; other clicks < ~350 ms) | ~450 ms |
 
 A regression of more than ~2× on any row is a finding even under the limit.
 Profile with `node --cpu-prof` on a small script that calls the slow function

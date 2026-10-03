@@ -1,11 +1,10 @@
 RESUME STRENGTH SCORE: RATIONALE
 ================================
 
-Status (October 2026): designed and prototyped on branch ccr-1e257401-72fthp
-(src/main/resumeStrength.js). Not yet in UAT: in the prototype the one-click
-optimizer scores every candidate page for strength, and that made "optimize"
-too slow (about 420 ms against about 250 ms, over the ~400 ms limit). It ships
-once caching brings it back under the limit.
+Status (October 2026): in UAT (src/main/resumeStrength.js). The one-click
+optimizer scores every candidate page for strength, which takes "optimize"
+from about 250 ms to about 420 ms. That's accepted: optimize shows a spinner
+from the click. Caching can still bring it down (see Open items).
 
 
 WHY A SECOND SCORE
@@ -132,9 +131,9 @@ still marked down are:
     (wood products industry; M&A execution), because the documents don't.
 
 Open items before release:
-  1. Speed: cache the posting-side work (requirements, sectors, themes) once
-     per posting, and each line's matches once per line, so optimize is back
-     under ~400 ms.
+  1. Speed (accepted at ~420 ms with a spinner): caching the posting-side
+     work (requirements, sectors, themes) once per posting, and each line's
+     matches once per line, would bring optimize back toward ~250 ms.
   2. Tests for resumeStrength itself (echo, objective, sector, lead), and
      running the strength grade in test/e2e/pipeline.js so each e2e report
      shows it.
