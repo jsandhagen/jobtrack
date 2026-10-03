@@ -231,6 +231,45 @@ test('bullets repeated across resume versions go to Claude once, and can still b
   assert.doesNotMatch(P.libraryBlock(DOCS, {}), /given once/);
 });
 
+test('a reworded bullet with the same facts goes once; one with a different number stays', () => {
+  const a = 'Analyst, Acme, 2019 - 2021\n• Built Excel templates that cut the month-end close from 8 days to 5 for three entities\n• Presented quarterly portfolio reviews to the chief risk officer';
+  const b = 'Analyst, Acme, 2019 - 2021\n• Built Excel templates that cut month-end close from 8 days to 5 across three entities\n• Built Excel templates that cut the month-end close from 8 days to 4 for three entities\n• Presented quarterly portfolio reviews to the Chief Risk Officer!';
+  const block = P.libraryBlock([{ name: 'a', kind: 'resume', text: a }, { name: 'b', kind: 'resume', text: b }], {});
+  const second = block.slice(block.indexOf('<document name="b"'));
+  assert.doesNotMatch(second, /across three entities/, 'reworded, nothing new');
+  assert.doesNotMatch(second, /Chief Risk Officer!/, 'only case and punctuation differ');
+  assert.match(second, /from 8 days to 4/, 'a different number is a different fact');
+  // The fact check still reads the left-out wording.
+  assert.ok(G.quoteFound('cut month-end close from 8 days to 5 across three entities', claude.libraryText([{ name: 'b', kind: 'resume', text: b }], {})));
+});
+
+test('a paragraph repeated across cover letters goes once', () => {
+  const stock = 'I have spent six years turning messy operational data into decisions that finance and operations teams trust, and I would bring that same care to your team.';
+  const l1 = `Dear Hiring Manager,\n\n${stock}\n\nAt Acme I rebuilt the donor database.`;
+  const l2 = `Dear Hiring Manager,\n\n${stock}\n\nAt Bloom I ran the vendor onboarding project.`;
+  const block = P.libraryBlock([{ name: 'l1', kind: 'cover-letter', text: l1 }, { name: 'l2', kind: 'cover-letter', text: l2 }], {});
+  assert.equal(block.split('six years turning messy').length - 1, 1);
+  assert.match(block, /vendor onboarding project/);
+  assert.match(block, /Dear Hiring Manager,[\s\S]*Dear Hiring Manager,/, 'short lines are never dropped');
+});
+
+test('a very large library stays under the budget, resumes first, and names what it left out', () => {
+  const filler = (n) => Array.from({ length: 40 }, (_, i) => `Paragraph ${n}.${i}: wrote notes about project ${n * 100 + i}.`).join('\n\n');
+  const docs = [
+    ...Array.from({ length: 30 }, (_, n) => ({ name: `notes ${n}.txt`, kind: 'other', text: filler(n) })),
+    { name: 'resume.pdf', kind: 'resume', text: LIBRARY },
+  ];
+  const budget = 20000;
+  const block = P.libraryBlock(docs, {}, budget);
+  const facts = block.slice(block.indexOf('<candidate_documents>'), block.indexOf('</candidate_documents>'));
+  assert.ok(facts.length < budget + 2000, `${facts.length} chars`);
+  assert.match(facts, /<document name="resume.pdf"/, 'the resume always makes it');
+  assert.match(facts, /left out of this prompt: [^)]*"notes 29.txt"/);
+  // Small libraries are untouched.
+  assert.doesNotMatch(P.libraryBlock(DOCS, {}), /left out of this prompt/);
+  assert.ok(P.LIBRARY_CHAR_BUDGET >= 100000);
+});
+
 test('a repeated bullet that wraps onto a second line is left out whole, never half', () => {
   const a = 'Analyst, Acme, 2019 - 2021\n• Built the loan-level credit model used by the risk committee to set\nreserve levels across 4 portfolios\n• Cut month-end close from 8 days to 5 with Excel templates';
   const b = 'Analyst, Acme, 2019 - 2021\n• Presented quarterly portfolio reviews to the chief risk officer\n• Built the loan-level credit model used by the risk committee to set\nreserve levels across 4 portfolios\n• Cut month-end close from 8 days to 5 with Excel templates\nAn unclear next line';
