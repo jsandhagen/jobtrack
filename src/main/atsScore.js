@@ -237,10 +237,15 @@ const ACTION_VERBS = new Set(
     'keep conduct feel thrive grow adapt balance juggle').split(' ')
 );
 const isVerbForm = (w) => {
-  if (PHRASE_VERBS.has(w) || ACTION_VERBS.has(w)) return ACTION_VERBS.has(w) || /ing$|ed$/.test(w) === false;
+  // A bare PHRASE_VERB is often a noun too ("report", "partner"); its -ing and -ed forms aren't.
+  if (ACTION_VERBS.has(w)) return true;
+  if (PHRASE_VERBS.has(w)) return /(?:ing|ed)$/.test(w);
   const base = w.replace(/(?:ing|ed|es|s)$/, '');
   return /(?:ing|ed)$/.test(w) && [base, `${base}e`, base.replace(/(.)\1$/, '$1')].some((b) => PHRASE_VERBS.has(b) || ACTION_VERBS.has(b));
 };
+// Words a posting uses to describe the job or the person, not skills:
+// "together", "pushing", "sound", "tolerance for ambiguity", "follow-through".
+const PITCH_WORDS = new Set('together without toward towards pushing sound tolerance organizational follow-through chance full range challenges apprenticeship versatility ambiguity roadmap-less'.split(' '));
 // A phrase that ends on one of these names a quality, not a skill: "sound
 // judgment", "organizational levels", "business sense", "cross-functional fluency".
 const GENERIC_HEAD = new Set('sense judgment judgement mindset contexts context capabilities capability levels lines fluency points manner way ways'.split(' '));
@@ -310,13 +315,25 @@ function scoreKeywordWords(jobText, resumeLower, company) {
   // Degree lines are scored by education (where a master's meets a bachelor's
   // requirement), so "bachelor", "degree" and the field aren't keywords here.
   jobText = jobText.split('\n').filter((l) => !BOILERPLATE_LINE.test(l) && !degreeLevels(l, true).length).join('\n');
+  // As for phrases: the company pitch before the first list ("an
+  // apprenticeship… and the chance to build…") isn't what the job asks for,
+  // and a posting's adjectives and qualities ("excellent", "minimum",
+  // "internally", "judgment") aren't words a recruiter searches for.
+  if (/^\s*[-•*▪●◦]/m.test(jobText)) {
+    let started = false;
+    jobText = classifyLines(jobText).filter((l) => {
+      if (/^[-•*▪●◦]/.test(l.original)) started = true;
+      return started || l.kind !== 'neutral';
+    }).map((l) => l.original).join('\n');
+  }
+  const generic = (t) => PHRASE_EDGE.has(t) || SOFT_TERM_WORDS.has(t) || GENERIC_HEAD.has(t) || ACTION_VERBS.has(t) || PITCH_WORDS.has(t) || /ly$/.test(t) || (/ing$/.test(t) && isVerbForm(t));
   const skillWords = new Set(
     Object.values(SKILLS)
       .flat()
       .map((r) => r.source)
   );
   const terms = [...significantTerms(jobText).entries()]
-    .filter(([t]) => !FILLER.has(t) && !companyWords.has(t) && ![...skillWords].some((s) => s.includes(t)))
+    .filter(([t]) => !FILLER.has(t) && !generic(t) && !companyWords.has(t) && ![...skillWords].some((s) => s.includes(t)))
     .sort((a, b) => b[1] - a[1])
     .slice(0, 25);
   if (!terms.length) return null;

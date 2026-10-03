@@ -195,3 +195,26 @@ test('an impact statement or self-assessment is filed as what others say about y
   assert.equal(guessKind('Self-Assessment 2025.docx', 'experience and skills'), 'recommendation');
   assert.equal(guessKind('Jordan_Reyes_Resume.pdf', ''), 'resume');
 });
+
+test('"without a clear roadmap" is a working style, not a roadmap requirement', () => {
+  const { classifyJobSkills } = require('../src/main/fitScore');
+  const skills = classifyJobSkills(`Required qualifications
+- 5–7 years in strategy consulting or corporate strategy
+- High tolerance for ambiguity and comfort working on problems without a clear roadmap`);
+  assert.ok(!skills.has('Roadmapping'), [...skills.keys()].join(', '));
+  assert.ok(classifyJobSkills('Requirements\n- Build and maintain a quarterly roadmap with engineering').has('Roadmapping'));
+});
+
+test('a short posting\'s keywords skip the company pitch and the adjectives', () => {
+  const job = {
+    title: 'Senior Manager, Strategy & Operations',
+    company: 'Contoso',
+    text: `This role is an apprenticeship in executive problem-solving, with the full range of challenges and the chance to build judgment.
+
+Required qualifications
+- 5–7 years in strategy consulting, investment banking, or corporate strategy
+- Excellent analytical and communication skills; minimum of internally and externally facing work`,
+  };
+  const missing = atsScore(job, 'Nothing relevant here.', {}).missingKeywords;
+  for (const junk of ['apprenticeship', 'chance', 'full', 'range', 'challenges', 'excellent', 'minimum', 'internally', 'externally']) assert.ok(!missing.includes(junk), `${junk}: ${missing.join(', ')}`);
+});

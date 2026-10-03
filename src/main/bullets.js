@@ -1303,7 +1303,8 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   const ResumeDoc = require('../shared/resumeDoc');
   const { atsScore } = require('./atsScore');
   const { htmlToText } = require('./resumeRender');
-  const score = (d) => atsScore(job, htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(d))), { profile }).score;
+  const read = (d) => atsScore(job, htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(d))), { profile });
+  const score = (d) => read(d).score;
   const fits = (d) => ResumeDoc.fits(d, pages, { scale });
   const rankOf = new Map(ranked.map((r) => [r.id, r.score || 0]));
   const clone = (d) => ({ ...d, header: { ...d.header }, roles: d.roles.map((r) => ({ ...r, bullets: r.bullets.slice() })), skills: (d.skills || []).slice() });
@@ -1317,51 +1318,67 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   const topIds = new Set(ranked.filter((r) => allowed.has(r.experienceId)).slice(0, 3).map((r) => r.id));
   let best = clone(start);
   let cur = { sc: score(best), rel: relevance(best) };
-  for (let round = 0; round < TUNE_ROUNDS; round++) {
-    const page = best.roles.flatMap((r) => r.bullets);
-    const onPage = new Set(page.map((b) => b.bulletId).filter(Boolean));
-    const shownRoles = new Set(best.roles.map((r) => r.experienceId));
-    const pool = ranked.filter((r) => allowed.has(r.experienceId) && shownRoles.has(r.experienceId) && !onPage.has(r.id) && !r.hidden && (writing(r.text) >= 0 || topIds.has(r.id))).slice(0, TUNE_POOL);
-    let move = null;
-    for (const c of pool) {
-      const role = best.roles.find((x) => x.experienceId === c.experienceId);
-      // Add it, or put it in place of one of the role's bullets, but never in
-      // place of one that's far more relevant: keywords alone don't earn that.
-      for (const i of [null, ...role.bullets.map((_, k) => k)]) {
-        if (i === null && page.length >= cap) continue;
-        const out = i === null ? null : role.bullets[i];
-        if (out && (rankOf.get(out.bulletId) || 0) > 2 * (rankOf.get(c.id) || 0) + 1) continue;
-        if (page.some((b) => b !== out && repeatOf(b.text, c.text))) continue;
-        const d = clone(best);
-        const r = d.roles.find((x) => x.experienceId === c.experienceId);
-        if (i === null) r.bullets.push({ bulletId: c.id, text: c.text });
-        else r.bullets[i] = { bulletId: c.id, text: c.text };
-        strongestFirst(r);
-        const next = { d, sc: score(d), rel: relevance(d) };
-        if (!better(next, move || cur) || !fits(d)) continue;
-        move = next;
+  let industry = null;
+  const bulletRounds = () => {
+    for (let round = 0; round < TUNE_ROUNDS; round++) {
+      const page = best.roles.flatMap((r) => r.bullets);
+      const onPage = new Set(page.map((b) => b.bulletId).filter(Boolean));
+      const shownRoles = new Set(best.roles.map((r) => r.experienceId));
+      const usable = ranked.filter((r) => allowed.has(r.experienceId) && shownRoles.has(r.experienceId) && !onPage.has(r.id) && !r.hidden && (writing(r.text) >= 0 || topIds.has(r.id)));
+      // The strongest of the rest, plus any further down that say a posting
+      // term the page is missing ("analytical", "win/loss").
+      const now = read(best);
+      const missing = [...now.missingSkills.flatMap((m) => m.anyOf || [m.term]), ...now.missingKeywords, ...(now.wordingTerms || [])].map((t) => String(t).toLowerCase()).filter((t) => t.length > 2);
+      const says = (r) => missing.some((t) => lower(r.text).includes(t));
+      const pool = [...new Set([...usable.slice(0, TUNE_POOL), ...usable.filter(says).slice(0, TUNE_POOL)])];
+      let move = null;
+      for (const c of pool) {
+        const role = best.roles.find((x) => x.experienceId === c.experienceId);
+        // Add it, or put it in place of one of the role's bullets, but never in
+        // place of one that's far more relevant: keywords alone don't earn that.
+        for (const i of [null, ...role.bullets.map((_, k) => k)]) {
+          if (i === null && page.length >= cap) continue;
+          const out = i === null ? null : role.bullets[i];
+          if (out && (rankOf.get(out.bulletId) || 0) > 2 * (rankOf.get(c.id) || 0) + 1) continue;
+          if (page.some((b) => b !== out && repeatOf(b.text, c.text))) continue;
+          const d = clone(best);
+          const r = d.roles.find((x) => x.experienceId === c.experienceId);
+          if (i === null) r.bullets.push({ bulletId: c.id, text: c.text });
+          else r.bullets[i] = { bulletId: c.id, text: c.text };
+          strongestFirst(r);
+          const next = { d, sc: score(d), rel: relevance(d) };
+          if (!better(next, move || cur) || !fits(d)) continue;
+          move = next;
+        }
       }
+      if (!move) break;
+      best = move.d;
+      cur = move;
     }
-    if (!move) break;
-    best = move.d;
-    cur = move;
-  }
+  };
   // The opening lines: the evidence-led summary for this page (when there is
   // one), or whichever of your own summaries reads best for this posting.
-  const generated = summary ? strategySummary(job, best, ranked) : null;
   const own = (Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText);
-  const candidates = [...new Set([generated || best.summary, ...own].filter(Boolean))];
-  let industry = null;
-  let chosen = null;
-  for (const text of candidates) {
-    const d = clone(best);
-    d.summary = text;
-    const added = addIndustryWords(d, job).added;
-    if (!fits(d)) continue;
-    const sc = score(d);
-    if (!chosen || sc > chosen.sc) chosen = { d, sc, added };
-  }
-  if (chosen) (best = chosen.d), (industry = chosen.added);
+  const pickSummary = () => {
+    const generated = summary ? strategySummary(job, best, ranked) : null;
+    let chosen = null;
+    for (const text of [...new Set([generated || best.summary, ...own].filter(Boolean))]) {
+      const d = clone(best);
+      d.summary = text;
+      const added = addIndustryWords(d, job).added;
+      if (!fits(d)) continue;
+      const sc = score(d);
+      if (!chosen || sc > chosen.sc) chosen = { d, sc, added };
+    }
+    if (chosen) (best = chosen.d), (industry = chosen.added), (cur = { sc: chosen.sc, rel: relevance(chosen.d) });
+  };
+  // The bullets are tuned against the summary on the page, so once the
+  // summary changes the bullets get another look (a word the old summary
+  // said, like "analytical", may now need a bullet that says it).
+  bulletRounds();
+  pickSummary();
+  bulletRounds();
+  pickSummary();
   return { doc: best, industry };
 }
 

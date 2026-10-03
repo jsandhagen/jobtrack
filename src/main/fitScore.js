@@ -510,7 +510,8 @@ function readJobSkills(jobText) {
     .flatMap((l) => clauses(l.original, l.kind, l.section));
   for (const part of parts) {
     const { kind } = part;
-    const line = stripFieldsOfStudy(part.line);
+    // "Comfort working without a clear roadmap" doesn't ask for roadmapping.
+    const line = stripFieldsOfStudy(part.line).replace(/\bwithout (?:a |an |any )?(?:clear |defined |formal |set |fixed )?[a-z][\w-]*/gi, ' ');
     const found = [];
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       for (const p of patterns) {
