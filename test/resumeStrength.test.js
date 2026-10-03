@@ -7,13 +7,14 @@ const bullet = (text, bulletId) => ({ text, bulletId });
 const doc = (summary, bullets) => ({ summary, roles: [{ experienceId: 'e', bullets }] });
 
 test('summary rewards relevant evidence and penalizes echoes, objectives and off-topic text', () => {
+  const summaryJob = { ...job, title: '' };
   const bullets = [bullet('Built SQL dashboards for 40 customers, cutting reporting delays by 25%'), bullet('Automated Python forecasts for 12 regions, reducing planning time by 30%')];
-  assert.equal(resumeStrength(doc('SQL and Python analytics specialist.', bullets), job).parts.summary, 1);
-  assert.equal(resumeStrength(doc('Experience includes SQL, dashboards and Python.', bullets), job).parts.summary, 1, 'shared tool names are not an accomplishment echo');
-  assert.equal(resumeStrength(doc('Built SQL dashboards for 40 customers.', bullets), job).parts.summary, 0.4);
-  assert.equal(resumeStrength(doc('Automated Python forecasts for 12 regions.', bullets), job).parts.summary, 0.75);
-  assert.equal(resumeStrength(doc('Seeking opportunities in SQL analytics.', bullets), job).parts.summary, 0.5);
-  assert.equal(resumeStrength(doc('An experienced technology partnerships professional.', bullets), job).parts.summary, 0.4);
+  assert.equal(resumeStrength(doc('SQL and Python analytics specialist.', bullets), summaryJob).parts.summary, 1);
+  assert.equal(resumeStrength(doc('Experience includes SQL, dashboards and Python.', bullets), summaryJob).parts.summary, 1, 'shared tool names are not an accomplishment echo');
+  assert.equal(resumeStrength(doc('Built SQL dashboards for 40 customers.', bullets), summaryJob).parts.summary, 0.4);
+  assert.equal(resumeStrength(doc('Automated Python forecasts for 12 regions.', bullets), summaryJob).parts.summary, 0.75);
+  assert.equal(resumeStrength(doc('Seeking opportunities in SQL analytics.', bullets), summaryJob).parts.summary, 0.5);
+  assert.equal(resumeStrength(doc('An experienced technology partnerships professional.', bullets), summaryJob).parts.summary, 0.4);
 });
 
 test('sector evidence matters near the top only when it is available on the page', () => {
@@ -38,7 +39,7 @@ test('lead compares available, visible proof from the latest job and ignores twi
   const page = doc('', ranked.slice(0, 2).map((r) => bullet(r.text, r.id)));
   assert.equal(resumeStrength(page, job, { ranked }).parts.lead, 1);
   page.roles[0].bullets[1] = bullet(ranked[2].text, 'c');
-  assert.equal(resumeStrength(page, job, { ranked }).parts.lead, 11 / 18);
+  assert.equal(resumeStrength(page, job, { ranked }).parts.lead, 13 / 18);
 });
 
 test('projects show must-haves and results but do not displace the latest job lead', () => {

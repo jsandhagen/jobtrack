@@ -24,7 +24,6 @@ const { htmlToText } = R('main/resumeRender');
 const { atsScore, libraryAtsScore } = R('main/atsScore');
 const { contactFromResume, contactPatch } = R('main/contact');
 const { resumeEnhancements } = R('main/resumeContext');
-const { resumeStrength } = R('main/resumeStrength');
 
 const DOCS = process.env.DOCS || path.join(__dirname, 'fixtures');
 const OUT = process.env.OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'sprout-pipeline-'));
@@ -66,11 +65,11 @@ function loadJobs() {
     const own = libraryAtsScore(job, evidence, profile);
     const base = atsScore(job, pageOf(B.baselineDoc({ profile, bank, job })), { profile });
     const t = Date.now();
-    const opt = B.optimizeResume({ profile, bank, job });
+    const opt = B.optimizeResume({ profile, bank, job, documents: evidence });
     const ms = Date.now() - t;
     const page = pageOf(opt.doc);
     const ats = atsScore(job, page, { profile });
-    const strength = resumeStrength(opt.doc, job, { ranked: B.rankBullets(job, bank).ranked });
+    const strength = opt.strength;
     const asks = resumeEnhancements({ job, bank, profile, documents: evidence, fit: q.score });
     lines.push(`| ${job.title} (${job.company || ''}) | ${q.score} ${q.label} | ${own ? own.score : '–'} | ${base.score} | ${ats.score}${ats.score < base.score ? ' ⚠️' : ''} | ${strength.grade} (${Math.round(strength.score * 100)}) | ${ms} |`);
     detail.push(`\n## ${job.title} — ${job.company || ''}\n\nFit ${q.score} (${q.label}); missing: ${(q.missingSkills || []).join(', ') || 'none'}; screens: ${(q.screens || []).map((s) => s.reason).join('; ') || 'none'}\n\nATS ${ats.score} ${JSON.stringify(ats.components)}; missing phrases: ${ats.missingKeywords.join(', ')}\n\nStrength ${strength.grade} (${Math.round(strength.score * 100)}): ${JSON.stringify(strength.parts)}; notes: ${strength.notes.join(' ') || 'none'}\n\nOptimizer notes: ${opt.notes.join(' ')} ${opt.checks.join(' ')}\n\nAsk if applicable:\n${asks.map((a) => `- ${a.draft ? '[from documents] ' : ''}${a.text}${a.draft ? `\n  draft: ${a.draft}` : ''}`).join('\n') || '- (none)'}\n\n\`\`\`\n${page.replace(/\n\n+/g, '\n')}\n\`\`\``);

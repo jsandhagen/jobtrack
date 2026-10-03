@@ -4,7 +4,8 @@ RESUME STRENGTH SCORE: RATIONALE
 Status (October 2026): in UAT (src/main/resumeStrength.js). The one-click
 optimizer scores every candidate page for strength, which takes "optimize"
 from about 250 ms to about 420 ms. That's accepted: optimize shows a spinner
-from the click. The follow-up below caches strength reads; desktop timings still need checking.
+from the click. The current follow-up prioritizes hiring evidence and caches strength reads;
+desktop timings still need checking.
 
 
 WHY A SECOND SCORE
@@ -32,139 +33,111 @@ optimizer now aims at ATS and strength together.
 
 WHAT IT MEASURES
 ----------------
-A 0-1 score with a grade (A >= 0.85, B >= 0.72, C >= 0.58, else D), from four
-parts. Parts that don't apply to a posting are left out and the rest
-re-weighted.
+A 0-1 presentation score (A >= 0.85, B >= 0.72, C >= 0.58, else D).
+Inapplicable parts are omitted and the remainder reweighted. It still does
+not establish that a candidate meets the hiring bar: read fit and gap notes.
 
-1. Lead (35%): are the first two bullets of the latest role the strongest
-   proof the person has for this posting? Compared with the two best bullets
-   the page could carry, as ranked by the same bullet ranker the optimizer
-   uses. A bullet that tells the same result as one already on the page
-   doesn't count as available. Weighted most because the top of the latest
-   role is what a skimming reader actually reads.
+  - Lead (25%): the first two bullets of the latest employment role should
+    show complementary proof. For recognized role families, compare their
+    combined role signals, sector evidence and demonstrated requirements
+    against the best available pair, independently of keyword ranking. For
+    other roles, retain the general bullet-ranker comparison. Project bullets
+    count elsewhere but do not displace the latest employment role.
+  - Must-haves (25%): required qualifications demonstrated by a summary or
+    bullet, excluding degree/experience gates and soft-skill-only units.
+  - Role proof (20%): actual work matching the posting's function. CI research,
+    win/loss and enablement are distinct from partnership operations. Inventory
+    planning is distinct from generic analytics; executive-management and M&A
+    execution cannot be bought with unrelated impressive figures. Missing
+    role proof produces a visible note. Unknown role families omit this part.
+  - Summary (20%): relevant work, contribution rather than an objective, no
+    repeated opening accomplishment, sector prominence when available, and
+    mention of the primary work already demonstrated by the page. A tools
+    list alone does not retell an accomplishment. Sector proof no longer gives
+    way to a financial-services anecdote on a public-sector page.
+  - Results (10%): numbers or scale, with full credit at 60% of bullets.
 
-2. Must-haves shown (30%): the share of the posting's required
-   qualifications that a bullet or the summary shows, read the way the fit
-   score reads them. Degrees (Education shows them), the kind of experience
-   asked for (the role shows it) and soft skills (nobody screens on them) are
-   left out.
-
-3. Summary (20%): three checks, multiplied together.
-     - On topic: it names a skill, must-have or kind of work the posting is
-       about. Industry words the optimizer appends for keyword searches
-       ("Enterprise Software experience at Appian.") don't count. Off topic: 0.4.
-     - Not an objective: "Looking for opportunities in ..." says what you
-       want, not what you bring. 0.5.
-     - No echo: restating the first bullet 0.4; the second bullet 0.75.
-   Sector: if the posting is set in a sector (public sector, financial
-   services, healthcare) and the page has proof from it, that proof should be
-   in the summary or the first two bullets. Otherwise 0.7.
-
-4. Results (15%): the share of bullets with a number or a scale, full credit
-   at 60%. Weighted least because the optimizer can't add numbers that aren't
-   in the person's documents.
-
-Two bullets that tell the same accomplishment cost 15% of the total. The
-optimizer already never does this; the check is there for hand edits.
-
-The score also returns plain-language notes ("The summary repeats your first
-bullet.") for the editor to show.
-
+Repeated accomplishments cost 15% of the total. Numbers never establish
+ownership, seniority or experience the documents do not show.
 
 HOW THE OPTIMIZER USES IT
 -------------------------
-Each candidate arrangement of the page is valued at:
+Candidate pages are valued at ATS + 30 x strength. The final summary search
+also prefers a clearly better opening (at least 0.15 more summary credit)
+over up to five incidental ATS points, preserving matched required terms and
+the qualification component. It does not take a strong 75+ ATS page below
+75 for that summary trade. Required matches, qualification evidence and notes
+are still available separately from the presentation grade.
 
-    ATS score + 20 x strength
+Within each role, order existing bullets by relevant proof, ownership and
+complementary evidence. The second bullet should add a new part of the role's
+story rather than repeat the first theme merely because both have numbers.
+Summary area names are backed by documented work. A title stays the person's
+historical title; dated experience remains total experience, not invented
+specialty tenure. A supported B2B SaaS context is retained. SAP or a competitor
+name cannot become claimed software proficiency without documented usage or
+a listed skill. A relevant summary may name areas without an anecdote when the
+only strong anecdote would echo the first two bullets.
 
-So a 0.05 gain in strength (a summary that stops echoing the first bullet) is
-worth about one ATS point. The weight is set so neither can be bought cheaply
-with the other: a change that costs several ATS points must buy a clearly
-better read, and a small strength gain can't sink a real ATS gain.
+LIBRARY EVIDENCE IN ONE CLICK
+----------------------------
+The shared optimizer accepts documents, and the app now passes its usable
+library. Clearly attributable completed work from recommendations, project
+write-ups, other documents and cover letters can enter a transient candidate
+bank. Candidate and employer must be identifiable under an eligible role;
+ambiguous assignments stay suggestions. Resumes supply the original bank.
+Writing samples, hypothetical scenarios, hidden work and ineligible roles stay
+out. Only posting-relevant passages enter, with one variant per accomplishment.
 
-The summary generator was changed to aim at the same things:
-  - Its proof sentence is never the first bullet. It prefers an accomplishment
-    from further down the page, then the second bullet.
-  - It prefers proof from the posting's sector.
-  - The proof must be strong evidence for this posting: at least about a
-    third as relevant as the best bullet on the page, and a clause that says
-    something (seven words or a result; "Advised product and GTM leaders" is
-    not enough).
-  - With nothing that strong (one bullet carries the role), the summary names
-    the kinds of work and stops, rather than restate the first bullet. This
-    reverses an older rule that the summary always quotes an accomplishment.
-  - Off-page proof that tells the same result as a bullet on the page is
-    never used.
+Each selected passage has a source quote and appears in optimizer notes and
+the returned evidence list. The user's saved bank, contribution wording and
+historical titles are unchanged. "Supported the AWS partnership" stays
+supported; "influencing deals" does not become "closed deals". Cache keys use
+actual document content so equal-length edits cannot return stale quotations.
 
+VALIDATION AND HUMAN REVIEW
+---------------------------
+The two fictional personas cover the original 16 strategy/alliance/analyst
+postings and six related analyst postings, including two held-out titles.
+A further realistic supply-chain posting tests whether domain proof beats
+larger unrelated reporting figures. 114 focused tests across 10 files pass.
+They verify the concrete page, attribution, documented contribution level,
+hidden/fictional work, source-bank immutability, duplicate prevention, page
+fit, independent lead evidence, supported software skills and honest gaps.
 
-WHAT IT CAN'T JUDGE
--------------------
-  - Whether an achievement is impressive for this employer, or a number right.
-  - Gaps in the person's documents. A page can grade A against a posting the
-    person isn't qualified for; that's the fit score's job.
-  - Taste. The bullet ranker decides which bullet is "strongest", and it can
-    disagree with a reader. Example: for a CI role it prefers "Built analytical
-    reports and dashboards ..." over "Translated technical concepts into
-    executive-ready insights ...".
-  - It never writes anything. Rewording, merging two bullets that tell one
-    result, or adding a documented passage stays with the person (the
-    optimizer's notes and "Ask if applicable" say which) or the Claude path.
+Human-facing improvements:
+  - Google Public Sector: the opening now shows pitches used in sales meetings
+    influencing Army, Navy and DARPA deals. The summary names public-sector
+    work, instead of borrowing a financial-reporting anecdote.
+  - Workiva/Zendesk: the opening shows Marketplace orders/internal enablement
+    and $9M transactions. Co-selling remains a gap where unsupported.
+  - Salesforce CI: public-sector CI/enablement proof is prominent and unrelated
+    partnership QBRs no longer supply the summary anecdote.
+  - Morgan's supply-chain page: inventory/demand-planning work opens the page.
+  - Cyera: the summary names business planning and data analysis, accepting a
+    neutral keyword trade while preserving required summary qualifications.
+  - Chief of Staff: no longer A; missing 12+ years, engineering leadership and
+    team management remain visible. M&A is C: research/exploration is not
+    completed transaction execution.
 
+All 22 evaluated pages fit one page. Compared with the earlier draft PR,
+seven ATS scores improve, 13 stay unchanged and two decrease: Kickboard 91
+-> 88 and Cyera 88 -> 82. Required-qualification component scores stay unchanged
+or improve across all 22. Kickboard loses a literal communication-skill match
+while gaining documented messaging/training evidence; that is a real scoring
+tradeoff. Do not compare raw strength scores with the old four-part rubric.
 
-EVIDENCE SO FAR
----------------
-Calibrated on the fictional e2e candidate (test/e2e/fixtures) against 16
-good-fit postings: the 13 live postings saved in
-test/fixtures/allianceOpportunities.js (on UAT, with fit bands in
-test/fitAllianceRoles.test.js and ATS bands in test/atsApplied.test.js) plus
-3 from test/fixtures/randomJobs*.js.
-
-Before the summary changes, 4 of 16 pages had a summary that repeated the
-first bullet (Salesforce PubSec CI, EvenUp CI, Mark43 CI, AWS SAP alliances),
-and one public-sector page had a summary with no public-sector proof. After
-them, none repeat the first bullet and every page grades A or B. The pages
-marked down in that earlier run were:
-  - Supply Chain Analyst and Financial Analyst: the person's own summary is
-    about their CI and partnerships work, not the posting's. The one generated
-    alternative is a template, so the honest signal is the note.
-  - Weyerhaeuser and A-LIGN: the pages show only 20-40% of the must-haves
-    (wood products industry; M&A execution), because the documents don't.
-
-FOLLOW-UP: QUALITY AND COVERAGE
--------------------------------
-The final summary search now considers the existing general ATS summary for
-roles outside the strategy lane, and retains the current page summary as a
-candidate. A skill-list sentence ("Experience includes SQL, dashboards and
-Python.") no longer counts as retelling an accomplishment simply because it
-shares the bullet's tools. Hidden bullets cannot supply summary proof.
-
-Projects now count toward must-haves, results and duplicate checks. The lead
-continues to mean the latest employment role.
-
-createStrengthScorer prepares requirements, sectors, themes and the rank map
-once per optimization; bounded caches reuse line evidence and duplicate checks.
-The standalone resumeStrength API remains available for editor reads. Repeated
-strength reads in the offline benchmark average about 0.041 ms instead of
-0.347 ms; whole-optimizer median remains about 20 ms on this machine.
-
-Validation: scripts/strength-eval.js evaluates the original 16 roles plus six
-related analyst roles for a second fictional candidate, Morgan Chen. Two analyst
-titles are held out of the initial four-role set. In this workspace all 22 pages
-grade A/B (17 A, 5 B), compared with 14 A/8 B before. Eight off-topic summaries
-improve to full summary credit; all 22 ATS scores remain unchanged. Unsupported
-Snowflake/dbt requirements remain missing. No weights or grade thresholds changed.
-
-Direct tests cover echo, objective, sector, available lead proof, projects,
-duplicates and reusable scoring after edits. The optimizer matrix also checks
-page fit, documented bullets, unchanged source banks and no repeated achievements.
-The offline pipeline now includes strength parts and notes and defaults to all
-39 saved alliance/random postings. scripts/strength-eval.js writes JSON and
-Markdown quality/timing reports for both personas.
+scripts/strength-eval.js produces JSON/Markdown with full generated pages,
+openings, evidence sources, timing and remaining gaps. The offline pipeline
+also reports strength parts/notes and covers all 39 saved alliance/random
+postings by default. Posting analysis and bounded line/pair caches remain
+shared per optimization; the evaluation's warm median is about 29 ms on this
+executor, not a desktop UI measurement.
 
 Remaining release checks:
-  - Measure desktop optimize latency with a large library. Offline timings on
-    this machine are not comparable to the prior ~420 ms desktop measurement.
-  - Add independent candidates in more fields, especially project-heavy careers.
-  - Run the complete app/browser checks with dependencies installed. This
-    workspace's partial source snapshot and absent npm dependencies prevent a
-    clean full-suite run; the same 18 test-file failures occur on the UAT baseline.
+  - Desktop optimize latency with a large library and full editor/browser checks.
+    This partial workspace has missing app dependencies/assets; the full suite
+    has the same 18 failing files as the UAT baseline and no new failing files.
+  - Independent personas in more fields and more complex senior-role postings.
+  - Human judgment of whether outcomes are impressive for this employer and
+    calibration of the role-proof rubric beyond these fixtures.

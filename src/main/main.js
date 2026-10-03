@@ -900,7 +900,7 @@ function makeAtsResume(appId) {
   store.saveApplication(appId);
   const profile = store.getProfile();
   const header = rec.builder && rec.builder.doc ? ResumeDoc.fillHeader(rec.builder.doc.header, profile) : undefined;
-  const optimized = bulletBank.optimizeResume({ profile, bank, job: rec.job, header, pages: store.getSettings().resumePages, scale: pageScale() });
+  const optimized = bulletBank.optimizeResume({ profile, bank, documents: evidenceDocs(), job: rec.job, header, pages: store.getSettings().resumePages, scale: pageScale() });
   saveDoc(appId, optimized.doc, { resumeSource: 'ats', resumeError: null, resumeChecks: optimized.checks, resumeNotes: optimized.notes, atsFit: { pages: optimized.pages, why: optimized.why, fixes: optimized.fixes }, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
   hostUpdated(updated);
@@ -2665,3 +2665,4 @@ if (process.argv.includes('--smoke-test')) {
     if (watcher) watcher.stopAll();
   });
 }
+

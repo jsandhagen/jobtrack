@@ -6,7 +6,8 @@ const { overlap, repeatOf, checkBullet } = require('../shared/resumeCheck');
 const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
-const { strategyFocus, strategyEvidence, strategySummary, strategyChecks } = require('./strategyResume');
+const { strategyFocus, strategyEvidence, strategySummary, strategyChecks, mainClause } = require('./strategyResume');
+const { hiringFocus, hiringEvidence, orderForHiring } = require('./hiringEvidence');
 
 // The posting's requirements, less the kind of experience asked for ("5+
 // years in software engineering"): a role's title meets that, so it can't
@@ -618,6 +619,7 @@ function writingPenalty(text) {
 }
 
 function rankBullets(job, bank) {
+  const readerFocus = hiringFocus(job);
   const units = bulletUnits(job);
   const focus = strategyFocus(job);
   const jobTerms = [...significantTerms(job.text).entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => stem(t));
@@ -639,12 +641,13 @@ function rankBullets(job, bank) {
         // required), less what the Check tab would flag in how it's written.
         const quality = evidenceStrength(text) + writingPenalty(text);
         const strategy = strategyEvidence(focus, text);
-        const score = coverage + vocab + quality + recencyBonus(exp) + strategy.reduce((s, theme) => s + theme.weight, 0);
-        if (!best || score > best.score) best = { text, score, quality, strategy, covers: covers.map(({ u, m }) => ({ key: u.key, label: u.label, kind: u.kind, m })) };
+        const reader = hiringEvidence(readerFocus, text);
+        const score = coverage + vocab + quality + recencyBonus(exp) + strategy.reduce((s, theme) => s + theme.weight, 0) + reader.score;
+        if (!best || score > best.score) best = { text, score, quality, strategy, reader, covers: covers.map(({ u, m }) => ({ key: u.key, label: u.label, kind: u.kind, m })) };
       }
       return { id: b.id, experienceId: b.experienceId, ...best, evidenceStrength: evidenceStrength(best.text), isVariant: best.text !== b.text };
     })
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => (b.reader.score - a.reader.score) || b.score - a.score);
 
   // Which bullet best proves each requirement — the "evidence" for the fit.
   const evidence = units
@@ -710,7 +713,7 @@ function selectBullets(job, bank, { total = Infinity, pages = 'auto', profile = 
     exps.filter((e) => shown.has(e.id)).map((e) => ({
       experienceId: e.id,
       // Within a role, strongest first.
-      bullets: [...picked.get(e.id)].sort((a, b) => b.score - a.score).map((r) => ({ bulletId: r.id, text: r.text })),
+      bullets: orderForHiring(picked.get(e.id), hiringFocus(job), (b) => b.score).map((r) => ({ bulletId: r.id, text: r.text })),
     }));
   const height = (picked, shown) => ResumeDoc.measure({ ...shell, roles: docRoles(asRoles(picked, shown), expById) }, { scale }).height;
   const { pageHeight, lineHeight } = ResumeDoc.measure(shell, { scale });
@@ -919,6 +922,11 @@ function atsSummary(job, bank) {
   // technology isn't years "in process management".
   const workText = lower(withoutCollaborators([...bank.bullets.filter((b) => !b.hidden).map((b) => b.text), ...bank.experiences.map((e) => `${e.title}, ${e.organization}`)].join('\n')));
   const listed = lower((bank.skills || []).join('\n'));
+  const usablePlatform = (skill) => (bank.skills || []).some((s) => SKILLS[skill].some((re) => re.test(lower(s)))) || bank.bullets.filter((b) => !b.hidden).some((b) => SKILLS[skill].some((re) => {
+    const t = lower(withoutCollaborators(b.text));
+    const m = t.match(re);
+    return m && /\b(?:us(?:ed|ing)|built|configured|administered|implemented|developed|integrated|migrated|deployed)\b[^.;()]{0,60}$/.test(t.slice(0, m.index));
+  }));
   // Years in the kind of work this resume shows: not internships, and not an
   // old role in another line of work (the retail job before a data career).
   const years = Math.floor(careerYears({ experiences: relevantExperiences(bank, job) }));
@@ -960,7 +968,7 @@ function atsSummary(job, bank) {
   };
   const textLower = lower(text);
   for (const [skill, { kind, mentions = 1 }] of classifyJobSkills(text)) {
-    if (NOT_IN_GRID.has(skill)) continue;
+    if (NOT_IN_GRID.has(skill) || (PLATFORM_SKILLS.has(skill) && !usablePlatform(skill))) continue;
     // The posting's own words for it, found as such on your resume ("generative AI"):
     // a pattern that covers several things ("management consultant" and
     // "technology consultant") doesn't make one of them yours.
@@ -975,7 +983,7 @@ function atsSummary(job, bank) {
     // "Tech strategy" reads as "tech strategy" mid-sentence.
     const w = wording(term).replace(/^([A-Z])([a-z]+)(?= [a-z])/, (m, a, b) => a.toLowerCase() + b);
     if (/^[A-Z][a-z]*[A-Z]|^[A-Z][a-z]+$/.test(w) && !/[A-Z]{2,}/.test(w) && !phraseRe(term).test(listed)) continue;
-    add(w, (KIND_RANK[kind] || 2) * 10 + mentions - (term.length <= 3 ? 5 : 0));
+    add(/^forecast$/i.test(w) ? 'forecasting' : w, (KIND_RANK[kind] || 2) * 10 + mentions - (term.length <= 3 ? 5 : 0));
   }
   // And the posting's phrases your bullets already say ("executive presentations").
   for (const ph of postingPhrases(text, job.company).slice(0, 15)) if (bankText.includes(ph)) add(wording(ph), 15);
@@ -1243,7 +1251,9 @@ function buildDoc({ profile, bank, job, roles, header }) {
 // The complete one-click path, shared by the app and evaluation scripts.
 // A strategy resume gets a fresh evidence-led summary even when its imported
 // summary was aimed at a different role. The bank and historical titles stay intact.
-function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale = 1 }) {
+function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale = 1, documents = [] }) {
+  const expanded = require('./resumeContext').optimizerEvidence({ profile, bank, job, documents });
+  bank = expanded.bank;
   const ResumeDoc = require('../shared/resumeDoc');
   const { atsScore } = require('./atsScore');
   const { htmlToText } = require('./resumeRender');
@@ -1280,20 +1290,25 @@ function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale
   const ats = atsScore(job, pageText, { profile });
   const gates = requirementUnits(job).units.filter((u) => u.kind === 'required' && u.gate && u.match(lower(pageText)) < 0.6).map((u) => u.label);
   const missing = [...gates, ...strategyChecks(job, doc), ...ats.knockouts.filter((gap) => !gap.includes('(posting says') && !(/^Leadership\b/.test(gap) && gates.some((g) => /managing (?:people|project teams)|leading/i.test(g))))];
+  const strength = require('./resumeStrength').resumeStrength(doc, job, { ranked });
+  missing.push(...strength.notes.filter((n) => n.startsWith("The page doesn't demonstrate")).map((n) => n.replace(/^The page doesn't demonstrate /, '').replace(/ for this role\.$/, '')));
   const checks = [...new Set(missing)].map((gap) => `Your documents don't yet show ${gap}. If you have relevant experience, an example could strengthen this resume.`);
   if (!doc.header.name.trim()) checks.unshift('Add your name before submitting.');
   if (!/@/.test(`${doc.header.line1} ${doc.header.line2}`)) checks.unshift('Add your email before submitting.');
+  const pageIds = new Set(doc.roles.flatMap((r) => r.bullets.map((b) => b.bulletId)));
+  const usedSources = expanded.sources.filter((s) => pageIds.has(s.bulletId) || doc.summary.includes(mainClause(s.text)));
   const fixes = [
     ...industry.map((x) => ({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` })),
     ...reworded.map((x) => ({ kind: 'wording', term: x.to, text: `Wrote “${x.to}” in your skills, so a search for the posting's words finds it.` })),
   ];
   const notes = [
+    ...usedSources.map((s) => `Included documented work from ${s.name}: “${s.quote}”`),
     // The tuning keeps your own summary when it reads better for this posting: say what's on the page.
-    ...(summary ? [(Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText).includes(doc.summary) ? 'Kept your own summary, which reads best for this posting; kept your job titles and contribution level.' : 'Put the most relevant documented achievement in the summary; kept your job titles and contribution level.'] : []),
+    ...(summary ? [(Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText).includes(doc.summary) ? 'Kept your own summary, which reads best for this posting; kept your job titles and contribution level.' : 'Tailored the summary to documented work relevant to this posting; kept your job titles and contribution level.'] : []),
     ...ats.knockouts.filter((gap) => gap.includes('(posting says')).map((gap) => `Posting wording not on the page: ${gap}. Check whether your documented experience supports this wording; a keyword mismatch does not establish a qualification gap.`),
     ...twinNotes(doc, { job, ranked, allowed, profile, pageText, score: ats.score }),
   ];
-  return { doc, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes };
+  return { doc, strength, evidence: usedSources, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes };
 }
 
 // Two bank bullets that tell one result ("$9M in customer transactions" in
@@ -1324,7 +1339,7 @@ function twinNotes(doc, { job, ranked, allowed, profile, pageText, score }) {
 // improves, the page still fits, and no accomplishment shows twice. Nothing
 // is reworded, so every line stays one you wrote.
 const TUNE_ROUNDS = 5;
-const STRENGTH_WEIGHT = 20;
+const STRENGTH_WEIGHT = 30;
 const TUNE_POOL = 10;
 function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, summary }) {
   const ResumeDoc = require('../shared/resumeDoc');
@@ -1337,20 +1352,24 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   // Each arrangement of the page is read once (rounds and passes revisit them).
   // The aim is the best resume, not only the best ATS read: each arrangement
   // is valued by its ATS score plus how strongly it reads to a recruiter
-  // (resumeStrength.js), 0.05 of strength (a summary that stops repeating the
-  // first bullet) being worth about one ATS point.
+  // (resumeStrength.js), role evidence and a useful opening can outweigh small keyword gains.
   const { createStrengthScorer } = require('./resumeStrength');
   const strength = createStrengthScorer(job, { ranked });
   const seen = new Map();
-  const score = (d) => {
-    const key = `${d.summary}\u0000${d.roles.map((r) => r.bullets.map((b) => b.bulletId || b.text).join(',')).join('|')}`;
-    if (!seen.has(key)) seen.set(key, read(d).score + STRENGTH_WEIGHT * strength(d).score);
+  const assess = (d) => {
+    const key = JSON.stringify([d.summary, d.roles.map((r) => [r.experienceId, r.bullets.map((b) => [b.bulletId, b.text])])]);
+    if (!seen.has(key)) seen.set(key, { ats: read(d), strength: strength(d) });
     return seen.get(key);
+  };
+  const score = (d) => {
+    const result = assess(d);
+    return result.ats.score + STRENGTH_WEIGHT * result.strength.score;
   };
   const fits = (d) => ResumeDoc.fits(d, pages, { scale });
   const rankOf = new Map(ranked.map((r) => [r.id, r.score || 0]));
   const clone = (d) => ({ ...d, header: { ...d.header }, roles: d.roles.map((r) => ({ ...r, bullets: r.bullets.slice() })), skills: (d.skills || []).slice() });
-  const strongestFirst = (r) => r.bullets.sort((a, b) => (rankOf.get(b.bulletId) || 0) - (rankOf.get(a.bulletId) || 0));
+  const readerFocus = hiringFocus(job);
+  const strongestFirst = (r) => { r.bullets = orderForHiring(r.bullets, readerFocus, (b) => rankOf.get(b.bulletId) || 0); };
   const cap = BULLETS_PER_PAGE * pages;
   // How much of what this posting asks for the page shows (the ranker's view).
   const relevance = (d) => d.roles.reduce((s, r) => s + r.bullets.reduce((t, b) => t + (rankOf.get(b.bulletId) || 0), 0), 0);
@@ -1415,7 +1434,14 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
       const added = addIndustryWords(d, job).added;
       if (!fits(d)) continue;
       const sc = score(d);
-      if (!chosen || sc > chosen.sc) chosen = { d, sc, added };
+      const result = assess(d);
+      const qualificationSafe = chosen && (result.ats.components.qualifications ?? 100) >= (chosen.result.ats.components.qualifications ?? 100) && chosen.result.ats.matchedRequired.every((term) => result.ats.matchedRequired.includes(term));
+      const clearer = chosen && (result.strength.parts.summary ?? 0) >= (chosen.result.strength.parts.summary ?? 0) + 0.15;
+      // Prefer a clearly better opening over a few incidental ATS points,
+      // while preserving the required-skill and qualification evidence.
+      const readerWins = clearer && qualificationSafe && result.ats.score >= chosen.result.ats.score - 5 && (result.ats.score >= 75 || chosen.result.ats.score < 75);
+      const weakerOpening = chosen && (result.strength.parts.summary ?? 0) + 0.15 <= (chosen.result.strength.parts.summary ?? 0) && result.ats.score <= chosen.result.ats.score + 5 && (result.ats.components.qualifications ?? 100) <= (chosen.result.ats.components.qualifications ?? 100) && result.ats.matchedRequired.every((term) => chosen.result.ats.matchedRequired.includes(term));
+      if (!chosen || readerWins || (!weakerOpening && sc > chosen.sc)) chosen = { d, sc, added, result };
     }
     if (chosen) (best = chosen.d), (industry = chosen.added), (cur = { sc: chosen.sc, rel: relevance(chosen.d) });
   };
