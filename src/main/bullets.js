@@ -3,7 +3,7 @@
 // that fit a posting best. Everything here is offline and free.
 const crypto = require('crypto');
 const { overlap, repeatOf, checkBullet } = require('../shared/resumeCheck');
-const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators } = require('./fitScore');
+const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators, yearsOfExperience } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 const { strategyFocus, strategyEvidence, strategySummary, strategyChecks } = require('./strategyResume');
@@ -1136,13 +1136,13 @@ function addIndustryWords(doc, job) {
     const words = ts.length > 1 ? `${ts.slice(0, -1).join(', ')} and ${ts[ts.length - 1]}` : ts[0];
     const summary = String(doc.summary || '');
     const at = summary.toLowerCase().indexOf(employer.toLowerCase());
+    // Named where the summary names the employer. A sentence of its own
+    // ("Enterprise Software experience at Appian.") reads to a hiring manager
+    // as filler written for a keyword search, so it isn't added.
     if (at >= 0 && !summary.slice(at + employer.length).startsWith(' (')) {
       doc.summary = `${summary.slice(0, at + employer.length)} (${words})${summary.slice(at + employer.length)}`;
-    } else if (summary.trim()) {
-      const lead = words.replace(/^[a-z]/, (c) => c.toUpperCase());
-      doc.summary = `${summary.trim().replace(/[^.!?]$/, '$&.')} ${lead} experience at ${employer}.`;
     } else {
-      doc.summary = `${words.replace(/^[a-z]/, (c) => c.toUpperCase())} experience at ${employer}.`;
+      for (let i = added.length - 1; i >= 0; i--) if (added[i].employer === employer) added.splice(i, 1);
     }
   }
   return { doc, added };
@@ -1243,10 +1243,25 @@ function buildDoc({ profile, bank, job, roles, header }) {
 // The complete one-click path, shared by the app and evaluation scripts.
 // A strategy resume gets a fresh evidence-led summary even when its imported
 // summary was aimed at a different role. The bank and historical titles stay intact.
-function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale = 1 }) {
+function optimizeResume({ profile = {}, bank: ownBank, job, header, pages = 'auto', scale = 1, evidence = [] }) {
   const ResumeDoc = require('../shared/resumeDoc');
   const { atsScore } = require('./atsScore');
   const { htmlToText } = require('./resumeRender');
+  // Your other documents often prove more than your bullet bank (an impact
+  // statement's "influencing deals with the Army, Navy and DARPA"). Their
+  // draft bullets ("Ask if applicable" offers them; the caller passes them in
+  // for good fits only) compete for the page like bank bullets. One that makes
+  // it is marked for you to check before sending, and isn't in your bank
+  // until you save it there.
+  const fromDocs = new Map();
+  // Not a thin one: "Provided insights to sales teams…" with nothing that came of it is filler on a page.
+  const { WEAK } = require('./resumeStrength');
+  const docBullets = (evidence || []).filter((e) => e && e.draft && e.experienceId && ownBank.experiences.some((x) => x.id === e.experienceId) && !ownBank.bullets.some((b) => repeatOf(b.text, e.draft)) && (!WEAK.test(e.draft) || /\d/.test(e.draft))).map((e, i) => {
+    const id = `doc-evidence:${i}`;
+    fromDocs.set(id, e);
+    return { id, experienceId: e.experienceId, text: tidyText(e.draft), variants: [], tags: [], source: { name: (e.source && e.source.name) || 'your documents' } };
+  });
+  const bank = docBullets.length ? { ...ownBank, bullets: [...ownBank.bullets, ...docBullets] } : ownBank;
   const ranked = rankBullets(job, bank).ranked;
   const allowed = new Set(resumeExperiences(bank, job).map((e) => e.id));
   const startingRoles = orderedExperiences(bank).filter((e) => allowed.has(e.id)).map((e) => ({ experienceId: e.id, bullets: ranked.filter((b) => b.experienceId === e.id).map((b) => ({ bulletId: b.id, text: b.text })) }));
@@ -1287,13 +1302,35 @@ function optimizeResume({ profile = {}, bank, job, header, pages = 'auto', scale
     ...industry.map((x) => ({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` })),
     ...reworded.map((x) => ({ kind: 'wording', term: x.to, text: `Wrote “${x.to}” in your skills, so a search for the posting's words finds it.` })),
   ];
+  // Bullets from your documents: no bank id (saving one to your bank gives it
+  // one), and a note on the page to check the wording.
+  const added = [];
+  for (const r of doc.roles) {
+    for (const b of r.bullets) {
+      const e = fromDocs.get(b.bulletId);
+      if (!e) continue;
+      const where = (e.source && e.source.name) || 'your documents';
+      b.bulletId = null;
+      b.flag = `Drafted from your ${where}, not your bullet bank. Check the wording and the facts before sending, then save it to your bank.`;
+      added.push(where);
+    }
+  }
+  const ownSummaries = (Array.isArray(ownBank.summaries) && ownBank.summaries.length ? ownBank.summaries : [ownBank.summary]).filter(Boolean).map(tidyText);
+  const summaryNote = !summary ? null
+    : tuned.yearsFixed ? `Kept your own summary, with its ${tuned.yearsFixed.from} years brought up to the ${tuned.yearsFixed.to} your role dates show; kept your job titles and contribution level.`
+    : ownSummaries.includes(doc.summary) ? 'Kept your own summary, which reads best for this posting; kept your job titles and contribution level.'
+    : /\.\s+\S/.test(doc.summary) ? 'Wrote a summary for this posting, with an accomplishment the bullets below don\'t already tell; kept your job titles and contribution level.'
+    : 'Wrote a summary for this posting from your current role and the kinds of work it asks for; kept your job titles and contribution level.';
   const notes = [
-    // The tuning keeps your own summary when it reads better for this posting: say what's on the page.
-    ...(summary ? [(Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText).includes(doc.summary) ? 'Kept your own summary, which reads best for this posting; kept your job titles and contribution level.' : 'Put the most relevant documented achievement in the summary; kept your job titles and contribution level.'] : []),
+    ...(summaryNote ? [summaryNote] : []),
+    ...(added.length ? [`Added ${added.length === 1 ? 'a bullet' : `${added.length} bullets`} drafted from your ${[...new Set(added)].join(' and ')}: ${added.length === 1 ? 'it proves' : 'they prove'} more for this posting than your bank does. Check the wording before sending.`] : []),
     ...ats.knockouts.filter((gap) => gap.includes('(posting says')).map((gap) => `Posting wording not on the page: ${gap}. Check whether your documented experience supports this wording; a keyword mismatch does not establish a qualification gap.`),
-    ...twinNotes(doc, { job, ranked, allowed, profile, pageText, score: ats.score }),
   ];
-  return { doc, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes };
+  const twins = twinNotes(doc, { job, ranked, allowed, profile, pageText, score: ats.score });
+  notes.push(...twins.map((t) => t.note));
+  // A merge you can take with one click: the editor offers it as a suggestion on the bullet that stays.
+  const merges = twins.filter((t) => t.merged).map((t) => ({ bulletId: t.keep.bulletId, from: t.keep.text, text: t.merged, why: 'Merges the bullet left out, which tells the same result, so the page keeps what each adds.' }));
+  return { doc, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes, merges };
 }
 
 // Two bank bullets that tell one result ("$9M in customer transactions" in
@@ -1307,14 +1344,49 @@ function twinNotes(doc, { job, ranked, allowed, profile, pageText, score }) {
   const shown = new Set(doc.roles.map((r) => r.experienceId));
   const clip = (t) => (t.length <= 60 ? t : `${t.slice(0, 60).replace(/\s+\S*$/, '')}…`);
   const out = [];
+  // Among your three strongest bullets for this posting in its role: worth bringing back for the reader, whatever the ATS says.
+  const strongest = (r) => ranked.filter((x) => x.experienceId === r.experienceId && !x.hidden).slice(0, 3).some((x) => x.id === r.id);
   for (const r of ranked) {
     if (out.length >= 2 || onPage.has(r.id) || r.hidden || !allowed.has(r.experienceId) || !shown.has(r.experienceId)) continue;
     const twin = page.find((b) => repeatOf(b.text, r.text));
     if (!twin) continue;
     const gain = atsScore(job, `${pageText}\n- ${r.text}`, { profile }).score - score;
-    if (gain >= 2) out.push(`Left out “${clip(r.text)}”: it tells the same result as “${clip(twin.text)}”, so only one can be on the page. Merging the two into one bullet in your bullet bank keeps what each adds (about +${gain} ATS for this posting).`);
+    const strong = strongest(r);
+    if (gain < 2 && !strong) continue;
+    const merged = mergeTwins(twin.text, r.text) || mergeTwins(r.text, twin.text);
+    const why = gain >= 2 ? `about +${gain} ATS for this posting` : 'it is some of your strongest proof for this posting';
+    out.push({
+      // The suggestion replaces the bullet on the page, whichever of the two the merge starts from.
+      keep: twin, merged,
+      note: `Left out “${clip(r.text)}”: it tells the same result as “${clip(twin.text)}”, so only one can be on the page. ${merged ? `Merging the two keeps what each adds (${why}): the editor suggests a merged bullet.` : `Merging the two into one bullet in your bullet bank keeps what each adds (${why}).`}`,
+    });
   }
   return out;
+}
+
+// Two bullets that tell one result ("driving $9M+ in customer transactions"
+// and "Executed $9M in customer transactions via AWS Marketplace by
+// collaborating with marketing, sales, and product teams…"), merged without
+// writing anything new: when the kept one ends on the shared result, the
+// other's "via…" / "by…" tail (how it was done) is added after it. Anything
+// less mechanical is a rewrite only you (or Claude) should make.
+function mergeTwins(keep, other) {
+  const figure = (t) => (String(t).match(/\$?\d[\d.,]*[kmb]?\+?(?:\s+[a-z]+){0,3}/gi) || []);
+  const k = String(keep).replace(/[.\s]+$/, '');
+  const o = String(other).replace(/[.\s]+$/, '');
+  const num = (t) => (t.match(/\$?\d[\d.,]*[kmb]?/i) || [''])[0].toLowerCase().replace(/[+,]/g, '');
+  const kf = figure(k).pop();
+  const of = figure(o).find((f) => kf && num(f) === num(kf));
+  if (!kf || !of) return null;
+  // The kept bullet ends on its figure's phrase ("…driving $9M+ in customer transactions").
+  const kEnd = k.slice(k.lastIndexOf(kf.split(/\s+/)[0]));
+  if (kEnd.split(/\s+/).length > 6) return null;
+  const at = o.indexOf(of);
+  const rest = o.slice(at + of.length);
+  const tail = rest.match(/^[^,;]*?\s+((?:via|by|through|using|across)\s.+)$/i);
+  if (!tail || tail[1].split(/\s+/).length < 3) return null;
+  const merged = `${k} ${tail[1]}`;
+  return merged.split(/\s+/).length <= 45 ? merged : null;
 }
 
 // The free optimizer's last step. Its picks come from the bullet ranker, which
@@ -1324,8 +1396,14 @@ function twinNotes(doc, { job, ranked, allowed, profile, pageText, score }) {
 // improves, the page still fits, and no accomplishment shows twice. Nothing
 // is reworded, so every line stays one you wrote.
 const TUNE_ROUNDS = 5;
-const STRENGTH_WEIGHT = 20;
 const TUNE_POOL = 10;
+// How a page is valued: strength (0-1) x 100, plus half a point per ATS
+// point, less 5 for each point under the floor. So 0.01 of strength is worth
+// 2 ATS points while the page stays at or above the floor.
+const ATS_FLOOR = 75;
+const STRENGTH_POINTS = 100;
+const ATS_ABOVE_FLOOR = 0.5;
+const ATS_BELOW_FLOOR = 5;
 function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, summary }) {
   const ResumeDoc = require('../shared/resumeDoc');
   const { atsScore, skillsOfLines } = require('./atsScore');
@@ -1335,15 +1413,27 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
     return atsScore(job, text, { profile, skills: skillsOfLines(text.split('\n')) });
   };
   // Each arrangement of the page is read once (rounds and passes revisit them).
-  // The aim is the best resume, not only the best ATS read: each arrangement
-  // is valued by its ATS score plus how strongly it reads to a recruiter
-  // (resumeStrength.js), 0.05 of strength (a summary that stops repeating the
-  // first bullet) being worth about one ATS point.
+  // The aim is the page a hiring manager wants to read (resumeStrength.js),
+  // as long as screening software still passes it. ATS is a floor, not the
+  // goal: 75 and up reads as a strong application, so above that floor (or
+  // above where the page started, when it starts lower) a point of ATS is
+  // worth little, and below it each point costs a lot.
   const { resumeStrength } = require('./resumeStrength');
+  const floor = Math.min(ATS_FLOOR, read(start).score);
   const seen = new Map();
+  // Screening software reads what's on the page, not its order: one ATS read per set of lines.
+  const atsSeen = new Map();
+  const atsOf = (d) => {
+    const key = `${d.summary}\u0000${d.roles.map((r) => r.bullets.map((b) => b.bulletId || b.text).sort().join(',')).join('|')}`;
+    if (!atsSeen.has(key)) atsSeen.set(key, read(d).score);
+    return atsSeen.get(key);
+  };
   const score = (d) => {
     const key = `${d.summary}\u0000${d.roles.map((r) => r.bullets.map((b) => b.bulletId || b.text).join(',')).join('|')}`;
-    if (!seen.has(key)) seen.set(key, read(d).score + STRENGTH_WEIGHT * resumeStrength(d, job, { ranked }).score);
+    if (!seen.has(key)) {
+      const ats = atsOf(d);
+      seen.set(key, STRENGTH_POINTS * resumeStrength(d, job, { ranked }).score + ATS_ABOVE_FLOOR * ats - ATS_BELOW_FLOOR * Math.max(0, floor - ats));
+    }
     return seen.get(key);
   };
   const fits = (d) => ResumeDoc.fits(d, pages, { scale });
@@ -1360,6 +1450,7 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   let best = clone(start);
   let cur = { sc: score(best), rel: relevance(best) };
   let industry = null;
+  const yearsFixed = new Map(); // a summary of yours with its years updated -> { from, to }
   const bulletRounds = () => {
     for (let round = 0; round < TUNE_ROUNDS; round++) {
       const page = best.roles.flatMap((r) => r.bullets);
@@ -1401,9 +1492,43 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
       cur = move;
     }
   };
+  // The order of the latest role's first two bullets is what a hiring manager
+  // reads first. The ranker orders by relevance; here each bullet is tried in
+  // first, then second, place, and the page that reads best (strength, with
+  // ATS as the floor) keeps it. The rest stay in the ranker's order.
+  const leadPass = () => {
+    const ri = best.roles.findIndex((r) => !r.isProject);
+    if (ri < 0) return;
+    const n = best.roles[ri].bullets.length;
+    if (n < 2) return;
+    // Every pair for the first two places (the two are read together).
+    let pick = null;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const d = clone(best);
+        const bs = best.roles[ri].bullets;
+        d.roles[ri].bullets = [bs[i], bs[j], ...bs.filter((_, k) => k !== i && k !== j)];
+        const sc = score(d);
+        if (!pick || sc > pick.sc) pick = { d, sc };
+      }
+    }
+    if (pick && pick.sc > cur.sc) (best = pick.d), (cur = { sc: pick.sc, rel: relevance(pick.d) });
+  };
   // The opening lines: the evidence-led summary for this page (when there is
   // one), or whichever of your own summaries reads best for this posting.
-  const own = (Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText);
+  // Your own summaries, and each with its years brought up to what your role
+  // dates show: a summary written two years ago that says "5 years" undersells
+  // seven, and the reader checking years against the posting reads the summary.
+  const dated = Math.floor(yearsOfExperience(start.roles.filter((r) => !r.isProject).map((r) => `${r.title}, ${r.dates}`).join('\n')) || 0);
+  const ownWritten = (Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText);
+  const own = ownWritten.flatMap((t) => {
+    const m = t.match(/\b(\d{1,2})(\+?)\s+years\b/i);
+    if (!m || !dated || Number(m[1]) >= dated - 1) return [t];
+    const fixed = t.replace(m[0], `${dated}${m[2]} years`);
+    yearsFixed.set(fixed, { from: Number(m[1]), to: dated });
+    return [t, fixed];
+  });
   const pickSummary = () => {
     const generated = summary ? strategySummary(job, best, ranked) : null;
     let chosen = null;
@@ -1423,8 +1548,9 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   bulletRounds();
   pickSummary();
   bulletRounds();
+  leadPass();
   pickSummary();
-  return { doc: best, industry };
+  return { doc: best, industry, yearsFixed: yearsFixed.get(best.summary) || null };
 }
 
 /**
@@ -1450,14 +1576,16 @@ function baselineDoc({ profile, bank, job }) {
  * (unless whole roles must go, oldest first). Your wording is left alone.
  * @returns {{doc: object, removed: {role: string, text: string}[], skills: string[], roles: string[], pages: number}}
  */
-function fitDocToPages(doc, job, bank, pages = 1, { skills = true, scale = 1 } = {}) {
+function fitDocToPages(doc, job, bank, pages = 1, { skills = true, scale = 1, keepLeads = false } = {}) {
   const ResumeDoc = require('../shared/resumeDoc');
   const d = ResumeDoc.normalize(doc);
   d.roles.forEach((r) => (r.bullets = r.bullets.filter((b) => b.text)));
   d.skills = d.skills.filter(Boolean);
   const units = bulletUnits(job || { text: '' });
   const { ranked } = rankBullets(job || { text: '' }, bank || emptyBank());
+  // A bank bullet's rank holds for its bank wording; a rewrite (Claude's) is valued by what it says.
   const scoreById = new Map(ranked.map((r) => [r.id, r.score]));
+  const textById = new Map(ranked.map((r) => [r.id, r.text]));
   const removed = [];
   const skillsOut = [];
   const over = () => !ResumeDoc.fits(d, pages, { scale });
@@ -1476,12 +1604,17 @@ function fitDocToPages(doc, job, bank, pages = 1, { skills = true, scale = 1 } =
   while (over()) {
     const all = texts();
     const shows = (x, u) => u.match(x.t) >= 0.6;
-    const candidates = all
-      .filter((x) => d.roles[x.ri].bullets.length > 1 || d.roles[x.ri].isProject)
+    // keepLeads: the first two bullets of the latest role are the writer's
+    // choice of what a hiring manager reads first (Claude's draft); they go only
+    // when nothing else can.
+    const lead = keepLeads ? d.roles.findIndex((r) => !r.isProject) : -1;
+    const free = all.filter((x) => d.roles[x.ri].bullets.length > 1 || d.roles[x.ri].isProject);
+    const unprotected = free.filter((x) => !(x.ri === lead && x.bi < 2));
+    const candidates = (unprotected.length ? unprotected : free)
       .map((x) => {
         const sole = units.filter((u) => shows(x, u) && !all.some((y) => y !== x && shows(y, u)));
         const covers = units.filter((u) => shows(x, u));
-        const score = x.b.bulletId && scoreById.has(x.b.bulletId) ? scoreById.get(x.b.bulletId) : covers.reduce((s, u) => s + KIND_WEIGHT[u.kind], 0) + (isQuantified(x.b.text) ? 0.8 : 0);
+        const score = x.b.bulletId && scoreById.has(x.b.bulletId) && textById.get(x.b.bulletId) === x.b.text ? scoreById.get(x.b.bulletId) : covers.reduce((s, u) => s + KIND_WEIGHT[u.kind], 0) + (isQuantified(x.b.text) ? 0.8 : 0);
         return { ...x, value: sole.reduce((s, u) => s + KIND_WEIGHT[u.kind], 0) * 10 + score - ResumeDoc.lineCount(x.b.text, 450) * 0.3 };
       })
       .sort((a, b) => a.value - b.value);
@@ -1525,6 +1658,7 @@ module.exports = {
   tidyText,
   buildDoc,
   optimizeResume,
+  mergeTwins,
   pickSkills,
   addIndustryWords,
   fitDocToPages,

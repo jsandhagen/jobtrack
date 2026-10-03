@@ -92,8 +92,9 @@ test('questions about years and wording read plainly', () => {
 test('the optimizer says so when it keeps your own summary', () => {
   const opt = B.optimizeResume({ profile, bank: bank(), job: P.ctoChiefOfStaff });
   const own = bank().summary;
-  if (opt.doc.summary === own) assert.ok(opt.notes.some((n) => /Kept your own summary/.test(n)), opt.notes.join(' '));
-  else assert.ok(opt.notes.some((n) => /achievement in the summary/.test(n)), opt.notes.join(' '));
+  // Your own summary, as written or with its years brought up to your role dates, or one written for the posting.
+  if (opt.doc.summary === own || opt.doc.summary === own.replace(/\b5 years\b/, '7 years')) assert.ok(opt.notes.some((n) => /Kept your own summary/.test(n)), opt.notes.join(' '));
+  else assert.ok(opt.notes.some((n) => /Wrote a summary for this posting/.test(n)), opt.notes.join(' '));
 });
 
 // Third run, good fits and one-level step-ups:
@@ -172,6 +173,8 @@ const BANDS = {
   kickboardCI: [90, 100], workivaAlliance: [90, 100], zendeskAlliance: [80, 100], googlePublicSector: [80, 100],
   openaiPartnerMarketing: [65, 89], alignCorpDev: [65, 89], weyerhaeuserMarketIntel: [65, 89], ctoChiefOfStaff: [45, 64],
   salesforcePubSecCI: [65, 100], evenupCI: [65, 100], mark43SeniorCI: [80, 100], cyeraOctoStrategyOps: [80, 100], awsSapAlliances: [80, 100],
+  // Fourth run: CI roles in their lane; AWS alliances, partner marketing and GTM ops adjacent.
+  livepersonMarketCI: [90, 100], hightouchCIPMM: [90, 100], oktaAwsAlliance: [65, 89], zipGtmStrategyOps: [65, 89], panwAwsPartnerMarketing: [65, 89],
 };
 test('every saved live posting lands in its band', () => {
   assert.deepEqual(Object.keys(BANDS).sort(), Object.keys(P).sort(), 'a new posting in the fixture needs a band here');

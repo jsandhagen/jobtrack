@@ -118,21 +118,18 @@ function strategySummary(job, doc, ranked) {
     .sort((a, b) => inSector(b) - inSector(a) || isPrimary(b) - isPrimary(a) || (b.role === current) - (a.role === current) || b.rank.score - a.rank.score);
   // A verbatim, relevant accomplishment is stronger than a list of skills,
   // and cannot turn "supported" into "led" or borrow a metric from another job.
-  // One the page already shows isn't repeated whole: the summary keeps its
-  // main clause ("Led competitive intelligence for the CTO") and the bullet
-  // below gives the detail. One that has no shorter clause isn't used at all.
-  // Not one of the first two bullets of the latest role, though: the reader
-  // gets there a second later, so up top it would only say it twice.
-  const fresh = order(offPage)[0];
-  const wordCount = (t) => String(t).replace(/\s*\([^)]*\)/g, '').split(/\s+/).filter(Boolean).length;
-  const [firstBullet, secondBullet] = (current.bullets || []).slice(0, 2).map((b) => b.text);
-  // A clause that says something ("Advised product and GTM leaders" doesn't): seven words, or a result.
-  const clauseOk = (b) => { const c = mainClause(b.text); return wordCount(c) <= 0.8 * wordCount(b.text) && (wordCount(c) >= 7 || /\d/.test(c)); };
-  const shown = order(onPage.filter((b) => b.text !== firstBullet && b.text !== secondBullet)).find(clauseOk) || order(onPage.filter((b) => b.text === secondBullet)).find(clauseOk);
-  const proof = fresh && (!shown || inSector(fresh) >= inSector(shown)) && (!shown || isPrimary(fresh) || !isPrimary(shown) || inSector(fresh) > inSector(shown)) ? fresh : shown;
+  // Only one the page doesn't already show: a reader gets to the bullets a
+  // second later, and a summary that says one of them again (any of them, not
+  // only the first) spends the most-read lines on a repeat. And only the
+  // posting's own kind of work, or its sector: partnership reviews as the
+  // proof for a competitive intelligence manager read as off-lane. With
+  // nothing like that, the summary names the kinds of work and stops.
+  const inLane = (b) => !primaryKeys.size || isPrimary(b) || inSector(b);
+  const proof = order(offPage).find(inLane);
   if (!proof) return lead;
   // A long one reads as a second bullet up top: its main clause says enough.
-  const text = proof.offPage && wordCount(proof.text) <= 30 && !repeatsFigure(proof.text) ? proof.text.replace(/[.!?]+$/, '') : mainClause(proof.text);
+  const wordCount = (t) => String(t).replace(/\s*\([^)]*\)/g, '').split(/\s+/).filter(Boolean).length;
+  const text = wordCount(proof.text) <= 30 && !repeatsFigure(proof.text) ? proof.text.replace(/[.!?]+$/, '') : mainClause(proof.text);
   const achievement = proof.role !== current && proof.role.organization
     ? `At ${proof.role.organization}, ${text.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())}`
     : text;

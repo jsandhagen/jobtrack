@@ -24,6 +24,7 @@ const { htmlToText } = R('main/resumeRender');
 const { atsScore, libraryAtsScore } = R('main/atsScore');
 const { contactFromResume, contactPatch } = R('main/contact');
 const { resumeEnhancements } = R('main/resumeContext');
+const { resumeStrength } = R('main/resumeStrength');
 
 const DOCS = process.env.DOCS || path.join(__dirname, 'fixtures');
 const OUT = process.env.OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'sprout-pipeline-'));
@@ -58,22 +59,26 @@ function loadJobs() {
   const scoring = [...evidence, { kind: 'bank', text: [...bank.bullets.map((b) => b.text), bank.skills.join(', ')].join('\n') }];
   const pageOf = (doc) => htmlToText(ResumeDoc.renderHtml(ResumeDoc.compact(ResumeDoc.normalize({ ...doc, header: ResumeDoc.fillHeader(doc.header, profile) }))));
 
-  const lines = ['# Pipeline run', '', `Documents: ${store.allDocuments().map((d) => `${d.name} (${d.kind}${isEvidenceDoc(d) ? '' : ', not evidence'})`).join(', ')}`, '', `Bank: ${bank.experiences.length} roles, ${bank.bullets.length} bullets`, '', '| Posting | Fit | ATS: own best | untailored | optimized | ms |', '|---|---|---|---|---|---|'];
+  const lines = ['# Pipeline run', '', `Documents: ${store.allDocuments().map((d) => `${d.name} (${d.kind}${isEvidenceDoc(d) ? '' : ', not evidence'})`).join(', ')}`, '', `Bank: ${bank.experiences.length} roles, ${bank.bullets.length} bullets`, '', '| Posting | Fit | ATS: own best | untailored | optimized | strength | ms |', '|---|---|---|---|---|---|---|'];
   const detail = [];
   for (const job of loadJobs()) {
     const q = shownFit(localFitScore(job, scoring, profile));
     const own = libraryAtsScore(job, evidence, profile);
     const base = atsScore(job, pageOf(B.baselineDoc({ profile, bank, job })), { profile });
+    // As the app does: the document drafts "Ask if applicable" offers compete for the page.
+    const asks = resumeEnhancements({ job, bank, profile, documents: evidence, fit: q.score });
     const t = Date.now();
-    const opt = B.optimizeResume({ profile, bank, job });
+    const opt = B.optimizeResume({ profile, bank, job, evidence: asks.filter((a) => a.draft) });
     const ms = Date.now() - t;
     const page = pageOf(opt.doc);
     const ats = atsScore(job, page, { profile });
-    const asks = resumeEnhancements({ job, bank, profile, documents: evidence, fit: q.score });
-    lines.push(`| ${job.title} (${job.company || ''}) | ${q.score} ${q.label} | ${own ? own.score : '–'} | ${base.score} | ${ats.score}${ats.score < base.score ? ' ⚠️' : ''} | ${ms} |`);
-    detail.push(`\n## ${job.title} — ${job.company || ''}\n\nFit ${q.score} (${q.label}); missing: ${(q.missingSkills || []).join(', ') || 'none'}; screens: ${(q.screens || []).map((s) => s.reason).join('; ') || 'none'}\n\nATS ${ats.score} ${JSON.stringify(ats.components)}; missing phrases: ${ats.missingKeywords.join(', ')}\n\nOptimizer notes: ${opt.notes.join(' ')} ${opt.checks.join(' ')}\n\nAsk if applicable:\n${asks.map((a) => `- ${a.draft ? '[from documents] ' : ''}${a.text}${a.draft ? `\n  draft: ${a.draft}` : ''}`).join('\n') || '- (none)'}\n\n\`\`\`\n${page.replace(/\n\n+/g, '\n')}\n\`\`\``);
-    console.log(`${String(q.score).padStart(3)} ${q.label.padEnd(16)} ATS own ${own ? own.score : '–'} / untailored ${base.score} / optimized ${ats.score}  ${ms}ms  ${job.title}`);
+    const str = resumeStrength(opt.doc, job, { ranked: B.rankBullets(job, bank).ranked });
+    if (process.env.DUMP) (global.dump = global.dump || []).push({ job, doc: opt.doc, page, ats: ats.score, base: base.score, strength: str.score, grade: str.grade, notes: str.notes, merges: opt.merges });
+    lines.push(`| ${job.title} (${job.company || ''}) | ${q.score} ${q.label} | ${own ? own.score : '–'} | ${base.score} | ${ats.score}${ats.score < base.score ? ' ⚠️' : ''} | ${str.score.toFixed(2)} ${str.grade} | ${ms} |`);
+    detail.push(`\n## ${job.title} — ${job.company || ''}\n\nFit ${q.score} (${q.label}); missing: ${(q.missingSkills || []).join(', ') || 'none'}; screens: ${(q.screens || []).map((s) => s.reason).join('; ') || 'none'}\n\nATS ${ats.score} ${JSON.stringify(ats.components)}; missing phrases: ${ats.missingKeywords.join(', ')}\n\nStrength ${str.score.toFixed(2)} ${str.grade} ${JSON.stringify(Object.fromEntries(Object.entries(str.parts).map(([k, v]) => [k, v === null ? null : +v.toFixed(2)])))}${str.notes.length ? `; ${str.notes.join(' ')}` : ''}\n\nOptimizer notes: ${opt.notes.join(' ')} ${opt.checks.join(' ')}${(opt.merges || []).map((m) => `\n\nSuggested merge: ${m.text}`).join('')}\n\nAsk if applicable:\n${asks.map((a) => `- ${a.draft ? '[from documents] ' : ''}${a.text}${a.draft ? `\n  draft: ${a.draft}` : ''}`).join('\n') || '- (none)'}\n\n\`\`\`\n${page.replace(/\n\n+/g, '\n')}\n\`\`\``);
+    console.log(`${String(q.score).padStart(3)} ${q.label.padEnd(16)} ATS own ${own ? own.score : '–'} / untailored ${base.score} / optimized ${ats.score} / strength ${str.score.toFixed(2)} ${str.grade}  ${ms}ms  ${job.title}`);
   }
   fs.writeFileSync(path.join(OUT, 'pipeline.md'), [...lines, ...detail].join('\n'));
+  if (process.env.DUMP) fs.writeFileSync(path.join(OUT, 'pipeline.json'), JSON.stringify(global.dump || [], null, 1));
   console.log(`\nDetails: ${path.join(OUT, 'pipeline.md')}`);
 })().catch((e) => { console.error(e); process.exit(1); });

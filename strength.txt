@@ -1,10 +1,10 @@
 RESUME STRENGTH SCORE: RATIONALE
 ================================
 
-Status (October 2026): in UAT (src/main/resumeStrength.js). The one-click
-optimizer scores every candidate page for strength, which takes "optimize"
-from about 250 ms to about 420 ms. That's accepted: optimize shows a spinner
-from the click. Caching can still bring it down (see Open items).
+Status (October 2026): in UAT (src/main/resumeStrength.js), and now the
+optimizer's goal. ATS is a floor, not the target: see "Hiring manager first"
+at the end. Optimize runs ~220-400 ms on the big-library bench (the strength
+score caches its posting-side work and line comparisons).
 
 
 WHY A SECOND SCORE
@@ -131,11 +131,53 @@ still marked down are:
     (wood products industry; M&A execution), because the documents don't.
 
 Open items before release:
-  1. Speed (accepted at ~420 ms with a spinner): caching the posting-side
-     work (requirements, sectors, themes) once per posting, and each line's
-     matches once per line, would bring optimize back toward ~250 ms.
-  2. Tests for resumeStrength itself (echo, objective, sector, lead), and
-     running the strength grade in test/e2e/pipeline.js so each e2e report
-     shows it.
-  3. A second candidate in another field, to check the weights and grade
+  1. A second candidate in another field, to check the weights and grade
      edges hold beyond this persona.
+  2. An independent judge: pairwise "which would you interview?" comparisons
+     (a person, or Claude with a hiring-manager rubric) on the saved
+     postings, to check this score agrees with a reader rather than with
+     itself.
+(Done: caching for speed; tests in test/resumeStrength.test.js; the
+strength grade in test/e2e/pipeline.js.)
+
+
+HIRING MANAGER FIRST (October 2026)
+-----------------------------------
+The optimizer now values a page at
+
+    100 x strength + 0.5 x ATS - 5 x (points below the floor)
+
+with the floor at 75 (or where the page started, if lower). Above the floor
+0.01 of strength is worth 2 ATS points; below it each point costs a lot.
+
+The strength score also checks, in its parts:
+  - Lead: the first bullet is the work the job is titled for (CI for a CI
+    manager) when the role shows it (x0.75 if not); it isn't a supporting
+    verb ("Collaborated", "Provided": x0.8, second bullet x0.9); a senior
+    posting's first two show ownership or scale (x0.85). Proof from the
+    posting's sector counts as top-ranked ("deals with the Army, Navy and
+    DARPA" for a public sector role).
+  - Summary: repeating any bullet costs (first 0.4, second 0.75, others
+    0.8); a proof sentence outside the posting's kind of work 0.8; years that
+    disagree with the role dates (5 claimed, 7 dated) 0.75, overclaiming 0.6.
+
+And the optimizer:
+  - Tries every pair for the latest role's first two bullets (the ranker
+    orders the rest).
+  - Writes the summary's proof only from an accomplishment off the page, in
+    the posting's kind of work or sector; otherwise names the kinds of work
+    and stops. No more "SaaS experience at Appian." sentences.
+  - Offers your own summary with its years brought up to the role dates.
+  - Lets draft bullets from your other documents (the ones "Ask if
+    applicable" offers, good fits only, none that are thin) compete for the
+    page. One that makes it carries a flag to check before sending, and
+    isn't in the bank until saved.
+  - Suggests a merged bullet (Use / Dismiss in the editor) when two bank
+    bullets tell one result and the one left out adds ATS or is among the
+    strongest for the posting; built only from the two bullets' own words.
+  - Claude's drafts, when trimmed to fit, keep the first two bullets of the
+    latest role, and a rewritten bullet is valued by its new words.
+
+Run on 18 saved postings (13 earlier + 5 new good fits: Okta, LivePerson,
+Hightouch, Zip, Palo Alto Networks), mean ATS 79.3 -> 80.3 and strength 0.82
+(main) / 0.86 (previous UAT) -> 0.88.

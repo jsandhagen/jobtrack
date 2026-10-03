@@ -22,7 +22,7 @@ const { isEvidenceDoc, isFictionalSample } = require('./sourceEvidence');
 // bullets from anything in the documents) inside the fixed layout and the
 // truthfulness rules; the page goes to the most relevant roles. Repeated
 // bullets across documents are sent once.
-const PROMPT_VERSION = '2026-10-03.2';
+const PROMPT_VERSION = '2026-10-03.3';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -165,7 +165,7 @@ The goal is one page that makes the candidate's fit for this specific posting ob
 
 Roles (<role_list>):
 - Every role in the list is real and comes from the candidate's documents. Refer to roles only by their role_id. Include every job-type role in the list so the work history has no unexplained gaps, in the order given (most recent first); include a project only when it shows something the posting asks for. The list already leaves out roles the candidate doesn't want on a resume, such as internships once they have two years of other work; don't bring those back from the documents. A role that ended more than ten years ago and shows nothing the posting asks for may be left out, so the page goes to recent, relevant work.
-- Spend the page where it proves the most: the roles that best show what this posting asks for get the most bullets (up to 6 or 7), older or less relevant roles 1 to 3. One page holds about 12 to 16 bullets in all; stay within that, because a page that runs over is cut back by the app's keyword ranking, which can drop the bullets you chose most carefully.
+- Spend the page where it proves the most: the roles that best show what this posting asks for get the most bullets (up to 6 or 7), older or less relevant roles 1 to 3. One page holds about 12 to 16 bullets in all; stay within that, because a page that runs over is cut back by the app, weakest bullets first (it keeps the first two of the latest role), which can still drop ones you chose carefully.
 
 Bullets — you have a free hand with the content, as long as every fact is the candidate's:
 - <picked_bullets> is what is on the candidate's page now. Treat it as a starting point, not a limit. Build the strongest page for this posting from everything available: any bullet in <role_list>, and evidence anywhere in the candidate documents — other versions of their resume, project write-ups, reviews, cover letters, notes. Swap out a picked bullet whenever something else proves more of what this posting asks for.

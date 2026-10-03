@@ -52,8 +52,10 @@ test('required investment and transformation work outranks optional technical ex
   const bank = bankFor(F.RESUMES.ctoOfficeStrategist);
   const { doc } = B.optimizeResume({ profile, bank, job: F.POSTINGS.techStrategyManagerBig4 });
   assert.match(doc.roles[0].bullets[0].text, /due diligence|Evaluated.*vendors/);
-  // The investment / transformation work, from the consulting role, without repeating its bullet.
-  assert.match(doc.summary, /At Deloitte Consulting, (?:developed IT strategies, technology roadmaps and business cases|assessed IT operating models and built cost models)/);
+  // The investment / transformation work leads the summary's kinds of work. Its
+  // proof (the Deloitte bullet) is on the page, so the summary doesn't say it again.
+  assert.match(doc.summary, /working across technology strategy, financial analysis/);
+  assert.ok(!repeatsPage(doc), 'the summary repeats no bullet');
   assert.match(doc.roles.find((r) => /Deloitte/.test(r.organization)).bullets[0].text, /IT strategies|cost models/);
 });
 

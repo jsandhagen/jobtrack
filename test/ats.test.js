@@ -211,14 +211,15 @@ test('the employer is recognised in Sprout’s own layout too (name on its own l
   assert.deepEqual(atsScore(SAAS_JOB, mention).fixable, []);
 });
 
-test('the optimizer says the industry once in your own summary, and gives the posting’s words beside yours', () => {
+test('the optimizer says the industry once in your own summary, beside the employer, and gives the posting’s words beside yours', () => {
+  // A summary that doesn't name the employer gets no "SaaS experience at Appian." sentence: a hiring manager reads it as keyword filler.
   const doc = { summary: 'Strategist who turns research into roadmaps.', roles: [{ organization: 'Appian', title: 'Consultant', dates: 'Jul 2022 – Present', bullets: [] }], skills: [] };
-  assert.equal(bulletBank.addIndustryWords(doc, SAAS_JOB).added[0].term, 'SaaS');
-  assert.equal(doc.summary, 'Strategist who turns research into roadmaps. SaaS experience at Appian.');
-  assert.equal(bulletBank.addIndustryWords(doc, SAAS_JOB).added.length, 0, 'once');
+  assert.equal(bulletBank.addIndustryWords(doc, SAAS_JOB).added.length, 0);
+  assert.equal(doc.summary, 'Strategist who turns research into roadmaps.');
   const named = { summary: 'Consultant at Appian who builds roadmaps.', roles: doc.roles, skills: [] };
-  bulletBank.addIndustryWords(named, SAAS_JOB);
+  assert.equal(bulletBank.addIndustryWords(named, SAAS_JOB).added[0].term, 'SaaS');
   assert.equal(named.summary, 'Consultant at Appian (SaaS) who builds roadmaps.');
+  assert.equal(bulletBank.addIndustryWords(named, SAAS_JOB).added.length, 0, 'once');
   // Not for an employer the list doesn't know.
   const other = { summary: 'Analyst.', roles: [{ organization: 'Deloitte Consulting', dates: '2017 – 2022', bullets: [] }], skills: [] };
   assert.equal(bulletBank.addIndustryWords(other, SAAS_JOB).added.length, 0);

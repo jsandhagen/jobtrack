@@ -310,6 +310,7 @@ async function switchMode(mode, btn = null) {
   const busy = btn && mode !== 'claude' ? showBusy(btn, mode === 'ats' ? 'Optimizing…' : mode === 'baseline' ? 'Restoring…' : 'Undoing…') : () => {};
   if (!await saveNow()) return busy();
   ed.polish = new Map();
+  ed.mergesOffered = new Set(); // a fresh page gets its merge suggestions again
   ed.held = [];
   const appId = ed.appId;
   if (mode === 'claude') {
@@ -378,6 +379,16 @@ async function renderEditor(appId, app) {
   if (!typing) ed.doc = JSON.parse(JSON.stringify(info.doc));
   if (ed.loadedFor !== appId || !typing) forgetHistory();
   ed.loadedFor = appId;
+  // The optimizer's merged bullets (two that tell one result), offered once
+  // per visit as suggestions on the bullet that stays: Use or Dismiss.
+  if (!ed.mergesOffered) ed.mergesOffered = new Set();
+  for (const m of info.merges || []) {
+    const seen = `${appId}\u0000${m.text}`;
+    if (ed.mergesOffered.has(seen)) continue;
+    ed.doc.roles.forEach((role, r) => role.bullets.forEach((b, i) => {
+      if (b.bulletId === m.bulletId && b.text === m.from && !ed.polish.has(`${r}:${i}`)) (ed.polish.set(`${r}:${i}`, { text: m.text, why: m.why }), ed.mergesOffered.add(seen));
+    }));
+  }
   const keep = activeField();
 
   slot.innerHTML = `
@@ -984,7 +995,7 @@ function checksPanel() {
   // Open whenever there's something to check: the banner above the page sends you here.
   return `<details class="tray-card checks" ${n ? 'open' : ''}>
     <summary><b>${n ? `${icon('search', 16)} Check before sending (${n})` : `${icon('note', 16)} Notes from Root`}</b></summary>
-    ${flagged.length ? `<p class="faint" style="margin:6px 0">These bullets say something your documents don't show. Fix the wording, or confirm it's true.</p>` : ''}
+    ${flagged.length ? `<p class="faint" style="margin:6px 0">Check these bullets before sending. Fix the wording, or confirm it's accurate.</p>` : ''}
     ${flagged
       .map(
         (f) => `<div class="sug-row"><div><b>${esc(f.role.title || f.role.organization || 'Role')}:</b> ${esc(f.bullet.text)}</div>

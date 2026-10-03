@@ -54,8 +54,11 @@ DOCS=<docs folder> JOBS=<postings.json> OUT=<scratchpad>/pipeline node test/e2e/
 This prints fit and ATS for each posting: their own best resume, the
 untailored bank and the free optimizer. It writes `pipeline.md` with each
 optimized page, the optimizer's notes and the "Ask if applicable" suggestions.
-**Read the optimized resumes** and grade them as a recruiter would: do they
-lead with the work the posting is about? Then judge the fit scores. Would
+**Read the optimized resumes** and grade them as a hiring manager would: do they
+lead with the work the posting is about? Each page's strength (the optimizer's
+hiring-manager read; ATS is only its floor) is in the table, with its notes.
+Bullets drafted from documents are marked `flag` on the doc (dump with
+`DUMP=1` for `pipeline.json`); the merges it offers are listed per posting. Then judge the fit scores. Would
 this person really be "Excellent" / "Stretch" for that job?
 
 The Claude path needs an API key, and cloud sessions have none. To assess it,
@@ -124,7 +127,7 @@ and new, and run it 2–3 times because the numbers vary.
 | Action | Usable | Last measured (Oct 2026) |
 |---|---|---|
 | open a job, first / later | < ~250 ms / < ~100 ms | ~115 / ~30 ms |
-| optimize | < ~500 ms, with a spinner from the click (it also scores resume strength) | ~420 ms |
+| optimize | < ~500 ms, with a spinner from the click (it also scores resume strength and weighs document drafts) | ~220–400 ms |
 | editor open | < ~100 ms | ~25 ms |
 | `state:get` while rescoring | < ~20 ms | 1–2 ms |
 | longest stall during clicks | < ~500 ms (the optimize click; other clicks < ~350 ms) | ~450 ms |

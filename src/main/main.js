@@ -704,7 +704,10 @@ function withAts(rec) {
   // "Ask if applicable": what the fit is missing that you may have done but not written down.
   // Not what "Do you have it?" already asks on the same page.
   const asked = rec.quick ? missingAsks(rec.job, rec.quick).map((x) => x.ask) : [];
-  const contextAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestionsSoon({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined, asked, fit: rec.quick ? rec.quick.score : null }, rec.id) : [];
+  const allAsks = rec.job && String(rec.job.text || '').trim() && bank.experiences.length ? contextSuggestionsSoon({ job: rec.job, bank, profile: store.getProfile(), units: ranked ? ranked.units : undefined, asked, fit: rec.quick ? rec.quick.score : null }, rec.id) : [];
+  // A draft the optimizer already put on this resume isn't offered again.
+  const onResume = new Set(((rec.builder && rec.builder.doc && rec.builder.doc.roles) || []).flatMap((r) => (r.bullets || []).map((b) => b.text)));
+  const contextAsks = allAsks.filter((a) => !a.draft || !onResume.has(bulletBank.tidyText(a.draft)));
   return { ...rec, ats: { before, after, nudges }, evidence, contextAsks };
 }
 
@@ -799,7 +802,7 @@ async function makeResume(appId) {
     const spill = ResumeDoc.measure(doc, { scale: pageScale() });
     const limit = want === '1' || (want !== '2' && spill.pages === 2 && spill.lastPageFill < 0.3) ? 1 : 2;
     if (!ResumeDoc.fits(doc, limit, { scale: pageScale() })) {
-      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit, { scale: pageScale() });
+      const fit = bulletBank.fitDocToPages(doc, rec.job, bank, limit, { scale: pageScale(), keepLeads: true });
       doc = fit.doc;
       const n = fit.removed.length;
       if (n) notes = [...notes, `Took off ${n} of the weakest bullet${n === 1 ? '' : 's'} so it fits on ${limit === 1 ? 'one page' : 'two pages'}.`];
@@ -900,8 +903,10 @@ function makeAtsResume(appId) {
   store.saveApplication(appId);
   const profile = store.getProfile();
   const header = rec.builder && rec.builder.doc ? ResumeDoc.fillHeader(rec.builder.doc.header, profile) : undefined;
-  const optimized = bulletBank.optimizeResume({ profile, bank, job: rec.job, header, pages: store.getSettings().resumePages, scale: pageScale() });
-  saveDoc(appId, optimized.doc, { resumeSource: 'ats', resumeError: null, resumeChecks: optimized.checks, resumeNotes: optimized.notes, atsFit: { pages: optimized.pages, why: optimized.why, fixes: optimized.fixes }, builderPrev: undoPoint(rec) });
+  // Draft bullets from your other documents compete for the page (good fits only: the same list "Ask if applicable" offers).
+  const evidence = rec.job && String(rec.job.text || '').trim() ? contextSuggestions({ job: rec.job, bank: storedBank, profile, fit: rec.quick ? rec.quick.score : null }).filter((a) => a.draft) : [];
+  const optimized = bulletBank.optimizeResume({ profile, bank, job: rec.job, header, pages: store.getSettings().resumePages, scale: pageScale(), evidence });
+  saveDoc(appId, optimized.doc, { resumeSource: 'ats', resumeError: null, resumeChecks: optimized.checks, resumeNotes: optimized.notes, atsFit: { pages: optimized.pages, why: optimized.why, fixes: optimized.fixes, merges: optimized.merges || [] }, builderPrev: undoPoint(rec) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
   hostUpdated(updated);
   return updated;
@@ -1125,6 +1130,8 @@ function builderState(rec) {
     // What the code-side checks found in Claude's draft, and Claude's own notes.
     checks: ['claude', 'ats'].includes(rec.resumeSource) ? rec.resumeChecks || [] : [],
     notes: ['claude', 'ats'].includes(rec.resumeSource) ? rec.resumeNotes || [] : [],
+    // Merged bullets the optimizer suggests (two bank bullets that tell one result).
+    merges: resumeMode(rec) === 'ats' && rec.atsFit ? rec.atsFit.merges || [] : [],
     flagged: doc.roles.flatMap((r) => r.bullets.filter((b) => b.flag).map((b) => ({ role: r.title || r.organization, text: b.text, flag: b.flag }))),
   };
 }
