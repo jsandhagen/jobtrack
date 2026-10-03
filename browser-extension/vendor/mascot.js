@@ -284,12 +284,13 @@
     return pick(LINES[moodForScore(score)], seed);
   }
 
-  // A fit score's band (src/shared/fitScale.js); other 0-100 scores, like
-  // ATS visibility where around 75 is plenty, keep the 65 / 45 bands.
-  function scoreColor(score, fit = false) {
+  // A fit score's band (src/shared/fitScale.js); ATS screening's (75+ strong,
+  // 60-74 in the running, src/main/atsScore.js); other 0-100 scores keep 65 / 45.
+  function scoreColor(score, kind = false) {
     const B = window.FitScale.BANDS;
-    if (score >= (fit ? B.strong : 65)) return 'var(--band-hi)';
-    if (score >= (fit ? B.good : 45)) return 'var(--band-mid)';
+    const [hi, mid] = kind === true || kind === 'fit' ? [B.strong, B.good] : kind === 'ats' ? [75, 60] : [65, 45];
+    if (score >= hi) return 'var(--band-hi)';
+    if (score >= mid) return 'var(--band-mid)';
     return 'var(--band-lo)';
   }
 
@@ -304,7 +305,7 @@
     const r = (size - stroke) / 2;
     const c = 2 * Math.PI * r;
     const mid = size / 2;
-    const color = fixed || scoreColor(pct, caption === 'fit');
+    const color = fixed || scoreColor(pct, caption === 'fit' ? 'fit' : caption === 'ATS' ? 'ats' : false);
     const shownNum = Math.round(shown ?? score);
     return `<div class="ring" style="width:${size}px;height:${size}px">
   <svg width="${size}" height="${size}" aria-hidden="true"><circle class="track" cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="color-mix(in srgb, ${color} 16%, var(--surface-2))" stroke-width="${stroke}"/>

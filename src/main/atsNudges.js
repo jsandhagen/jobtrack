@@ -88,6 +88,19 @@ function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
     });
   }
 
+  // A basic qualification the skills don't name ("experience in alliances or
+  // channel sales", "CCNP or CCNA") that this page doesn't show: screening
+  // reads it word for word, so ask, and say how to show it if it's true.
+  const quals = (ats.missingQualifications || []).map(plainQualification).filter(Boolean);
+  if (quals.length) {
+    const shown = quals.slice(0, 2);
+    out.push({
+      id: 'ask:qualifications',
+      tone: 'ask',
+      text: `The posting requires ${list(shown.map((q) => `“${q}”`))}, and this page doesn't say ${shown.length === 1 ? 'it' : 'them'} in words screening software will recognise. If your work fits, describe it the posting's way in a bullet; if not, that's fine: postings list more than most hires have.`,
+    });
+  }
+
   // 4. Skills you show in other words than the posting's (strict systems match literally).
   const wording = (ats.wordingTips || []).filter((w) => !INTERPERSONAL.has(w.skill) && !SOFT_SKILLS.has(w.skill) && !INDUSTRIES.has(w.skill) && !has(pageText, w.term));
   if (wording.length) {
@@ -127,7 +140,7 @@ function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
     out.push({ id: 'screen:ask', tone: 'ask', text: `${u.replace(/; add your/, '. Add your').replace(/\.?$/, '.')} Then I can check it for you.`, action: { type: 'profile', label: 'Open Profile' } });
   }
   if (ats.titleExact === false && job && job.title) {
-    out.push({ id: 'title', tone: 'tip', text: `If “${job.title}” honestly describes what you do, using those words in your summary helps recruiters who search by title.` });
+    out.push({ id: 'title', tone: 'tip', text: `If “${job.title}” honestly describes what you do, using those words in your summary helps when recruiters search or filter applicants by title.` });
   }
 
   // What the optimizer already did, while it's still on the page.
@@ -146,6 +159,15 @@ function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
   viaOptimizer.slice(0, -1).forEach((x) => delete x.action);
   if (viaOptimizer.length > 1) viaOptimizer[viaOptimizer.length - 1].action.label = `Fix ${viaOptimizer.length === 2 ? 'both' : 'these'} with the ATS optimizer`;
   return { headline, fixed, nudges: shown, more: Math.max(0, out.length - SHOWN), later: out.slice(SHOWN) };
+}
+
+// "one of CCNP, CCNA" -> "CCNP or CCNA"; "experience in alliances or channel
+// sales or partner operations" stays as the posting put it.
+function plainQualification(label) {
+  const m = String(label || '').match(/^(?:one|several) of (.+?)…?$/);
+  if (!m) return String(label || '').trim();
+  const parts = m[1].split(/,\s*/).filter(Boolean);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} or ${parts[parts.length - 1]}` : parts[0];
 }
 
 module.exports = { atsNudges };

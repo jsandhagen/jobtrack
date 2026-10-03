@@ -20,7 +20,7 @@ test('fit explanation matches the fit score weights', () => {
 });
 
 test('ATS explanation matches the ATS score weights', () => {
-  const said = { hardSkills: 'Hard skills', parseability: 'parse-ready format', jobTitle: 'Job title', experience: 'years', education: 'education', keywords: 'other keywords', softSkills: 'Soft skills' };
+  const said = { hardSkills: 'Hard skills', qualifications: 'Basic qualifications', parseability: 'parse-ready format', jobTitle: 'Job title', experience: 'years', education: 'education', keywords: 'other keywords', softSkills: 'Soft skills' };
   for (const [k, w] of Object.entries(ATS)) assert.match(TOPICS.ats.body, new RegExp(`${said[k]} ${pct(w)}`), k);
 });
 

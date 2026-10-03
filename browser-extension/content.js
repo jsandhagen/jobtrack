@@ -1,6 +1,6 @@
 // Runs on every page. When the page shows a job posting, Sprout pops up in
 // the corner with the same card the desktop app shows: your fit score, the
-// ATS match, and "Add this job to your saved jobs?". Nothing is saved until
+// ATS screening, and "Add this job to your saved jobs?". Nothing is saved until
 // you say so.
 //
 // Follows single-page sites like LinkedIn, where clicking another job swaps

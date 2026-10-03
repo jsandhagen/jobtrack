@@ -1,6 +1,12 @@
-// An "ATS match" score: how an applicant tracking system is likely to see a
-// resume for a given posting. Vendors keep their exact algorithms private, so
-// this combines the behaviour they *do* document:
+// An "ATS match" score: how an applicant tracking system is likely to read a
+// resume submitted for a given posting. Most people apply, so the score models
+// screening an application, not a recruiter searching the whole database: the
+// resume is parsed into fields, screening questions and basic qualifications
+// (years, degree, required skills) knock applicants out, and the pool is
+// ranked by how well skills match. The exact job title and the posting's
+// literal phrases matter when a recruiter keyword-filters the pool, so they
+// count, but little. Vendors keep their exact algorithms private, so this
+// combines the behaviour they *do* document:
 //
 //  - Workday HiredScore grades A–D by how many of the posting's basic
 //    (required) and preferred qualifications are met: A = all basic + most
@@ -24,14 +30,35 @@ const { memoize } = require('./memo');
 
 
 const WEIGHTS = {
-  hardSkills: 0.35,
-  parseability: 0.2,
-  jobTitle: 0.1,
+  hardSkills: 0.3,
+  qualifications: 0.25,
+  parseability: 0.15,
   experience: 0.1,
   education: 0.1,
-  keywords: 0.1,
-  softSkills: 0.05,
+  jobTitle: 0.04,
+  keywords: 0.03,
+  softSkills: 0.03,
 };
+
+// Basic qualifications met, as HiredScore grades an application: every
+// must-have the posting states, read the way the fit score reads them
+// (localFit.js requirementUnits). That includes what the skills dictionary
+// doesn't name: the kind of experience asked for ("5+ years of network
+// engineering experience"), a certification ("CCNP or CCNA"), a tool ("BGP").
+// Degrees and years have their own parts; soft skills aren't screened on.
+function scoreQualifications(job, resumeText) {
+  const { requirementUnits } = require('./localFit'); // lazy: localFit requires this module
+  const units = requirementUnits(job).units.filter((u) => u.kind === 'required' && !/degree|^PhD\b/i.test(u.label) && !((u.skills || []).length && u.skills.every((k) => INTERPERSONAL.has(k) || SOFT_SKILLS.has(k))));
+  if (!units.length) return null;
+  const t = lower(resumeText);
+  const met = units.map((u) => ({ u, m: Math.min(1, u.match(t, resumeText)) }));
+  const weight = (u) => u.weight ?? 1;
+  const wsum = met.reduce((s, x) => s + weight(x.u), 0);
+  // Only those the skills part doesn't already report ("one of Python, Java, C++")
+  // are listed on their own: a term or a kind of experience.
+  const ownLine = (u) => /^(?:t|x):/.test(u.key) || /(?:^|\|)t:/.test(u.key.replace(/^any:/, ''));
+  return { score: met.reduce((s, x) => s + x.m * weight(x.u), 0) / wsum, units: met.filter(({ u }) => ownLine(u)).map(({ u, m }) => ({ label: u.label, met: m >= 0.6 })) };
+}
 
 // Abbreviations end in "." so plain \b boundaries don't work; use lookarounds.
 const DEGREE_LEVELS = [
@@ -353,6 +380,7 @@ function scoreKeywordWords(jobText, resumeLower, company) {
 }
 
 // What a parser needs to fill a candidate profile cleanly.
+const ADVICE_CHECKS = new Set(['length', 'quantified']);
 function scoreParseability(resumeText, layout) {
   const t = resumeText;
   const tl = lower(t);
@@ -385,7 +413,10 @@ function scoreParseability(resumeText, layout) {
     { id: 'length', ok: words >= 250 && words <= 1100, tip: words < 250 ? 'The resume is quite short — add detail to your most relevant roles.' : 'Keep it to about two pages; some systems truncate long resumes.' },
     { id: 'quantified', ok: quantified >= 3, tip: 'Add numbers to a few bullets (%, $, team size, time saved) — both ATS rankers and recruiters favour quantified impact.' },
   ];
-  return { score: checks.filter((c) => c.ok).length / checks.length, checks, words };
+  // Length and numbers are advice for the reader, not something a parser
+  // needs: they're shown as tips but don't count toward the score.
+  const parsed = checks.filter((c) => !ADVICE_CHECKS.has(c.id));
+  return { score: parsed.filter((c) => c.ok).length / parsed.length, checks, words };
 }
 
 // Parsers fill structured start/end fields from these, and Workday / iCIMS
@@ -415,7 +446,7 @@ function dateFormatCheck(text) {
 function hiredScoreStyleGrade({ basicMet, basicTotal, preferredMet, preferredTotal, score }) {
   const basicRatio = basicTotal ? basicMet / basicTotal : 1;
   const prefRatio = preferredTotal ? preferredMet / preferredTotal : 1;
-  if (basicRatio === 1 && prefRatio >= 0.5 && score >= 75) return 'A';
+  if (basicRatio === 1 && prefRatio >= 0.5) return 'A';
   if (basicRatio === 1) return 'B';
   if (basicRatio > 0.5) return 'C'; // "most" basic qualifications
   return 'D';
@@ -431,7 +462,7 @@ function gradeFromQualifications(quals, score) {
   const allBasic = basic.every((q) => q.status === 'met');
   const basicRatio = basic.length ? basic.reduce((s, q) => s + val(q), 0) / basic.length : 1;
   const prefRatio = pref.length ? pref.reduce((s, q) => s + val(q), 0) / pref.length : 1;
-  if (allBasic && prefRatio >= 0.5 && score >= 75) return 'A';
+  if (allBasic && prefRatio >= 0.5) return 'A';
   if (allBasic) return 'B';
   if (basicRatio > 0.5) return 'C'; // "most" basic qualifications
   return 'D';
@@ -475,11 +506,13 @@ function atsScore(job, resumeText, opts = {}) {
   const education = scoreEducation(job.text, resumeText);
   const experience = scoreExperience(job.text, resumeText);
   const keywords = scoreKeywords(job.text, resumeLower, job.company);
+  const quals = scoreQualifications(job, resumeText);
   const parse = checkFormatting ? scoreParseability(resumeText, opts.layout) : null;
 
   const components = {
     hardSkills: skills.hard.total ? skills.hard.have / skills.hard.total : null,
     softSkills: skills.soft.total ? skills.soft.have / skills.soft.total : null,
+    qualifications: quals ? quals.score : null,
     jobTitle: title ? title.score : null,
     education: education ? education.score : null,
     experience: experience ? experience.score : null,
@@ -515,6 +548,12 @@ function atsScore(job, resumeText, opts = {}) {
     }
   }
   const knockouts = basic.filter((u) => !u.met && !u.implied).map((u) => `${u.label} (posting says "${u.term}")`);
+  // The basic qualifications the dictionary doesn't name count the same way.
+  if (quals) {
+    basicTotal += quals.units.length;
+    basicMet += quals.units.filter((q) => q.met).length;
+    for (const q of quals.units) if (!q.met) knockouts.push(q.label);
+  }
   if (education) {
     basicTotal++;
     if (education.score >= 0.5) basicMet++;
@@ -568,6 +607,9 @@ function atsScore(job, resumeText, opts = {}) {
     wordingTerms: skills.wordingTips.map((w) => w.term),
     wordingTips: skills.wordingTips,
     missingKeywords: keywords ? keywords.missing : [],
+    // Basic qualifications the skills don't cover (a kind of experience, a
+    // certification, a tool) that this page doesn't show.
+    missingQualifications: quals ? quals.units.filter((q) => !q.met).map((q) => q.label) : [],
     formatChecks: parse ? parse.checks.map(({ id, ok }) => ({ id, ok })) : null,
     tips: tips.slice(0, 10),
   };

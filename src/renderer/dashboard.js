@@ -386,7 +386,7 @@ async function renderResumePage(id) {
         </div>
         <details style="margin-top:8px" ${hasText ? 'open' : ''}><summary class="faint">${hasText ? 'The posting or keywords it’s aimed at' : 'Aim it at a posting or keywords (optional)'}</summary>
           <textarea id="rsText" style="min-height:120px;margin-top:6px" placeholder="Paste a job posting, or the skills and keywords you want this version to show. Leave empty for a general resume.">${esc(r.job.text || '')}</textarea>
-          <div class="inline" style="margin-top:6px"><button class="small soft" id="rsAim">Update the checklist</button><span class="faint">The requirements checklist and ATS visibility next to the page use this.</span></div>
+          <div class="inline" style="margin-top:6px"><button class="small soft" id="rsAim">Update the checklist</button><span class="faint">The requirements checklist and ATS screening next to the page use this.</span></div>
         </details>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;min-width:150px">
@@ -752,7 +752,7 @@ function appRow(a, manage = false) {
   }<div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}${busy ? ' busy' : ''}" style="--s:${a.score}" title="${busy ? 'Refreshing the score…' : a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${busy ? '<span class="spinner"></span>' : a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
     ${followUpDue(a) ? `<span class="chip due">${icon('clock', 14)} follow up</span>` : ''}
-    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS visibility: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
+    ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS screening: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
     ${a.hasResume || a.hasLetter ? `<span class="chip ic-only good" title="${[a.hasResume && 'Tailored resume', a.hasLetter && 'cover letter'].filter(Boolean).join(' + ')}">${a.hasResume ? icon('doc', 15) : ''}${a.hasLetter ? icon('letter', 15) : ''}</span>` : ''}
     <span class="status ${a.status}">${esc(STATUS_LABEL[a.status] || a.status)}</span>${manage ? appMenu(a) : ''}</div>`;
 }
@@ -1047,9 +1047,9 @@ function atsPanel(ats) {
   const skillSteps = { Low: 1, Fair: 2, Good: 3, Strong: 4 }[main.skillsMatch];
   const kos = main.knockouts.length;
   return `<div class="card ats-card" id="atsCard">
-    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('search', 22)} ATS visibility ${infoBtn('ats')}</h2>
-      <p class="faint">How easily screening software finds ${a ? 'your tailored resume' : 'your current resume'} when recruiters search for this posting. It's about being found, not a judgement of you. Around 75% is plenty.</p></div>
-      ${delta === null ? '' : `<span class="chip ${delta >= 5 ? 'good' : ''}" style="font-size:13px">${delta >= 5 ? `Easier to find than your current resume (+${delta})` : delta <= -5 ? `A little harder to find than your current resume (${delta})` : 'About as easy to find as your current resume'}</span>`}</div>
+    <div class="page-head" style="margin-bottom:10px"><div><h2 class="with-icon" style="margin:0">${icon('search', 22)} ATS screening ${infoBtn('ats')}</h2>
+      <p class="faint">How screening software is likely to read ${a ? 'your tailored resume' : 'your current resume'} when you apply: the must-haves, years and degree it checks, and how well your skills match. It rates the resume, not you. 75+ is strong; 60–74 is in the running.</p></div>
+      ${delta === null ? '' : `<span class="chip ${delta >= 5 ? 'good' : ''}" style="font-size:13px">${delta >= 5 ? `Reads better than your current resume (+${delta})` : delta <= -5 ? `Reads a little worse than your current resume (${delta})` : 'Reads about the same as your current resume'}</span>`}</div>
     <div class="ats-sides">${side(b, `Your current resume${b && b.basis ? ` · ${esc(b.basis)}` : ''}`)}<div class="ats-arrow">→</div>${side(a, 'Tailored resume')}</div>
     ${nudgeCard(ats.nudges, { appId: ats.appId })}
     <details class="ats-more"><summary class="section-title">See the full breakdown</summary>

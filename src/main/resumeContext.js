@@ -390,7 +390,7 @@ function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [
     .map((x) => ({
       id: `context:${x.phrase}`, topic: x.phrase,
       question: `Your bullets mention “${x.near}”. If that work included ${x.phrase}, describe it in those words: what you did and what came of it.`,
-      tone: 'ask', text: `The posting says “${x.phrase}”; your bullets say “${x.near}”. If it's the same work, saying it the posting's way helps an ATS search find it.`,
+      tone: 'ask', text: `The posting says “${x.phrase}”; your bullets say “${x.near}”. If it's the same work, saying it the posting's way helps screening software recognise it.`,
       action: { type: 'add-context', key: `context:${x.phrase}`, label: 'Add context (optional)' },
     }));
 

@@ -1,4 +1,4 @@
-// The Sprout card: the same popup the desktop app shows (score, ATS match,
+// The Sprout card: the same popup the desktop app shows (score, ATS screening,
 // "tailor a resume?", cover letter), drawn in the browser. content.js puts it
 // on the page in a shadow root; popup.js puts it in the toolbar popup.
 // Loaded as a plain script after vendor/*.js.
@@ -47,18 +47,18 @@
     `<div class="scoreline" data-info-host>${M().scoreRing(score, 84)}
       <div><div class="label">${esc(label)}</div><div class="src">${src} ${info('fit')}</div></div></div>`;
 
-  // The ATS score, described as what it is: how visible the resume is when
-  // recruiters search their applicant tracking system for this job. It's
-  // about the resume, not about you (that's the fit score), and it goes up
-  // as the resume is tailored.
-  const visCls = (score) => (score >= 75 ? 'hi' : score >= 55 ? 'mid' : 'lo');
+  // The ATS score, described as what it is: how a tracking system is likely
+  // to read the resume when you apply (75+ strong, 60-74 in the running).
+  // It's about the resume, not about you (that's the fit score), and it goes
+  // up as the resume is tailored.
+  const visCls = (score) => (score >= 75 ? 'hi' : score >= 60 ? 'mid' : 'lo');
 
   // A ring, like the fit score's and the app's ATS ring.
   function atsLine(before) {
     if (!before) return '';
-    return `<div class="scoreline vis-line" data-info-host title="How easily recruiters find your current resume when they search their applicant tracking system for this job">
+    return `<div class="scoreline vis-line" data-info-host title="How an applicant tracking system is likely to read your current resume when you apply for this job">
       ${M().scoreRing(before.score, 64, 'ATS')}
-      <div><div class="label">Resume visibility</div><div class="src">How easily recruiters find it ${info('visibility')}</div></div></div>`;
+      <div><div class="label">ATS screening</div><div class="src">How screening software reads it ${info('visibility')}</div></div></div>`;
   }
 
   // The score's labels, as you'd say them: "one of ERP, Oracle" -> "ERP or Oracle",
@@ -127,8 +127,9 @@
       : '';
   const ATS_PARTS = [
     ['hardSkills', 'Hard skills', 'Required skills count most'],
-    ['parseability', 'Parse-ready', 'Contact info, standard headings, dates, length'],
-    ['title', 'Job title', 'The posting\'s title on your resume'],
+    ['qualifications', 'Basic quals', 'Every must-have the posting states, as an application is screened'],
+    ['parseability', 'Parse-ready', 'Contact info, standard headings, dates'],
+    ['jobTitle', 'Job title', 'The posting\'s title on your resume (counts a little)'],
     ['experience', 'Years', 'Years shown vs. years asked'],
     ['education', 'Education', 'Degree level vs. what is asked'],
     ['keywords', 'Keywords', 'The posting\'s other wording'],
@@ -171,7 +172,7 @@
       // The screen-outs are listed already; the rest of the advice.
       const tips = (ats.tips || []).filter((t) => !/^Required (?:skill not found|: any one of)/.test(t));
       const atsRows = ATS_PARTS.filter(([k]) => ats.components[k] !== null && ats.components[k] !== undefined).map(([k, l, hint]) => [l, ats.components[k], hint]);
-      vis = `<div class="bd-h">Resume visibility${ats.basis ? ` <span>${esc(ats.basis)}</span>` : ''}</div>
+      vis = `<div class="bd-h">ATS screening${ats.basis ? ` <span>${esc(ats.basis)}</span>` : ''}</div>
         <div class="bd-stats">
           ${ats.basic && ats.basic.total ? stat('Basic quals', `${ats.basic.met}/${ats.basic.total}`) : ''}
           ${ats.preferred && ats.preferred.total ? stat('Preferred', `${ats.preferred.met}/${ats.preferred.total}`) : ''}
@@ -319,10 +320,9 @@
       <span class="spinner" style="color: var(--sage)"></span></div>`;
   }
 
-  // Before and after tailoring: "ATS visibility Medium → High".
-  // Before and after tailoring: "Resume visibility 72% → 88%".
+  // Before and after tailoring: "ATS screening 72% → 88%".
   function atsCompare(before, after) {
-    return `<div class="ats-compare">Resume visibility ${before ? `<span class="was">${before.score}%</span> → ` : ''}<span class="vis vis-${visCls(after.score)}">${after.score}%</span></div>`;
+    return `<div class="ats-compare">ATS screening ${before ? `<span class="was">${before.score}%</span> → ` : ''}<span class="vis vis-${visCls(after.score)}">${after.score}%</span></div>`;
   }
 
   function doneView(app, { what, engine }) {

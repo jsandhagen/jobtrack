@@ -154,11 +154,14 @@ Found the hard way. Check each one, in the report or the screenshots.
   for roadmapping (`withoutNegated`).
 
 **ATS and the free optimizer**
-- Read ATS against what the person can reach, not against 100. For the
-  fictional candidate (Oct 2026), optimized pages for 80+ fits score 60–81
-  (median 74), Good potential 55–76, stretches 24–66 (median 40). Job title
-  (10%) and posting phrases (10%) rarely score unless the person already uses
-  the posting's exact words, so 80+ is rare.
+- The ATS score models an application being screened (parsed, checked on
+  basic qualifications, years and degree, ranked by skills), not a recruiter
+  searching the database: title and posting phrases count only 7% together.
+  Bands: 75+ strong, 60–74 in the running, under 60 likely screened out. For
+  the fictional candidate (Oct 2026) optimized pages read 77–94 for 80+ fits,
+  61–90 for Good potential, 19–73 for stretches (`test/atsApplied.test.js`).
+  A stretch at 60+ or a strong fit under 75 is a finding: look at
+  `components.qualifications` and `missingQualifications`.
 - When the optimized page reads lower than the untailored one, check for two
   bank bullets that tell one result: the optimizer keeps one, and its note
   ("Left out … Merging the two …") should say which to merge.

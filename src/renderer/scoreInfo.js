@@ -1,5 +1,5 @@
 // The little ⓘ buttons that explain the two scores: fit (are you a match for
-// this job?) and ATS visibility (how easily screening software finds this resume).
+// this job?) and ATS screening (how screening software reads this resume when you apply).
 // Shared by the dashboard (a floating panel) and the overlay (expands inline,
 // since the popup window hugs its card). Loaded as a plain script.
 (function () {
@@ -18,37 +18,40 @@
         <p>Editing a resume doesn't change it. Use it to decide <b>whether to apply</b>.</p>`,
     },
     ats: {
-      title: 'ATS visibility: how easily this resume is found',
-      short: `<p>Screening visibility, not an assessment of you. Recruiters search applicant tracking systems (Workday, Taleo, iCIMS) for a posting's words; this shows how easily <b>one resume</b> turns up. It weighs hard skills most, then a clean, parse-ready format, the job title, years, education and keywords. These systems match words <b>literally</b>, so it's about the resume's wording, not about you. Around 75% is plenty; tailoring raises it.</p>`,
-      body: `<p><b>Screening visibility, not an assessment of you.</b> Recruiters search applicant tracking systems like Workday, Taleo and iCIMS for a posting's words. This shows how easily <b>one resume</b> (your current one, or the one tailored for this job) turns up in those searches.</p>
+      title: 'ATS screening: how software reads your application',
+      short: `<p>How an applicant tracking system (Workday, Taleo, iCIMS) is likely to read <b>one resume</b> when you apply: it parses it, checks the must-haves, years and degree, and ranks applicants by how well their skills match. It rates the resume, not you. <b>75+</b> is strong · <b>60–74</b> is in the running · <b>under 60</b> it's likely screened out. Tailoring raises it.</p>`,
+      body: `<p><b>How screening software reads your application, not an assessment of you.</b> When you apply, systems like Workday, Taleo and iCIMS parse your resume into fields, screen out applicants missing basic qualifications, and rank the rest by how well their skills match. This reads <b>one resume</b> (your current one, or the one tailored for this job) the same way.</p>
         <ul>
-          <li>Hard skills 35% · parse-ready format 20%</li>
-          <li>Job title 10% · years 10% · education 10% · other keywords 10%</li>
-          <li>Soft skills 5%</li>
+          <li>Hard skills 30% · Basic qualifications 25% · parse-ready format 15%</li>
+          <li>years 10% · education 10%</li>
+          <li>Job title 4% · other keywords 3% · Soft skills 3%</li>
         </ul>
-        <p class="faint">Parts that don't apply to a posting are left out and the rest re-weighted.</p>
-        <p>The A–D grade works like Workday's: A = every basic qualification, most preferred ones and a score of 75+, B = every basic one, C = most basic ones, D = fewer.</p>
+        <p class="faint">Parts that don't apply to a posting are left out and the rest re-weighted. The exact job title and the posting's other phrases count a little: they matter when a recruiter keyword-filters the applicants or searches the database, less once you've applied.</p>
+        <ul>
+          <li><b>75+</b>: strong; the must-haves are on the page in words the system recognises.</li>
+          <li><b>60–74</b>: in the running, with a must-have or two the page doesn't show yet.</li>
+          <li><b>Under 60</b>: likely screened out or ranked low. Something basic is missing from the page, even if you have it.</li>
+        </ul>
+        <p>The A–D grade works like HiredScore's: A = every basic qualification and most preferred ones, B = every basic one, C = most basic ones, D = fewer.</p>
         <p class="faint">A list like "Python, R, or SAS" is one qualification that any of them meets; the strict keyword rate still checks every term word for word, as Taleo-style searches do.</p>
-        <p>These systems match words literally: they don't know that Appian is a SaaS company or that you've done something under another name. So a lower score usually means different wording, not a lesser candidate, and that's the easiest thing to change.</p>
-        <p>It goes up as you tailor and edit. Around 75% is plenty.</p>`,
+        <p>These systems read words, not intent: they don't know that Appian is a SaaS company or that you've done something under another name. So a lower score usually means different wording, not a lesser candidate, and that's the easiest thing to change.</p>`,
     },
-    // The browser extension describes the ATS score as resume visibility, so
-    // it reads as a measure of the resume, not a verdict on you: recruiters
-    // search and sort their applicant tracking system, and read the top.
+    // The browser extension's short version of the ATS score (topic id kept as
+    // "visibility"): a measure of the resume, not a verdict on you.
     visibility: {
-      title: 'Resume visibility',
-      short: `<p>The ATS score: how easily recruiters find <b>this resume</b> when they search their tracking system (Workday, Taleo, iCIMS) for this job. It rates the resume, not you.</p>
-        <p class="faint">75+ lands near the top · 55–74 is found, below closer matches · under 55 is likely buried. Tailoring raises it.</p>`,
-      body: `<p>This is the ATS score, and it's about <b>your resume, not you</b>. Recruiters <b>search and sort</b> applicants in their tracking system (Workday, Taleo, iCIMS) by the skills, title and keywords they need, and read the top of the list.</p>
-        <p>The score is how visible <b>one resume</b> (your current one, or the one tailored for this job) is in those searches for this posting:</p>
+      title: 'ATS screening',
+      short: `<p>The ATS score: how a tracking system (Workday, Taleo, iCIMS) is likely to read <b>this resume</b> when you apply for this job: the must-haves, years and degree it checks, and how well your skills match. It rates the resume, not you.</p>
+        <p class="faint">75+ is strong · 60–74 is in the running · under 60 is likely screened out. Tailoring raises it.</p>`,
+      body: `<p>This is the ATS score, and it's about <b>your resume, not you</b>. When you apply, tracking systems (Workday, Taleo, iCIMS) parse the resume, screen out applicants missing basic qualifications, and rank the rest by how well their skills match the job.</p>
+        <p>The score is how <b>one resume</b> (your current one, or the one tailored for this job) is likely to fare in that screen:</p>
         <ul>
-          <li><b>75%+</b>: near the top.</li>
-          <li><b>55–75%</b>: found, but below closer matches.</li>
-          <li><b>Under 55%</b>: likely buried. Key skills or terms are missing from the resume, even if you have them.</li>
+          <li><b>75%+</b>: strong; the must-haves are on the page.</li>
+          <li><b>60–75%</b>: in the running, with a must-have or two the page doesn't show yet.</li>
+          <li><b>Under 60%</b>: likely screened out or ranked low. Something basic is missing from the resume, even if you have it.</li>
         </ul>
-        <p class="faint">Hard skills count most, then a parse-ready format, the job title, years, education and keywords.</p>
+        <p class="faint">Skills and basic qualifications count most, then a parse-ready format, years and education; the exact job title and keywords a little.</p>
         <p>It goes up as you tailor and edit the resume.</p>`,
-      contrast: '<p class="info-vs">High fit, low visibility? You\'re qualified; the resume just doesn\'t show it yet.</p>',
+      contrast: '<p class="info-vs">High fit, low ATS screening score? You\'re qualified; the resume just doesn\'t show it yet.</p>',
     },
   };
   const CONTRAST =
@@ -56,7 +59,7 @@
 
   function infoBtn(topic, label) {
     const t = TOPICS[topic];
-    return `<button type="button" class="info-btn" data-info="${topic}" aria-expanded="false" aria-label="${label || (topic === 'visibility' ? 'How resume visibility works' : `How the ${topic === 'ats' ? 'ATS' : 'fit'} score works`)}" title="${t.title}">i</button>`;
+    return `<button type="button" class="info-btn" data-info="${topic}" aria-expanded="false" aria-label="${label || (topic === 'visibility' ? 'How ATS screening works' : `How the ${topic === 'ats' ? 'ATS' : 'fit'} score works`)}" title="${t.title}">i</button>`;
   }
 
   // The overlay is a small popup, so it gets the short version.
