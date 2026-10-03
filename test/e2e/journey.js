@@ -174,6 +174,9 @@ const slug = (s) => String(s || 'x').replace(/\W+/g, '-').slice(0, 40);
       check('optimize', `${name}: fits the page`, /Fits on 1 page|Fits on 2 pages/.test(pageNote), (pageNote.match(/Fits on \d pages?|\d pages: over \d/) || [''])[0]);
       check('optimize', `${name}: dates say "Present", not "Current"`, !/–\s*Current\b/i.test(resume));
       check('optimize', `${name}: no figure told twice`, !twice.length, twice.join(', '));
+      // The editor's side panel (Slot in a bullet, Job match) shows requirement labels too.
+      const panel = pageNote.replace(resume, '');
+      check('optimize', `${name}: no raw requirement labels beside the page`, !/\b(?:one|several) of [A-Z]/.test(panel), (panel.match(/\b(?:one|several) of [^\n]{0,40}/) || [''])[0]);
       check('optimize', `${name}: no PDF debris ("fast- moving", double spaces)`, !/\b[a-z]{2,}- [a-z]{3,}/.test(resume.replace(/\b\w+- (?:and|or|to)\b/g, '')) && !/\S  +\S/.test(resume));
     }
 

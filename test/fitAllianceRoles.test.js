@@ -175,9 +175,82 @@ const BANDS = {
   salesforcePubSecCI: [65, 100], evenupCI: [65, 100], mark43SeniorCI: [80, 100], cyeraOctoStrategyOps: [80, 100], awsSapAlliances: [80, 100],
   // Fourth run: CI roles in their lane; AWS alliances, partner marketing and GTM ops adjacent.
   livepersonMarketCI: [90, 100], hightouchCIPMM: [90, 100], oktaAwsAlliance: [65, 89], zipGtmStrategyOps: [65, 89], panwAwsPartnerMarketing: [65, 89],
+  // Fifth run. Torq is their lane; it reads Good potential while one "strong
+  // project management skills" line counts as a full must-have (an open question).
+  // Samsara's PubSec enablement and Fivetran's partner sales ask for what they've
+  // done; Scale's wants four years in an enablement seat. Cisco requires an MBA,
+  // Amgen nine years of CI with a bachelor's, the defense role ten of price-to-win.
+  torqCI: [65, 100], samsaraPubSecEnablement: [80, 100], fivetranTechPartnerSales: [80, 100], scalePubSecEnablementPM: [60, 84],
+  ciscoCorpStrategy: [45, 64], amgenDirectorCI: [45, 64], govconPricingCI: [40, 64],
 };
 test('every saved live posting lands in its band', () => {
   assert.deepEqual(Object.keys(BANDS).sort(), Object.keys(P).sort(), 'a new posting in the fixture needs a band here');
   const off = Object.entries(BANDS).map(([k, [lo, hi]]) => [k, fit(P[k]).score, lo, hi]).filter(([, s, lo, hi]) => s < lo || s > hi);
   assert.deepEqual(off, [], off.map(([k, s, lo, hi]) => `${k}: ${s} (expected ${lo}-${hi})`).join('; '));
+});
+
+// Fifth run, with seven new live postings (fixtures/allianceOpportunities.js):
+//
+// - Torq's "5+ years of B2B competitive intel management experience" read as
+//   only partly shown and its Competitive Intelligence Manager as a Stretch (62):
+//   "intel" wasn't intelligence, so leading competitive intelligence wasn't having done the role.
+// - Amgen's "Doctorate and 4 years …, OR Master's and 7 …, OR Bachelor's and 9"
+//   read as 4 years, so nine years asked of a bachelor's with seven went unmentioned.
+// - Samsara's "government sales cycles, compliance, and procurement processes"
+//   asked for Supply Chain and Legal / Compliance.
+// - A bullet drafted from the impact statement and put on the page was "left
+//   out" in the optimizer's notes: "it tells the same result as" itself.
+// - The optimizer's checks read "Your documents don't yet show a master's
+//   degree … an example could strengthen", "show Department" (Department of
+//   Defense), "several of …, PTW…" and "areas of strategy development".
+// - Posting phrases checked included "subject", "matter", "experts", "smes",
+//   "available sources", "minimal supervision" and "say guidance" ("What to Say").
+test('competitive intel is competitive intelligence, and leading it is having done the role', () => {
+  const f = fit(P.torqCI);
+  assert.ok(f.score >= 65, `${f.score} ${f.label}`);
+  assert.ok(!(f.partialSkills || []).some((s) => /intel/.test(s)), (f.partialSkills || []).join(', '));
+});
+
+test('a degree ladder asks the bachelor\'s path its years', () => {
+  const { requiredYears } = require('../src/main/fitScore');
+  assert.equal(requiredYears(P.amgenDirectorCI.text), 9);
+  assert.equal(requiredYears('Requirements\n- 5+ years of experience\n- Bachelor\'s degree required'), 5);
+  assert.match(fit(P.amgenDirectorCI).headline || '', /9\+ years/);
+});
+
+test('knowing government sales cycles is not supply chain or a compliance function', () => {
+  const skills = classifyJobSkills(P.samsaraPubSecEnablement.text);
+  assert.ok(!skills.has('Supply Chain') && !skills.has('Legal / Compliance'), [...skills.keys()].join(', '));
+  assert.ok(classifyJobSkills('Requirements\n- 5+ years in procurement and vendor management').has('Supply Chain'));
+  assert.ok(classifyJobSkills('Requirements\n- Knowledge of regulatory compliance programs').has('Legal / Compliance'));
+});
+
+test('a bullet drafted from your documents is never "left out" for repeating itself', () => {
+  for (const job of [P.samsaraPubSecEnablement, P.fivetranTechPartnerSales]) {
+    const b = bank();
+    const asks = resumeEnhancements({ job, bank: b, profile, documents: [RESUME, IMPACT], fit: 85 });
+    const opt = B.optimizeResume({ profile, bank: b, job, evidence: asks.filter((a) => a.draft) });
+    assert.ok(opt.notes.some((n) => /drafted from your Impact Statement/.test(n)), opt.notes.join('\n'));
+    for (const n of opt.notes) {
+      const m = n.match(/^Left out “(.+?)”: it tells the same result as “(.+?)”/);
+      assert.ok(!m || m[1] !== m[2], n);
+    }
+  }
+});
+
+test('the optimizer says gaps as a person would', () => {
+  const checks = [P.ciscoCorpStrategy, P.govconPricingCI, P.scalePubSecEnablementPM].flatMap((job) => B.optimizeResume({ profile, bank: bank(), job }).checks);
+  const text = checks.join('\n');
+  assert.match(text, /The posting asks for a master's degree, which your documents don't show/);
+  assert.match(text, /The posting asks for 10\+ years of experience/);
+  for (const bad of [/show Department\b/, /several of/, /…/, /areas of/, /an example of a master/i, /show SME\b/, /show 10\+ years/]) assert.doesNotMatch(text, bad);
+  assert.match(fit(P.ciscoCorpStrategy).headline || '', /a master's degree/);
+});
+
+test('posting phrases checked are search terms, not filler or pieces of a name', () => {
+  const { atsScore } = require('../src/main/atsScore');
+  for (const job of [P.torqCI, P.scalePubSecEnablementPM, P.amgenDirectorCI]) {
+    const { missingKeywords } = atsScore(job, RESUME.text, { profile });
+    for (const junk of ['subject', 'matter', 'experts', 'smes', 'available sources', 'minimal supervision', 'say guidance', 'stay abreast', 'proactively brief stakeholders', 'anticipate competitor movement']) assert.ok(!missingKeywords.includes(junk), `${job.title}: ${missingKeywords.join(' | ')}`);
+  }
 });

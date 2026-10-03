@@ -86,6 +86,8 @@ const NOT_TERMS = new Set(
     // verbs left over from "a track record of exceeding quota"
     'exceeding meeting achieving hitting delivering ' +
     'another other similar meaningful recent relevant significant substantial theory theories fundamentals basics evaluation evaluations assessment assessments review reviews strategic ' +
+    // part of a name or a seat, not a skill: "Department of Defense (DoD)", "corporate strategy function", "work with Subject Matter Experts (SMEs)"
+    'department departments agency function sme smes cycle cycles ' +
     // imperatives that open a duty ("Write product requirements")
     'write build own run lead drive deliver design develop create conduct analyze analyse prepare support maintain manage define shape assess partner work ensure identify perform help use apply'
   ).split(' ')
@@ -95,7 +97,7 @@ const NOT_TERMS = new Set(
 const TERM_ONLY_STOP = new Set('computer computers regulations regulation procedures rules laws math'.split(' '));
 
 const EDGE_WORDS = new Set(
-  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity advanced basic intermediate expert proficient proficiency excellent good polished crisp clear concise comfort comfortable techniques technique methods methodologies concepts principles tools skills practices high-volume fast-paced large busy complex dynamic foundation foundations grounding rigorous rigor sound thorough robust including includes include is are be at for to from by into via per such exposure track record'.split(' ')
+  'preferably ideally related similar relevant equivalent current currently valid active required requires preferred certification certifications certified certificate license licensure licensed strong deep solid proven expertise expert experience experienced leading in of with using on and or a an the ability to knowledge understanding working hands-on familiarity advanced basic intermediate expert proficient proficiency excellent good polished crisp clear concise comfort comfortable techniques technique methods methodologies concepts principles tools skills practices high-volume fast-paced large busy complex dynamic foundation foundations grounding rigorous rigor sound thorough robust including includes include is are be at for to from by into via per such exposure track record all areas area'.split(' ')
 );
 
 const US_STATES = new Set('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(' '));
@@ -400,6 +402,9 @@ const KIND_SYNONYMS = [
   [/\bicu\b|\bintensive care\b/g, 'critical care'],
   [/\btalent acquisition\b/g, 'recruiting'],
   [/\bquant\b/g, 'quantitative'],
+  // "5+ years of B2B competitive intel management" (Torq) is competitive
+  // intelligence: intel is intelligence, managing it is doing it, and B2B is the setting.
+  [/\b(?:b2b )?comp(?:etitive)? intel(?:ligence)?(?: management)?\b/g, 'competitive intelligence'],
   [/\bfp&a\b/g, 'financial planning analysis'],
   [/\bml\b/g, 'machine learning'],
   [/\bux\b/g, 'user experience'],
@@ -1039,7 +1044,10 @@ const plain = (label) =>
     .replace(/^one of (.*), ([^,]+)$/, '$1 or $2')
     .replace(/^experience in (.*)$/, (m, x) => `experience in ${x.split(' or ').length > 2 ? `${x.split(' or ').slice(0, -1).join(', ')} or ${x.split(' or ').pop()}` : x}`)
     .replace(/^(associate|bachelor's|master's) degree in ([^,]+?)(?:,.*)? or (?:another|a) (.*) field$/, '$1 degree in $2 or another $3 field')
-    .replace(/^(associate|bachelor's|master's) degree (in .{40,})$/, '$1 degree in the field asked for');
+    .replace(/^(associate|bachelor's|master's) degree (in .{40,})$/, '$1 degree in the field asked for')
+    // "leans on a master's degree", not "leans on master's degree".
+    .replace(/^(?:(associate)|(bachelor's|master's)) degree\b/, (m, a, b) => (a ? `an ${a} degree` : `a ${b} degree`))
+    .replace(/^PhD\b/, 'a PhD');
 function fitHeadline(f) {
   if (f.breakers.length) return `Heads up: ${f.breakers[0].replace(/^./, (c) => c.toLowerCase())}, one of the things you said you'd rather avoid.`;
   if (f.otherFunction) return `This is a ${f.otherFunction} job at heart, a different line of work from what your documents describe.`;

@@ -1295,7 +1295,7 @@ function optimizeResume({ profile = {}, bank: ownBank, job, header, pages = 'aut
   const ats = atsScore(job, pageText, { profile });
   const gates = requirementUnits(job).units.filter((u) => u.kind === 'required' && u.gate && u.match(lower(pageText)) < 0.6).map((u) => u.label);
   const missing = [...gates, ...strategyChecks(job, doc), ...ats.knockouts.filter((gap) => !gap.includes('(posting says') && !(/^Leadership\b/.test(gap) && gates.some((g) => /managing (?:people|project teams)|leading/i.test(g))))];
-  const checks = [...new Set(missing)].map((gap) => `Your documents don't yet show ${gap}. If you have relevant experience, an example could strengthen this resume.`);
+  const checks = [...new Set(missing)].map(checkSentence);
   if (!doc.header.name.trim()) checks.unshift('Add your name before submitting.');
   if (!/@/.test(`${doc.header.line1} ${doc.header.line2}`)) checks.unshift('Add your email before submitting.');
   const fixes = [
@@ -1319,7 +1319,8 @@ function optimizeResume({ profile = {}, bank: ownBank, job, header, pages = 'aut
   const summaryNote = !summary ? null
     : tuned.yearsFixed ? `Kept your own summary, with its ${tuned.yearsFixed.from} years brought up to the ${tuned.yearsFixed.to} your role dates show; kept your job titles and contribution level.`
     : ownSummaries.includes(doc.summary) ? 'Kept your own summary, which reads best for this posting; kept your job titles and contribution level.'
-    : /\.\s+\S/.test(doc.summary) ? 'Wrote a summary for this posting, with an accomplishment the bullets below don\'t already tell; kept your job titles and contribution level.'
+    // A second sentence is the accomplishment; "Sr. Strategy Consultant" is one sentence.
+    : /(?<!\b(?:Sr|Jr|Dr|Mr|Ms|Mrs|St|Inc|Co|Corp|Ltd|vs|e\.g|i\.e|etc|U\.S))\.\s+\S/.test(doc.summary) ? 'Wrote a summary for this posting, with an accomplishment the bullets below don\'t already tell; kept your job titles and contribution level.'
     : 'Wrote a summary for this posting from your current role and the kinds of work it asks for; kept your job titles and contribution level.';
   const notes = [
     ...(summaryNote ? [summaryNote] : []),
@@ -1331,6 +1332,19 @@ function optimizeResume({ profile = {}, bank: ownBank, job, header, pages = 'aut
   // A merge you can take with one click: the editor offers it as a suggestion on the bullet that stays.
   const merges = twins.filter((t) => t.merged).map((t) => ({ bulletId: t.keep.bulletId, from: t.keep.text, text: t.merged, why: 'Merges the bullet left out, which tells the same result, so the page keeps what each adds.' }));
   return { doc, pages: ResumeDoc.measure(doc, { scale }).pages, why: sel.why, fixes, checks, notes, merges };
+}
+
+// A gap the page doesn't cover, said as a person would: a degree or years
+// aren't shown by "an example", and "one of FAR, DFARS" reads "FAR or DFARS".
+function checkSentence(gap) {
+  const degree = gap.match(/^(?:an? )?((?:associate|bachelor's|master's) degree|PhD)\b(.*)$/i);
+  if (degree) return `The posting asks for ${/^PhD/i.test(degree[1]) ? 'a' : /^associate/i.test(degree[1]) ? 'an' : 'a'} ${degree[1]}${degree[2]}, which your documents don't show. If you have one, add it under Education.`;
+  const years = gap.match(/^(\d+\+?) years of experience$/);
+  if (years) return `The posting asks for ${years[1]} years of experience, more than your dated roles show. If you have experience they leave out, adding it could strengthen this resume.`;
+  const options = gap.match(/^(one|several) of (.+?)…?$/);
+  const list = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} ${options && options[1] === 'one' ? 'or' : 'and'} ${xs[xs.length - 1]}`);
+  const what = options ? `${options[1] === 'several' ? 'some of ' : ''}${list(options[2].split(/,\s*/))}` : gap;
+  return `Your documents don't yet show ${what}. If you have relevant experience, an example could strengthen this resume.`;
 }
 
 // Two bank bullets that tell one result ("$9M in customer transactions" in
@@ -1348,6 +1362,8 @@ function twinNotes(doc, { job, ranked, allowed, profile, pageText, score }) {
   const strongest = (r) => ranked.filter((x) => x.experienceId === r.experienceId && !x.hidden).slice(0, 3).some((x) => x.id === r.id);
   for (const r of ranked) {
     if (out.length >= 2 || onPage.has(r.id) || r.hidden || !allowed.has(r.experienceId) || !shown.has(r.experienceId)) continue;
+    // A bullet drafted from your documents is on the page without a bank id: it isn't left out.
+    if (page.some((b) => b.text === r.text)) continue;
     const twin = page.find((b) => repeatOf(b.text, r.text));
     if (!twin) continue;
     const gain = atsScore(job, `${pageText}\n- ${r.text}`, { profile }).score - score;

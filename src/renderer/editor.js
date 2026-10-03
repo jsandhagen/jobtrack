@@ -815,7 +815,7 @@ function coverChips(keys) {
   return (keys || [])
     .map((k) => units.get(k))
     .filter(Boolean)
-    .map((u) => `<span class="chip tiny ${u.kind === 'preferred' ? '' : 'good'}">${esc(u.label)}</span>`)
+    .map((u) => `<span class="chip tiny ${u.kind === 'preferred' ? '' : 'good'}">${esc(reqLabel(u.label))}</span>`)
     .join('');
 }
 
@@ -1115,7 +1115,7 @@ function jobPane() {
       else detail = `<span class="src">If you have this experience, click into a role on the page, press Enter, and write it. You can save it to your bank.</span>`;
     }
     return `<div class="jm-req ${cls} ${open ? 'open' : ''}" data-filter="${esc(c.key)}" role="button" tabindex="0" title="${c.covered ? 'Highlight the bullets that show this' : 'See bullets that would show this'}">
-      <span class="m">${mark}</span><b>${c.kind === 'preferred' ? `<i>${esc(c.label)}</i>` : esc(c.label)}</b><span class="faint">${c.kind === 'preferred' ? 'nice to have' : 'required'}</span>
+      <span class="m">${mark}</span><b>${c.kind === 'preferred' ? `<i>${esc(reqLabel(c.label))}</i>` : esc(reqLabel(c.label))}</b><span class="faint">${c.kind === 'preferred' ? 'nice to have' : 'required'}</span>
       <span class="src">${line}</span>${detail}</div>`;
   };
   const reqs = info.coverage.filter((c) => c.kind !== 'preferred');
@@ -1211,7 +1211,7 @@ function jobLifts(info, gaps, rewords) {
     out.push({
       rank: c.soft ? 30 : 80,
       tone: 'fixed',
-      text: `<b>${esc(c.label)}</b> is required${c.skillsOnly ? ' and only in your skills list.' : '.'} ${from.length === 1 ? 'A bullet' : `${from.length} bullets`} in your bank show${from.length === 1 ? 's' : ''} it, so slotting one in covers it.`,
+      text: `<b>${esc(reqLabel(c.label))}</b> is required${c.skillsOnly ? ' and only in your skills list.' : '.'} ${from.length === 1 ? 'A bullet' : `${from.length} bullets`} in your bank show${from.length === 1 ? 's' : ''} it, so slotting one in covers it.`,
       acts: button(`data-nudge="requirement" data-nudge-app="${esc(ed.appId)}" data-key="${esc(c.key)}"`, from.length === 1 ? 'Show me the bullet' : 'Show me the bullets'),
     });
   }

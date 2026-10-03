@@ -225,7 +225,7 @@ function scoreExperience(jobText, resumeText) {
 // Benefits, pay and EEO boilerplate aren't things a resume should echo.
 const BOILERPLATE_LINE = /benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|apply|perks|parental leave|stock|equity|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records/i;
 const FILLER = new Set(
-  'advice gaps topics deliverables record basic another advanced accuracy analyze tech-savvy delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional used focus possible various unique primarily motivates'.split(' ')
+  'advice gaps topics deliverables record basic another advanced accuracy analyze tech-savvy delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional used focus possible various unique primarily motivates subject matter experts expert smes sme end-to-end lifecycle lifecycles'.split(' ')
 );
 
 // Resumes are written in the past tense: "built" is "building", "led" is "leading".
@@ -256,7 +256,9 @@ const PHRASE_EDGE = new Set(
     'problems proven exceptional crafting senior recommendations insights priorities run lead such similar active accredited top-tier end detailed core cto ceo cio ' +
     'cfo coo ideally preferably plus demonstrated deep solid hands-on excellent outstanding superb minimum least high-quality actual ' +
     // How much or which one, not what: "enough technical depth", "broader legal", "first point", "respective products".
-    'enough broader broad first respective mutual compelling').split(' ')
+    'enough broader broad first respective mutual compelling ' +
+    // How it's done, not what: "available sources", "minimal supervision".
+    'available minimal supervision say stay abreast fundamental impactful evolving ongoing').split(' ')
 );
 const PHRASE_VERBS = new Set(
   ('prepare prepares analyze analyzing monitor maintain brief surface size continuously evaluate define develop lead manage run drive track build partner own report ' +
@@ -269,7 +271,7 @@ const PHRASE_VERBS = new Set(
 // motions", "products execute optimally"), not something a recruiter searches.
 const ACTION_VERBS = new Set(
   ('maintain produce identify implement escalate exceed activate measure influence execute learn think align enable ensure feed shape ' +
-    'keep conduct feel thrive grow adapt balance juggle').split(' ')
+    'keep conduct feel thrive grow adapt balance juggle anticipate brief').split(' ')
 );
 const isVerbForm = (w) => {
   // A bare PHRASE_VERB is often a noun too ("report", "partner"); its -ing and -ed forms aren't.
@@ -283,7 +285,7 @@ const isVerbForm = (w) => {
 const PITCH_WORDS = new Set('together without toward towards pushing sound tolerance organizational follow-through chance full range challenges apprenticeship versatility ambiguity roadmap-less'.split(' '));
 // A phrase that ends on one of these names a quality, not a skill: "sound
 // judgment", "organizational levels", "business sense", "cross-functional fluency".
-const GENERIC_HEAD = new Set('sense judgment judgement mindset contexts context capabilities capability levels lines fluency points point manner way ways background depth voice'.split(' '));
+const GENERIC_HEAD = new Set('sense judgment judgement mindset contexts context capabilities capability levels lines fluency points point manner way ways background depth voice issues perspectives'.split(' '));
 // "win/loss" and "CI/CD" are one word; "Sales / Marketing" are two.
 const phraseWords = (s) =>
   (lower(s).replace(/&/g, ' and ').replace(/['’]s\b/g, '').match(/[a-z][a-z0-9+#'-]*(?:\/[a-z][a-z0-9+#'-]*)*/g) || [])
@@ -303,7 +305,7 @@ function readPostingPhrases(jobText, company = '') {
     for (const seg of segments) {
       let run = [];
       const flush = () => {
-        while (run.length && (PHRASE_EDGE.has(run[0]) || PHRASE_VERBS.has(run[0]) || isVerbForm(run[0]))) run.shift();
+        while (run.length && (PHRASE_EDGE.has(run[0]) || PHRASE_VERBS.has(run[0]) || isVerbForm(run[0]) || /(?:ively|ally|ously|ently)$/.test(run[0]))) run.shift();
         while (run.length && (PHRASE_EDGE.has(run[run.length - 1]) || /ly$/.test(run[run.length - 1]) || ACTION_VERBS.has(run[run.length - 1]) || (/ed$/.test(run[run.length - 1]) && isVerbForm(run[run.length - 1])))) run.pop();
         if (run.length && GENERIC_HEAD.has(run[run.length - 1])) run = [];
         const key = run.join(' ');

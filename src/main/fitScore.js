@@ -5,6 +5,12 @@
 const { memoize } = require('./memo');
 
 // canonical skill -> patterns that count as a mention
+// "Government sales cycles, compliance, and procurement processes" (Samsara)
+// is knowing how agencies buy, the public sector seller's know-how, not supply
+// chain or a compliance function. A line about selling to government isn't either.
+// The word is found first, then its line is checked around it ("." stops at a line end).
+const GOV_BUYING = '\\b(?:government|public sector|federal)\\s+(?:sales|buying|purchasing|acquisition)\\b';
+const notGovBuying = (word) => new RegExp(`\\b${word}\\b(?<!${GOV_BUYING}.*)(?!.*${GOV_BUYING})`);
 const SKILLS = {
   // languages & frameworks
   JavaScript: [/\bjavascript\b/, /\bjs\b/, /\becmascript\b/],
@@ -179,7 +185,7 @@ const SKILLS = {
   // General business strategy (growth, corporate, strategic planning); technology strategy is its own skill.
   Strategy: [/\b(?:business|corporate|growth|go-to-market|competitive) strateg(?:y|ies)\b/, /\bstrategic (?:planning|insights|recommendations|initiatives|projects|direction|plans?)\b/, /\bstrategy (?:and |& )?operations\b/, /\bmarket entry\b/],
   'AI Strategy': [/\bai strateg(?:y|ies)\b/, /\bai (?:initiatives|adoption|use cases)\b/],
-  'Competitive Analysis': [/\bcompetitive (?:analysis|analyses|landscape|intelligence|positioning)\b/, /\bcompetitive\/market intelligence\b/, /\bcompetitor (?:analysis|research|benchmarking)\b/, /\bbattle ?cards?\b/, /\bwin\/loss\b/],
+  'Competitive Analysis': [/\bcompetitive (?:analysis|analyses|landscape|intelligence|positioning)\b/, /\bcomp(?:etitive)? intel\b/, /\bcompetitive\/market intelligence\b/, /\bcompetitor (?:analysis|research|benchmarking)\b/, /\bbattle ?cards?\b/, /\bwin\/loss\b/],
   'Low-Code / BPM': [/\blow[- ]code\b/, /\bno[- ]code\b/, /\bbusiness process management\b/, /\bbpm\b/, /\bworkflow (?:automation|platforms?)\b/, /\bprocess automation\b/, /\brpa\b/, /\brobotic process automation\b/],
   // industries
   'Enterprise Software': [/\benterprise software\b/, /\bsaas\b/, /\bsoftware[- ]as[- ]a[- ]service\b/, /\bb2b software\b/, /\b(?:enterprise )?software (?:company|companies|vendors?|firms?|industry)\b/],
@@ -189,7 +195,7 @@ const SKILLS = {
   Finance: [/\bfinancial (?:analysis|modeling|reporting|planning)\b/, /\bbudget(?:s|ing)?\b/, /\bp&l\b/],
   Accounting: [/\baccounting\b(?!\s+for\b)/, /\bgaap\b/, /\breconciliation\b/, /\bcpa\b/],
   Operations: [/\boperations\b/, /\bprocess improvement\b/, /\blean (?:manufacturing|principles|methodolog\w*|management|practices|production)\b/, /\bsix sigma\b/],
-  'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, /\bprocurement\b/, /\binventory\b(?!\s+of\b)/],
+  'Supply Chain': [/\bsupply chain\b/, /\blogistics\b/, notGovBuying('procurement'), /\binventory\b(?!\s+of\b)/],
   // Bare "onboarding" is usually customers, vendors or data, not new hires.
   'Human Resources': [/\bhuman resources\b/, /\brecruiting\b/, /\btalent acquisition\b/, /\b(?:employee|new[- ]hire) onboarding\b/],
   Healthcare: [/\bpatient care\b/, /\bclinical\b/, /\behr\b/, /\bemr\b/, /\bhipaa\b/, /\bpatients?\b/, /\b(?:in|epic) epic\b|\bepic (?:ehr|emr|systems?)\b/],
@@ -199,7 +205,7 @@ const SKILLS = {
   WMS: [/\bwms\b/, /\bwarehouse management systems?\b/, /\bmanhattan (?:scale|wms|active)\b/, /\bblue yonder\b/],
   'High Availability': [/\bhigh availability\b/, /\balways on\b/, /\bavailability groups?\b/, /\bfailover\b/],
   Education: [/\bcurriculum\b/, /\blesson plans?\b/, /\bteaching\b/, /\binstruction(?:al)? design\b/],
-  'Legal / Compliance': [/\blegal research\b/, /\bcompliance\b/, /\bcontracts? (?:law|review|drafting)\b/, /\bregulatory (?:compliance|affairs|filings?|submissions?|reporting|requirements|exams?|examinations)\b/],
+  'Legal / Compliance': [/\blegal research\b/, notGovBuying('compliance'), /\bcontracts? (?:law|review|drafting)\b/, /\bregulatory (?:compliance|affairs|filings?|submissions?|reporting|requirements|exams?|examinations)\b/],
   // A clearance is a credential (and a knockout), not a security skill.
   'Security Clearance': [/\bsecurity clearance\b/, /\bts\s*\/\s*sci\b/, /\b(?:top secret|secret|public trust) clearance\b/, /\bactive clearance\b/],
   Security: [/(?<!social )\bsecurity\b(?!\s+(?:clearance|investigation|eligibility|requirements? for access))/, /\bcybersecurity\b/, /\bsoc\s*2\b/, /\biso\s*27001\b/],
@@ -603,7 +609,20 @@ const toNum = (s) => (/\d/.test(s) ? parseInt(s, 10) : NUMBER_WORDS[s]);
 // Years of experience the posting asks for. Skips ages ("18 years or older"),
 // company history ("in business for 25 years") and "4-year degree"; prefers a
 // required mention over a preferred one ("5+ preferred; 3 required" -> 3).
+// "Doctorate and 4 years …, OR Master's and 7 years …, OR Bachelor's and 9
+// years" (Amgen): the years go with the degree. The bachelor's path is the bar
+// most applicants meet the posting by; without one, the longest path.
+const DEGREE_YEARS = /\b(doctorate|ph\.?\s?d|master['’]?s|mba|bachelor['’]?s|associate['’]?s)\b[^.\n]{0,40}?\b(?:and|with|plus|\+)\s+(\d{1,2})\s*\+?\s*years?\b/gi;
+function degreeLadderYears(jobText) {
+  const paths = [...String(jobText || '').matchAll(DEGREE_YEARS)].map((m) => ({ degree: m[1].toLowerCase(), years: toNum(m[2]) })).filter((p) => p.years <= 25);
+  if (new Set(paths.map((p) => p.degree.slice(0, 4))).size < 2) return null;
+  const bachelors = paths.find((p) => p.degree.startsWith('bachelor'));
+  return bachelors ? bachelors.years : Math.max(...paths.map((p) => p.years));
+}
+
 function readRequiredYears(jobText) {
+  const ladder = degreeLadderYears(jobText);
+  if (ladder !== null) return ladder;
   const found = [];
   for (const { line, kind: lineKind, section } of classifyLines(jobText).flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, section: l.section })))) {
     // "8-10 years of experience in …, ideally within SaaS": "ideally" is about

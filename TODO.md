@@ -124,3 +124,13 @@ the result still reads the same.
       and ordering in the fixtures with a total distance; `scripts/fit-explain.js`
       explains one pair. Next: precision at "Good potential" (45+) on
       near-misses and recall on real matches as separate numbers.
+
+## From the October 2026 e2e run (fifth run, test/fixtures/allianceOpportunities.js)
+- Torq CI Manager (their lane) reads 70: one "strong project management skills" line counts as a full must-have (+21 if answered). Should a generic PM line weigh that much?
+- Fivetran Technology Partner Sales reads fit 91 but ATS 71: the fit ignores the partners named in its duties (Snowflake, Databricks, GCP, Azure). Exempted in test/atsApplied.test.js (KNOWN_UNDER_75).
+- Amgen Director CI (bachelor's + 9 years CI, pharma) reads ATS 84 for a stretch: ATS can't see the pharma domain or that years must be in CI.
+- "Ask if applicable" labels the banking sales-play passage "shows competitive win rate": the posting-phrase match in resumeContext.js wants (stems "competitive" + "win") is too loose.
+- Two "must-haves" counts disagree on one screen: editor tile "4/5 must-haves shown" vs Fit card "You meet all 4 must-haves" (Torq: 7/10 vs 2 of 3).
+- The optimized summary stays generic for adjacent roles (Samsara PubSec enablement doesn't name enablement or public sector).
+- Optimizer puts a drafted "Collaborated with…" bullet second, then resume strength flags the second bullet's supporting verb.
+- Write with Claude (stand-in draft) drops ATS 79 → 66 with no explanation to the user.
