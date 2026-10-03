@@ -188,6 +188,15 @@
 
   const dealbreakers = (q) => (q.dealbreakers && q.dealbreakers.length ? note(`Heads up — ${esc(q.dealbreakers.join('; '))}.`, 'warn') : '');
 
+  // Root or Spike reading the posting before asking (Root's take a few seconds: Claude reads it).
+  function askingView({ who }) {
+    const root = who === 'root';
+    return `<div class="center">${M().helperSvg(root ? 'claude' : 'ats', 'thinking', 80)}
+      <h3>${root ? 'Root' : 'Spike'} is reading the posting…</h3>
+      <p class="muted">A question or two first, if an answer would make the page stronger.</p>
+      <span class="spinner" style="color: var(--sage)"></span></div>`;
+  }
+
   // Two ways to tailor: Spike optimizes your resume for ATS (free), Root has
   // Claude write an updated version. They peek over their buttons.
   function modeChoice(claude) {
@@ -407,13 +416,52 @@
       else if (result.error) html = messageView({ mood: 'worried', title: 'Oops, a little hiccup', text: result.error, retry: opts.onRetry ? 'Try again' : '' });
       else if (result.person) html = personView(result, ui);
       else if (!result.saved) html = previewView(result, ui);
+      else if (ui.asking) html = askingView(ui.asking);
+      else if (ui.ask) html = window.SproutAsk.html({ ...ui.ask, compact: true });
       else if (ui.work) html = workingView(result.app, ui.work);
       else if (ui.done) html = doneView(result.app, ui.done);
       else html = savedView(result, ui);
       body.innerHTML = html;
       infoOpen = null;
+      if (ui.ask && !ui.asking && !ui.work) wireAsk();
       M().animateRings(body);
       if (opts.onChange) opts.onChange();
+    }
+
+    // The questions on the card: Skip or Save, then the resume as asked for.
+    function wireAsk() {
+      const { who, questions, strength, action, appId } = ui.ask;
+      const actingOn = result;
+      const go = async () => {
+        if (dead || result !== actingOn) return;
+        ui = { work: { what: 'resume', engine: action === 'resume-ats' ? 'ats' : 'claude' }, done: null, error: null };
+        draw();
+        const r = await opts.send({ type: 'action', id: appId, action });
+        if (dead || result !== actingOn) return;
+        if (!r.ok) {
+          ui = { work: null, done: null, error: r.error };
+          return draw();
+        }
+        show({ ...r.value, justSaved: result.justSaved, seen: result.seen });
+      };
+      window.SproutAsk.wire(body.querySelector('.qa'), {
+        who, questions, strength, onChange: () => opts.onChange && opts.onChange(),
+        onSkip: async () => {
+          opts.send({ type: 'skipQuestions', id: appId, who });
+          return go();
+        },
+        onSave: async (replies) => {
+          if (replies.length) {
+            const r = await opts.send({ type: 'answer', id: appId, who, replies });
+            if (!r.ok) {
+              ui.ask = null;
+              ui.error = r.error;
+              return draw();
+            }
+          }
+          return go();
+        },
+      });
     }
 
     function show(r) {
@@ -422,6 +470,8 @@
       if (!sameJob && !(r && r.saved && !wasSaved && result && result.preview)) ui = { work: null, done: null, error: null };
       result = r;
       reconcile();
+      // Questions open (or being fetched): keep what you're typing; the card redraws after Skip / Save.
+      if (sameJob && (ui.ask || ui.asking)) return;
       draw();
       if (ui.done && !ui.celebrated) {
         ui.celebrated = true;
@@ -495,6 +545,21 @@
         return show(r.value);
       }
       if (!app) return;
+      // Before a resume, as in the app: Root (Claude) or Spike (ATS) asks up to
+      // two questions about what your documents don't show. Skip is one click.
+      if (action === 'resume' || action === 'resume-ats') {
+        const who = action === 'resume' ? 'root' : 'spike';
+        ui = { work: null, done: null, error: null, asking: { who } };
+        draw();
+        const q = await opts.send({ type: 'questions', id: app.id, who });
+        if (dead || result !== actingOn) return;
+        const questions = (q && q.ok && q.value && q.value.questions) || [];
+        ui.asking = null;
+        if (questions.length) {
+          ui.ask = { who, questions, strength: q.value.strength, ifAll: q.value.ifAll, action, appId: app.id };
+          return draw();
+        }
+      }
       if (action === 'resume' || action === 'resume-ats' || action === 'letter') {
         ui = { work: { what: action === 'letter' ? 'letter' : 'resume', engine: action === 'resume-ats' ? 'ats' : 'claude' }, done: null, error: null };
         draw();

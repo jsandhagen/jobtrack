@@ -78,7 +78,11 @@ boost) and skips them in one click, then Root's before Write with Claude:
 answers, drafts, and screenshots the library's "Answers you gave Sprout" and
 the bullet bank. The stand-in's questions and draft are Claude's responses to
 the exact rendered prompts; when the prompts change, render them again and
-update it. Both ask only about what no document shows (askFirst.js). Check that answers are kept (library, `bank.answers`,
+update it. Both ask only about what no document shows (askFirst.js). The same questions
+(src/renderer/askCard.js, synced to the extension) come up on the desktop popup
+(`OUT=<scratchpad>/ask-popup xvfb-run -a node test/e2e/askInPopup.js`, which
+sends jobs through the browser bridge) and on the extension's card
+(`SHOTS=<dir> node --test test/browser/extension.test.js` saves screenshots). Check that answers are kept (library, `bank.answers`,
 `bank.confirmed`), that answered questions aren't asked again, and that
 bullets Claude writes from answers land in the bank.
 

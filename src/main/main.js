@@ -657,7 +657,7 @@ async function handlePosting(posting, { fromDashboard = false, waitForAnalysis =
   const rec = store.addApplication({ job, via: posting.via, fingerprint: fp, quick, analysis: null, saved: !!save, ...(save ? { savedAt: new Date().toISOString() } : {}) });
   broadcast('state-changed');
 
-  const hasKey = !!getApiKey();
+  const hasKey = !!getApiKey() || !!process.env.SPROUT_FAKE_CLAUDE; // the stand-in counts in tests and demos
   const auto = wantsAutoAnalysis(quick);
   const showPopup = !fromDashboard && !silent && quick.score >= s.popupThreshold;
   if (showPopup) showOverlay({ mode: 'score', app: withAts(rec), analyzing: auto, noDocs: docs.length === 0, noKey: !hasKey });
@@ -1567,7 +1567,7 @@ async function startBridge() {
         if (!getApiKey()) throw new Error('Add a Claude API key in Sprout\'s Settings first.');
         background(analyzeApp(id));
       } else if (action === 'resume') {
-        if (!getApiKey()) throw new Error('Add a Claude API key in Sprout\'s Settings first.');
+        if (!getApiKey() && !process.env.SPROUT_FAKE_CLAUDE) throw new Error('Add a Claude API key in Sprout\'s Settings first.');
         background(makeResume(id));
       } else if (action === 'letter') {
         if (!getApiKey()) throw new Error('Add a Claude API key in Sprout\'s Settings first.');
@@ -1588,6 +1588,18 @@ async function startBridge() {
       const card = id ? browserCard(store.getApplication(id)) : await previewCard(posting, { fresh: true });
       return { ...card, answered: { label, answer, ...(recorded || {}), was } };
     },
+    // Before a resume from the card, as in the app: up to two questions from
+    // Root (Claude) or Spike (ATS), then the answers or a skip.
+    onQuestions: async ({ id, who }) => {
+      if (!store.getApplication(id)) throw Object.assign(new Error('That job is no longer in Sprout.'), { status: 404 });
+      if (who === 'root' && !getApiKey() && !process.env.SPROUT_FAKE_CLAUDE) return { questions: [] };
+      return who === 'root' ? resumeQuestions(id) : atsQuestions(id);
+    },
+    onAnswer: async ({ id, who, replies }) => {
+      if (!store.getApplication(id)) throw Object.assign(new Error('That job is no longer in Sprout.'), { status: 404 });
+      return answerResumeQuestions(id, replies, who);
+    },
+    onSkipQuestions: async ({ id, who }) => skipQuestions(id, who) || { skipped: 0 },
     onOpen: openInDashboard,
     onPerson: async (p) => personCard(p),
     onAddPerson: async (p) => addPerson(p),

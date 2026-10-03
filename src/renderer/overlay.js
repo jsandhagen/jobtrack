@@ -180,8 +180,44 @@ content.addEventListener('click', (e) => {
   const act = btn.dataset.act;
   if (act === 'dismiss-quiet') return window.sprout.overlayAction('dismiss', null);
   if (act.startsWith('pair-')) return window.sprout.overlayAction(act, null, { key: current.key });
+  if ((act === 'resume' || act === 'resume-ats') && appId) return askFirst(act, appId);
   window.sprout.overlayAction(act, appId);
 });
+
+// Before a resume, as in the app: Spike (ATS) or Root (Claude) asks up to two
+// questions about what your documents don't show; skip is one click.
+async function askFirst(act, appId) {
+  const who = act === 'resume-ats' ? 'spike' : 'root';
+  const name = who === 'root' ? 'Root' : 'Spike';
+  const app = current.app;
+  content.innerHTML = `<div class="center">${helperSvg(who === 'root' ? 'claude' : 'ats', 'thinking', 88)}
+    <h3>${name} is reading the posting…</h3><p class="muted">A question or two first, if an answer would make the page stronger.</p><span class="spinner" style="color: var(--sage)"></span></div>`;
+  fit();
+  let got = { questions: [] };
+  try {
+    got = (await (who === 'root' ? window.sprout.resumeQuestions(appId) : window.sprout.atsQuestions(appId))) || got;
+  } catch {
+    got = { questions: [] }; // no questions is never a reason not to go ahead
+  }
+  if (!current || !current.app || current.app.id !== app.id) return;
+  const questions = got.questions || [];
+  if (!questions.length) return window.sprout.overlayAction(act, appId);
+  content.innerHTML = window.SproutAsk.html({ who, questions, strength: got.strength, ifAll: got.ifAll, compact: true });
+  const unwire = window.SproutAsk.wire(content, {
+    who, questions, strength: got.strength, onChange: fit,
+    onSkip: async () => {
+      unwire();
+      window.sprout.skipQuestions(appId, who).catch(() => {});
+      window.sprout.overlayAction(act, appId);
+    },
+    onSave: async (replies) => {
+      if (replies.length) await window.sprout.answerResumeQuestions(appId, replies, who);
+      unwire();
+      window.sprout.overlayAction(act, appId);
+    },
+  });
+  fit();
+}
 document.getElementById('close').addEventListener('click', () => window.sprout.overlayAction('dismiss', null));
 window.sprout.onOverlayShow(render);
 

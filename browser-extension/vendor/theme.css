@@ -332,3 +332,52 @@ button.info-btn:hover, button.info-btn[aria-expanded='true'] { border-color: var
 .fit-details .fit-bars { margin-top: 8px; }
 .fit-skills { margin-top: 8px; }
 .fit-skills .chip { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+
+/* Questions before a resume is made (askCard.js): Root before Write with
+   Claude, Spike before Optimize for ATS. In the editor's dialog, the desktop
+   popup and the browser card; the count and Skip / Save stay pinned. */
+.qa { --qa-pad: 18px; }
+.modal-card .qa { --qa-pad: 28px; }
+.modal-card:has(.qa), .pop:has(.qa), .card-body:has(.qa) { padding-bottom: 0; }
+.qa-head { display: flex; gap: 14px; align-items: flex-start; padding-right: 24px; }
+.qa-head svg { flex: none; }
+.qa-head h2 { margin: 2px 0 4px; font-size: 20px; }
+.qa-head p { margin: 0; }
+.qa-now { margin: 12px 0 0; padding: 10px 14px; border-radius: 12px; background: var(--sage-soft); color: var(--ink); font-size: 14px; }
+.qa-list { display: grid; gap: 14px; margin-top: 14px; }
+.qa-row { border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; background: var(--surface); display: grid; gap: 8px; transition: border-color 0.2s; }
+.qa-row.done { border-color: var(--sage-deep); }
+.qa-q { display: flex; gap: 10px; align-items: baseline; line-height: 1.4; }
+.qa-q b { flex: 1; }
+.qa-n { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 800; background: var(--sage-soft); color: var(--sage-deep); }
+.qa-row.done .qa-n { background: var(--sage-deep); color: var(--surface); }
+.qa-boost { flex: none; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; background: var(--butter-soft); color: #8a6614; white-space: nowrap; }
+.qa-why, .qa-bullet { margin-left: 32px; font-size: 13px; }
+.qa-bullet { font-style: italic; }
+.qa-role { font-weight: 700; }
+.qa-row textarea, .qa-row input[type="text"] { margin-left: 32px; width: calc(100% - 32px); min-height: 0; box-sizing: border-box; font: inherit; }
+.qa-yn { display: flex; flex-wrap: wrap; gap: 8px; margin-left: 32px; }
+.qa-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; font-weight: 700; font-size: 14px; }
+.qa-chip:has(input:checked) { background: var(--sage-soft); border-color: var(--sage-deep); color: var(--sage-deep); }
+.qa-chip input { accent-color: var(--sage-deep); margin: 0; }
+.qa-foot { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px 12px; flex-wrap: wrap; margin: 16px calc(-1 * var(--qa-pad)) 0; padding: 12px var(--qa-pad) 14px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -8px 16px -12px rgba(0, 0, 0, 0.18); }
+.qa-actions { display: flex; gap: 8px; margin-left: auto; }
+.qa-count { font-size: 14px; }
+/* Narrow: the desktop popup and the browser card. */
+.qa-compact .qa-head { gap: 10px; padding-right: 52px; }
+.qa-compact .qa-head h2 { font-size: 15px; }
+.qa-compact .qa-head p, .qa-compact .qa-now { font-size: 12px; }
+.qa-compact .qa-now { padding: 7px 10px; margin-top: 8px; }
+.qa-compact .qa-list { gap: 10px; margin-top: 10px; }
+.qa-compact .qa-row { padding: 10px 12px; gap: 6px; border-radius: 14px; }
+.qa-compact .qa-q { font-size: 13px; flex-wrap: wrap; row-gap: 4px; }
+.qa-compact .qa-q b { flex: 1 1 calc(100% - 40px); }
+.qa-compact .qa-boost { font-size: 11px; padding: 2px 7px; margin-left: 32px; }
+.qa-compact .qa-why, .qa-compact .qa-bullet, .qa-compact .qa-yn, .qa-compact .qa-row textarea, .qa-compact .qa-row input[type="text"] { margin-left: 0; width: 100%; font-size: 12.5px; }
+.qa-compact .qa-chip { font-size: 12.5px; padding: 4px 10px; }
+.qa-compact .qa-foot { padding: 10px var(--qa-pad) 12px; }
+.qa-compact .qa-count { font-size: 12.5px; flex: 1 1 100%; }
+.qa-compact .qa-actions { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
+.qa-compact .qa-actions button { flex: 1 1 auto; min-width: 0; justify-content: center; font-size: 13px; padding: 8px 10px; }
+.qa-compact .qa-actions .primary { order: -1; flex-basis: 100%; }
+@media (prefers-color-scheme: dark) { .qa-boost { color: var(--butter); } }

@@ -1332,72 +1332,35 @@ async function askFirst(appId, btn, who) {
   }
   const questions = got.questions || [];
   if (!questions.length || ed.appId !== appId) return true;
-  const go = root ? 'write' : 'optimize';
-  const boost = (q) => (!root && q.boost && q.boost.strength > 0 ? `<span class="qa-boost" title="Resume strength if you answer: how strongly the page reads to a hiring manager">+${q.boost.strength} resume strength</span>` : '');
-  const field = (q) => {
-    const ph = esc(q.placeholder || 'What you did, your part in it, and what came of it');
-    if (q.kind === 'yes_no') return `<div class="qa-yn" role="radiogroup" aria-label="Answer">
-        ${['yes', 'no'].map((v) => `<label class="qa-chip"><input type="radio" name="qa-${esc(q.id)}" value="${v}"> ${v === 'yes' ? 'Yes' : 'No'}</label>`).join('')}
-      </div><textarea data-qa-detail="${esc(q.id)}" rows="2" placeholder="${ph}"></textarea>`;
-    if (q.kind === 'pick') return `<div class="qa-yn">${(q.options || []).map((o) => `<label class="qa-chip"><input type="checkbox" name="qa-${esc(q.id)}" value="${esc(o)}"> ${esc(o)}</label>`).join('')}</div>
-      <input type="text" data-qa-detail="${esc(q.id)}" placeholder="${ph}" autocomplete="off">`;
-    if (q.kind === 'bullet') return `<textarea data-qa-detail="${esc(q.id)}" data-qa-was="${esc(q.bullet)}" rows="3">${esc(q.prefill || q.bullet)}</textarea>`;
-    if (q.kind === 'number') return `<input type="text" data-qa-detail="${esc(q.id)}" placeholder="${ph}" autocomplete="off">`;
-    return `<textarea data-qa-detail="${esc(q.id)}" rows="3" placeholder="${ph}"></textarea>`;
-  };
-  const card = openModal(`<div class="qa-head">${window.SproutMascot.helperSvg(root ? 'claude' : 'ats', 'curious', 64)}
-      <div><h2>${name} has ${questions.length === 1 ? 'a question' : `${questions.length} questions`} before ${root ? 'writing' : 'optimizing'}</h2>
-      <p class="muted">Only about what your documents don't show yet. Answer any that apply and skip the rest. Answers are saved to your library as <b>Answers you gave Sprout</b> and to your bullet bank, so every resume can use them. ${name} uses only what you tell it.</p></div></div>
-    ${!root && got.strength ? `<p class="qa-now">This page reads at <b>${got.strength}</b> resume strength now; answering could take it to about <b>${got.ifAll}</b>.</p>` : ''}
-    <div class="qa-list">${questions.map((q, i) => `<div class="qa-row" data-qa="${esc(q.id)}">
-      <div class="qa-q"><span class="qa-n">${i + 1}</span><b>${esc(q.question)}</b>${boost(q)}</div>
-      <div class="faint qa-why">${esc(q.why || '')}${q.role ? ` · <span class="qa-role">${esc(q.role)}</span>` : ''}</div>
-      ${q.kind !== 'bullet' && q.bullet ? `<div class="qa-bullet">${esc(q.bullet)}</div>` : ''}
-      ${field(q)}
-    </div>`).join('')}</div>
-    <div class="qa-foot">
-      <span class="qa-count" aria-live="polite"></span>
-      <span class="qa-actions"><button class="ghost" id="qaSkip">Skip and ${go}</button><button class="primary" id="qaGo">${icon('sparkle')} Save answers and ${go}</button></span>
-    </div>`);
+  const card = openModal(window.SproutAsk.html({ who, questions, strength: got.strength, ifAll: got.ifAll }));
   card.classList.add('wide', 'qa-card');
-  const replies = () => questions.map((q) => {
-    const picked = [...card.querySelectorAll(`input[name="qa-${CSS.escape(q.id)}"]:checked`)].map((x) => x.value);
-    const el = card.querySelector(`[data-qa-detail="${CSS.escape(q.id)}"]`);
-    const detail = el ? el.value.trim() : '';
-    if (q.kind === 'pick') return { id: q.id, picked, detail };
-    if (q.kind === 'bullet') return { id: q.id, detail: detail !== (el && el.dataset.qaWas) ? detail : '' };
-    return { id: q.id, answer: picked[0] || null, detail };
-  }).filter((r) => r.answer || r.detail || (r.picked && r.picked.length));
-  // The count (and, for Spike, the strength it adds up to) stays in view at the bottom.
-  const count = () => {
-    const done = new Set(replies().map((r) => r.id));
-    const gain = questions.filter((q) => done.has(q.id)).reduce((n, q) => n + Math.max(0, (q.boost && q.boost.strength) || 0), 0);
-    card.querySelector('.qa-count').innerHTML = `<b>${done.size} of ${questions.length}</b> answered${!root && got.strength ? ` · resume strength ${got.strength}${gain ? ` → about <b>${Math.min(100, got.strength + gain)}</b>` : ''}` : ''}`;
-    card.querySelectorAll('.qa-row').forEach((row) => row.classList.toggle('done', done.has(row.dataset.qa)));
-  };
-  card.addEventListener('input', count);
-  card.addEventListener('change', count);
-  count();
   return new Promise((resolve) => {
     let finished = false;
-    const finish = (v) => { if (!finished) (finished = true, watch.disconnect(), card.classList.remove('wide', 'qa-card'), resolve(v)); };
+    const finish = (v) => { if (!finished) (finished = true, watch.disconnect(), unwire(), card.classList.remove('wide', 'qa-card'), resolve(v)); };
     // Closed with ✕, Esc or a click outside: don't go ahead.
     const watch = new MutationObserver(() => document.getElementById('modal').hidden && finish(false));
     watch.observe(document.getElementById('modal'), { attributes: true, attributeFilter: ['hidden'] });
-    $('#qaSkip', card).addEventListener('click', () => {
-      S.skipQuestions(appId, who).catch(() => {});
-      finish(true);
-      closeModal();
+    const unwire = window.SproutAsk.wire(card, {
+      who, questions, strength: got.strength,
+      onSkip: async () => {
+        S.skipQuestions(appId, who).catch(() => {});
+        finish(true);
+        closeModal();
+      },
+      onSave: async (replies) => {
+        try {
+          if (replies.length) {
+            const out = await S.answerResumeQuestions(appId, replies, who);
+            if (out.saved) toast(`Saved ${out.saved === 1 ? 'your answer' : `${out.saved} answers`} to your library and bullet bank.`, 'good', 4000);
+          }
+        } catch (err) {
+          toast(err.message, 'error', 6000);
+          throw err;
+        }
+        finish(true);
+        closeModal();
+      },
     });
-    $('#qaGo', card).addEventListener('click', () => run($('#qaGo', card), async () => {
-      const r = replies();
-      if (r.length) {
-        const out = await S.answerResumeQuestions(appId, r, who);
-        if (out.saved) toast(`Saved ${out.saved === 1 ? 'your answer' : `${out.saved} answers`} to your library and bullet bank.`, 'good', 4000);
-      }
-      finish(true);
-      closeModal();
-    }, 'Saving…'));
   });
 }
 

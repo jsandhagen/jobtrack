@@ -19,6 +19,19 @@ const MAX_BODY = 2 * 1024 * 1024;
 
 // What the extension's card may ask the app to do with a saved job.
 const ACTIONS = ['analyze', 'resume', 'resume-ats', 'letter', 'open', 'open-letter', 'skip'];
+// Who asks before a resume: Root (Claude) or Spike (ATS).
+const ASKERS = ['root', 'spike'];
+
+// Answers to Root's or Spike's questions, trimmed to what the app keeps.
+function cleanReplies(list) {
+  const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+  return (Array.isArray(list) ? list : []).filter((r) => r && r.id).slice(0, 4).map((r) => ({
+    id: str(r && r.id, 20),
+    answer: r && ['yes', 'no'].includes(r.answer) ? r.answer : null,
+    detail: str(r && r.detail, 1200).trim(),
+    picked: (Array.isArray(r && r.picked) ? r.picked : []).slice(0, 8).map((x) => str(x, 120)),
+  })).filter((r) => r.id);
+}
 
 function isExtensionOrigin(origin) {
   return /^(chrome|moz)-extension:\/\/[a-z0-9-]+$/i.test(origin || '');
@@ -187,6 +200,14 @@ function createBridge(opts) {
         if (!ACTIONS.includes(b.action)) return send(res, 400, { error: 'Unknown action.' });
         return send(res, 200, await opts.onAction({ id: String(b.id || ''), action: b.action }));
       }
+      // Before a resume from the card: Root's or Spike's questions, the answers, or a skip.
+      if (url.pathname === '/questions' || url.pathname === '/answer' || url.pathname === '/skip-questions') {
+        const handler = { '/questions': opts.onQuestions, '/answer': opts.onAnswer, '/skip-questions': opts.onSkipQuestions }[url.pathname];
+        if (!handler) return send(res, 404, { error: 'Not found' });
+        const b = await readJson(req);
+        if (!ASKERS.includes(b.who)) return send(res, 400, { error: 'Unknown asker.' });
+        return send(res, 200, await handler({ id: String(b.id || ''), who: b.who, replies: cleanReplies(b.replies) }));
+      }
       if (url.pathname === '/person' || url.pathname === '/person/add') {
         const handler = url.pathname === '/person' ? opts.onPerson : opts.onAddPerson;
         if (!handler) return send(res, 404, { error: 'Not found' });
@@ -232,4 +253,4 @@ function createBridge(opts) {
   return { server, listen, close: () => new Promise((r) => server.close(() => r())) };
 }
 
-module.exports = { createBridge, isExtensionOrigin, cleanPerson, DEFAULT_PORT, ACTIONS };
+module.exports = { createBridge, isExtensionOrigin, cleanPerson, cleanReplies, DEFAULT_PORT, ACTIONS, ASKERS };

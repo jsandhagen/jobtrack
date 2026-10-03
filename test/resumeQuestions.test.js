@@ -158,3 +158,19 @@ test('the resume prompt writes for the hiring manager, and the questions prompt 
   assert.match(i, /Ask only about what the documents don't say/);
   assert.match(P.answeredBlock([{ question: 'Q?', answer: 'Yes.' }], ['co-selling'], ['M&A']), /- Q\? — Yes\.\n- Has: co-selling\n- Doesn't have: M&A/);
 });
+
+test('the browser bridge passes answers through trimmed to what the app keeps', () => {
+  const { cleanReplies, ASKERS } = require('../src/main/bridge');
+  assert.deepEqual(ASKERS, ['root', 'spike']);
+  const out = cleanReplies([
+    { id: 'q1', answer: 'yes', detail: '  6 deals  ', picked: ['ACE', 42] },
+    { id: 'q2', answer: 'maybe', detail: 'x'.repeat(2000) },
+    { answer: 'yes' },
+    { id: 'q3' }, { id: 'q4' }, { id: 'q5' },
+  ]);
+  assert.equal(out.length, 4, 'at most four, each with an id');
+  assert.deepEqual(out[0], { id: 'q1', answer: 'yes', detail: '6 deals', picked: ['ACE', '42'] });
+  assert.equal(out[1].answer, null, 'only yes or no');
+  assert.equal(out[1].detail.length, 1200);
+  assert.deepEqual(cleanReplies('nope'), []);
+});

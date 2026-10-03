@@ -12,7 +12,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 // The card's files (the popup loads them too).
-const FILES = ['fitScale.js', 'buddyLines.js', 'icons.js', 'mascot.js', 'scoreInfo.js', 'theme.css'];
+const FILES = ['fitScale.js', 'buddyLines.js', 'icons.js', 'mascot.js', 'scoreInfo.js', 'askCard.js', 'theme.css'];
 // What reading the page needs, from src/shared (content scripts only).
 const READER_FILES = ['jobTitle.js'];
 const SHARED = new Set(['fitScale.js', ...READER_FILES]);

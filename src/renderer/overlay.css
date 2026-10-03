@@ -21,7 +21,7 @@ body { padding: 10px; user-select: none; }
   z-index: 0;
 }
 .pop > * { position: relative; z-index: 1; }
-.pop button, .pop a, .pop .chip { -webkit-app-region: no-drag; }
+.pop button, .pop a, .pop .chip, .pop input, .pop textarea, .pop label { -webkit-app-region: no-drag; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(16px) scale(0.96); } to { opacity: 1; transform: none; } }
 
 .close { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 4px 9px; }

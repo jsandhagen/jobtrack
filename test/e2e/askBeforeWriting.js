@@ -52,7 +52,7 @@ const ANSWERS = {
     // Skip is one click, and the count and buttons stay in view while scrolling.
     await page.evaluate(() => { const c = document.querySelector('#modalCard'); c.scrollTop = c.scrollHeight / 3; });
     await page.waitForTimeout(300);
-    await page.click('#qaSkip');
+    await page.click('[data-qa-skip]');
     await page.waitForFunction(() => /Optimized for ATS/.test(document.querySelector('.page')?.innerText || ''), null, { timeout: 30000 });
     await page.waitForTimeout(800);
     await shot('ask-00b-optimized-after-skip');
@@ -72,7 +72,7 @@ const ANSWERS = {
     }
     await page.waitForTimeout(300);
     await shot('ask-02-answered');
-    await page.click('#qaGo');
+    await page.click('[data-qa-go]');
     await page.waitForFunction(() => /Rewrite with Claude/.test(document.querySelector('.page')?.innerText || ''), null, { timeout: 60000 });
     await page.waitForTimeout(1500);
     await shot('ask-03-draft');

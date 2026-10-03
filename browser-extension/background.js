@@ -9,7 +9,7 @@
 importScripts('vendor/fitScale.js');
 const PORTS = [47321, 47322, 47323, 47324, 47325];
 // Everything the card on the page needs, in load order (see manifest.json).
-const CONTENT_FILES = ['vendor/fitScale.js', 'vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'vendor/jobTitle.js', 'extract.js', 'person.js', 'card.js', 'content.js'];
+const CONTENT_FILES = ['vendor/fitScale.js', 'vendor/buddyLines.js', 'vendor/icons.js', 'vendor/mascot.js', 'vendor/scoreInfo.js', 'vendor/askCard.js', 'vendor/jobTitle.js', 'extract.js', 'person.js', 'card.js', 'content.js'];
 
 async function getConfig() {
   return chrome.storage.local.get({ port: null, token: '', autoSend: true });
@@ -54,7 +54,7 @@ async function maybeUpdate(bundled) {
   chrome.runtime.reload();
 }
 
-async function call(path, body) {
+async function call(path, body, { timeout = 15000 } = {}) {
   const app = await findApp();
   if (!app) throw Object.assign(new Error("The Sprout app isn't running. Start it and try again."), { code: 'offline' });
   const { token } = await getConfig();
@@ -62,7 +62,7 @@ async function call(path, body) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Sprout-Token': token },
     body: JSON.stringify(body || {}),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(timeout),
   });
   const data = await r.json().catch(() => ({}));
   if (r.status === 401) throw Object.assign(new Error('Not connected to Sprout yet. Click the Sprout button in your toolbar to connect.'), { code: 'unpaired' });
@@ -369,6 +369,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       }
       case 'get':
         return getSaved(msg.id);
+      // Before a resume: Root's (Claude, can take a few seconds) or Spike's questions, then answers or a skip.
+      case 'questions':
+        return call('/questions', { id: msg.id, who: msg.who }, { timeout: 90000 });
+      case 'answer':
+        return call('/answer', { id: msg.id, who: msg.who, replies: msg.replies });
+      case 'skipQuestions':
+        return call('/skip-questions', { id: msg.id, who: msg.who });
       case 'have': {
         const result = await have(tabId, msg);
         if (!fromPage) tellTab(tabId, { type: 'update', result });

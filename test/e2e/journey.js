@@ -160,7 +160,7 @@ const slug = (s) => String(s || 'x').replace(/\W+/g, '-').slice(0, 40);
         }));
         check('spike', `${name}: Spike's questions show their strength boost`, qa.n > 0 && qa.boosts.length === qa.n, `${qa.n} questions; ${qa.boosts.join(', ')}`);
         check('spike', `${name}: Skip and the count stay in view`, qa.footInView);
-        await page.click('#qaSkip');
+        await page.click('[data-qa-skip]');
       } else check('spike', `${name}: (info) Spike had nothing to ask`, true);
       await page.waitForFunction(() => /Optimized for ATS/.test(document.querySelector('.page')?.innerText || ''), null, { timeout: 30000 }).catch(() => {});
       time('optimize', Date.now() - t);
