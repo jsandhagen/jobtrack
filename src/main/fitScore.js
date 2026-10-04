@@ -334,7 +334,7 @@ const STOPWORDS = new Set(
 // "as required" means "as needed", not a requirement.
 // "Requirements" as a heading, not "Write product requirements" in a duty.
 const REQUIRED_CUE = /\b((?<!\bas )required|^requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
-const PREFERRED_CUE = /\b(preferred|nice[- ]to[- ]haves?|bonus|plus|desired|desirable|ideally|good to have|helpful|beneficial|advantageous|an asset|additional qualifications|extra credit)\b/;
+const PREFERRED_CUE = /\b(preferred|nice[- ]to[- ]haves?|bonus|plus|desired|desirable|ideally|good to have|helpful|beneficial|advantageous|an asset|additional qualifications|extra credit|standout qualities)\b/;
 // "No Java experience required", "Python is not required": not a requirement.
 const NEGATED_CUE = /\bnot (?:required|necessary|needed|a requirement|mandatory)\b|\bno\b[^.;]{0,40}\b(?:required|necessary|needed)\b/;
 // Example lists ("languages may include Python, R, MATLAB", "other useful
@@ -346,7 +346,7 @@ const ALTERNATIVES_CUE = new RegExp(`${OPTIONAL_CUE.source}|\\b(one or more (?:p
 
 // EEO, security-policy and recruiter notices: never qualifications.
 const BOILERPLATE_LINE =
-  /benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|e-verify|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|internal career site|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b/i;
+  /\bscammers\b|\b(?:recruiting|recruitment) scams?\b|\bbanking info\b|benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|e-verify|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|internal career site|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b/i;
 
 function lower(s) {
   return (s || '').toLowerCase();
@@ -398,7 +398,7 @@ function stripMarkdown(l) {
 // or the role. A posting with no requirements list is often nothing else.
 const ROLE_VOICE = /\b(?:you|your|you['’](?:ll|re|ve)|candidates?|this (?:[\w-]+ )?(?:role|position|job|person)|the (?:role|position)|looking for|seeking|(?:is|are) hiring|hiring (?:an?|for)|in this role)\b/i;
 // "About us", "About Acme", "Who we are"; not "About the role" or "About you".
-const COMPANY_HEADING = /^(?:about(?! (?:the |this )?(?:role|job|position|opportunity|you|work)\b)|who we are|our (?:team|mission|culture|values|company|story)|company (?:overview|description))\b[^.]{0,30}$/;
+const COMPANY_HEADING = /^(?:about(?! (?:the |this )?(?:role|job|position|opportunity|you|work)\b)|who we are|who is [^.]{1,30}|our (?:team|mission|culture|values|company|story|persona)|company (?:overview|description))\b[^.]{0,30}$/;
 // "Keep our production databases fast", "Design, build and support our
 // network": a duty addressed to the candidate, not the employer on itself
 // ("Ledgerline builds…", "MCAPS-Core accelerates…").
@@ -442,7 +442,7 @@ function classifyLines(jobText) {
     else if (PREFERRED_CUE.test(line)) lineKind = 'preferred';
     else if (REQUIRED_CUE.test(line) || (isHeading && REQUIRED_HEADING.test(line))) lineKind = 'required';
     // "Responsibilities", "Benefits", "About us" end a requirements section.
-    else if (isHeading && NEUTRAL_HEADING.test(line)) lineKind = 'neutral';
+    else if (isHeading && (NEUTRAL_HEADING.test(line) || COMPANY_HEADING.test(line))) lineKind = 'neutral';
     const sectionKind = section;
     if (isHeading && lineKind !== section) section = lineKind;
     // "We require 5+ years of Python" still asks it.

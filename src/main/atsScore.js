@@ -59,7 +59,9 @@ function scoreQualifications(job, resumeText) {
   // Only those the skills part doesn't already report ("one of Python, Java, C++")
   // are listed on their own: a term or a kind of experience.
   const ownLine = (u) => /^(?:t|x):/.test(u.key) || /(?:^|\|)t:/.test(u.key.replace(/^any:/, ''));
-  return { score: met.reduce((s, x) => s + x.m * weight(x.u), 0) / wsum, units: met.filter(({ u }) => ownLine(u)).map(({ u, m }) => ({ label: u.label, met: m >= 0.6 })) };
+  return { score: met.reduce((s, x) => s + x.m * weight(x.u), 0) / wsum,
+    missingSpecialized: met.filter(({ u, m }) => u.specialized && m < 0.6).map(({ u }) => u.label),
+    units: met.filter(({ u }) => ownLine(u)).map(({ u, m }) => ({ label: u.label, met: m >= 0.6 })) };
 }
 
 // Abbreviations end in "." so plain \b boundaries don't work; use lookarounds.
@@ -526,7 +528,8 @@ function atsScore(job, resumeText, opts = {}) {
   };
   const active = Object.entries(components).filter(([, v]) => v !== null);
   const wsum = active.reduce((s, [k]) => s + WEIGHTS[k], 0);
-  const score = wsum ? Math.round((active.reduce((s, [k, v]) => s + v * WEIGHTS[k], 0) / wsum) * 100) : 0;
+  let score = wsum ? Math.round((active.reduce((s, [k, v]) => s + v * WEIGHTS[k], 0) / wsum) * 100) : 0;
+  if (quals?.missingSpecialized.length) score = Math.min(score, 59);
 
   // "Basic qualifications": required skills (or all mentioned skills if the
   // posting has no clear required section), plus stated degree / years.

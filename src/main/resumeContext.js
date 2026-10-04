@@ -5,14 +5,15 @@ const R = require('../shared/resumeDoc');
 const { atsScore } = require('./atsScore');
 const { htmlToText } = require('./resumeRender');
 const { strategyChecks } = require('./strategyResume');
-const { INTERPERSONAL, SOFT_SKILLS, SKILLS, EMPLOYER_EVIDENCE } = require('./fitScore');
+const { INTERPERSONAL, SOFT_SKILLS, SKILLS, EMPLOYER_EVIDENCE, classifyJobSkills } = require('./fitScore');
+const { isSkillPhrase } = require('./skillSuggestions');
 const { repeatOf, hasResult } = require('../shared/resumeCheck');
 const { postingPhrases } = require('./atsScore');
 const { PARENT_OF } = require('./localFit');
 
 function contextQuestion(topic) {
   if (/years specifically|years of experience/i.test(topic)) return 'Have you done this work in any other roles? Add those roles and their dates in your bullet bank. For an existing role, describe what you did and when.';
-  if (/Salesforce/i.test(topic)) return 'Have you configured or administered Salesforce? Describe the permissions, data model, or automation you worked on, your contribution, and what improved.';
+  if (/Salesforce/i.test(topic) && /administ|configur|permissions|data model/i.test(topic)) return 'Have you configured or administered Salesforce? Describe the permissions, data model, or automation you worked on, your contribution, and what improved.';
   if (/OEM/i.test(topic)) return 'Have you executed an OEM or embedded-software partnership? Describe the partner, your contribution to the deal or implementation, and its outcome.';
   if (/release process/i.test(topic)) return 'Have you built, owned, or improved a product release process? Describe the release cadence, your contribution, and what improved.';
   if (/M&A integration/i.test(topic)) return 'Have you worked on a completed acquisition integration? Describe the actual integration, what you personally delivered, and the outcome. A fictional work sample can show your thinking, but cannot establish this experience.';
@@ -24,7 +25,7 @@ function contextQuestion(topic) {
 // "one of data infrastructure, CDP, MarTech" reads as "data infrastructure, CDP or MarTech".
 // Dictionary names are capitalised ("Competitive Analysis"); mid-sentence
 // they read as ordinary words. Names (Salesforce, MarTech, CDP) keep theirs.
-const plainName = (t) => (/^(?:[A-Z][a-z]+(?: (?:[A-Z][a-z]+|&|and|of))+|[A-Z][a-z]+(?:ing|ysis|ment|tion))$/.test(t) ? t.toLowerCase() : t);
+const plainName = (t) => (/^(?:Google|Microsoft|Amazon|Salesforce|Tableau|Workday|ServiceNow)\b/.test(t) ? t : /^(?:[A-Z][a-z]+(?: (?:[A-Z][a-z]+|&|and|of))+|[A-Z][a-z]+(?:ing|ysis|ment|tion))$/.test(t) ? t.toLowerCase() : t);
 // Options you already show aren't asked about: "AWS, ACE, CPPO or PPO" for
 // someone with AWS on every page is a question about ACE, CPPO or PPO.
 function topicOf(label, shownText = '') {
@@ -45,6 +46,13 @@ const optionsIn = (label) => {
 // A one-word topic ("Content") is too vague to answer: name it the way the
 // posting does ("content work such as course content or marketing assets").
 function specific(topic, job) {
+  // A broad matching category isn't a useful question when the posting
+  // names specific work: ask about instructional design, not "education".
+  const entry = [...classifyJobSkills(String(job.text || ''))].find(([skill]) => plainName(skill).toLowerCase() === topic.toLowerCase());
+  if (entry && /\s/.test(entry[1].term) && isSkillPhrase(entry[1].term)) {
+    const written = String(job.text || '').match(new RegExp(entry[1].term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))?.[0] || entry[1].term;
+    return plainName(written);
+  }
   if (/\s/.test(topic)) return topic;
   const word = topic.toLowerCase();
   const uses = postingPhrases(String(job.text || ''), job.company || '').filter((p) => p !== word && new RegExp(`(^|\\s)${word}(\\s|$)`).test(p)).slice(0, 2);
@@ -294,6 +302,10 @@ function phrasedElsewhere(phrase, bankLower) {
   if (words.length < 2) return null;
   // People, not documents: "direct reports" isn't "analytical reports" said another way.
   if (/^(?:direct|indirect) reports?$/.test(phrase)) return null;
+  // These heads describe different activities depending on their modifier:
+  // proposal generation is not demand generation, and adoption trends are
+  // not supply-growth trends. Shared words don't establish related work.
+  if (/\b(?:generation|trends?|communications?)$/.test(phrase)) return null;
   const head = words[words.length - 1].replace(/s$/, '');
   if (head.length < 4 || GENERIC_HEADS.has(words[words.length - 1]) || GENERIC_HEADS.has(head)) return null;
   for (const m of bankLower.matchAll(new RegExp(`\\b([a-z/-]+)\\s+(${head}\\w*)\\b`, 'g'))) {

@@ -3,6 +3,7 @@
 const { SKILLS, classifyJobSkills, withoutCollaborators } = require('./fitScore');
 const { phraseCasing } = require('./postingCase');
 const ResumeDoc = require('../shared/resumeDoc');
+const { memoize } = require('./memo');
 
 const norm = s => String(s || '').trim().toLowerCase().replace(/[–—-]/g, ' ').replace(/\s+/g, ' ');
 const GROUPS = [
@@ -19,7 +20,8 @@ const GROUPS = [
   ['ERP', 'Enterprise Resource Planning'], ['SEO', 'Search Engine Optimization', 'Search Engine Optimisation'],
   ['FP&A', 'Financial Planning and Analysis'], ['ETL', 'Extract Transform Load'],
 ];
-const groupOf = value => GROUPS.findIndex(g => g.some(s => norm(s) === norm(value)));
+const TERM_GROUP = new Map(GROUPS.flatMap((g, i) => g.map(term => [norm(term), i])));
+const groupOf = value => TERM_GROUP.get(norm(value)) ?? -1;
 // Direction matters: a named implementation supports its broader practice,
 // but knowing that practice does not prove a particular implementation.
 const BROADER = {
@@ -31,12 +33,17 @@ const BROADER = {
   Consulting: ['Strategy Consultant', 'Technology Consultant', 'Management Consultant', 'IT Consultant'],
 };
 function sameSkillTerm(a, b) {
-  const group = groupOf(a);
-  return norm(a) === norm(b) || (group >= 0 && group === groupOf(b));
+  const from = norm(a), to = norm(b), group = TERM_GROUP.get(from);
+  return from === to || (group !== undefined && group === TERM_GROUP.get(to));
 }
+const aliases = term => { const g = groupOf(term); return (g < 0 ? [term] : GROUPS[g]).map(norm); };
+const BROADER_TERMS = new Map(Object.entries(BROADER).flatMap(([parent, tools]) => {
+  const sources = new Set(tools.flatMap(aliases));
+  return aliases(parent).map(target => [target, sources]);
+}));
 function compatibleWording(from, to) {
   if (sameSkillTerm(from, to)) return true;
-  return Object.entries(BROADER).some(([parent, tools]) => sameSkillTerm(parent, to) && tools.some(tool => sameSkillTerm(tool, from)));
+  return BROADER_TERMS.get(norm(to))?.has(norm(from)) || false;
 }
 function isSkillPhrase(term) {
   const text = String(term || '').trim();
@@ -60,7 +67,8 @@ function positiveMention(text, at, length, skill) {
   return true;
 }
 
-function evidenceSpans(text, skill) {
+const evidenceSpans = memoize(readEvidenceSpans, { size: 2000 });
+function readEvidenceSpans(text, skill) {
   const source = String(text || '');
   const out = [];
   for (const pattern of SKILLS[skill] || []) {

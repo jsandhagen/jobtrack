@@ -26,7 +26,7 @@ const { memoize } = require('./memo');
 const { toShown, SCALE: FIT_SCALE } = require('../shared/fitScale');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 22;
+const SCORER_VERSION = 23;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -67,7 +67,7 @@ function showsProgramming(textLower) {
 const NOT_TERMS = new Set(
   (
     'we you our your the this that they their a an and or of in on for to with as at by is are be will no not it executive executives cloud enterprise applications engagements industry such framework frameworks database databases interest passion curiosity obtain comfort communication communications tracking programs design optimization technology ' +
-    'about role team company position job candidate candidates applicants ou responsibility responsibilities requirements qualifications ' +
+    'about role team company position job candidate candidates applicants ou ops responsibility responsibilities requirements qualifications ' +
     'preferred required minimum basic nice bonus plus benefits experience knowledge ability skills strong excellent ' +
     'proven demonstrated working work must should including include etc ideal ideally equivalent degree bachelor ' +
     'master bachelors masters years year what who why how join help build support manage develop create ensure ' +
@@ -130,7 +130,7 @@ const PLACE_WORDS = new Set((
 const isPlace = (words) => words.some((w) => w !== 'and' && w !== 'the' && w !== 'of' && w !== 'new') && words.every((w) => PLACE_WORDS.has(w.replace(/[.,;:]+$/, '')));
 const GENERIC_HEAD = /\b(?:expectations|requirements|standards|guidelines|principles|best practices|concepts|topics|issues|areas|needs|goals|objectives|environments?)$/;
 // Work habits a resume can't show by wording: not requirements to score.
-const WORK_STYLE = /\b(?:basic |strong )?(?:math|mathematics|computer|typing|keyboarding|reading|writing) (?:skills|proficiency)\b|\bmath and computer\b|\bcomputer literacy\b|\battention to detail\b|\bdetail[- ]oriented\b|\bself[- ]starter\b|\bwork ethic\b|\bintellectual(?:ly)? curio|\bfast learner\b|\bsense of ownership\b|\blong hours\b/i;
+const WORK_STYLE = /\b(?:basic |strong )?(?:math|mathematics|computer|typing|keyboarding|reading|writing) (?:skills|proficiency)\b|\bmath and computer\b|\bcomputer literacy\b|\battention to detail\b|\bdetail[- ]oriented\b|\bself[- ]starter\b|\bwork ethic\b|\bintellectual(?:ly)? curio|\bfast learner\b|\bsense of ownership\b|\blong hours\b|\bentrepreneurial\b|\bresourceful approach\b/i;
 
 // Terms a posting asks for that aren't in the skills dictionary: acronyms
 // (BLS, CPA, EHR), capitalised product names (Epic, Salesforce, AutoCAD) and
@@ -154,6 +154,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     // A verb from a clause, not a thing: "Experience defining, planning, and
     // driving top-level strategic initiatives" asks for neither "defining" nor "driving top-level".
     if (/ing$/.test(words[0]) && isVerbForm(words[0]) && words.length <= 2) return;
+    if (!/ing$/.test(words[0]) && isVerbForm(words[0])) return;
     // "regulatory expectations", "industry standards": what about them is the requirement, not the phrase.
     if (GENERIC_HEAD.test(lower(clean))) return;
     if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w) || TERM_ONLY_STOP.has(w))) return;
@@ -435,6 +436,7 @@ const KIND_SYNONYMS = [
   [/\bfp&a\b/g, 'financial planning analysis'],
   [/\bml\b/g, 'machine learning'],
   [/\bux\b/g, 'user experience'],
+  [/\badminister(?:ed|ing|s)?\b/g, 'administration'],
   [/\bstrats?\b/g, 'quantitative'],
   [/\bmodel risk\b/g, 'model validation'],
   // Analytics is data work; "wrote analyses" is not.
@@ -547,7 +549,7 @@ function readRequirementUnits(job) {
       line = line.replace(/\b([a-z][a-z-]+[\s-]){1,5}[a-z]+\s*\(([a-z]{2,7})\)/g, '$2');
     }
     // Travel, clearance, sponsorship and the like are screening questions (screening.js).
-    if (SCREENING_LINE.test(line)) continue;
+    if (SCREENING_LINE.test(line) || /\b(?:in[- ]office|on[- ]site|onsite) (?:position|role|job)\b|\b(?:office location|walking distance|commut(?:e|ing))\b/.test(line)) continue;
     if (INTEREST.test(original)) continue;
     // With no requirements list, the posting's lines about the job are what it
     // asks; its lines about the employer stay context (companyVoice).
@@ -579,10 +581,12 @@ function readRequirementUnits(job) {
     // blurb — and not degree lines, which count as one "degree" requirement.
     if ((lineKind !== 'neutral' || !hasRequiredSection) && !about && !isDegreeLine(original)) {
       // A credential line names the license even when the title does too ("Social Worker (LMSW)").
-      const terms = credentialLine ? extractTerms(original, new Set(), lower(job.company)) : extractTerms(original, termIgnoreWords, termIgnoreText);
+      const speakingToPeople = /\b(?:room of|audiences? ranging|stakeholders? across)\b/i.test(original);
+      const terms = speakingToPeople ? [] : credentialLine ? extractTerms(original, new Set(), lower(job.company)) : extractTerms(original, termIgnoreWords, termIgnoreText);
       // "Econometrics" and "Econometrics modeling" from one phrase are one requirement.
       const contains = (long, short) => long !== short && ` ${lower(long)} `.includes(` ${lower(short)} `);
-      for (const term of terms.filter((x) => !terms.some((y) => contains(x, y)))) {
+      const productNames = terms.filter(t => /^(?:Google|Microsoft|Amazon|Adobe)\s/.test(t));
+      for (const term of terms.filter(x => !productNames.some(y => contains(y, x)) && (productNames.includes(x) || !terms.some(y => contains(x, y))))) {
         const index = line.indexOf(lower(term));
         const pos = { index, end: index + term.length };
         // Part of a skill already found: "language models" in "large language models".
@@ -658,7 +662,12 @@ function readRequirementUnits(job) {
     const kindSkills = kindIsSkills && wholeKind ? sameAsKind.map((f) => SKILLS[f.skill]) : [];
     const kindMatcher = kindMatch(xk ? xk.alts : []);
     if (xk && xk.people) addUnit('x:' + xk.label, xk.label, xkKind, (t) => (PEOPLE_SHOWN.some((p) => p.test(t)) ? 1 : 0), { gate: true, weight: 1 });
-    else if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindSkills.length ? (t) => Math.max(kindMatcher(t), kindSkills.some((ps) => ps.some((p) => p.test(t))) ? 1 : 0) : kindMatcher, { gate: true, weight: kindIsSkills ? 0.5 : 1, functionKind, ...(kindSkills.length ? { skills: sameAsKind.map((f) => f.skill) } : {}), ...(sameAsKind.length ? { related: relatedOf(sameAsKind.map((f) => f.skill)) } : {}) });
+    else if (xk) addUnit('x:' + xk.label, xk.label, xkKind, kindSkills.length ? (t) => Math.max(kindMatcher(t), kindSkills.some((ps) => ps.some((p) => p.test(t))) ? 1 : 0) : kindMatcher, { gate: true, weight: kindIsSkills ? 0.5 : 1, functionKind,
+      // Reporting in a platform doesn't establish years administering or
+      // configuring it. This specialized work remains a meaningful screen
+      // even when the title is a broader operations role.
+      specialized: xkKind === 'required' && sameAsKind.length > 0 && xk.alts.every(ws => /\b(?:administration|configuration)\b/.test(ws.join(' '))),
+      ...(kindSkills.length ? { skills: sameAsKind.map((f) => f.skill) } : {}), ...(sameAsKind.length ? { related: relatedOf(sameAsKind.map((f) => f.skill)) } : {}) });
     // "Dashboards in Tableau" is one requirement (Tableau), not two.
     for (const [parent, children] of Object.entries(PARENT_OF)) {
       if (found.some((f) => children.includes(f.skill))) found.splice(0, found.length, ...found.filter((f) => f.skill !== parent));
@@ -1085,6 +1094,7 @@ function fitHeadline(f) {
   if (f.missingCore.length) return `The title centres on ${listOf(f.missingCore)}, which your documents don't mention yet.`;
   if (f.missingFunction) return `A different line of work: it asks for ${plain(f.missingFunction.label)}, which isn't in your documents yet.`;
   if (f.missingCredential) return `It requires ${plain(f.missingCredential.label)}. If you have it, add it to your documents: applications are screened on it.`;
+  if (f.missingSpecialized) return `A stretch: it requires ${plain(f.missingSpecialized.label)}, which your documents don't show yet. Add an example if you've done that work.`;
   const years = f.needYears !== null && f.haveYears !== null ? `it asks for ${f.needYears}+ years; you have about ${Math.round(f.haveYears)}.` : '';
   if (f.stretch) return `A stretch, but worth a look: this is ${/^[aeio]/.test(LEVEL_NAMES[f.postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[f.postingLevel]}-level role and your documents read as ${LEVEL_NAMES[f.userLevel]}-level.${years ? ` It${years.slice(2)}` : ''}`;
   if (f.shortYears) return `A stretch on years, which postings often flex on: ${years}`;
@@ -1119,7 +1129,7 @@ function localFitScore(job, documents, profile = {}) {
   // "Coursework or work experience": the posting accepts what school shows.
   if (/\bcoursework\b/i.test(job.text)) for (const s of segs) if (s.weight < 0.9) s.weight = 0.9;
   const implied = impliedSkills(titles);
-  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, gate: !!u.gate, functionKind: !!u.functionKind, credential: !!u.credential, weight: u.weight ?? 1, met: evidenceFor(u, segs, lib, libText, implied) }));
+  const all = units.map((u) => ({ label: u.label, kind: u.kind, core: !!u.core, gate: !!u.gate, functionKind: !!u.functionKind, credential: !!u.credential, specialized: !!u.specialized, weight: u.weight ?? 1, met: evidenceFor(u, segs, lib, libText, implied) }));
   const req = all.filter((u) => u.kind === 'required');
   const pref = all.filter((u) => u.kind === 'preferred');
   // Communication, collaboration, problem solving: can't be judged from
@@ -1252,8 +1262,13 @@ function localFitScore(job, documents, profile = {}) {
   // A required license or certification you don't show: the application screens it out.
   const missingCredential = all.find((u) => u.credential && u.kind === 'required' && u.met < 0.4) || null;
   if (missingCredential) score = Math.min(score, 40);
+  const missingSpecialized = all.find(u => u.specialized && u.met < 0.6) || null;
+  if (missingSpecialized) score = Math.min(score, 44);
   if (overqualified) score = Math.min(score, levelsBelow >= 3 ? 50 : 60);
   if (shortYears) score = Math.min(score, shortYears);
+  // Close enough to be competitive is still different from meeting the
+  // stated tenure. A year or more short can be strong, but not excellent.
+  if (yearsShort >= 1) score = Math.min(score, 79);
   // Neither the title nor the kind of work the role is named for: a different job.
   // (Adjacent fields that share most of the must-haves are a stretch, not a different job.)
   // Not when a title you've held is in the same family as the work asked for
@@ -1302,9 +1317,9 @@ function localFitScore(job, documents, profile = {}) {
 
   // One sentence to decide by, most decisive fact first.
   const headline = documents.length
-    ? fitHeadline({ breakers, otherFunction, missingFunction, missingCredential, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
+    ? fitHeadline({ breakers, otherFunction, missingFunction, missingCredential, missingSpecialized, missingCore: all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label), stretch, stepUp: seniority !== null && -levelsBelow === 1, thin: !all.length && (job.text || '').length < 200, shortYears, needYears, haveYears, postingLevel, userLevel, overqualified, req, role, dutyGap, score })
     : '';
-  if (missingReq.length) concerns.push(`Not in your documents yet: ${missingReq.slice(0, 6).join(', ')}`);
+  if (missingReq.length) concerns.push(`Not in your documents yet: ${missingReq.slice(0, 6).map(plain).join(', ')}`);
 
   return {
     score,
@@ -1332,9 +1347,11 @@ function localFitScore(job, documents, profile = {}) {
       overqualified && { max: levelsBelow >= 3 ? 50 : 60, reason: 'You would likely be overqualified for this role' },
       stretch && { max: -levelsBelow >= 3 ? 25 : 44, reason: `This is ${/^[aeio]/.test(LEVEL_NAMES[postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}` },
       shortYears && { max: shortYears, reason: `It asks for ${needYears}+ years; your documents show about ${Math.round(haveYears)}` },
+      !shortYears && yearsShort >= 1 && { max: 79, reason: `It asks for ${needYears}+ years; your documents show about ${Math.round(haveYears)}` },
       otherFunction && { max: 40, reason: `This is a ${otherFunction} role, and your documents don't show ${otherFunction} work` },
       missingCredential && { max: 40, reason: `It requires ${missingCredential.label.replace(/^one of /, 'one of ')}, which your documents don't show` },
       missingFunction && { max: 35, reason: `It asks for ${missingFunction.label}, which your documents don't show` },
+      missingSpecialized && { max: 44, reason: `It requires ${plain(missingSpecialized.label)}, which your documents don't show` },
     ].filter(Boolean),
     reasons,
     concerns,

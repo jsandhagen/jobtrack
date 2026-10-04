@@ -150,7 +150,9 @@ function strategyChecks(job, doc) {
     [/\boem motion\b/i, /\boem\b/i, 'OEM partnership execution'],
   ];
   for (const [asks, proves, label] of rules) if (asks.test(required) && !proves.test(work)) checks.push(label);
-  const salesforce = required.split('\n').find((line) => /salesforce/i.test(line) && /permissions|configur|administ|modelling|modeling|automation/i.test(line));
+  // Marketing automation platforms alongside Salesforce don't imply that
+  // the candidate must configure Salesforce itself.
+  const salesforce = required.split('\n').some((line) => /(?:permissions|configur\w*|administ\w*|data model(?:ing|ling)?)[^.\n,;]{0,40}\bsalesforce\b|\bsalesforce\b[^.\n,;]{0,40}(?:permissions|configur\w*|administ\w*|data model(?:ing|ling)?)/i.test(line));
   if (salesforce && !/\b(?:administered|configured|automated|implemented|modeled|modelled)\b[^.\n]*salesforce|salesforce[^.\n]*(?:administration|configuration|permissions|data model)/i.test(work)) checks.push('Salesforce administration, configuration, or data modeling');
   const productionAI = required.split('\n').find((line) => /\b(?:AI|agents?)\b/i.test(line) && /production|operationali[sz]\w+.*workflows?|integrat\w+.*workflows?|workflows?.*integrat/i.test(line));
   const aiImplementation = work.split('\n').some((line) => /\b(?:AI|agents?)\b/i.test(line) && /\b(?:built|deployed|implemented|integrated|automated)\b/i.test(line) && /\bproduction\b|\bAPIs?\b/i.test(line));

@@ -25,7 +25,7 @@ async function launch({ data, shots } = {}) {
   fs.mkdirSync(shots, { recursive: true });
   const app = await _electron.launch({
     executablePath: electronBin,
-    args: ['--no-sandbox', ROOT],
+    args: ['--no-sandbox', `--user-data-dir=${path.join(data, 'chromium')}`, ROOT],
     env: { ...process.env, JOBTRACK_DATA_DIR: data },
     timeout: 60000,
   });
