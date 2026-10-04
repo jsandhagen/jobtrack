@@ -7,6 +7,7 @@ const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, E
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 const { strategyFocus, strategyEvidence, strategySummary, strategyChecks } = require('./strategyResume');
+const { phraseCasing } = require('./postingCase');
 
 // The posting's requirements, less the kind of experience asked for ("5+
 // years in software engineering"): a role's title meets that, so it can't
@@ -1151,7 +1152,7 @@ function addIndustryWords(doc, job) {
 // "postgresql" as the posting writes it ("PostgreSQL").
 function postingWording(jobText, term, skill) {
   const m = jobText.match(new RegExp(`(?<![A-Za-z0-9])${escapeRe(term)}(?![A-Za-z0-9])`, 'i'));
-  const w = m ? m[0] : term;
+  const w = phraseCasing(m ? m[0] : term);
   if (w !== lower(w)) return w;
   return lower(skill) === lower(w) ? skill : w.replace(/^./, (c) => c.toUpperCase());
 }
@@ -1434,7 +1435,7 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   // goal: 75 and up reads as a strong application, so above that floor (or
   // above where the page started, when it starts lower) a point of ATS is
   // worth little, and below it each point costs a lot.
-  const { resumeStrength } = require('./resumeStrength');
+  const { resumeStrength, summaryClarity } = require('./resumeStrength');
   const floor = Math.min(ATS_FLOOR, read(start).score);
   const seen = new Map();
   // Screening software reads what's on the page, not its order: one ATS read per set of lines.
@@ -1548,7 +1549,12 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   const pickSummary = () => {
     const generated = summary ? strategySummary(job, best, ranked) : null;
     let chosen = null;
-    for (const text of [...new Set([generated || best.summary, ...own].filter(Boolean))]) {
+    const candidates = [...new Set([generated || best.summary, ...own].filter(Boolean))];
+    // An existing keyword-heavy paragraph should not displace a readable
+    // factual summary just for a small ATS gain. Keep source wording intact
+    // and choose another supported summary rather than rewriting its claims.
+    const readable = candidates.filter(text => !summaryClarity(text).repetitive);
+    for (const text of readable.length ? readable : candidates) {
       const d = clone(best);
       d.summary = text;
       const added = addIndustryWords(d, job).added;

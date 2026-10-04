@@ -16,6 +16,7 @@ const { sameFact, repeatOf } = require('../src/shared/resumeCheck');
 const { atsScore, postingPhrases } = require('../src/main/atsScore');
 const { htmlToText } = require('../src/main/resumeRender');
 const { strategySummary } = require('../src/main/strategyResume');
+const { resumeStrength } = require('../src/main/resumeStrength');
 const { guessKind } = require('../src/main/documents');
 
 const RESUME_A = `Jordan Reyes
@@ -94,7 +95,7 @@ const profile = { name: 'Jordan Reyes', email: 'jordan.reyes@example.com' };
 test('one accomplishment told twice is recognised: the same figure for the same thing, or one deliverable with the same tools', () => {
   const [marketplace, partners, qbr, ci, dashboards, insights] = B.parseResume(RESUME_A).experiences[0].bullets.map((b) => b.text);
   assert.ok(sameFact(marketplace, qbr), '$9M and $9M+ in customer transactions');
-  assert.ok(sameFact(partners, qbr), 'seven partnerships, twice');
+  assert.ok(!sameFact(partners, qbr), 'the same seven-partner scope supports distinct funding and transaction outcomes');
   assert.ok(sameFact(dashboards, insights), 'SQL and Excel dashboards, twice');
   assert.ok(!sameFact(marketplace, partners), '$9M in transactions and $3M+ in funding are two facts');
   assert.ok(!sameFact(ci, dashboards));
@@ -107,6 +108,51 @@ test('PDF line-break debris is cleaned on import, and every resume keeps its sum
   const bank = libraryBank();
   assert.match(bank.summary, /^Senior Strategy Consultant .* fast-moving environments/);
   assert.equal(bank.summaries.length, 2);
+});
+
+test('posting title case does not capitalize conjunctions in generated skills', () => {
+  const bank = libraryBank();
+  bank.bullets.push({ id: 'markets', experienceId: bank.experiences[0].id, text: 'Analyzed options and futures positions for the investment committee', variants: [] });
+  const job = { title: 'Derivatives Analyst', text: 'Requirements\n- Experience with Options And Futures\n- Strong financial modeling skills' };
+  const skills = B.pickSkills(job, bank).all;
+  assert.ok(skills.some(s => /options and futures/i.test(s)), skills.join(' | '));
+  assert.ok(skills.every(s => !/\bAnd\b/.test(s)), skills.join(' | '));
+  const { phraseCasing } = require('../src/main/postingCase');
+  assert.equal(phraseCasing('SQL AND FP&A'), 'SQL AND FP&A', 'acronyms and boolean operators retain their case');
+  assert.equal(phraseCasing('AWS And PostgreSQL'), 'AWS and PostgreSQL');
+  const title = 'Research And Development Analyst';
+  bank.experiences[0].title = title;
+  const before = JSON.stringify(bank);
+  assert.equal(B.optimizeResume({profile,bank,job}).doc.roles[0].title,title);
+  assert.equal(JSON.stringify(bank),before,'normalization never edits source material');
+});
+
+test('paraphrased client-database work is not repeated on the optimized page', () => {
+  const a = 'Organized raw client datasets to build databases and prepared ad-hoc reports for client needs';
+  const b = 'Built and maintained client databases from raw datasets, developed reporting frameworks, and ensured consistent client communication';
+  assert.ok(repeatOf(a, b), 'the same client databases and raw datasets in different words');
+  assert.ok(repeatOf('Designed financial reporting programs for enterprise clients using SQL and Python, building forecasting models from complex datasets', 'Organized client datasets to build databases, created forecasting models, and prepared reports to support client needs'), 'forecasting models built from the same client datasets should not be told twice');
+  assert.ok(!repeatOf('Built client databases for 12 accounts and cut reporting time 30%', 'Built client databases for 20 accounts and reduced errors 45%'), 'different quantified outcomes remain distinct');
+  assert.ok(!repeatOf('Built demand forecasting models for warehouse inventory planning', 'Built liability forecasting models for insurance litigation settlements'), 'different model inputs and purposes remain distinct');
+  const bank = libraryBank();
+  const role = bank.experiences[1].id;
+  bank.bullets.push(...[a,b].map((text,i)=>({id:'db'+i,experienceId:role,text,variants:[]})));
+  const job = { title: 'Business Operations Manager', text: 'Requirements\n- Financial modeling and reporting\n- SQL and Excel dashboards\n- Client databases and data analysis\nResponsibilities\n- Lead cross-functional programs' };
+  const doc = B.optimizeResume({ profile, bank, job }).doc;
+  const databases = doc.roles.flatMap(r=>r.bullets).filter(b=>/client databases|build databases/.test(b.text));
+  assert.ok(databases.length <= 1, databases.map(b=>b.text).join('\n'));
+});
+
+test('a summary with repeated driving phrasing loses to an otherwise equivalent concise one', () => {
+  const job = { title: 'Technology Strategy Consultant', text: 'Requirements\n- Technology strategy and cross-functional programs\n- Financial modeling and data analysis' };
+  const doc = B.optimizeResume({ profile, bank: libraryBank(), job }).doc;
+  const concise = { ...doc, summary: 'Technology strategy consultant owning cross-functional programs and financial analysis.' };
+  const repetitive = { ...doc, summary: 'Technology strategy consultant responsible for driving company-wide impact by driving technology strategy and driving cross-functional programs and financial analysis.' };
+  assert.ok(resumeStrength(concise,job).score > resumeStrength(repetitive,job).score);
+  const bank = libraryBank();
+  bank.summary = repetitive.summary;
+  bank.summaries = [repetitive.summary];
+  assert.doesNotMatch(B.optimizeResume({profile,bank,job}).doc.summary, /driving .*driving .*driving/i);
 });
 
 test('the optimized page never repeats an accomplishment, says "Present", and reads at least as well as the untailored page', () => {

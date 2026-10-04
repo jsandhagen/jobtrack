@@ -99,6 +99,20 @@ function headerCompany(head, title) {
   return '';
 }
 
+function headerJobTitle(head, company) {
+  // LinkedIn's active title sits immediately before its location/applicant
+  // metadata. It may have no role noun ("Business Operations"), while the
+  // company or a sidebar may contain one. Use that header before a guess.
+  if (head.some(l=>/^(?:job title|position title|title|position|role)\s*:/i.test(l))) return guessJobTitle(head.join('\n'));
+  company = company || headerCompany(head, '');
+  const anchor = head.findLastIndex(l => POSTED_META.test(l) && l.length < 90);
+  if (anchor > 0) {
+    const candidates = head.slice(Math.max(0, anchor - 6), anchor).filter(l => l && !isChrome(l) && !KEEP_META.test(l) && !CITY_STATE.test(l) && l.toLowerCase() !== company.toLowerCase() && !isGenericTitle(l));
+    if (candidates.length) return guessJobTitle(candidates.reverse().join('\n'));
+  }
+  return guessJobTitle(head.filter(l => !isChrome(l)).join('\n'));
+}
+
 /**
  * @param {{title?:string, company?:string, location?:string, text:string}} posting
  * @returns {{title:string, company:string, location:string, text:string}}
@@ -151,7 +165,7 @@ function cleanPosting(posting) {
   const meta = headKept.filter((l) => KEEP_META.test(l) && l.length < 80);
   const text = [...meta, ...(meta.length ? [''] : []), ...bodyKept].join('\n').replace(/\n{3,}/g, '\n\n').trim();
 
-  const headerTitle = head.length ? guessJobTitle(headKept.join('\n')) : '';
+  const headerTitle = head.length ? headerJobTitle(head, posting.company || findCompany(head, raw)) : '';
   const title = !isGenericTitle(posting.title) ? posting.title : !isGenericTitle(headerTitle) ? headerTitle : guessJobTitle(text);
   const company = posting.company || headerCompany(head.length ? head : lines.slice(0, 15), title) || findCompany(lines, raw);
   const location = posting.location || findLocation(head.length ? head : lines);
@@ -167,4 +181,24 @@ function cleanPosting(posting) {
   return { ...posting, title, company, location, text: text || raw.trim(), ...(warnings.length ? { warnings } : {}) };
 }
 
-module.exports = { cleanPosting };
+// Repair only an obviously bad cached title for this exact LinkedIn listing.
+// A valid saved title or an explicit manual edit remains authoritative.
+function repairLinkedInTitle(rec, fresh) {
+  const old = rec && rec.job;
+  if (!old || rec.jobTitleEdited || !fresh || !fresh.title || isGenericTitle(fresh.title) || isChrome(fresh.title)) return null;
+  const id = (url) => {
+    try {
+      const u = new URL(url);
+      if (!/(^|\.)linkedin\.com$/i.test(u.hostname)) return null;
+      return u.pathname.match(/\/jobs\/view\/(\d+)/)?.[1] || u.searchParams.get('currentJobId');
+    } catch { return null; }
+  };
+  const currentId = id(fresh.url);
+  if (!currentId || (old.url && id(old.url) !== currentId)) return null;
+  if (!old.url && norm(old.text || '') !== norm(fresh.text || '')) return null;
+  const bad = isGenericTitle(old.title) || isChrome(old.title || '') || norm(old.title || '').toLowerCase() === norm(old.company || '').toLowerCase() || /^(?:recommended jobs|jobs based on your profile|top job picks)$/i.test(old.title || '');
+  if (!bad || fresh.title === old.title || fresh.title === fresh.company) return null;
+  return { ...old, title: fresh.title, url: old.url || fresh.url };
+}
+
+module.exports = { cleanPosting, repairLinkedInTitle };

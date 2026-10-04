@@ -42,6 +42,24 @@ const DUTIES = `<h3>Responsibilities</h3><ul>
 const ld = (obj) => `<script type="application/ld+json">${typeof obj === 'string' ? obj : JSON.stringify(obj)}</script>`;
 const job = (over = {}) => ({ '@context': 'https://schema.org', '@type': 'JobPosting', title: 'Strategy & Operations Manager', hiringOrganization: { '@type': 'Organization', name: 'Brightpath' }, description: `<p>About the role</p>${DUTIES}`, ...over });
 
+test('LinkedIn scopes an h2 title to the visible posting rather than the sidebar or hidden old card', async () => {
+  const r = await read('https://www.linkedin.com/jobs/view/4000000002/', `<html><head><title>Jobs | LinkedIn</title></head><body><aside><h1>Recommended jobs</h1><h2>Account Executive</h2></aside><section style="display:none"><h1 class="job-details-jobs-unified-top-card__job-title">Old Stale Job</h1></section><main><section class="jobs-details"><header><h2>Business Operations</h2><div class="job-details-jobs-unified-top-card__company-name">Brightpath</div></header><div id="job-details"><h2>About the job</h2>${DUTIES}</div></section></main></body></html>`);
+  assert.equal(r.title, 'Business Operations');
+  assert.equal(r.company, 'Brightpath');
+});
+
+test('LinkedIn title falls back to the job-specific tab title when only unrelated headings are visible', async () => {
+  const r = await read('https://www.linkedin.com/jobs/view/4000000003/', `<html><head><title>Strategy &amp; Operations Manager | Brightpath | LinkedIn</title></head><body><aside><h1>Jobs based on your profile</h1></aside><main><div id="job-details"><h2>About the job</h2>${DUTIES}</div></main></body></html>`);
+  assert.equal(r.title, 'Strategy & Operations Manager');
+});
+
+test('LinkedIn ignores a hidden old description and reads the active job after navigation', async () => {
+  const r = await read('https://www.linkedin.com/jobs/view/4000000004/', `<html><head><title>Jobs | LinkedIn</title></head><body><main><section style="display:none"><h1 class="job-details-jobs-unified-top-card__job-title">Old Stale Job</h1><div class="jobs-description__content">${DUTIES.replace(/financial modeling/g,'stale requirement')}</div></section><section><header><h2>Business Operations</h2><div class="job-details-jobs-unified-top-card__company-name">Brightpath</div></header><div class="jobs-description__content">${DUTIES}</div></section></main></body></html>`);
+  assert.equal(r.title, 'Business Operations');
+  assert.match(r.text, /financial modeling/);
+  assert.doesNotMatch(r.text, /stale requirement/);
+});
+
 test('a search page carrying several postings\' data is not one posting', async () => {
   const many = { '@context': 'https://schema.org', '@type': 'ItemList', itemListElement: [1, 2, 3].map((i) => ({ '@type': 'ListItem', position: i, item: job({ title: `Strategy Manager ${i}` }) })) };
   const r = await read('https://jobs.example.com/search?q=strategy', `<html><head><title>Strategy jobs</title>${ld(many)}${ld(job({ title: 'Other Role A' }))}${ld(job({ title: 'Other Role B' }))}</head><body><h1>128 strategy jobs</h1><ul><li>Strategy Manager 1</li><li>Strategy Manager 2</li></ul></body></html>`);

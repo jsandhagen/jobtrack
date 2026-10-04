@@ -24,7 +24,7 @@ const { importFile, SUPPORTED } = require('./documents');
 const { isEvidenceDoc } = require('./sourceEvidence');
 const { analyzeLayout } = require('./layout');
 const { localFitScore, shownFit, skippedEmployer, SCORER_VERSION } = require('./localFit');
-const { cleanPosting } = require('./posting');
+const { cleanPosting, repairLinkedInTitle } = require('./posting');
 const claude = require('./claude');
 const draft = require('./draft');
 const { voiceProfile } = require('./voice');
@@ -642,8 +642,9 @@ async function handlePosting(posting, { fromDashboard = false, waitForAnalysis =
   const s = store.getSettings();
 
   // Seen this one before? Don't create a second record — remind instead.
-  const dup = store.findDuplicate({ fingerprint: fp, company: job.company, title: job.title });
+  let dup = store.findDuplicate({ fingerprint: fp, company: job.company, title: job.title });
   if (dup) {
+    dup = repairDetectedTitle(dup, job);
     if (save) store.saveApplication(dup.id);
     const updated = store.updateApplication(dup.id, { lastSeenAt: new Date().toISOString(), seenCount: (dup.seenCount || 1) + 1, ...(job.url && !dup.job.url ? { job: { ...dup.job, url: job.url } } : {}) });
     broadcast('app-updated', updated);
@@ -1353,11 +1354,20 @@ const pickAts = (a) =>
     : null;
 const cardEnv = () => ({ hasDocs: evidenceDocs().length > 0, hasKey: !!getApiKey() });
 
+function repairDetectedTitle(rec, fresh) {
+  const job = repairLinkedInTitle(rec, fresh);
+  if (!job) return rec;
+  const updated = store.updateApplication(rec.id, { job, quick: scoreLocally(job) });
+  broadcast('app-updated', updated);
+  return updated;
+}
+
 // A job on the page, scored for the browser's card without saving it (the card asks first).
 // `fresh`: score it now, not from a checked copy (which may not be re-scored yet).
 async function previewCard(p, { fresh = false } = {}) {
   const job = jobFromBrowser(p);
-  const dup = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
+  let dup = store.findDuplicate({ fingerprint: fingerprint(job.text), company: job.company, title: job.title });
+  if (dup) dup = repairDetectedTitle(dup, job);
   if (dup && dup.saved !== false) return browserCard(dup, { seen: true });
   const quick = dup && !fresh ? dup.quick : scoreLocally(job);
   return {
@@ -1725,6 +1735,7 @@ function registerIpc() {
     if (patch.job) {
       const rec = store.getApplication(id);
       allowed.job = { ...rec.job, ...pick(patch.job, ['title', 'company', 'location', 'url']) };
+      if (Object.hasOwn(patch.job, 'title')) allowed.jobTitleEdited = true;
     }
     let updated = store.updateApplication(id, allowed);
     if (patch.status) updated = store.setStatus(id, patch.status);

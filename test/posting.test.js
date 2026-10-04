@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { cleanPosting } = require('../src/main/posting');
+const { cleanPosting, repairLinkedInTitle } = require('../src/main/posting');
 const { localFitScore } = require('../src/main/localFit');
 const { atsScore } = require('../src/main/atsScore');
 const { classifyLines } = require('../src/main/fitScore');
@@ -27,6 +27,31 @@ Skills
 SQL, Tableau, Excel, Python`;
 const DOCS = [{ kind: 'resume', text: RESUME }];
 const CLEAN = { title: 'Data Analyst', company: 'Brightline Health', location: 'Denver, CO', text: BODY };
+
+test('a LinkedIn paste uses the active header for a title without a role noun', () => {
+  const text = `Brightline Health logo\nBrightline Health\nShare\nShow more options\nBusiness Operations\nDenver, CO · 3 days ago · Over 100 applicants\nHybrid\nFull-time\nEasy Apply\nSave\nMeet the hiring team\nSam Ortiz\nDirector of Analytics\nAbout the job\n${BODY}`;
+  const job = cleanPosting({ text });
+  assert.equal(job.title, 'Business Operations');
+  assert.equal(job.company, 'Brightline Health');
+});
+
+test('a LinkedIn header without a logo or applicant count still supplies the title', () => {
+  for (const header of ['Brightline Health\nBusiness Operations', 'Business Operations\nBrightline Health']) {
+    const job = cleanPosting({ text: `${header}\nDenver, CO · Reposted 1 day ago\nEasy Apply\nAbout the job\nBrightline Health is hiring for our growing team.\n${BODY}` });
+    assert.equal(job.title, 'Business Operations');
+    assert.equal(job.company, 'Brightline Health');
+  }
+});
+
+test('a corrected LinkedIn title repairs a bad cached header only for the same listing', () => {
+  const fresh = { title: 'Business Operations', company: 'Brightline Health', text: BODY, url: 'https://www.linkedin.com/jobs/view/123/?trackingId=new' };
+  const rec = { job: { ...fresh, title: 'Brightline Health', url: 'https://www.linkedin.com/jobs/view/123/?trackingId=old' } };
+  assert.equal(repairLinkedInTitle(rec,fresh).title,'Business Operations');
+  assert.equal(repairLinkedInTitle({...rec,jobTitleEdited:true},fresh),null);
+  assert.equal(repairLinkedInTitle({...rec,job:{...rec.job,title:'Operations Lead'}},fresh),null);
+  assert.equal(repairLinkedInTitle(rec,{...fresh,url:'https://www.linkedin.com/jobs/view/456/'}),null);
+  assert.equal(repairLinkedInTitle(rec,{...fresh,title:'About the job'}),null);
+});
 
 test('title, company and location come out of every site paste', () => {
   for (const site of SITES) {

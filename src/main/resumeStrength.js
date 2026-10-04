@@ -59,6 +59,15 @@ const SENIOR = /\b(?:senior|sr\.?|lead|principal|staff|head|director|vp|vice pre
 const WEAK = /^(?:Collaborated|Supported|Helped|Assisted|Contributed|Participated|Handled|Provided|Worked)\b/;
 const OWNS = /^(?:Led|Owned|Built|Launched|Drove|Directed|Managed|Ran|Created|Established|Designed|Founded|Negotiated|Closed|Executed)\b/;
 
+function summaryClarity(summary) {
+  const counts = new Map();
+  const filler = new Set('the and with for from this that into across within years experience'.split(' '));
+  const words = lower(summary).match(/[a-z]+/g) || [];
+  for (const word of words) if (word.length >= 4 && !filler.has(word)) counts.set(word, (counts.get(word) || 0) + 1);
+  const actions = /^(?:driving|drive|delivering|delivered|leading|led|building|built|managing|managed|owning|owned|working|worked|responsible)$/;
+  return { repetitive: [...counts].some(([word,n]) => n >= 4 || (n >= 3 && actions.test(word))), wordy: words.length > 75 };
+}
+
 /**
  * @param {object} doc  the resume (resumeDoc shape: summary, roles[].bullets[].text)
  * @param {object} job  { title, text }
@@ -159,7 +168,14 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
     const dated = yearsSeen.get(datedKey);
     const yearsOff = claimed && dated ? Number(claimed[1]) - dated : 0;
     const yearsPart = yearsOff < -1 ? 0.75 : yearsOff > 1 ? 0.6 : 1;
-    summaryPart = (onTopic ? 1 : 0.4) * (objective ? 0.5 : 1) * echoes * (sectorShown ? 1 : 0.7) * (proofOk ? 1 : 0.8) * yearsPart;
+    // Keyword-rich filler should not beat a concise, equally relevant
+    // summary. Catch repeated content words ("driving ... driving ...")
+    // without penalizing conjunctions or the identity line alone.
+    const { repetitive, wordy } = summaryClarity(summary);
+    const clarity = (repetitive ? 0.65 : 1) * (wordy ? 0.85 : 1);
+    summaryPart = (onTopic ? 1 : 0.4) * (objective ? 0.5 : 1) * echoes * (sectorShown ? 1 : 0.7) * (proofOk ? 1 : 0.8) * yearsPart * clarity;
+    if (repetitive) notes.push('The summary repeats the same content words; keep the action and its evidence once.');
+    if (wordy) notes.push('The summary is over 75 words; shorten it so the strongest evidence is easy to skim.');
     if (!onTopic) notes.push('The summary doesn\'t name the work this posting is about.');
     if (objective) notes.push('The summary reads as an objective (what you want) rather than what you bring.');
     if (echoes < 1) notes.push(echoes < 0.5 ? 'The summary repeats your first bullet.' : echoes < 0.8 ? 'The summary repeats your second bullet.' : 'The summary repeats a bullet on the page.');
@@ -180,4 +196,4 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
   return { score, grade: score >= 0.85 ? 'A' : score >= 0.72 ? 'B' : score >= 0.58 ? 'C' : 'D', parts, notes };
 }
 
-module.exports = { resumeStrength, PARTS, WEAK };
+module.exports = { resumeStrength, summaryClarity, PARTS, WEAK };

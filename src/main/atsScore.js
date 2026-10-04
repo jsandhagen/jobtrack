@@ -26,6 +26,7 @@
 const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, EMPLOYER_EVIDENCE, EMPLOYER_HEADING, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
+const { phraseCasing } = require('./postingCase');
 const { memoize } = require('./memo');
 
 
@@ -763,7 +764,7 @@ function postingCasing(jobText, term) {
   const counts = new Map();
   for (const m of jobText.matchAll(new RegExp(`(?<![A-Za-z0-9])${escapeRe(term)}(?![A-Za-z0-9])`, 'gi'))) {
     const before = jobText.slice(Math.max(0, m.index - 2), m.index);
-    const w = /^[A-Z][a-z]/.test(m[0]) && (/(?:^|[.!?:•\n-]\s*)$/.test(before) || m.index === 0) ? m[0].replace(/^./, (c) => c.toLowerCase()) : m[0];
+    const w = phraseCasing(/^[A-Z][a-z]/.test(m[0]) && (/(?:^|[.!?:•\n-]\s*)$/.test(before) || m.index === 0) ? m[0].replace(/^./, (c) => c.toLowerCase()) : m[0]);
     counts.set(w, (counts.get(w) || 0) + 1);
   }
   return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || null;

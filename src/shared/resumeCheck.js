@@ -64,18 +64,43 @@
   }
   const ARTIFACTS = /\b(?:dashboards?|battlecards?|playbooks?|databases?|forecasting models?|financial models?|keynotes?|pitch(?:es)?|newsletters?|curricul(?:um|a))\b/gi;
   const NAMES = /\b(?:[A-Z]{2,}[a-z]?|[A-Z][a-z]+[A-Z]\w*|Excel|Tableau|Python|Looker|Salesforce|Snowflake|Figma|Jira|Asana|Airtable|HubSpot)\b/g;
+  const ACTIONS = /\b(?:built|build|created|create|designed|developed|delivered|organized|maintained|managed|prepared|ensured|led|owned)\b/gi;
+  const factCache = new Map();
+  function factOf(text) {
+    const key = String(text || '');
+    if (factCache.has(key)) return factCache.get(key);
+    const fs = figures(key);
+    const fact = {
+      figures: fs,
+      // Different dollar/percentage outcomes are different accomplishments,
+      // even when they share a scope count such as seven partnerships.
+      outcomes: new Set(fs.filter(f => /[$%]/.test(f.n)).map(f => f.n)),
+      artifacts: new Set((key.match(ARTIFACTS) || []).map(w => w.toLowerCase().replace(/s$/, ''))),
+      names: new Set(key.match(NAMES) || []),
+      context: new Set([...contentWords(key.replace(ARTIFACTS, ' ').replace(ACTIONS, ' '))].map(w => w.replace(/ies$/, 'y').replace(/(?:ing|ed|s)$/, ''))),
+    };
+    if (factCache.size >= 2000) factCache.clear();
+    factCache.set(key, fact);
+    return fact;
+  }
+  const intersect = (a, b) => [...a].filter(w => b.has(w));
+  function distinctResults(a, b) {
+    const A = factOf(a).outcomes, B = factOf(b).outcomes;
+    return A.size && B.size && !intersect(A,B).length;
+  }
   function sameFact(a, b) {
-    const fb = figures(b);
-    for (const x of figures(a)) if (fb.some((y) => y.n === x.n && y.after.some((w) => x.after.includes(w)))) return true;
-    const art = (t) => new Set((String(t || '').match(ARTIFACTS) || []).map((w) => stem(w.toLowerCase())));
-    const named = (t) => new Set(String(t || '').match(NAMES) || []);
-    const aArt = art(a);
-    const shared = [...art(b)].some((w) => aArt.has(w));
-    const aNames = named(a);
-    return shared && [...named(b)].filter((n) => aNames.has(n)).length >= 2;
+    if (distinctResults(a,b)) return false;
+    const A = factOf(a), B = factOf(b);
+    for (const x of A.figures) if (B.figures.some(y => y.n === x.n && y.after.some(w => x.after.includes(w)))) return true;
+    if (!intersect(A.artifacts,B.artifacts).length) return false;
+    if (intersect(A.names,B.names).length >= 2) return true;
+    // A paraphrase can name the same deliverable and inputs without naming
+    // two tools: "client databases from raw datasets", in two wordings.
+    const shared = intersect(A.context,B.context).length;
+    return shared >= 3 && shared / Math.min(A.context.size,B.context.size) >= 0.25;
   }
   // Two bullets that would read as one accomplishment told twice.
-  const repeatOf = (a, b) => overlap(a, b) >= 0.6 || sameFact(a, b);
+  const repeatOf = (a, b) => !distinctResults(a,b) && (overlap(a, b) >= 0.6 || sameFact(a, b));
 
   const LINE_W = 468 - 18; // the template's bullet width in points (6.5in less the hanging indent)
   const lines = (text) => (ResumeDoc && ResumeDoc.lineCount ? ResumeDoc.lineCount(text, LINE_W) : Math.ceil(String(text || '').length / 95));

@@ -58,19 +58,20 @@
   }
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const signalCount = (t) => SIGNALS.filter((re) => re.test(t)).length;
+  const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   const q = (sel, root = document) => {
     for (const s of [].concat(sel)) {
       try {
-        const el = root.querySelector(s);
-        if (el && el.innerText && el.innerText.trim()) return el;
+        const els = root.querySelectorAll(s);
+        for (const el of els) if (visible(el) && el.innerText && el.innerText.trim()) return el;
       } catch {
         /* invalid selector on this browser */
       }
     }
     return null;
   };
-  const text = (sel) => {
-    const el = q(sel);
+  const text = (sel, root = document) => {
+    const el = q(sel, root);
     return el ? clean(el.innerText).split('\n')[0].trim() : '';
   };
   // Headings, labels and buttons that sit where a title would ("About this
@@ -80,21 +81,38 @@
   // The first element any of the selectors match whose first line can be a
   // job title: a site's own title element, then its fallbacks (<h1>, <h2>),
   // skipping section headings that use the same tag.
-  const titleText = (sel) => {
+  const titleText = (sel, root = document, accepts = () => true) => {
     for (const s of [].concat(sel)) {
       let els = [];
       try {
-        els = [...document.querySelectorAll(s)];
+        els = [...root.querySelectorAll(s)];
       } catch {
         /* invalid selector on this browser */
       }
       for (const el of els.slice(0, 20)) {
+        if (!visible(el) || !accepts(el)) continue;
         const t = clean(el.innerText || '').split('\n')[0].trim();
         if (t && !notJobTitle(t)) return t;
       }
     }
     return '';
   };
+
+  function linkedInHeader(body, site) {
+    // New layouts use an h2 instead of the old title class. Look beside the
+    // active description, before it, never in a sidebar, hiring-team block,
+    // or hidden card left behind by single-page navigation.
+    if (body) {
+      for (let root = body.parentElement, depth = 0; root && root !== document.body && depth < 6; root = root.parentElement, depth++) {
+        const beforeBody = el => !body.contains(el) && !!(el.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING);
+        const title = titleText([...site.title.filter(s=>s!=='h1'),'h1','h2'],root,beforeBody);
+        if (title) return { title, root };
+        if (root.matches('main,[role="main"]')) break;
+      }
+    }
+    const tab = fromTabTitle().title;
+    return { title: notJobTitle(tab) ? '' : tab, root: document };
+  }
 
   // HTML description from JSON-LD -> readable text with bullets.
   function htmlToText(html) {
@@ -368,10 +386,11 @@
     if (!site) return null;
     const body = q(site.body);
     if (!body) return null;
+    const header = site.name === 'linkedin' ? linkedInHeader(body,site) : null;
     return {
-      title: titleText(site.title),
-      company: text(site.company),
-      location: text(site.location),
+      title: header ? header.title : titleText(site.title),
+      company: text(site.company,header ? header.root : document),
+      location: text(site.location,header ? header.root : document),
       text: readText(body),
       source: site.name,
     };
@@ -526,7 +545,7 @@
     // No title, or a heading in its place ("About this role"): the page's
     // own title, its <h1>s, then the tab title. Better none than a wrong one;
     // the app then looks for one in the text.
-    if (notJobTitle(result.title)) result.title = pageTitle();
+    if (notJobTitle(result.title)) result.title = site && site.name === 'linkedin' ? linkedInHeader(q(site.body),site).title : pageTitle();
     if (!result.company) {
       const og = document.querySelector('meta[property="og:site_name"]');
       const tab = fromTabTitle();
