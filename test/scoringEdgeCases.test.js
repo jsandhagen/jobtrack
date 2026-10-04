@@ -212,3 +212,14 @@ test('section headings and site headings are never job titles; real titles that 
     assert.ok(!isGenericTitle(t), t);
   assert.equal(guessJobTitle('About this role\nSenior Data Analyst\nWe are hiring a data analyst to join our team.'), 'Senior Data Analyst');
 });
+
+// A posting with no requirements list (Microsoft MCAPS, Oct 2026): the
+// employer describing itself is context, never a knockout; its duties still count.
+test('the employer describing itself is not a requirement, and duties that say "our" still are', () => {
+  const about = (text) => classifyLines(text).filter((l) => l.about).map((l) => l.original);
+  assert.deepStrictEqual(about('Acme Cloud builds AI-powered analytics for retailers. We help customers grow faster. Our platform runs on AWS.\nThe Insights team is looking for a Program Manager to lead executive programs.\nKeep our production databases fast and secure.\n- Own the roadmap for our approvals product\nSupport 600 employees across our headquarters.'), ['Acme Cloud builds AI-powered analytics for retailers. We help customers grow faster. Our platform runs on AWS.']);
+  assert.deepStrictEqual(about('About the role\nOur clients rely on this team for audits across finance and IT.'), [], 'about the role is the job');
+  const job = { title: 'Senior Program Manager', text: 'Senior Program Manager\n\nAcme Cloud builds AI-powered analytics on AWS for retailers. We win competitively and help customers realize value faster with Salesforce.\n\nAcme is looking for a Senior Program Manager to lead cross-functional programs with product and sales teams.' };
+  const ats = atsScore(job, 'Program manager. Led cross-functional programs with product and sales teams.', {});
+  assert.ok(!ats.knockouts.some((k) => /AWS|Salesforce|AI\b/.test(k)), ats.knockouts.join(' | '));
+});

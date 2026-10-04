@@ -8,7 +8,9 @@ const THEMES = [
   { key: 'commercial', posting: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|co[- ]sell\w*|joint business planning)\b/gi, evidence: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|enablement materials|joint business planning|customer transactions)\b/i, title: /gtm|go[- ]to[- ]market|revenue operations|sales strategy|partnership|allian(?:ce|ces)\b/i },
   { key: 'delivery', posting: /\b(?:program management|project management|process (?:improvement|documentation)|operating processes|release process|workstreams?|milestones?|cross[- ]functional coordination)\b/gi, evidence: /\b(?:program management|program coordinator|project manager|process (?:improvement|documentation)|operating cadences?|standardizing.*processes|workstreams?|milestones?)\b/i, proof: /\b(?:program management of \d|across \d+ .*accounts|release (?:process|notes)|process improvement|standardizing.*processes|operating cadences?)\b/i, title: /operations|program manager|chief of staff/i },
   { key: 'analytics', posting: /\b(?:dashboards?|analytics|analytical|reporting|forecast\w*|data models?|metrics|kpis?)\b/gi, evidence: /\b(?:dashboards?|analytics|analytical|reporting|forecast\w*|data models?|metrics|kpis?)\b/i, title: /gtm|revenue operations|sales strategy|business operations|product operations/i },
-  { key: 'competition', posting: /\b(?:competitiv\w*|competitors?|market (?:research|analysis|intelligence|trends|expansion))\b/gi, evidence: /\b(?:competitiv\w*|competitors?|market (?:research|analysis|intelligence))\b/i, proof: /\b(?:competitive analysis|competitive intelligence|battlecards?|positioning briefs|win\/loss|objection handling)\b/i, title: /competitive|market (?:intelligence|insights?|research)|product strategy|corporate strategy/i },
+  // "Win competitively" and "competitive advantage" are what the employer
+  // boasts of, not competitive work the job does.
+  { key: 'competition', posting: /\b(?:competitive(?! advantage| edge| differentiation)(?!ly)\w*|competitors?|market (?:research|analysis|intelligence|trends|expansion))\b/gi, evidence: /\b(?:competitiv\w*|competitors?|market (?:research|analysis|intelligence))\b/i, proof: /\b(?:competitive analysis|competitive intelligence|battlecards?|positioning briefs|win\/loss|objection handling)\b/i, title: /competitive|market (?:intelligence|insights?|research)|product strategy|corporate strategy/i },
   { key: 'research', posting: /\b(?:emerging technolog\w*|technology trends|research|scout\w*|incubat\w*)\b/gi, evidence: /\b(?:research|emerging technolog\w*|technology trends|analyses|market and company research)\b/i, title: /emerging|innovation|research/i },
   { key: 'experiments', posting: /\b(?:prototyp\w*|proofs? of concept|pilots?|incubat\w*)\b/gi, evidence: /\b(?:prototyp\w*|proofs? of concept|pilots?)\b/i, title: /emerging|innovation/i },
   { key: 'deals', posting: /\b(?:acquisition\w*|due diligence|build\/buy\/partner|m&a)\b/gi, evidence: /\b(?:acquisition\w*|due diligence|m&a)\b/i, title: /corporate development|corporate strategy/i },
@@ -16,7 +18,7 @@ const THEMES = [
   { key: 'planning', posting: /\b(?:annual.*planning|quarterly.*planning|planning (?:process|cycle)|operating (?:cadence|rhythm)|okrs?|business reviews|budget planning|headcount)\b/gi, evidence: /\b(?:annual.*planning|quarterly.*planning|planning (?:process|cycle)|operating (?:cadence|rhythm)|okrs?|business reviews|budget planning|headcount)\b/i, title: /chief of staff|strategy\s*(?:&|and)\s*operations|strategy\s*(?:&|and)\s*planning/i },
   { key: 'investment', posting: /\b(?:business cases?|financial models?|financial modeling|investment\w*|cost optimization|it spend|cost models?|budgets?)\b/gi, evidence: /\b(?:business cases?|financial models?|financial modeling|investment\w*|cost optimization|it spend|cost models?|budgets?|due diligence|evaluated.*vendors?)\b/i, title: /corporate strategy|cio advisory|finance/i },
   { key: 'transformation', posting: /\b(?:technology roadmaps?|it roadmaps?|operating models?|modernization|cloud (?:migration|strategy)|transformation)\b/gi, evidence: /\b(?:technology roadmaps?|it strategies|operating models?|modernization|cloud (?:migration|strategy)|transformation)\b/i, title: /technology strategy|it strategy|cio advisory|modernization|transformation/i },
-  { key: 'executive', posting: /\b(?:executive (?:presentations?|communications?|summaries|narratives)|board (?:materials|presentations?)|briefings?|workshops?)\b/gi, evidence: /\b(?:executive (?:presentations?|communications?|summaries|team|workshops?)|board (?:materials|presentations?)|briefings?|workshops with.*executives)\b/i, title: /chief of staff/i },
+  { key: 'executive', posting: /\b(?:executive (?:presentations?|communications?|summaries|narratives|programs?|sponsors?|stakeholders?)|board (?:materials|presentations?)|briefings?|workshops?)\b/gi, evidence: /\b(?:executive (?:presentations?|communications?|summaries|team|workshops?)|board (?:materials|presentations?)|briefings?|workshops with.*executives)\b/i, title: /chief of staff/i },
 ];
 
 function strategyFocus(job = {}) {
@@ -25,9 +27,11 @@ function strategyFocus(job = {}) {
   const required = classifyLines(text).filter((line) => line.kind === 'required').map((line) => line.original).join('\n');
   return THEMES.flatMap((theme) => {
     const mentions = [...text.matchAll(theme.posting)].length;
-    if (!mentions) return [];
-    // The title's function matters more than repeated generic words in a JD.
+    // The title's function matters more than repeated generic words in a JD,
+    // and is the work even when the body never names it: a Business Program
+    // Manager whose posting says "lead executive programs", not "program management".
     const primary = theme.title.test(job.title || '');
+    if (!mentions && !primary) return [];
     const mustHave = [...required.matchAll(theme.posting)].length > 0;
     return [{ ...theme, primary, weight: (primary ? 10 : mustHave ? 7 : 1.5) + Math.min(2, mentions * 0.4) }];
   });

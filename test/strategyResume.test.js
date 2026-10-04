@@ -148,3 +148,20 @@ test('hidden roles and internships stay off a one-click strategy resume', () => 
   assert.ok(doc.roles.every((r) => !['excluded', 'intern'].includes(r.experienceId)));
   assert.doesNotMatch(doc.summary, /Director|50M|20 people/);
 });
+
+// A posting that is all team blurb, no requirements list (Microsoft MCAPS,
+// Oct 2026): the title's work leads, and the team's names aren't skills.
+test('a program manager posting with only a team blurb leads with program management, not its boasts', () => {
+  const { requirementUnits } = require('../src/main/localFit');
+  const job = {
+    title: 'Senior Business Program Manager',
+    company: 'Microsoft',
+    text: 'Senior Business Program Manager\n\nMCAPS-Core accelerates customer outcomes and business growth. By uniting product, engineering, marketing, sales, customer success, and partners around a common customer mission, we help customers realize value faster. Through differentiated go-to-market execution, we win competitively and create sustainable competitive advantage.\n\nThe Strategy & Transformation team identifies emerging opportunities and drives programmatic transformation across MCAPS Core, our customers, partners, and account teams. We design and test new programs, operating models, and customer experiences, then we scale what works.\n\nThe Strategy and Transformation team is looking for a Senior Business Program Manager to lead executive programs across the MCAPS-Core portfolio.',
+  };
+  const labels = requirementUnits(job).units.map((u) => u.label);
+  assert.ok(!labels.some((l) => /mcaps|^strategy$|^transformation$|business program/i.test(l)), labels.join(' | '));
+  const bank = bankFor('EXPERIENCE\nSr. Technology Strategy Consultant - Chief Technology Office\nAppian | McLean, VA | Oct 2022 – Present\n- Led competitive intelligence for the CTO by tracking competitor strategies and producing battlecards and positioning briefs\n- Served as strategic advisor to senior leaders by identifying patterns across win/loss trends and deal data for 200+ customer engagements\n- Owned end-to-end program management of 220+ enterprise customer and partner engagements, establishing operating cadences, tracking milestones and managing risks\n- Led operations and program management for seven technology partnerships, owning KPI/OKR tracking and managing $3M+ in partner sponsorship funding\nEDUCATION\nUniversity of Richmond\nB.A. in Economics and Finance, May 2021');
+  const { doc } = B.optimizeResume({ profile, bank, job });
+  assert.match(doc.roles[0].bullets[0].text, /program management/i);
+  assert.doesNotMatch(doc.summary, /competitive intelligence/i);
+});

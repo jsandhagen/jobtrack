@@ -136,20 +136,21 @@ function degreeLevel(text) {
 function skillUnits(jobSkills) {
   const units = [];
   const byGroup = new Map();
-  for (const [skill, { kind, term, group, mentions = 1 }] of jobSkills) {
+  for (const [skill, { kind, term, group, mentions = 1, about = false }] of jobSkills) {
     if (group === undefined) {
-      units.push({ skills: [skill], anyOf: [skill], kind, terms: [term], mentions });
+      units.push({ skills: [skill], anyOf: [skill], kind, terms: [term], mentions, about });
       continue;
     }
     let u = byGroup.get(group);
     if (!u) {
       // Match against every listed option, including ones also asked for on their own.
-      u = { skills: [], anyOf: jobSkills.groups[group], kind, terms: [], mentions: 1 };
+      u = { skills: [], anyOf: jobSkills.groups[group], kind, terms: [], mentions: 1, about };
       byGroup.set(group, u);
       units.push(u);
     }
     u.skills.push(skill);
     u.terms.push(term);
+    u.about = u.about && about;
     if (KIND_RANK[kind] > KIND_RANK[u.kind]) u.kind = kind;
   }
   return units.map((u) => ({
@@ -532,7 +533,9 @@ function atsScore(job, resumeText, opts = {}) {
   const basicKinds = hasRequired ? ['required'] : ['required', 'neutral'];
   // Knockout filters screen hard qualifications, not interpersonal skills.
   const hardUnits = skills.units.filter((u) => !u.skills.every((s) => INTERPERSONAL.has(s)));
-  const basic = hardUnits.filter((u) => basicKinds.includes(u.kind));
+  // Without a requirements list, what the employer says about itself ("AI-powered
+  // customer experiences") is context, not a qualification it screens on.
+  const basic = hardUnits.filter((u) => basicKinds.includes(u.kind) && (hasRequired || !u.about));
   const preferred = hardUnits.filter((u) => u.kind === 'preferred');
   let basicMet = basic.filter((u) => u.met).length;
   let basicTotal = basic.length;

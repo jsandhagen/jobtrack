@@ -391,17 +391,51 @@ function stripMarkdown(l) {
     .trim();
 }
 
+// The employer describing itself ("We help customers realize value faster",
+// "The Strategy & Transformation team identifies… across our customers")
+// rather than the job: context about the work, never a must-have. Most of
+// the line's sentences say "we" or "our", and none speaks to the candidate
+// or the role. A posting with no requirements list is often nothing else.
+const ROLE_VOICE = /\b(?:you|your|you['’](?:ll|re|ve)|candidates?|this (?:[\w-]+ )?(?:role|position|job|person)|the (?:role|position)|looking for|seeking|(?:is|are) hiring|hiring (?:an?|for)|in this role)\b/i;
+// "About us", "About Acme", "Who we are"; not "About the role" or "About you".
+const COMPANY_HEADING = /^(?:about(?! (?:the |this )?(?:role|job|position|opportunity|you|work)\b)|who we are|our (?:team|mission|culture|values|company|story)|company (?:overview|description))\b[^.]{0,30}$/;
+// "Keep our production databases fast", "Design, build and support our
+// network": a duty addressed to the candidate, not the employer on itself
+// ("Ledgerline builds…", "MCAPS-Core accelerates…").
+const DUTY_VERB = /^(?:administer|advise|analy[sz]e|assess|assist|audit|build|conduct|coordinate|create|deliver|design|develop|drive|ensure|evaluate|help|implement|keep|lead|maintain|manage|monitor|own|oversee|partner|perform|plan|prepare|provide|run|serve|support|track|work|write)$/i;
+const imperative = (s) => {
+  const m = String(s).match(/^([A-Z][a-z]+),?\s+([a-z0-9][\w'’-]*)/);
+  return !!m && (DUTY_VERB.test(m[1]) || !/s$/.test(m[2]));
+};
+function companyVoice(original) {
+  if (ROLE_VOICE.test(original) || /^(?:[-•*▪●◦✓✔➢►‣–—]|\d+[.)])\s*/.test(original)) return false;
+  const sentences = String(original).split(/(?<=[.!?])\s+/).filter((s) => s.trim());
+  if (imperative(sentences[0])) return false;
+  const ours = sentences.filter((s) => /\b(?:we|we['’](?:re|ve)|our|ours)\b/i.test(s)).length;
+  return ours > 0 && ours * 2 >= sentences.length;
+}
+
 // Tag every non-empty posting line as required / preferred / neutral, using
-// both the line's own wording and the section heading it sits under.
+// both the line's own wording and the section heading it sits under. `about`
+// marks the employer describing itself (companyVoice, or an "About us" section).
 function classifyLines(jobText) {
   const out = [];
   let section = 'neutral';
+  let aboutSection = false;
+  let roleSection = false;
   for (const rawLine of String(jobText || '').split('\n')) {
     const original = stripMarkdown(rawLine.trim());
     const line = original.toLowerCase();
     if (!line) continue;
     const isBullet = /^([-•*▪●◦✓✔➢►‣–—]|\d+[.)])\s*/.test(line);
     const isHeading = !isBullet && line.length < 60 && !/[.;]$/.test(line);
+    // Under "About the role" or "Responsibilities", "our clients rely on this
+    // team for audits" is the job; under "About us" anything is the employer.
+    if (isHeading && (COMPANY_HEADING.test(line) || NEUTRAL_HEADING.test(line) || REQUIRED_HEADING.test(line))) {
+      aboutSection = COMPANY_HEADING.test(line);
+      roleSection = !aboutSection;
+    }
+    const about = !isHeading && (aboutSection || (!roleSection && companyVoice(original)));
     let lineKind = section;
     // "Essential Functions", "Essential Duties and Responsibilities": duties, whatever "essential" says.
     if (isHeading && /^(?:essential|principal|key|primary) (?:functions|duties|responsibilities)\b/.test(line)) lineKind = 'neutral';
@@ -411,7 +445,8 @@ function classifyLines(jobText) {
     else if (isHeading && NEUTRAL_HEADING.test(line)) lineKind = 'neutral';
     const sectionKind = section;
     if (isHeading && lineKind !== section) section = lineKind;
-    out.push({ line, original, kind: lineKind, isHeading, section: sectionKind });
+    // "We require 5+ years of Python" still asks it.
+    out.push({ line, original, kind: lineKind, isHeading, section: sectionKind, about: about && lineKind === 'neutral' });
   }
   return out;
 }
@@ -527,7 +562,9 @@ function readJobSkills(jobText) {
   const mentions = new Map();
   const parts = classifyLines(jobText)
     .filter((l) => !BOILERPLATE_LINE.test(l.line))
-    .flatMap((l) => clauses(l.original, l.kind, l.section));
+    .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, about: l.about })));
+  // Skills only the employer's description of itself names.
+  const outside = new Set();
   for (const part of parts) {
     const { kind } = part;
     const line = withoutNegated(stripFieldsOfStudy(part.line));
@@ -565,6 +602,7 @@ function readJobSkills(jobText) {
       for (const f of run) groupOf.set(f.skill, id);
     }
     for (const { skill } of found) mentions.set(skill, (mentions.get(skill) || 0) + 1);
+    if (!part.about) for (const { skill } of found) outside.add(skill);
     for (const { skill, term } of found) {
       const prev = out.get(skill);
       const group = groupOf.get(skill);
@@ -576,7 +614,10 @@ function readJobSkills(jobText) {
       }
     }
   }
-  for (const [skill, v] of out) v.mentions = mentions.get(skill);
+  for (const [skill, v] of out) {
+    v.mentions = mentions.get(skill);
+    if (!outside.has(skill)) v.about = true;
+  }
   out.groups = groups;
   return out;
 }

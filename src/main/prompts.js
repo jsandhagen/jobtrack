@@ -21,8 +21,9 @@ const { isEvidenceDoc, isFictionalSample } = require('./sourceEvidence');
 // Resume: a free hand with the content (swap, reframe, merge and split
 // bullets from anything in the documents) inside the fixed layout and the
 // truthfulness rules; the page goes to the most relevant roles. Repeated
-// bullets across documents are sent once.
-const PROMPT_VERSION = '2026-10-04.3';
+// bullets across documents are sent once. A posting that is all about the
+// employer is written for its title and role sentences, not its slogans.
+const PROMPT_VERSION = '2026-10-04.4';
 
 // ---------------------------------------------------------------------------
 // Shared system prompt
@@ -168,6 +169,7 @@ The goal is one page the hiring manager wants to act on. In the summary and the 
 The top of the page:
 - The first bullet of the latest role is the candidate's strongest evidence of the work the job is titled for (competitive intelligence for a competitive intelligence manager, partnerships for an alliance manager), when the documents show that work. The second is the next-strongest proof; when the posting is set in a sector (public sector, financial services, healthcare) and the documents show work there, that proof belongs in the summary or these two bullets.
 - Open those two bullets with work the candidate owned or drove and what came of it, not a supporting verb ("Collaborated", "Supported", "Provided", "Helped"), unless a supporting role is all the documents show. For a senior posting, show ownership or scale there.
+- Some postings list no requirements and say mostly what the employer or team is about ("we accelerate customer outcomes…"). Then the work is what the title names and what the sentences about the role say: for a Business Program Manager who will "lead executive programs" across customer and partner work, the programs the candidate ran, with whom, at what scale, and what came of them. The employer's description of itself is context and offers words to echo where they fit; it is not a list of things to prove, so don't bend bullets toward its slogans, its internal team names or terms the documents don't use for that work.
 
 Roles (<role_list>):
 - Every role in the list is real and comes from the candidate's documents. Refer to roles only by their role_id. Include every job-type role in the list so the work history has no unexplained gaps, in the order given (most recent first); include a project only when it shows something the posting asks for. The list already leaves out roles the candidate doesn't want on a resume, such as internships once they have two years of other work; don't bring those back from the documents. A role that ended more than ten years ago and shows nothing the posting asks for may be left out, so the page goes to recent, relevant work.
@@ -207,7 +209,7 @@ Ask only about what the documents don't say. Before each question, check every d
 - a missing number or scale for a bullet that would lead the page: how many, how much, how often, what changed;
 - unclear ownership of the top work (led or supported), when the posting cares;
 - the posting's sector or domain, when the documents hint at it but don't show it.
-Don't ask about anything the documents already show, anything in <already_answered>, soft skills, or anything the candidate couldn't answer in a sentence or two. Ask at most 2, the two whose answers would change the page most: more at once is overwhelming, and anything else worth asking can wait for the next posting, where <already_answered> keeps it from being asked twice. Return no questions when the documents already make the strongest page they can; that is a good outcome, not a failure.
+Don't ask about anything the documents already show, anything in <already_answered>, soft skills, the employer's own team or product names, words from its description of itself, or anything the candidate couldn't answer in a sentence or two. Ask at most 2, the two whose answers would change the page most: more at once is overwhelming, and anything else worth asking can wait for the next posting, where <already_answered> keeps it from being asked twice. Return no questions when the documents already make the strongest page they can; that is a good outcome, not a failure.
 
 <app_flagged> lists gaps Sprout's own checks found; use them as leads, and ask about one only when it meets the bar above, in better words if you can.
 

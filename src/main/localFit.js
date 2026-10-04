@@ -103,6 +103,21 @@ const EDGE_WORDS = new Set(
 const US_STATES = new Set('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(' '));
 // Where the job is, or where its clients are, isn't something to have done:
 // "Remote (United States)", "clients across the United States and Canada".
+// The hiring team's own names are not skills to have: "The Strategy &
+// Transformation team is looking for…", and what the employer's description
+// of itself is about ("MCAPS-Core accelerates customer outcomes…").
+function orgNames(lines) {
+  const name = "[A-Z][\\w'’-]*(?:[ -](?:&|and|of|[A-Z][\\w'’-]*))*";
+  const out = [];
+  for (const l of lines) {
+    for (const m of l.original.matchAll(new RegExp(`\\b[Tt]he (${name}) (?:team|organization|org|group|division|business unit)\\b`, 'g'))) out.push(m[1]);
+    const subject = l.about && l.original.match(new RegExp(`^(${name}) [a-z]+s\\b`));
+    if (subject && !/^(?:We|Our|You|Your|This|The|It|Here|There)\b/.test(subject[1])) out.push(subject[1]);
+  }
+  // "MCAPS-Core" is also written "MCAPS Core".
+  return out.flatMap((n) => (/-/.test(n) ? [n, n.replace(/-/g, ' ')] : [n]));
+}
+
 const PLACE_WORDS = new Set((
   'united states america american usa us u.s. u.s.a. kingdom uk britain england scotland ireland wales canada mexico brazil argentina chile colombia ' +
   'germany france spain italy portugal netherlands belgium switzerland austria sweden norway denmark finland poland israel india china japan korea singapore ' +
@@ -495,14 +510,16 @@ function readRequirementUnits(job) {
       .split(/[^A-Za-z0-9]+/)
       .filter((w) => /^[A-Z]/.test(w) && (/[a-z]/.test(w) || PRODUCT_ACRONYMS.has(w)) && !companyWords.has(lower(w)) && !NOT_TERMS.has(lower(w)) && !STOPWORDS.has(lower(w)))
       .filter((w) => ![...ROLE_WORDS].some((r) => stem(lower(w)).startsWith(r)) && !new RegExp(TITLE_DROP.source).test(lower(w)) && titleLevel(w) === null)
-      .filter((w) => PRODUCT_ACRONYMS.has(w) || (new RegExp(`[a-z,]\\s+${escapeRe(w)}\\b`).test(text) && !new RegExp(`\\b${escapeRe(lower(w))}\\b`).test(text)))
+      // Lowercase in any form is an ordinary word: "programs" makes the
+      // "Program" of "Business Program Manager" one, not a product.
+      .filter((w) => PRODUCT_ACRONYMS.has(w) || (new RegExp(`[a-z,]\\s+${escapeRe(w)}\\b`).test(text) && !new RegExp(`\\b${escapeRe(lower(w))}(?:s|es)?\\b`).test(text)))
       .map(lower)
   );
   const termIgnoreWords = new Set([...ignoreWords].filter((w) => !named.has(w)));
   const termIgnoreText = `${lower(job.title)
     .split(/(\W+)/)
     .map((w) => (named.has(w) ? ' ' : w))
-    .join('')} | ${lower(job.company)} | ${lower(job.location)}`;
+    .join('')} | ${lower(job.company)} | ${lower(job.location)} | ${orgNames(lines).map(lower).join(' | ')}`;
   const units = new Map(); // key -> {key, label, kind, match}
   // A qualifications line outranks a duty that mentions the same thing: "C++
   // is a plus" makes C++ preferred even though the duties mention it.
@@ -521,8 +538,8 @@ function readRequirementUnits(job) {
   const seenLines = new Set(); // a page that repeats a block says it once
   const parts = lines
     .filter((l) => !(l.isHeading && l.line.length < 40) && !seenLines.has(l.line) && seenLines.add(l.line))
-    .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind, section: l.section })));
-  for (let { line, original, kind, lineKind, section } of parts) {
+    .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind, section: l.section, about: l.about })));
+  for (let { line, original, kind, lineKind, section, about } of parts) {
     // "Certified ScrumMaster (CSM) or PSM": a name and its abbreviation are one thing.
     const abbr = /\b((?:[A-Z][A-Za-z]+[\s-]){1,5}[A-Za-z]+)\s*\(([A-Z][A-Za-z]{1,6})\)/g;
     if (abbr.test(original)) {
@@ -532,7 +549,9 @@ function readRequirementUnits(job) {
     // Travel, clearance, sponsorship and the like are screening questions (screening.js).
     if (SCREENING_LINE.test(line)) continue;
     if (INTEREST.test(original)) continue;
-    const effKind = kind === 'neutral' && !hasRequiredSection ? 'required' : kind;
+    // With no requirements list, the posting's lines about the job are what it
+    // asks; its lines about the employer stay context (companyVoice).
+    const effKind = kind === 'neutral' && !hasRequiredSection && !about ? 'required' : kind;
     // What you watch competitors do isn't what you need to have done: "Monitor
     // competitive developments including product launches, pricing changes,
     // partnerships, and M&A activity" asks for competitive intelligence, not M&A.
@@ -558,7 +577,7 @@ function readRequirementUnits(job) {
     }
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.
-    if ((lineKind !== 'neutral' || !hasRequiredSection) && !isDegreeLine(original)) {
+    if ((lineKind !== 'neutral' || !hasRequiredSection) && !about && !isDegreeLine(original)) {
       // A credential line names the license even when the title does too ("Social Worker (LMSW)").
       const terms = credentialLine ? extractTerms(original, new Set(), lower(job.company)) : extractTerms(original, termIgnoreWords, termIgnoreText);
       // "Econometrics" and "Econometrics modeling" from one phrase are one requirement.
