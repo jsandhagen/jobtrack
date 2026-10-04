@@ -26,7 +26,7 @@ const { memoize } = require('./memo');
 const { toShown, SCALE: FIT_SCALE } = require('../shared/fitScale');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 23;
+const SCORER_VERSION = 24;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -1267,8 +1267,9 @@ function localFitScore(job, documents, profile = {}) {
   if (overqualified) score = Math.min(score, levelsBelow >= 3 ? 50 : 60);
   if (shortYears) score = Math.min(score, shortYears);
   // Close enough to be competitive is still different from meeting the
-  // stated tenure. A year or more short can be strong, but not excellent.
-  if (yearsShort >= 1) score = Math.min(score, 79);
+  // stated tenure. Allow rounding of dates, but half a year or more short
+  // can be strong, not excellent.
+  if (yearsShort >= 0.5) score = Math.min(score, 79);
   // Neither the title nor the kind of work the role is named for: a different job.
   // (Adjacent fields that share most of the must-haves are a stretch, not a different job.)
   // Not when a title you've held is in the same family as the work asked for
@@ -1347,7 +1348,7 @@ function localFitScore(job, documents, profile = {}) {
       overqualified && { max: levelsBelow >= 3 ? 50 : 60, reason: 'You would likely be overqualified for this role' },
       stretch && { max: -levelsBelow >= 3 ? 25 : 44, reason: `This is ${/^[aeio]/.test(LEVEL_NAMES[postingLevel]) ? 'an' : 'a'} ${LEVEL_NAMES[postingLevel]}-level role; your experience reads as ${LEVEL_NAMES[userLevel]}` },
       shortYears && { max: shortYears, reason: `It asks for ${needYears}+ years; your documents show about ${Math.round(haveYears)}` },
-      !shortYears && yearsShort >= 1 && { max: 79, reason: `It asks for ${needYears}+ years; your documents show about ${Math.round(haveYears)}` },
+      !shortYears && yearsShort >= 0.5 && { max: 79, reason: `It asks for ${needYears}+ years; your documents show about ${Math.round(haveYears)}` },
       otherFunction && { max: 40, reason: `This is a ${otherFunction} role, and your documents don't show ${otherFunction} work` },
       missingCredential && { max: 40, reason: `It requires ${missingCredential.label.replace(/^one of /, 'one of ')}, which your documents don't show` },
       missingFunction && { max: 35, reason: `It asks for ${missingFunction.label}, which your documents don't show` },

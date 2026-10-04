@@ -58,13 +58,18 @@ test('preferred platform administration does not become a hard screen', () => {
   assert.ok(!shownFit(localFitScore(job,[{kind:'resume',text:source}],profile)).screens.some(s=>/salesforce administration/.test(s.reason)));
 });
 
-test('strong competitive-intelligence evidence cannot hide a year or more below the stated tenure', () => {
+test('strong competitive-intelligence evidence cannot hide missing stated tenure', () => {
   const year=new Date().getFullYear()-5;
   const text=`Experience\nCompetitive Intelligence Manager, Example SaaS, Jan ${year} - Present\n- Built battlecards and win/loss programs for B2B SaaS sales teams\n- Led competitive research and sales enablement for 200 enterprise deals\n- Developed product positioning and go-to-market strategy\nSkills\nCompetitive Intelligence, Sales Enablement, Product Marketing, SaaS`;
   const job={title:'Competitive Intelligence Manager',text:'Requirements\n- 7+ years in competitive intelligence\n- B2B SaaS experience\n- Battlecards, win/loss analysis and sales enablement\n- Product positioning'};
   const fit=shownFit(localFitScore(job,[{kind:'resume',text}]));
   assert.ok(fit.score<90,JSON.stringify(fit));
   assert.ok(fit.screens.some(s=>/7\+ years/.test(s.reason)));
+  const sixAndAHalf = text.replace(`Jan ${year} - Present`, `Jun ${new Date().getFullYear()-7} - Dec ${new Date().getFullYear()-1}`);
+  const rounded = shownFit(localFitScore(job,[{kind:'resume',text:sixAndAHalf}]));
+  assert.ok(rounded.estimatedYears > 6 && rounded.estimatedYears < 7, JSON.stringify(rounded));
+  assert.ok(rounded.score < 90, JSON.stringify(rounded));
+  assert.ok(rounded.screens.some(s=>/7\+ years/.test(s.reason)));
 });
 
 test('company culture after qualifications ends the required section; standout qualities are preferred', () => {
