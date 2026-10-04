@@ -146,7 +146,11 @@ test.before(async () => {
   await context.route('https://careers.northwind.example/**', (r) => r.fulfill({ contentType: 'text/html', body: page('framed-top.html') }));
   await context.route('https://northwind.ats-frame.example/**', (r) => r.fulfill({ contentType: 'text/html', body: page('framed-posting.html') }));
   sw = context.serviceWorkers()[0] || (await context.waitForEvent('serviceworker'));
-  await sw.evaluate((port) => chrome.storage.local.set({ port }), port);
+  // Under load the worker can be reached before Chrome has given it its APIs.
+  await sw.evaluate(async (port) => {
+    for (let i = 0; i < 100 && !(globalThis.chrome && chrome.storage); i++) await new Promise((r) => setTimeout(r, 50));
+    await chrome.storage.local.set({ port });
+  }, port);
 });
 
 test.after(async () => {
