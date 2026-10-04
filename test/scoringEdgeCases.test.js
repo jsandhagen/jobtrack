@@ -101,7 +101,7 @@ test('section headings: Qualifications is required; Responsibilities and Benefit
   );
   assert.equal(kinds['- SQL'], 'required');
   assert.equal(kinds['- Build dashboards'], 'neutral');
-  assert.equal(kinds['- 401k match'], 'neutral');
+  assert.equal(kinds['- 401k match'], undefined); // the benefits section is left out
 });
 
 test('"not required" and fields of study are not requirements', () => {

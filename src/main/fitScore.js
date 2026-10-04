@@ -249,8 +249,15 @@ const SOFT_TERM_WORDS = new Set('operational excellence influencing influence in
 // "Launched it with sales and marketing", "partnered with engineering and
 // design": the teams you worked with, not work you did. Taken out before a
 // resume counts as evidence of a skill (the ATS check still reads every word).
-const DEPT = '(?:sales|marketing|finance|legal|engineering|design|product|support|customer success|operations|hr|it|security|data|research|procurement)';
-const COLLABORATORS = new RegExp(`\\b(?:with|alongside|across|partner(?:ed|ing)? with|work(?:ed|ing)? with|collaborat(?:ed|ing) with)\\s+(?:the\\s+)?(?:[a-z]+\\s+)?${DEPT}(?:\\s*(?:,|and|&|\\/)\\s*(?:the\\s+)?${DEPT})*(?:\\s+(?:teams?|leaders|partners|stakeholders|orgs?|organi[sz]ations?))?\\b`, 'gi');
+// A posting's "partner across Marketing, Product Growth, Data Science, Finance,
+// and GTM Platform" is the same: who the job works with, not a skill it asks for.
+const DEPT = '(?:sales|marketing|finance|legal|engineering|design|product|support|customer success|operations|hr|it|security|data|data science|research|procurement|gtm|go-to-market|revenue|growth|people|recruiting|partnerships|cs)(?:\\s+(?:growth|platform|science|ops|operations|enablement|leadership|success))?';
+const COLLABORATORS = new RegExp(`\\b(?:with|alongside|across|partner(?:ed|ing)? (?:with|across)|work(?:ed|ing)? (?:with|across)|collaborat(?:ed|ing|e) (?:with|across))\\s+(?:the\\s+)?(?:[a-z]+\\s+)?${DEPT}(?:\\s*(?:,\\s*(?:and|&)?|and|&|\\/)\\s*(?:the\\s+)?${DEPT})*(?:\\s+(?:teams?|leaders|partners|stakeholders|orgs?|organi[sz]ations?))?\\b`, 'gi');
+// On a posting, only a list of teams or a named team: "comfort with data" and
+// "experience with marketing automation" ask for the thing. Blanked to spaces,
+// so positions in the line still line up.
+const withoutTeams = (text) =>
+  String(text || '').replace(COLLABORATORS, (m) => (/(?:,|\band\b|&|\/)/.test(m.replace(/^\S+\s+(?:with|across)\s+/i, '')) || /\b(?:teams?|leaders|partners|stakeholders|orgs?|organi[sz]ations?)$/i.test(m) ? ' '.repeat(m.length) : m));
 // "Tracking competitor strategies (Microsoft, ServiceNow, etc.)", "competitive
 // analysis of Pega, ServiceNow and UiPath": products you studied or competed
 // with, not ones you used. Taken out the same way.
@@ -346,7 +353,7 @@ const ALTERNATIVES_CUE = new RegExp(`${OPTIONAL_CUE.source}|\\b(one or more (?:p
 
 // EEO, security-policy and recruiter notices: never qualifications.
 const BOILERPLATE_LINE =
-  /\bscammers\b|\b(?:recruiting|recruitment) scams?\b|\bbanking info\b|benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|e-verify|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|internal career site|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b/i;
+  /\bscammers\b|\b(?:recruiting|recruitment) scams?\b|\bbanking info\b|benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|e-verify|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|internal career site|privacy (?:notice|policy)|personal data|applicable data protection|scams?|fraudulent (?:job|recruit|offers?)|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b/i;
 
 function lower(s) {
   return (s || '').toLowerCase();
@@ -375,11 +382,22 @@ const KIND_RANK = { preferred: 0, neutral: 1, required: 2 };
 
 const APOS = "['’]?";
 const REQUIRED_HEADING = new RegExp(
-  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you(?:${APOS}ll| will) (?:need|bring)|what you bring|you(?:${APOS}ll| will)? bring|(?:what )?we(?:${APOS}re| are) looking for|what we look for|who we(?:${APOS}re| are) looking for|who you are|about you|you have|you(?:${APOS}ll| will) need|must[- ]haves?|your profile|(?:the )?ideal candidate|you (?:might|may) be a (?:good )?fit if|you${APOS}ll thrive if|is this you)\\b[^.]{0,30}$`
+  `^(?:(?:minimum|basic|required|essential|key|core|your|job) )?(?:qualifications|requirements|skills|experience|education|what you(?:${APOS}ll| will) (?:need|bring)|what you bring|you(?:${APOS}ll| will)? bring|(?:what )?we(?:${APOS}re| are) looking for|what we look for|who we(?:${APOS}re| are) looking for|who you are|about you|you have|you(?:${APOS}ll| will) need|must[- ]haves?|your profile|(?:the )?ideal candidate|you (?:might|may|could|would) be a (?:good |great |strong )?fit if|you should apply if|you would describe yourself as|you${APOS}ll thrive if|is this you|sounds? like you|what (?:you|we) need|how to (?:be successful|succeed) in this role|(?:role|position|job) requirements|here${APOS}s what we${APOS}re looking for|here is what we are looking for)\\b[^.]{0,30}$`
 );
 const NEUTRAL_HEADING = new RegExp(
-  `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main |essential |principal |job )?(?:responsibilities|duties|functions)(?: and (?:responsibilities|duties))?|duties and responsibilities|position summary|job purpose|what you(?:${APOS}ll| will) (?:do|be doing|work on)|(?:as an? [^.]{2,40} )?you(?:${APOS}ll| will)(?: be)?:|in this role,? you(?:${APOS}ll| will)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company))\\b[^.]{0,30}$`
+  `^(?:about(?: us| the (?:role|team|job|company|position))?|(?:key |your |core |primary |main |essential |principal |job )?(?:responsibilities|duties|functions)(?: and (?:responsibilities|duties))?|duties and responsibilities|position summary|job purpose|what you(?:${APOS}ll| will) (?:do|be doing|work on)|(?:as an? [^.]{2,40} )?you(?:${APOS}ll| will)(?: be)?:?$|your role|in this role,? you(?:${APOS}ll| will)|(?:the )?role|role overview|position overview|overview|job (?:description|summary)|(?:our|your) impact|day[- ]to[- ]day|a day in the life|benefits|perks|compensation|what we offer|why (?:join|work)|pay|salary|location|who we are|our (?:team|mission|culture|values|company)|(?:a few )?things to note|(?:the |our )?interviews?(?: process)?|what (?:can you|to) expect|what success looks like)\\b[^.]{0,30}$`
 );
+// Where the posting turns to what the employer gives: "Perks & Benefits",
+// "What we offer", "Benefits available to all full-time Ramp employees",
+// "What you can expect as a Vanta'n", "As part of our team, full-time
+// employees get:". Everything under it, country sub-headings ("Canada")
+// included, is pay and perks: never a qualification or a phrase to echo.
+const PERKS_HEADING = new RegExp(
+  `^(?:(?:our |employee |your |the )?(?:benefits|perks)\\b|what we offer|we offer|what you(?:${APOS}ll)? get\\b|what${APOS}s in it for you|what you can expect as an?\\b|in return|total rewards|rewards$|compensation(?: (?:and|&) benefits)?:?$|pay:?$|salary:?$|(?:as part of (?:our|the) team,? )?(?:all )?(?:full-time )?employees (?:get|receive|enjoy)|why (?:join|work|you${APOS}ll love)\\b|life at\\b|working (?:here|at)\\b)`
+);
+// A heading inside the perks section that doesn't end it: the place the
+// perks below apply to ("United States", "Canada", "EMEA"), or a kind of perk.
+const PERKS_SUBHEADING = /^(?:(?:in |for )?(?:the )?(?:united states|u\.?s\.?a?|us|canada|united kingdom|uk|ireland|germany|france|spain|portugal|netherlands|poland|india|australia|new zealand|singapore|japan|brazil|mexico|emea|apac|latam|americas|europe|global|international|remote|hybrid)(?: (?:employees|team members|benefits|only))?|(?:[a-z]+ )?(?:benefits|perks|health|wellness|time off|retirement|equity))\s*:?$/;
 
 // Markdown from Notion, careers sites or AI tools: "## Requirements",
 // "**Requirements**", "__Preferred__". Bullets ("* SQL") are kept.
@@ -415,6 +433,27 @@ function companyVoice(original) {
   return ours > 0 && ours * 2 >= sentences.length;
 }
 
+// The posting without its perks section: the perks heading stays, what it
+// lists goes, up to the next section heading. That is a known one, or one in
+// capitals ("WHAT YOU'LL DO"); a short perk on its own line ("Flexible PTO")
+// reads like a heading too, so an unknown one stays in the section.
+function withoutPerks(jobText) {
+  let perks = false;
+  return String(jobText || '')
+    .split('\n')
+    .filter((rawLine) => {
+      const original = stripMarkdown(rawLine.trim());
+      const line = original.toLowerCase();
+      if (!line) return !perks;
+      const isHeading = !/^([-•*▪●◦✓✔➢►‣–—]|\d+[.)])\s*/.test(line) && line.length < 60 && !/[.;]$/.test(line);
+      const perksHeading = isHeading && PERKS_HEADING.test(line);
+      if (perksHeading) perks = true;
+      else if (perks && isHeading && !PERKS_SUBHEADING.test(line) && (REQUIRED_HEADING.test(line) || NEUTRAL_HEADING.test(line) || COMPANY_HEADING.test(line) || (PREFERRED_CUE.test(line) && /^(?:preferred|nice|bonus|additional|desired|desirable)/.test(line)) || (/[A-Z]{3}/.test(original) && original === original.toUpperCase()))) perks = false;
+      return !perks || perksHeading;
+    })
+    .join('\n');
+}
+
 // Tag every non-empty posting line as required / preferred / neutral, using
 // both the line's own wording and the section heading it sits under. `about`
 // marks the employer describing itself (companyVoice, or an "About us" section).
@@ -423,7 +462,7 @@ function classifyLines(jobText) {
   let section = 'neutral';
   let aboutSection = false;
   let roleSection = false;
-  for (const rawLine of String(jobText || '').split('\n')) {
+  for (const rawLine of withoutPerks(jobText).split('\n')) {
     const original = stripMarkdown(rawLine.trim());
     const line = original.toLowerCase();
     if (!line) continue;
@@ -443,6 +482,9 @@ function classifyLines(jobText) {
     else if (REQUIRED_CUE.test(line) || (isHeading && REQUIRED_HEADING.test(line))) lineKind = 'required';
     // "Responsibilities", "Benefits", "About us" end a requirements section.
     else if (isHeading && (NEUTRAL_HEADING.test(line) || COMPANY_HEADING.test(line))) lineKind = 'neutral';
+    // Under "About Vanta", "making security continuous is essential" is the
+    // employer's mission, not a must-have, unless it speaks to the candidate.
+    if (aboutSection && !isHeading && lineKind !== 'neutral' && !ROLE_VOICE.test(original)) lineKind = 'neutral';
     const sectionKind = section;
     if (isHeading && lineKind !== section) section = lineKind;
     // "We require 5+ years of Python" still asks it.
@@ -562,12 +604,14 @@ function readJobSkills(jobText) {
   const mentions = new Map();
   const parts = classifyLines(jobText)
     .filter((l) => !BOILERPLATE_LINE.test(l.line))
-    .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, about: l.about })));
+    // The employer on itself stays context, whatever a clause says ("security is essential").
+    .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, kind: l.about ? 'neutral' : c.kind, about: l.about })));
   // Skills only the employer's description of itself names.
   const outside = new Set();
   for (const part of parts) {
     const { kind } = part;
-    const line = withoutNegated(stripFieldsOfStudy(part.line));
+    // "Partner across Marketing, Finance and GTM": the teams the job works with, not skills it asks for.
+    const line = withoutTeams(withoutNegated(stripFieldsOfStudy(part.line)));
     const found = [];
     // A citizenship or sponsorship line is a screening question (screening.js),
     // and its reasons aren't skills: "to meet customer and compliance requirements".
@@ -815,6 +859,8 @@ module.exports = {
   WORK_EVIDENCE,
   SOFT_TERM_WORDS,
   withoutCollaborators,
+  withoutTeams,
+  withoutPerks,
   SOFT_SKILLS,
   INTERPERSONAL,
   STOPWORDS,

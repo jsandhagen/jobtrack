@@ -112,5 +112,7 @@ test('markdown and alternative section headings are classified', () => {
   const kind = (heading) => classifyLines(`${heading}\n- SQL`)[1].kind;
   for (const h of ['**Requirements**', '## Qualifications', '### What you’ll need', 'Your Profile', 'The Ideal Candidate']) assert.equal(kind(h), 'required', h);
   for (const h of ['__Preferred Qualifications__', 'Additional Qualifications', 'Nice-to-Haves']) assert.equal(kind(h), 'preferred', h);
-  for (const h of ['Key Responsibilities', '**Benefits**']) assert.equal(kind(h), 'neutral', h);
+  assert.equal(kind('Key Responsibilities'), 'neutral');
+  // What a benefits section lists is pay and perks: left out, not a requirement or a phrase.
+  assert.equal(classifyLines('**Benefits**\n- SQL').length, 1);
 });

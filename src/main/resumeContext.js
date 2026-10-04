@@ -383,7 +383,9 @@ function resumeEnhancements({ job = {}, bank, profile = {}, units, documents = [
     // The posting's word, unless it's one bare word ("federal"): then the skill's name ("public sector").
     let term = (m.anyOf || [m.term || m.skill])[0];
     if (!m.anyOf && !/\s/.test(term) && m.skill && /\s/.test(m.skill)) term = plainName(m.skill);
-    if (!topics.some((t) => t.toLowerCase().includes(term.toLowerCase()) || term.toLowerCase().includes(t.toLowerCase()))) topics.push(term);
+    // Nor asked twice: "cybersecurity" is the Security already in "fraud prevention, AML or Security".
+    const named = [term, m.skill].filter(Boolean).map((x) => x.toLowerCase());
+    if (!topics.some((t) => named.some((n) => t.toLowerCase().includes(n) || n.includes(t.toLowerCase())))) topics.push(term);
   }
 
   // 1. What your other documents already show: a draft bullet to approve.

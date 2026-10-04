@@ -23,7 +23,7 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, EMPLOYER_EVIDENCE, EMPLOYER_HEADING, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS } = require('./fitScore');
+const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, EMPLOYER_EVIDENCE, EMPLOYER_HEADING, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS, withoutPerks } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
 const { phraseCasing } = require('./postingCase');
@@ -263,13 +263,15 @@ const PHRASE_EDGE = new Set(
     // How much or which one, not what: "enough technical depth", "broader legal", "first point", "respective products".
     'enough broader broad first respective mutual compelling ' +
     // How it's done, not what: "available sources", "minimal supervision".
-    'available minimal supervision say stay abreast fundamental impactful evolving ongoing').split(' ')
+    'available minimal supervision say stay abreast fundamental impactful evolving ongoing ' +
+    // Fillers and qualities: "existing ones", "not limited", "ownership mentality", "highly organized".
+    'ones limited mentality matter organized tasks').split(' ')
 );
 const PHRASE_VERBS = new Set(
   ('prepare prepares analyze analyzing monitor maintain brief surface size continuously evaluate define develop lead manage run drive track build partner own report ' +
     'present facilitate support provide identify deliver translate synthesize coordinate shape set align communicate act sign negotiate design write ship work serve ' +
     'help structure complete formulate generate mentor educate administer conduct perform create establish oversee ensure assist operate execute bring ' +
-    'recommend maximize distill articulate accelerate remove enables validate gather').split(' ')
+    'recommend maximize distill articulate accelerate remove enables validate gather turn increase inform guide optimize clarify').split(' ')
 );
 // Verbs that are rarely nouns: at either end of a phrase they make it an
 // instruction ("maintaining structured frameworks", "activate co-sell
@@ -331,7 +333,8 @@ function readPostingPhrases(jobText, company = '') {
 
 // The posting's phrases a recruiter would search for. Dictionary skills have their own component.
 const keywordTerms = memoize((jobText, company) => {
-  jobText = jobText.split('\n').filter((l) => !BOILERPLATE_LINE.test(l)).join('\n');
+  // The perks section goes first, while its heading still marks where it starts.
+  jobText = withoutPerks(jobText).split('\n').filter((l) => !BOILERPLATE_LINE.test(l)).join('\n');
   const skillWords = Object.values(SKILLS).flat();
   return { jobText, terms: postingPhrases(jobText, company).filter((t) => !skillWords.some((re) => re.test(t))).slice(0, 15) };
 });
@@ -557,6 +560,11 @@ function atsScore(job, resumeText, opts = {}) {
       break;
     }
   }
+  // "3-4 years at a consulting firm, investment bank, private equity fund, or
+  // startup": with the consulting there, the bank was one way to meet it, not a gap.
+  const { requirementUnits } = require('./localFit'); // lazy: localFit requires this module
+  const metKinds = requirementUnits(job).units.filter((u) => u.key.startsWith('x:') && / or /.test(u.label) && u.match(resumeLower, resumeText) >= 0.75).map((u) => lower(u.label));
+  for (const u of basic) if (!u.met && u.term && metKinds.some((k) => containsTerm(k, lower(u.term)))) u.implied = true;
   const knockouts = basic.filter((u) => !u.met && !u.implied).map((u) => `${u.label} (posting says "${u.term}")`);
   // The basic qualifications the dictionary doesn't name count the same way.
   if (quals) {
@@ -613,7 +621,8 @@ function atsScore(job, resumeText, opts = {}) {
     matchedSkills: [...skills.hard.matched, ...skills.soft.matched].map((m) => m.skill),
     // The posting's required terms the resume already has, in the posting's words.
     matchedRequired: [...new Set([...skills.hard.matched, ...skills.soft.matched].filter((m) => m.kind === 'required' && m.term).map((m) => m.term))],
-    missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),
+    // Not one way of meeting an "A, B or C" experience the resume shows another way of.
+    missingSkills: [...skills.hard.missing, ...skills.soft.missing].filter((m) => !(m.term && metKinds.some((k) => containsTerm(k, lower(m.term))))).map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),
     wordingTerms: skills.wordingTips.filter(w => supportsWording(w.skill, w.term, resumeText)).map((w) => w.term),
     wordingTips: skills.wordingTips,
     missingKeywords: keywords ? keywords.missing : [],

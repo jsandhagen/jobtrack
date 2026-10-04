@@ -18,7 +18,7 @@
 // Roles two or more levels below yours, in your own line of work, are capped
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
-const { WATCH_LINE, SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel, withoutNegated } = require('./fitScore');
+const { WATCH_LINE, SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, withoutTeams, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel, withoutNegated } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements, isVerbForm } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
@@ -75,6 +75,10 @@ const NOT_TERMS = new Set(
     'remote hybrid onsite full time part contract us usa eeo pto ceo ok i am new senior junior lead principal staff ' +
     // generic nouns that aren't skills on their own
     'models model analysis dashboards dashboard tools systems system field fields solutions products data reports reporting processes process projects project platforms applications services teams environment stakeholders ' +
+    // what's left of "dashboard creation" or "pipeline execution" once the skill is taken out
+    'creation execution delivery implementation maintenance background impact ' +
+    // people the job works with, not skills: "partner with the CFO", "support Account Executives"
+    'engineers managers manager hiring vp cfo cto coo cmo cro ' +
     // verbs that trail "experience …" ("Experience building dashboards")
     'building developing creating designing managing leading working using writing running supporting delivering maintaining implementing analyzing improving owning driving partnering ' +
     // course and method words that only make sense with what follows them
@@ -129,6 +133,7 @@ const PLACE_WORDS = new Set((
 ).split(' '));
 const isPlace = (words) => words.some((w) => w !== 'and' && w !== 'the' && w !== 'of' && w !== 'new') && words.every((w) => PLACE_WORDS.has(w.replace(/[.,;:]+$/, '')));
 const GENERIC_HEAD = /\b(?:expectations|requirements|standards|guidelines|principles|best practices|concepts|topics|issues|areas|needs|goals|objectives|environments?)$/;
+const QUALITY_HEAD = /\b(?:judg(?:e)?ment|instincts?|intuition|mindset|mentality|sense|aptitude|acumen|curiosity|grit|resourcefulness|persistence|composure|follow-through|tenacity|hunger|humility|integrity|attitude|temperament|poise|polish|work ethic|self-improvement|abilities|bar|ownership)$/;
 // Work habits a resume can't show by wording: not requirements to score.
 const WORK_STYLE = /\b(?:basic |strong )?(?:math|mathematics|computer|typing|keyboarding|reading|writing) (?:skills|proficiency)\b|\bmath and computer\b|\bcomputer literacy\b|\battention to detail\b|\bdetail[- ]oriented\b|\bself[- ]starter\b|\bwork ethic\b|\bintellectual(?:ly)? curio|\bfast learner\b|\bsense of ownership\b|\blong hours\b|\bentrepreneurial\b|\bresourceful approach\b/i;
 
@@ -157,6 +162,13 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     if (!/ing$/.test(words[0]) && isVerbForm(words[0])) return;
     // "regulatory expectations", "industry standards": what about them is the requirement, not the phrase.
     if (GENERIC_HEAD.test(lower(clean))) return;
+    // A quality, not a skill: "product judgment", "research instincts", "grit",
+    // "Exceptional organizational", "You thrive in complexity".
+    if (QUALITY_HEAD.test(lower(clean)) || /^(?:exceptional|outstanding|excellent|demonstrated)\b/i.test(clean) || /\byou\b/i.test(clean)) return;
+    // A piece of a sentence: "through ambiguity", "genuinely", "elsewhere".
+    if (/^(?:through|with|without|across|into|within)\b/i.test(clean) || (words.length === 1 && /(?:ly|where)$/.test(words[0]))) return;
+    // People the job works with, not a skill: "Heads", "Controllers", "Data Scientist".
+    if (/\b(?:heads?|directors?|controllers?|scientists?|founders?|recruiters?|executives?|leaders?|analysts?|designers?)$/i.test(clean)) return;
     if (words.every((w) => NOT_TERMS.has(w) || STOPWORDS.has(w) || TERM_ONLY_STOP.has(w))) return;
     // Skip the job title / company repeated back ("Senior Analyst", "Acme"),
     // but keep real skills that share words with them ("credit risk analysis").
@@ -246,7 +258,7 @@ const LEVELS = [
   [5, /\b(director|head of|senior manager|group product manager|group manager)\b/],
   [4, /\b(staff|principal|lead|architect|manager)\b/],
   [3, /\b(senior|sr\.?|iii|iv)\b/],
-  [1, /\b(junior|jr\.?|entry[- ]level|graduate|associate|assistant|trainee|i)\b/],
+  [1, /\b(junior|jr\.?|entry[- ]level|graduate|associate|assistant|trainee|representative|i)\b/],
 ];
 // Words that look like levels but aren't here: "Staff Accountant", "Lead
 // Generation", and individual-contributor "Product/Project/Account Manager".
@@ -375,18 +387,22 @@ function requirementLines(text) {
 // experience asked for, not just how long. Each alternative is met when one
 // role in the documents shows its words (later ones count more).
 const YEARS_OF = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:or more\s+)?(?:years?|months?)['’]?\s+(?:of\s+)?(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*(?:(?:work\s+)?experience\s+(?:working\s+)?(?:in|as|within|across|on|at|managing|leading|delivering|running|supporting)\s+([^.;:()]+)|(?:in|as)\s+([^.;:()]+)|([^.;:()]+?)\s+experience\b)/;
-const KIND_CUT = /\s+(?:for|with|at|in an?|in the|where|that|who|which|on|using|ideally|preferably|including|within|across)\b.*$|,\s*(?:ideally|preferably|including|especially|with|in)\b.*$/;
-const KIND_FILLER = new Set('projects initiatives programs efforts firm firms company companies organization organizations focused based enterprise a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
+const KIND_CUT = /\s+(?:for|with|at|in an?|in the|where|that|who|which|on|using|ideally|preferably|including|within|across|supporting|serving)\b.*$|,\s*(?:ideally|preferably|including|especially|with|in)\b.*$/;
+const KIND_FILLER = new Set('hands-on practical direct projects initiatives programs efforts firm firms company companies organization organizations focused based enterprise a an the of in as to role roles position positions work experience experiences professional relevant related similar comparable equivalent field fields area areas capacity function functions environment environments setting settings type kind such like other etc team teams level levels plus'.split(' '));
 // "7+ years of hands-on Oracle ERP configuration": no "experience", but the same ask.
 const YEARS_OF_PLAIN = /^(?:[-•*▪●◦]\s*)?\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?['’]?\s+of\s+(?:(?:professional|relevant|related|progressive|hands-on|demonstrated|proven|full-time|direct|combined|total|practical|recent)\s+)*([a-z][^.;:()]+)/;
+// "Demonstrated experience as an HR Business Partner supporting…": the job itself, at the start of a line.
+const EXPERIENCE_AS = /^(?:[-•*▪●◦]\s*)?(?:(?:demonstrated|proven|prior|previous|recent|direct|hands-on|relevant)\s+)?(?:work\s+)?experience (?:working )?as an? ([a-z][^.;:()]+)/;
 // "2+ years managing product managers", "5+ years leading project managers":
 // managing people is the experience asked for, whatever their job is.
 const MANAGES_PEOPLE = /\b\d{1,2}\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?years?\b[^.;]{0,40}?\b(?:managing|leading|supervising|directly managing|people management of)\s+(?:a\s+)?(?:team\s+of\s+|teams\s+of\s+)?((?:[a-z]+\s+){0,2}(?:managers|engineers|people|direct reports|analysts|staff|consultants|designers|scientists|teams|leaders|nurses|associates|accountants|developers))\b|\bpeople management experience\b|\b\d{1,2}\s*\+?\s*years?\s+(?:of\s+)?people (?:management|leadership)\b/;
 const PEOPLE_SHOWN = [/\b(?:managed|manage|managing|led|lead|leading|supervised|supervise|built and led|hired and (?:led|managed|coached))\s+(?:a\s+)?(?:team|teams|group|staff)\s+of\b/, /\b(?:managed|led|supervised|managing|leading)\s+(?:a\s+)?(?:team of\s+)?\d+\s+(?:\w+\s+){0,2}(?:managers|engineers|people|analysts|consultants|designers|scientists|nurses|associates|accountants|developers|direct reports|reports)\b/, /\bdirect reports\b/, /\bpeople manage(?:r|ment)\b/, /\b(?:hired|hiring),? (?:and )?(?:coached|developed|managed)\b/];
+const KIND_MODIFIER = /^(?:performance|quantitative|qualitative|digital|technical|strategic|financial|enterprise|b2b|b2c|lifecycle|brand|product|channel|partner|field|demand|content|growth|corporate|commercial|retail|clinical)$/;
 function experienceKind(line) {
   const people = line.match(MANAGES_PEOPLE);
   if (people) return { alts: [['people', 'management']], phrase: people[0], label: `experience managing ${people[1] ? people[1].trim() : 'people'}`, people: true };
-  const m = line.match(YEARS_OF) || line.match(YEARS_OF_PLAIN);
+  // "Demonstrated experience as an HR Business Partner": no years, but the same ask.
+  const m = line.match(YEARS_OF) || line.match(YEARS_OF_PLAIN) || line.match(EXPERIENCE_AS);
   if (!m) return null;
   // "…at a consulting firm or in a strategy role": "or in a" starts another kind, not a qualifier.
   let phrase = (m[1] || m[2] || m[3] || '').replace(/\s+or\s+(?:in|as|at)\s+(?:an?\s+|the\s+)?/g, ' or ').replace(KIND_CUT, '').trim();
@@ -404,6 +420,9 @@ function experienceKind(line) {
   // "at a top management consulting firm": the firm's kind is the experience.
   phrase = phrase.replace(/^(?:a|an|the)\s+(?:top-tier|tier[- ]1|top|leading|large|global|major)?\s*/, '');
   if (!phrase) return null;
+  // "BSA/AML advisory or operations": both kinds are BSA/AML work, not operations of any sort.
+  const shared = phrase.match(/^([a-z0-9&]+(?:\/[a-z0-9&]+)+)\s+([a-z-]+)\s+or\s+([a-z-]+)$/);
+  if (shared) phrase = `${shared[1].replace(/\//g, ' ')} ${shared[2]} or ${shared[1].replace(/\//g, ' ')} ${shared[3]}`;
   const alts = phrase
     .split(/,|\bor\b|\band\/or\b|\/|\bsuch as\b|\be\.g\.?|\bi\.e\.?/)
     .map((a) =>
@@ -412,6 +431,14 @@ function experienceKind(line) {
     )
     // One generic word isn't a kind of experience, unless it's a skill ("analytics").
     .filter((ws) => ws.length && ws.length <= 5 && !(ws.length === 1 && (ws[0].length < 3 || (NOT_TERMS.has(ws[0]) && !isDictionarySkill(ws[0])))));
+  // "Performance or quantitative marketing": a describing word shares the next kind's noun.
+  // So does one after a list of them: "quantitative marketing, growth" is growth marketing.
+  for (let i = 0; i < alts.length; i++) {
+    if (alts[i].length !== 1 || !KIND_MODIFIER.test(alts[i][0])) continue;
+    const next = alts[i + 1], prev = alts[i - 1];
+    if (next && next.length > 1) alts[i] = [alts[i][0], next[next.length - 1]];
+    else if (prev && prev.length === 2 && KIND_MODIFIER.test(prev[0])) alts[i] = [alts[i][0], prev[1]];
+  }
   if (!alts.length) return null;
   return { alts, phrase, label: `experience in ${alts.map((ws) => ws.join(' ')).join(' or ')}` };
 }
@@ -450,7 +477,9 @@ const tokens = memoize((t) => (canonicalKind(t).match(/[a-z0-9][a-z0-9+#&-]*/g) 
 function kindMatch(alts) {
   const stems = alts.map((ws) => canonicalKind(ws.join(' ')).split(/\s+/).map(kindStem));
   // A shorter form matches a longer one only when it's distinctive (engine / engineer).
-  const hasIn = (toks) => (s) => toks.some((x) => x === s || (Math.min(x.length, s.length) >= 5 && (x.startsWith(s) || s.startsWith(x))));
+  // Not half of a compound: "decisions" isn't "decision-science".
+  const prefix = (long, short) => long.startsWith(short) && long[short.length] !== '-';
+  const hasIn = (toks) => (s) => toks.some((x) => x === s || (Math.min(x.length, s.length) >= 5 && (prefix(x, s) || prefix(s, x))));
   return (t) => {
     const has = hasIn(tokens(t));
     // A kind named in several words ("business intelligence", "data
@@ -481,7 +510,10 @@ function kindMatch(alts) {
     };
     const pieceScore = (ss, h, i) => {
       if (!piecesOk(ss, h, i)) return 0;
-      const found = ss.filter((w) => (BROAD_KIND.has(w) ? has(w) : h(w))).length;
+      const hits = ss.filter((w) => (BROAD_KIND.has(w) ? has(w) : h(w)));
+      // "Operations" alone isn't people operations: a broad word shows nothing of the kind by itself.
+      if (hits.every((w) => BROAD_KIND.has(w))) return 0;
+      const found = hits.length;
       if (found === ss.length && ss.length > 1 && ss.every((w) => !BROAD_KIND.has(w) && !DEPARTMENT_KIND.has(w)) && near(pieceToks[i], ss) === false) return Math.pow((ss.length - 1) / ss.length, 2);
       return Math.pow(found / ss.length, 2);
     };
@@ -551,6 +583,8 @@ function readRequirementUnits(job) {
     // Travel, clearance, sponsorship and the like are screening questions (screening.js).
     if (SCREENING_LINE.test(line) || /\b(?:in[- ]office|on[- ]site|onsite) (?:position|role|job)\b|\b(?:office location|walking distance|commut(?:e|ing))\b/.test(line)) continue;
     if (INTEREST.test(original)) continue;
+    // The employer on itself stays context, whatever a clause says ("security is essential").
+    if (about) kind = 'neutral';
     // With no requirements list, the posting's lines about the job are what it
     // asks; its lines about the employer stay context (companyVoice).
     const effKind = kind === 'neutral' && !hasRequiredSection && !about ? 'required' : kind;
@@ -568,7 +602,8 @@ function readRequirementUnits(job) {
     const credentialLine = effKind === 'required' && /\b(?:licen[sc]e[ds]?|licensure|certificat(?:e|ion)s?|certified|registration)\b/.test(line) && !/\b(?:ability to obtain|able to obtain|obtain(?:ed)? within|within \d+ (?:days|weeks|months)|or equivalent|preferred|a plus|eligible|in progress|working toward|willing(?:ness)? to)\b/.test(line);
     // "Master's in statistics, mathematics or financial engineering": the fields
     // describe the degree (scored as the degree requirement), they aren't skills.
-    let skillLine = stripFieldsOfStudy(line);
+    // "Partner across Marketing, Finance and GTM": the teams the job works with, not skills it asks for.
+    let skillLine = withoutTeams(stripFieldsOfStudy(line));
     if (isDegreeLine(original)) skillLine = skillLine.replace(/(\b(?:degree|discipline|field|ph\.?\s?d\.?|master['’]?s|bachelor['’]?s|mba)\b[^.;]*?\b(?:in|of)\s)([^.;]*)/, (m, a, b) => a + ' '.repeat(b.length));
     for (const [skill, patterns] of Object.entries(SKILLS)) {
       let hit = null;
@@ -593,6 +628,10 @@ function readRequirementUnits(job) {
         if (index >= 0 && found.some((f) => f.skill && index >= f.index && pos.end <= f.end)) continue;
         // The title said back ("As a Technology Innovation Analyst, you will…").
         if (lower(term) === lower(job.title || '').trim()) continue;
+        // An abbreviation of the title's own words ("CI" in a Competitive
+        // Intelligence Manager's posting): the title is already the ask.
+        const initials = /^[A-Z]{2,5}$/.test(term) && new RegExp(`\\b${term.split('').join('[a-z]+[\\s-]+')}[a-z]+\\b`, 'i');
+        if (initials && !credentialLine && !/certif|licen|registered/i.test(original) && initials.test(String(job.title || '').replace(/\b(?:and|of|&)\s+/gi, ''))) continue;
         // A word that only means something with another ("methodology", "principles").
         if (/^(?:methodolog(?:y|ies)|principles?|concepts?|fundamentals|practices|frameworks?|tools?|platforms?|processes|environment|environments)$/i.test(term)) continue;
         // A claim, not a qualification: "shipping products customers love".
@@ -639,8 +678,10 @@ function readRequirementUnits(job) {
     const sameAsKind = xk ? found.filter((f) => f.skill && xk.alts.some((ws) => SKILLS[f.skill].some((p) => p.test(ws.join(' '))))) : [];
     const kindIsSkills = xk && xk.alts.every((ws) => sameAsKind.some((f) => SKILLS[f.skill].some((p) => p.test(ws.join(' ')))));
     if (kindIsSkills) for (const f of sameAsKind) f.weight = 0.5;
-    // "3+ years in investment risk, portfolio analytics or quantitative finance":
-    // the skills are alternatives of the experience asked for, not must-haves of their own.
+    // "3+ years in investment risk, portfolio analytics or quantitative finance",
+    // "3-5 years of investment banking, management consulting, and/or business
+    // operations": the skills are alternatives of the experience asked for, not
+    // must-haves of their own.
     else if (xk && xk.alts.length > 1) found.splice(0, found.length, ...found.filter((f) => !sameAsKind.includes(f)));
     if (xk) {
       // A term from the kind's own wording ("… or technology roles") is the kind again.
@@ -674,12 +715,22 @@ function readRequirementUnits(job) {
     }
     // "Python, R, or SAS": one requirement, met by whichever you have.
     const grouped = new Set();
-    for (const run of alternativeRuns(line, found.filter((f) => f.index >= 0))) {
+    // "3-5 years of investment banking, management consulting, and/or business
+    // operations": skills that are the kind's alternatives are one requirement
+    // too, though other words sit between them.
+    const orKind = kindIsSkills && xk.alts.length > 1 && /\bor\b/.test(xk.phrase) && !/\band\b/.test(xk.phrase.replace(/\band\s*\/\s*or\b/g, 'or'));
+    const kindRun = orKind ? found.filter((f) => sameAsKind.includes(f) && f.index >= 0).sort((a, b) => a.index - b.index) : [];
+    const runs = alternativeRuns(line, found.filter((f) => f.index >= 0));
+    // Each its own words ("Derivatives" inside "Derivatives Pricing" is one alternative, not two).
+    const apart = kindRun.every((f, i) => !i || f.index >= kindRun[i - 1].end);
+    if (kindRun.length >= 2 && apart && !runs.some((r) => kindRun.every((f) => r.includes(f)))) runs.push(kindRun);
+    for (const run of runs) {
       run.forEach((f) => grouped.add(f));
       addUnit('any:' + run.map((f) => f.key).join('|'), `one of ${run.map((f) => f.label).join(', ')}`, effKind, (t) => Math.max(...run.map((f) => f.match(t))), {
         related: relatedOf(run.filter((f) => f.skill).map((f) => f.skill)),
         skills: run.filter((f) => f.skill).map((f) => f.skill),
-        weight: Math.max(...run.map((f) => f.weight ?? 1)),
+        // The kind's alternatives weigh together what they did one by one: missing them all costs as much.
+        weight: run === kindRun ? run.reduce((s, f) => s + (f.weight ?? 1), 0) : Math.max(...run.map((f) => f.weight ?? 1)),
         credential: run.some((f) => f.credential),
       });
     }
@@ -1057,19 +1108,32 @@ const FUNCTIONS = [
     name: 'sales',
     signals: [/\bquotas?\b/, /\bclos(?:e|ing) (?:new )?(?:deals|business|revenue)\b/, /\bsales (?:targets|goals|quota)\b/, /\b(?:ote|on-target earnings)\b/, /\bterritory\b/, /\bcommission\b/, /\bnew logos\b/, /\bprospect(?:ing)? (?:new )?(?:clients|customers|accounts)\b/, /\bpipeline (?:generation|of (?:new )?(?:business|deals))\b/, /\bown a pipeline\b/,
       // Pre-sales: solutions consultants and engineers work the same deals.
-      /\bbookings (?:targets|goals)\b/, /\bpre-?sales\b/, /\b(?:with|for) prospects\b/, /\baccount executives? to (?:win|close)\b/],
-    shown: /\bquota\b|\b(?:sales|account) (?:executive|manager|representative|engineer)\b|\bpresales\b|\bsolutions? consult|\bclosed? (?:\$|\d|deals|new business)|\bsold\b|\bselling\b|\bbusiness development\b|\bgrew (?:a )?(?:client )?accounts?\b/,
+      /\bbookings (?:targets|goals)\b/, /\bpre-?sales\b/, /\b(?:with|for) prospects\b/, /\baccount executives? to (?:win|close)\b/,
+      // Sales development: leads, outreach and meetings, before the quota.
+      /\b(?:outbound|cold (?:calls?|calling|emails?|outreach))\b/, /\bqualif(?:y|ying) (?:new )?(?:leads|prospects|partner prospects|opportunities|meetings)\b/, /\b(?:sales|marketing)[- ]sourced leads\b/, /\bbook(?:ing|ed)? (?:qualified )?meetings\b/, /\bsales development\b/, /\b(?:meet|exceed)(?:ing)?\b[^.]{0,30}\bsales (?:goals|targets|quotas?)\b/],
+    // The title says it outright: two signals on its own.
+    title: /\baccount executive\b|\b(?:sales|business|market(?:ing)?|partner) development (?:rep(?:resentative)?|associate)\b|\b[sbm]dr\b|\bsales (?:representative|associate)\b|\binside sales\b/,
+    shown: /\bquota\b|\b(?:sales|account) (?:executive|manager|representative|engineer)\b|\bpresales\b|\bsolutions? consult|\bclosed? (?:\$|\d|deals|new business)|\bsold\b|\bselling\b(?! points?\b)|\bbusiness development\b|\bgrew (?:a )?(?:client )?accounts?\b/,
   },
   {
     name: 'recruiting',
     signals: [/\brequisitions?\b/, /\bsourc(?:e|ing) (?:candidates|talent)\b/, /\bfull[- ]cycle recruit/, /\bhiring managers\b/, /\bcandidate pipeline\b/, /\bapplicant tracking\b/, /\boffers? (?:extended|negotiation)\b/],
     shown: /\brecruit(?:er|ing|ed)\b|\btalent acquisition\b|\bsourc(?:ed|ing) (?:candidates|talent)\b|\brequisitions\b/,
   },
+  {
+    // Writing and shipping software, by the title alone: a technical program or
+    // product manager's posting talks about system design and CI/CD too.
+    // Solutions and sales engineers work the deals (sales, above).
+    name: 'software engineering',
+    signals: [],
+    title: /\b(?:software|backend|back-end|frontend|front-end|full[- ]?stack|platform|infrastructure|founding|support|security|data|ml|machine learning|ai|applied ai|site reliability|devops|research|forward deployed|design|product|mobile|ios|android|database|systems|staff|senior|principal) engineer\b|\bengineering manager\b|\b(?:software|web|mobile|ios|android) developer\b/,
+    shown: /\b(?:software|backend|back-end|frontend|front-end|full[- ]?stack|platform|infrastructure|founding|support|security|data|ml|machine learning|ai|site reliability|devops|research|product|mobile|database|systems|staff|principal) engineer\b|\bengineering manager\b|\bdeveloper\b|\bprogrammer\b|\bwrote (?:production )?code\b/,
+  },
 ];
 function functionGap(job, lib) {
   const t = lower(`${job.title || ''}\n${job.text || ''}`);
   for (const f of FUNCTIONS) {
-    const hits = f.signals.filter((re) => re.test(t)).length;
+    const hits = f.signals.filter((re) => re.test(t)).length + (f.title && f.title.test(lower(job.title)) ? 2 : 0);
     if (hits >= 2 && !f.shown.test(lib)) return f.name;
   }
   return null;
@@ -1310,7 +1374,7 @@ function localFitScore(job, documents, profile = {}) {
   concerns.push(...screening.unanswered);
   // Problems with what was captured (cut-off description, a list of jobs).
   concerns.unshift(...(job.warnings || []));
-  if (otherFunction) concerns.unshift(`This is a ${otherFunction} role (${otherFunction === 'sales' ? 'a quota, closing deals' : 'filling requisitions, sourcing candidates'}), and your documents don't show ${otherFunction} work`);
+  if (otherFunction) concerns.unshift(`This is a ${otherFunction} role (${{ sales: 'a quota, closing deals', recruiting: 'filling requisitions, sourcing candidates', 'software engineering': 'writing and shipping production code' }[otherFunction]}), and your documents don't show ${otherFunction} work`);
   if (dutyGap) concerns.push(`${req.every((u) => u.met >= 0.5) ? 'You meet what it asks for, but much' : 'Much'} of the day-to-day work (${neutral.filter((u) => u.met < 0.5).slice(0, 3).map((u) => u.label).join(', ')}) isn't in your documents yet`);
   const missingProducts = all.filter((u) => u.core && u.met < 0.4 && !u.gate).map((u) => u.label);
   if (missingCore.length) concerns.push(`The title centres on ${(missingProducts.length ? missingProducts : missingCore).join(', ')}, which your documents don't mention yet`);
@@ -1331,7 +1395,8 @@ function localFitScore(job, documents, profile = {}) {
     components: Object.fromEntries(Object.entries(components).map(([k, v]) => [k, v === null ? null : Math.round(v * 100)])),
     // Clearly shown vs only partly (a related skill, an old role, a skills-list mention).
     matchedSkills: all.filter((u) => u.kind !== 'preferred' && u.met >= 0.75).map((u) => u.label),
-    partialSkills: all.filter((u) => u.kind !== 'preferred' && u.met >= 0.4 && u.met < 0.75).map((u) => u.label),
+    // From 0.5, where a must-have stops counting as missing: never in both lists.
+    partialSkills: all.filter((u) => u.kind !== 'preferred' && u.met >= 0.5 && u.met < 0.75).map((u) => u.label),
     missingSkills: missingReq,
     matchedPreferred: pref.filter((u) => u.met >= 0.5).map((u) => u.label),
     missingPreferred: pref.filter((u) => u.met < 0.5).map((u) => u.label),

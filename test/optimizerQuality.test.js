@@ -233,7 +233,8 @@ test('the resume prompt names the required terms the page already has, so a rewr
   const ats = atsScore(CI_JOB, RESUME_A, {});
   assert.ok(ats.matchedRequired.length, 'some required terms are on the page');
   const block = P.atsBlock ? P.atsBlock(CI_JOB, ats) : null;
-  if (block) assert.match(block, /Required terms it already uses[^.]*sales/);
+  // ("Cross-functional work with sales, product and marketing" names teams, not a term to keep.)
+  if (block) assert.match(block, /Required terms it already uses[^.]*saas/);
 });
 
 test('an impact statement or self-assessment is filed as what others say about your work, not as a resume', () => {
