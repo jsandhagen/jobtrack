@@ -75,3 +75,12 @@ test('about five years for a job asking eight reads well under the same job aski
   assert.ok(fit(5) - fit(8) >= 8, `5+: ${fit(5)}, 8+: ${fit(8)}`);
   assert.ok(fit(8) < 65, 'not a strong match on the calibrated scale');
 });
+
+test('"Answers you gave Sprout" never puts a question, or its Q:/A: labels, into a bullet', () => {
+  const RC = require('../src/main/resumeContext');
+  const doc = 'Answers Jordan gave Sprout about their work.\n\nRole: Senior Consultant, Northwind\nAsked for: CI Manager (Torq), 2026-10-01\nQ: Have you run win/loss analysis with sales teams?\nA: Yes. I ran win/loss interviews with 30 account executives\nQ: Which competitors did you track\nA: I tracked Microsoft and ServiceNow for the CTO';
+  const passages = RC.passagesOf(doc);
+  assert.ok(passages.every((p) => !/\b(?:Q|A):|\?|Asked for|Role:/.test(p)), passages.join(' | '));
+  assert.ok(passages.includes('I ran win/loss interviews with 30 account executives'));
+  assert.equal(RC.asBullet('I ran win/loss interviews with 30 account executives Q: Which competitors did you track', []), null);
+});

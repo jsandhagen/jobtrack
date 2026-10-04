@@ -59,12 +59,22 @@ function specific(topic, job) {
 
 const DOC_BULLET = /^\s*(?:[●•○◦▪■□➢►\-*–]|\d+[.)])\s+/;
 // Lines joined into paragraphs (a PDF wraps them), each list item its own.
+// Labelled lines in "Answers you gave Sprout" (and Q&A notes like it): a
+// question isn't evidence and never part of a bullet; an answer is, without its label.
+const QUESTION_LINE = /^(?:Q|Question|Role|Asked for)\s*[:.]\s*/i;
+const ANSWER_LINE = /^(?:A|Answer)\s*[:.]\s*/i;
 function passagesOf(text) {
   const out = [];
   let cur = '';
   for (const raw of String(text || '').split('\n')) {
-    const line = raw.trim();
-    if (!line) { if (cur) out.push(cur), (cur = ''); continue; }
+    let line = raw.trim();
+    if (!line || QUESTION_LINE.test(line)) { if (cur) out.push(cur), (cur = ''); continue; }
+    if (ANSWER_LINE.test(line)) {
+      if (cur) out.push(cur);
+      cur = '';
+      line = line.replace(ANSWER_LINE, '').replace(/^(?:yes|no)\b[.,!]?\s*/i, '');
+      if (!line) continue;
+    }
     if (DOC_BULLET.test(line) || /:$/.test(cur)) { if (cur) out.push(cur); cur = line.replace(DOC_BULLET, ''); } else cur = cur ? `${cur} ${line}` : line;
   }
   if (cur) out.push(cur);
@@ -94,6 +104,8 @@ function asBullet(sentence, names) {
   else if (/^[A-Z][a-z]+ing\b/.test(t)) t = t.replace(/^([A-Z][a-z]+ing)\b/, (w) => pastOf(w));
   else return null; // "These materials…", "Highlights include…": not a sentence about what you did
   t = t.replace(/^[a-z]/, (c) => c.toUpperCase()).replace(/[.;:,\s]+$/, '');
+  // Never a question, or a Q&A label, on a resume.
+  if (/\?|(?:^|\s)(?:Q|A|Question|Answer)\s*:/i.test(t)) return null;
   // In your own words, "our co-sell opportunities" reads on a resume as "co-sell opportunities".
   if (firstPerson) t = t.replace(/\b(?:our|my) (?=[a-z])/gi, '').replace(/\s{2,}/g, ' ').trim();
   // A role described, not work done ("Played a larger role in…"), isn't a bullet.

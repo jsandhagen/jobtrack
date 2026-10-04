@@ -80,6 +80,8 @@ function draftToDoc(out, { bank, profile, library, posting, ids }) {
     for (const b of item.bullets || []) {
       const text = String(b.text || '').trim();
       if (!text) continue;
+      // A question, or a line of "Answers you gave Sprout" copied whole, is never a bullet.
+      if (/(?:^|\s)(?:Q|A|Question|Answer)\s*:/i.test(text) || /\?\s*$/.test(text)) continue;
       const src = b.from_bullet && ids.bulletById.get(b.from_bullet);
       let problems;
       if (src) {
