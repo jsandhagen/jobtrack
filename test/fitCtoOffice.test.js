@@ -200,8 +200,7 @@ test('ATS gaps point to the closest bullet, and using the exact words (if true) 
   const g = (phrase) => gaps.find((x) => x.phrase === phrase);
   assert.equal(g('program management').type, 'knockout');
   assert.match(g('program management').closest.text, /^Ran the annual technology planning cycle/);
-  assert.equal(g('ai adoption').type, 'wording');
-  assert.match(g('ai adoption').closest.text, /AI strategy/);
+  assert.equal(g('ai adoption'), undefined, 'AI strategy alone does not prove AI adoption; it is not an automatic wording fix');
   assert.match(g('board materials').closest.text, /^Prepared board and executive presentations/);
   const before = atsScore(p, F.RESUMES.ctoOfficeStrategist, {});
   const edit = (planning) =>

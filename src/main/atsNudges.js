@@ -18,6 +18,8 @@
 //           { type: 'add-skill', term } (put the posting's word in the skills grid),
 //           { type: 'profile' } / { type: 'bank' } (go fill something in).
 const { SKILLS, INTERPERSONAL, SOFT_SKILLS } = require('./fitScore');
+const { supportsWording, isSkillPhrase, skillAddition, candidateSkillText } = require('./skillSuggestions');
+const { phraseCasing } = require('./postingCase');
 
 const SHOWN = 3;
 const INDUSTRIES = new Set(['Financial Services', 'Public Sector', 'Healthcare', 'Enterprise Software', 'Low-Code / BPM']);
@@ -28,7 +30,7 @@ const list = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', 
 // The posting's own casing: "SaaS", "Amazon Web Services".
 function asWritten(jobText, term) {
   const m = String(jobText || '').match(new RegExp(`(?<![A-Za-z0-9])${String(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'i'));
-  const w = m ? m[0] : String(term);
+  const w = phraseCasing(m ? m[0] : String(term));
   return w === lower(w) ? w.replace(/^./, (c) => c.toUpperCase()) : w;
 }
 
@@ -43,9 +45,10 @@ function asWritten(jobText, term) {
  * @returns {{ headline: string, fixed: string[], nudges: object[], more: number, later: object[] }}
  *   `later`: the nudges past the first few, for a page that lists everything.
  */
-function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
+function atsNudges({ ats, job, pageText, bank, doc, fixes = [], onPage = true }) {
   if (!ats) return { headline: '', fixed: [], nudges: [], more: 0, later: [] };
   const jobText = String((job && job.text) || '');
+  const candidateText = doc ? candidateSkillText(doc) : pageText;
   const bankText = bank ? lower([...(bank.skills || []), ...(bank.bullets || []).filter((b) => !b.hidden).flatMap((b) => [b.text, ...(b.variants || [])])].join('\n')) : '';
   const out = [];
 
@@ -78,14 +81,18 @@ function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
       action: onPage && SKILLS[m.skill] ? { type: 'requirement', key: `s:${m.skill}`, label: 'Show me the bullet' } : onPage ? null : { type: 'optimize', label: 'Let the ATS optimizer pick it' },
     });
   }
-  if (nowhere.length) {
-    const terms = [...new Set(nowhere.map((m) => asWritten(jobText, m.anyOf ? m.anyOf[0] : m.term)))].slice(0, 3);
-    out.push({
-      id: 'ask:skills',
-      tone: 'ask',
-      text: `The posting lists ${list(terms.map((t) => `“${t}”`))} as required, and I couldn't find ${terms.length === 1 ? 'it' : 'them'} in your documents. If you've used ${terms.length === 1 ? 'it' : 'any'}, tell me and I'll put ${terms.length === 1 ? 'it' : 'them'} on your resumes. If not, that's fine: postings list more than most hires have.`,
-      action: { type: 'have-skill', terms },
-    });
+  const wordings = (ats.wordingTips || []).filter(w => !INTERPERSONAL.has(w.skill) && !SOFT_SKILLS.has(w.skill) && !INDUSTRIES.has(w.skill) && isSkillPhrase(w.term) && !has(pageText, w.term));
+  const unproven = wordings.filter(w => !supportsWording(w.skill, w.term, candidateText) && !supportsWording(w.skill, w.term, bankText));
+  if (nowhere.length || unproven.length) {
+    const terms = [...new Set([...nowhere.map((m) => asWritten(jobText, m.anyOf ? m.anyOf[0] : m.term)), ...unproven.map(w => asWritten(jobText, w.term))])].filter(isSkillPhrase).slice(0, 3);
+    if (terms.length) {
+      out.push({
+        id: 'ask:skills',
+        tone: 'ask',
+        text: `The posting asks for ${list(terms.map((t) => `“${t}”`))}, and I couldn't find ${terms.length === 1 ? 'it' : 'them'} in your documents. If you've used ${terms.length === 1 ? 'it' : 'any'}, tell me and I'll put ${terms.length === 1 ? 'it' : 'them'} on your resumes. If not, that's fine: postings list more than most hires have.`,
+        action: { type: 'have-skill', terms },
+      });
+    }
   }
 
   // A basic qualification the skills don't name ("experience in alliances or
@@ -102,7 +109,7 @@ function atsNudges({ ats, job, pageText, bank, fixes = [], onPage = true }) {
   }
 
   // 4. Skills you show in other words than the posting's (strict systems match literally).
-  const wording = (ats.wordingTips || []).filter((w) => !INTERPERSONAL.has(w.skill) && !SOFT_SKILLS.has(w.skill) && !INDUSTRIES.has(w.skill) && !has(pageText, w.term));
+  const wording = wordings.filter(w => supportsWording(w.skill, w.term, candidateText) && (!doc || skillAddition(doc, w.skill, asWritten(jobText, w.term))));
   if (wording.length) {
     const w = wording[0];
     const term = asWritten(jobText, w.term);

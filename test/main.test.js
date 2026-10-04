@@ -29,3 +29,21 @@ test('revisiting a saved LinkedIn job repairs its bad title in the card and reco
   assert.equal(r.repaired.notes,'Keep my notes');
   assert.equal(r.manual.job.title,'Brightline Health','explicit manual edits are retained');
 });
+
+test('the real Add to skills handler validates evidence, avoids duplicates, and remains undoable', () => {
+  const r = JSON.parse(execFileSync(process.execPath, [path.join(__dirname, 'helpers', 'runSkillSuggestions.js')], { encoding: 'utf8', timeout: 60000 }));
+  assert.ok(r.bankUnchanged, 'suggested wording never changes the source bank');
+  for (const row of r.rows) {
+    assert.equal(row.added.ok, row.safe, `${row.name}: ${row.added.error}`);
+    assert.equal(row.status, 'applied');
+    assert.equal(row.notes, 'Keep my notes');
+    if (row.safe) {
+      assert.equal(row.added.value.skillAdded, true);
+      assert.equal(row.repeated.value.skillAdded, false);
+      assert.notDeepEqual(row.after.skills, row.before.skills, row.name);
+      assert.deepEqual(row.repeated.value.doc.skills, row.after.skills, 'second click is idempotent');
+      assert.deepEqual(row.undone.value.doc, row.before, 'undo restores the original page');
+      assert.deepEqual(row.after.roles, row.before.roles, 'adding a skill keeps the bullets');
+    } else assert.deepEqual(row.after, row.before, 'a rejected suggestion changes no resume content');
+  }
+});

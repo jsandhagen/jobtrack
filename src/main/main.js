@@ -45,6 +45,7 @@ const { renderResumeHtml, renderCoverLetterHtml, resumeToMarkdown, htmlToText } 
 const { atsScore: readAts, atsGaps, postingRewords, rewordTerms, libraryAtsScore } = require('./atsScore');
 const { memoize } = require('./memo');
 const { atsNudges } = require('./atsNudges');
+const { validatedAddition } = require('./skillSuggestions');
 const { INTERPERSONAL, SOFT_SKILLS, SKILLS } = require('./fitScore');
 const fitScale = require('../shared/fitScale');
 const { contactFromResume, contactFromLibrary, contactPatch } = require('./contact');
@@ -710,7 +711,7 @@ function withAts(rec) {
   const evidence = ranked ? ranked.evidence : [];
   // The few things worth doing, in plain words, for whichever resume is shown.
   const nudges = after
-    ? atsNudges({ ats: after, job: rec.job, pageText: htmlToText(rec.resumeHtml), bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true })
+    ? atsNudges({ ats: after, job: rec.job, pageText: htmlToText(rec.resumeHtml), bank, doc: rec.builder && rec.builder.doc, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true })
     : atsNudges({ ats: before, job: rec.job, pageText: before ? evidenceDocs().map((d) => d.text).join('\n') : '', bank, onPage: false });
   // "Ask if applicable": what the fit is missing that you may have done but not written down.
   // Not what "Do you have it?" already asks on the same page.
@@ -1296,7 +1297,7 @@ function builderState(rec) {
     rewords: rec.job && rec.job.text ? postingRewords(rec.job, doc, rec.atsKeep || []) : [],
     // ...and ones that need rewriting rather than a swap ("statistical" for "statistics"): Polish wording's job.
     rewordTerms: rec.job && rec.job.text ? rewordTerms(rec.job, doc).map((t) => t.theirs) : [],
-    nudges: rec.job && String(rec.job.text || '').trim() ? atsNudges({ ats, job: rec.job, pageText, bank, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true }) : null,
+    nudges: rec.job && String(rec.job.text || '').trim() ? atsNudges({ ats, job: rec.job, pageText, bank, doc, fixes: (rec.atsFit && rec.atsFit.fixes) || [], onPage: true }) : null,
     enhancements: contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units, fit: rec.quick ? rec.quick.score : null }),
     // The posting's title, for the "role named up top" check.
     jobTitle: (rec.job && rec.job.title) || '',
@@ -2214,10 +2215,16 @@ function registerIpc() {
     if (!rec) throw new Error('That resume no longer exists.');
     const doc = JSON.parse(JSON.stringify(currentDoc(rec)));
     const fixes = [];
-    const term = String(addSkill || '').trim().slice(0, 60);
+    const term = String(addSkill || '').trim();
     if (term) {
-      if (!doc.skills.some((x) => x.toLowerCase() === term.toLowerCase())) doc.skills.unshift(term);
-      fixes.push({ kind: 'wording', term, text: `Added “${term}” to your skills, in the posting's words.` });
+      const validated = validatedAddition(rec.job, doc, term);
+      if (!validated) throw new Error("That wording isn't supported by this resume. Add the skill to your bullet bank if you've used it, then optimize again.");
+      if (validated.addition) {
+        const { index, name } = validated.addition;
+        if (index >= 0) doc.skills[index] = name;
+        else doc.skills.unshift(name);
+        fixes.push({ kind: 'wording', term: validated.term, text: `Used “${validated.term}” in your skills, in the posting's words.` });
+      }
     } else {
       for (const x of bulletBank.addIndustryWords(doc, rec.job).added) fixes.push({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` });
     }
@@ -2225,7 +2232,7 @@ function registerIpc() {
       saveDoc(id, doc, { atsFit: { ...(rec.atsFit || {}), fixes: [...((rec.atsFit && rec.atsFit.fixes) || []), ...fixes] }, builderPrev: undoPoint(rec), wordingReview: wordingToReview(rec, doc) });
       hostUpdated(getHost(id));
     }
-    return builderState(getHost(id));
+    return { ...builderState(getHost(id)), ...(term ? { skillAdded: fixes.some(f => f.kind === 'wording') } : {}) };
   });
   handle('builder:baseline', (id) => (makeBaseline(id), builderState(getHost(id))));
   handle('builder:undo', (id) => (undoResume(id), builderState(getHost(id))));

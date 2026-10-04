@@ -1025,11 +1025,12 @@ async function runNudge(btn) {
   }
   if (type === 'fix-page' || type === 'add-skill') {
     if (inEditor && !(await saveNow())) return; // editor.js: keep what you typed
-    const ok = await run(btn, () => S.fixPage(id, type === 'add-skill' ? { addSkill: btn.dataset.term } : {}).then(() => true), '…');
+    let skillAdded = false;
+    const ok = await run(btn, () => S.fixPage(id, type === 'add-skill' ? { addSkill: btn.dataset.term } : {}).then(result => { skillAdded = !!result.skillAdded; return true; }), '…');
     if (!ok) return;
     if (inEditor && ed.appId === id) await renderEditor(id, ed.app);
     else await renderApplication(id);
-    toast(type === 'add-skill' ? `Added “${btn.dataset.term}” to your skills.` : 'Done. It’s in your summary now.', 'good');
+    toast(type === 'add-skill' ? (skillAdded ? `Updated your skills with “${btn.dataset.term}”.` : 'Kept your current skills list.') : 'Done. It’s in your summary now.', 'good');
   }
 }
 document.addEventListener('click', (e) => {

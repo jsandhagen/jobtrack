@@ -27,6 +27,7 @@ const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, EMPLOYER_E
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
 const { phraseCasing } = require('./postingCase');
+const { evidenceSpans, compatibleWording, supportsWording, isSkillPhrase } = require('./skillSuggestions');
 const { memoize } = require('./memo');
 
 
@@ -178,7 +179,7 @@ function scoreSkills(jobSkills, resumeLower, resumeSkills) {
       for (const skill of have.filter((s) => u.skills.includes(s))) {
         const term = u.terms[u.skills.indexOf(skill)];
         bucket.matched.push({ skill, kind: u.kind, term });
-        if (isKeyword(term) && !containsTerm(resumeLower, term)) wordingTips.push({ skill, term });
+        if (isKeyword(term) && isSkillPhrase(term) && !containsTerm(resumeLower, term)) wordingTips.push({ skill, term });
       }
     } else {
       bucket.missing.push({ skill: u.label, kind: u.kind, term: u.term, anyOf: u.skills.length > 1 ? u.terms : undefined });
@@ -585,7 +586,7 @@ function atsScore(job, resumeText, opts = {}) {
   for (const m of skills.hard.missing.filter((m) => m.kind === 'required')) {
     tips.push(m.anyOf ? `Required: any one of ${m.anyOf.map((x) => `"${x}"`).join(', ')}. If you've used one, add it in those words.` : `Required: "${m.term}". If you've used it, add it in those words.`);
   }
-  for (const w of skills.wordingTips.slice(0, 4)) tips.push(`Use the posting's exact wording "${w.term}" at least once (strict systems like Taleo match literally).`);
+  for (const w of skills.wordingTips.filter(w => supportsWording(w.skill, w.term, resumeText)).slice(0, 4)) tips.push(`Use the posting's exact wording "${w.term}" at least once (strict systems like Taleo match literally).`);
   if (title && !title.exact) tips.push(`Include the job title "${job.title}" (e.g. in your headline) if it honestly describes you.`);
   if (education && education.score < 1) tips.push(`The posting asks for ${DEGREE_NAMES[education.need]}${education.equivalentOk ? ' or equivalent experience' : ''}; make your education easy to find.`);
   if (parse) for (const c of parse.checks) if (!c.ok) tips.push(c.tip);
@@ -610,7 +611,7 @@ function atsScore(job, resumeText, opts = {}) {
     // The posting's required terms the resume already has, in the posting's words.
     matchedRequired: [...new Set([...skills.hard.matched, ...skills.soft.matched].filter((m) => m.kind === 'required' && m.term).map((m) => m.term))],
     missingSkills: [...skills.hard.missing, ...skills.soft.missing].map((m) => ({ skill: m.skill, kind: m.kind, term: m.term, ...(m.anyOf ? { anyOf: m.anyOf } : {}) })),
-    wordingTerms: skills.wordingTips.map((w) => w.term),
+    wordingTerms: skills.wordingTips.filter(w => supportsWording(w.skill, w.term, resumeText)).map((w) => w.term),
     wordingTips: skills.wordingTips,
     missingKeywords: keywords ? keywords.missing : [],
     // Basic qualifications the skills don't cover (a kind of experience, a
@@ -662,7 +663,7 @@ function atsGaps(job, resumeText, bullets = []) {
   for (const w of r.wordingTips) {
     // "steering committee" on the page answers "steering committees".
     const forms = [w.term, `${w.term}s`, w.term.replace(/s$/, ''), w.term.replace(/ies$/, 'y'), w.term.replace(/y$/, 'ies')];
-    if (INTERPERSONAL.has(w.skill) || SOFT_SKILLS.has(w.skill) || INDUSTRIES.has(w.skill) || forms.some((f) => containsTerm(resumeLower, f))) continue;
+    if (INTERPERSONAL.has(w.skill) || SOFT_SKILLS.has(w.skill) || INDUSTRIES.has(w.skill) || forms.some((f) => containsTerm(resumeLower, f)) || !supportsWording(w.skill, w.term, resumeText)) continue;
     gaps.push({ type: 'wording', phrase: w.term, why: 'You show this in other words. Strict systems match the posting\'s words literally.', closest: closest(w.term, w.skill) });
   }
   // Searched phrases only (a posting too short for phrases gives single words, which aren't worth chasing),
@@ -698,8 +699,9 @@ function* wordingCandidates(job, doc) {
     if (forms.some((f) => f && containsTerm(body, f))) continue;
     const theirs = postingCasing(jobText, term);
     if (!theirs || theirs.split(/\s+/).length > 3 || !isKeyword(theirs)) continue;
-    const bl = bullets.find((x) => skillSpan(x.text, SKILLS[skill]));
-    if (bl) yield { bullet: bl, span: skillSpan(bl.text, SKILLS[skill]), theirs };
+    const candidates = bullets.map(bullet => ({ bullet, span: evidenceSpans(bullet.text, skill).find(s => compatibleWording(s.text, theirs)) }));
+    const candidate = candidates.find(x => x.span);
+    if (candidate) yield { ...candidate, theirs };
   }
 }
 
@@ -742,23 +744,6 @@ function rewordTerms(job, doc) {
     if (!rewordSpan(span.text, theirs, span.at === 0)) out.push({ theirs, yours: span.text, r: bullet.r, b: bullet.b });
   }
   return out.slice(0, 12);
-}
-
-// Where a skill shows in a bullet, as written ("Postgres" in "Moved billing to Postgres").
-function skillSpan(text, patterns) {
-  const l = lower(text);
-  for (const p of patterns) {
-    const m = l.match(p);
-    if (!m) continue;
-    const lead = m[0].match(/^(?:(?:in|with|and|or|using)\s+|[,/(]\s*)/);
-    const at = m.index + (lead ? lead[0].length : 0);
-    const tail = l.slice(m.index + m[0].length).match(/^[a-z0-9+#]*/)[0];
-    const len = m.index + m[0].length + tail.length - at;
-    const span = text.slice(at, at + len).trim();
-    if (!span || lower(span) !== l.slice(at, at + span.length)) continue;
-    return { at, text: span };
-  }
-  return null;
 }
 
 // How the posting writes a term, as most of its mentions do ("PostgreSQL",

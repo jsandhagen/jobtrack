@@ -1,0 +1,23 @@
+// Unsafe suggestions must not become resume claims; genuine aliases remain useful.
+module.exports = [
+  { name: 'Terraform to CloudFormation', own: 'Terraform', term: 'CloudFormation', text: 'Built deployment infrastructure with Terraform.' },
+  { name: 'PostgreSQL to MySQL', own: 'PostgreSQL', term: 'MySQL', text: 'Built reporting queries in PostgreSQL.' },
+  { name: 'Photoshop to Illustrator', own: 'Photoshop', term: 'Illustrator', text: 'Designed campaign assets in Photoshop.' },
+  { name: 'Jenkins to GitHub Actions', own: 'Jenkins', term: 'GitHub Actions', text: 'Built deployment pipelines with Jenkins.' },
+  { name: 'pandas to NumPy', own: 'pandas', term: 'NumPy', text: 'Analyzed customer data using pandas.' },
+  { name: 'generic CMS to WordPress', own: 'CMS', term: 'WordPress', text: 'Managed content in a CMS.' },
+  { name: 'architecture work to TOGAF', own: 'Enterprise architecture', term: 'TOGAF', text: 'Designed enterprise architecture diagrams.' },
+  { name: 'Spanish to German', own: 'Spanish', term: 'German', text: 'Conducted customer interviews in Spanish.' },
+  { name: 'commercial diligence to M&A', own: 'Due diligence', term: 'M&A', text: 'Conducted due diligence on vendor costs and product capabilities.' },
+  { name: 'Docker to Kubernetes', own: 'Docker', term: 'Kubernetes', text: 'Packaged services in Docker.' },
+  { name: 'reading documentation to writing it', own: 'Research', term: 'Technical documentation', text: 'Reviewed technical documentation from competitors.' },
+  { name: 'explicitly absent experience', term: 'Python', text: 'No Python experience; currently learning Python.' },
+  { name: 'working with a platform team', term: 'AWS', text: 'Worked with the AWS team to build a business case.' },
+  { name: 'requirements without candidate evidence', term: 'Kubernetes', text: 'Researched competitors and market trends.' },
+  { name: 'sales sentence fragment', own: 'Sales', term: 'Sell can accelerate deals', text: 'Built sales enablement materials.' },
+  { name: 'analysis instruction fragment', own: 'Data Analysis', term: 'Analyze business performance data', text: 'Analyzed customer data using SQL.' },
+  { name: 'AWS acronym expansion', own: 'AWS', term: 'Amazon Web Services', text: 'Deployed services on AWS.', safe: true },
+  { name: 'Postgres spelling', own: 'Postgres', term: 'PostgreSQL', text: 'Built reporting queries in Postgres.', safe: true },
+  { name: 'Jenkins to broader CI/CD', own: 'Jenkins', term: 'CI/CD', text: 'Built deployment pipelines with Jenkins.', safe: true },
+  { name: 'Kubernetes alias', own: 'k8s', term: 'Kubernetes', text: 'Deployed services on k8s.', safe: true },
+];

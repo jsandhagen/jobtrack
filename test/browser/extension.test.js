@@ -260,6 +260,8 @@ test('LinkedIn: pops up the card, asks before saving, and follows in-page naviga
     document.body.innerHTML = '<h1>Your feed</h1>';
   });
   await waitFor(async () => (await cardText(p)) === '');
+  // The toolbar badge clears through a worker message after the card hides.
+  await waitFor(async () => (await sw.evaluate(async () => chrome.action.getBadgeText({ tabId: (await chrome.tabs.query({ active: true }))[0].id }))) === '');
   const cleared = await sw.evaluate(async () => chrome.action.getBadgeText({ tabId: (await chrome.tabs.query({ active: true }))[0].id }));
   assert.equal(cleared, '');
   await p.close();

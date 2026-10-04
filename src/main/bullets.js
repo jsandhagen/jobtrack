@@ -8,6 +8,7 @@ const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 const { strategyFocus, strategyEvidence, strategySummary, strategyChecks } = require('./strategyResume');
 const { phraseCasing } = require('./postingCase');
+const { evidenceSpans, supportsWording } = require('./skillSuggestions');
 
 // The posting's requirements, less the kind of experience asked for ("5+
 // years in software engineering"): a role's title meets that, so it can't
@@ -1058,7 +1059,7 @@ function pickSkills(job, bank, { max = 15 } = {}) {
   };
 
   for (const [skill, { kind, term, mentions }] of classifyJobSkills(jobText)) {
-    if (!SKILLS[skill].some((p) => p.test(bankText))) continue;
+    if (!evidenceSpans(bankText, skill).length) continue;
     keys.add(skill);
     if (NOT_IN_GRID.has(skill)) continue;
     const mine = listed.find((s) => SKILLS[skill].some((p) => p.test(lower(s))) && hasWord(lower(s), term));
@@ -1086,7 +1087,7 @@ function pickSkills(job, bank, { max = 15 } = {}) {
         reworded.push({ from: own, to: name });
       }
     }
-    if (name) add(name, kind, mentions, term);
+    if (name && (listed.includes(name) || reworded.some(r => r.to === name) || supportsWording(skill, name, bankText))) add(name, kind, mentions, term);
   }
   // Your own listed skills the posting names outside the skills dictionary ("Storybook", "HIPAA").
   const units = bulletUnits(job || { text: '' });
