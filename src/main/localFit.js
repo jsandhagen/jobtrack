@@ -26,7 +26,7 @@ const { memoize } = require('./memo');
 const { toShown, SCALE: FIT_SCALE } = require('../shared/fitScale');
 
 // Bump when scoring changes, so saved scores are recomputed at startup.
-const SCORER_VERSION = 24;
+const SCORER_VERSION = 25;
 
 const WEIGHTS = { required: 0.5, preferred: 0.08, role: 0.14, domain: 0.1, experience: 0.12, seniority: 0.06 };
 
@@ -420,6 +420,16 @@ function experienceKind(line) {
   // "at a top management consulting firm": the firm's kind is the experience.
   phrase = phrase.replace(/^(?:a|an|the)\s+(?:top-tier|tier[- ]1|top|leading|large|global|major)?\s*/, '');
   if (!phrase) return null;
+  // A shared noun and industry qualify both alternatives: "technical program
+  // or project management in software or technology". Keep the preposition
+  // in the label; dropping it turns software into a kind of management tool.
+  const management = phrase.match(/^(technical )?(program|project|product) or (program|project|product) management(?: in (software|technology)(?: or (software|technology))?)?$/);
+  if (management) {
+    const domains = [management[4], management[5]].filter(Boolean);
+    const alts = [management[2], management[3]].flatMap((kind) => (domains.length ? domains : ['']).map((domain) =>
+      `${management[1] || ''}${kind} management ${domain}`.trim().split(/\s+/)));
+    return { alts, phrase, label: `experience in ${phrase}` };
+  }
   // "BSA/AML advisory or operations": both kinds are BSA/AML work, not operations of any sort.
   const shared = phrase.match(/^([a-z0-9&]+(?:\/[a-z0-9&]+)+)\s+([a-z-]+)\s+or\s+([a-z-]+)$/);
   if (shared) phrase = `${shared[1].replace(/\//g, ' ')} ${shared[2]} or ${shared[1].replace(/\//g, ' ')} ${shared[3]}`;
@@ -439,6 +449,9 @@ function experienceKind(line) {
     if (next && next.length > 1) alts[i] = [alts[i][0], next[next.length - 1]];
     else if (prev && prev.length === 2 && KIND_MODIFIER.test(prev[0])) alts[i] = [alts[i][0], prev[1]];
   }
+  // A describing word with no noun to share ("Business Analyst or equivalent
+  // technical experience", "…or business-related roles") isn't a kind of its own.
+  alts.splice(0, alts.length, ...alts.filter((ws) => !(ws.length === 1 && (KIND_MODIFIER.test(ws[0]) || /-related$/.test(ws[0])))));
   if (!alts.length) return null;
   return { alts, phrase, label: `experience in ${alts.map((ws) => ws.join(' ')).join(' or ')}` };
 }
@@ -571,7 +584,10 @@ function readRequirementUnits(job) {
   };
   const seenLines = new Set(); // a page that repeats a block says it once
   const parts = lines
-    .filter((l) => !(l.isHeading && l.line.length < 40) && !seenLines.has(l.line) && seenLines.add(l.line))
+    .filter((l) => l.line !== lower(job.title).trim() && l.line !== lower(job.company).trim())
+    // A short unbulleted qualification is still content, not a heading:
+    // "Experience using HubSpot CRM" must survive plain-text job imports.
+    .filter((l) => !(l.isHeading && l.line.length < 40 && !DUTY_START.test(l.original) && !Object.values(SKILLS).some((patterns) => patterns.some((p) => p.test(l.line)))) && !seenLines.has(l.line) && seenLines.add(l.line))
     .flatMap((l) => clauses(l.original, l.kind, l.section).map((c) => ({ ...c, lineKind: l.kind, section: l.section, about: l.about })));
   for (let { line, original, kind, lineKind, section, about } of parts) {
     // "Certified ScrumMaster (CSM) or PSM": a name and its abbreviation are one thing.
@@ -634,6 +650,9 @@ function readRequirementUnits(job) {
         if (initials && !credentialLine && !/certif|licen|registered/i.test(original) && initials.test(String(job.title || '').replace(/\b(?:and|of|&)\s+/gi, ''))) continue;
         // A word that only means something with another ("methodology", "principles").
         if (/^(?:methodolog(?:y|ies)|principles?|concepts?|fundamentals|practices|frameworks?|tools?|platforms?|processes|environment|environments)$/i.test(term)) continue;
+        // A word left over from "technology/business consulting, or a
+        // combination of…": not a skill anyone can say they have.
+        if (/^(?:business|combination|technical|related|[a-z]+-related|relevant|similar|various|general|functional|equivalent)$/i.test(term)) continue;
         // A claim, not a qualification: "shipping products customers love".
         if (/\b(?:love|loves|delight|delightful|passion|passionate|amazing|world-class)\b/i.test(term)) continue;
         // A piece of a clause, not a thing: "role that involves".
@@ -789,6 +808,8 @@ const SCREENING_LINE = /\btravel\b[^.;]{0,40}\d{1,3}\s*%|\d{1,3}\s*%[^.;]{0,20}\
 // A broad skill and its specific cases named in the same breath are one
 // requirement: "dashboards in Tableau", "cloud migration on AWS".
 const PARENT_OF = {
+  CRM: ['Salesforce', 'HubSpot'],
+  Operations: ['Digital Operations'],
   'Data Visualization': ['Tableau', 'Power BI', 'Looker'],
   Cloud: ['Cloud Strategy', 'AWS', 'Azure', 'GCP', 'Cloud Certification'],
   AI: ['AI Strategy', 'Machine Learning', 'LLMs / GenAI', 'Deep Learning'],
@@ -1133,7 +1154,11 @@ const FUNCTIONS = [
 function functionGap(job, lib) {
   const t = lower(`${job.title || ''}\n${job.text || ''}`);
   for (const f of FUNCTIONS) {
-    const hits = f.signals.filter((re) => re.test(t)).length + (f.title && f.title.test(lower(job.title)) ? 2 : 0);
+    // Designing territories and setting quotas are operations work. They
+    // don't establish that this person carries a quota or closes deals.
+    const signals = f.name === 'sales' ? t
+      .replace(/\b(?:territory (?:design|planning|alignment|coverage)|quota (?:setting|planning|allocation)|(?:set|setting|design|designing|allocate|allocating) (?:sales )?quotas?)\b/g, '') : t;
+    const hits = f.signals.filter((re) => re.test(signals)).length + (f.title && f.title.test(lower(job.title)) ? 2 : 0);
     if (hits >= 2 && !f.shown.test(lib)) return f.name;
   }
   return null;
@@ -1341,7 +1366,7 @@ function localFitScore(job, documents, profile = {}) {
   const family = (w) => (/^develop/.test(w) ? 'engineer' : (titleWords(w)[0] || w));
   const heldFamilies = new Set(titles.flatMap((t) => titleWords(t.title)));
   const sameFamily = (u) => lower(u.label).replace(/^experience in /, '').split(/[^a-z0-9+#]+/).filter((w) => w.length > 2).map(family).some((f) => heldFamilies.has(f) && f !== 'manag');
-  const missingFunction = role !== null && role < 0.5 && required !== null && required < 0.6 && (domain === null || domain < 0.5) ? all.find((u) => u.functionKind && u.kind === 'required' && u.met < 0.25 && !sameFamily(u)) || null : null;
+  const missingFunction = role !== null && role < 0.5 && required !== null && required < 0.6 && (domain === null || domain < 0.5) ? all.find((u) => (u.functionKind || (role === 0 && u.gate)) && u.kind === 'required' && u.met < 0.25 && !sameFamily(u)) || null : null;
   if (missingFunction) score = Math.min(score, 35);
   // One or two recognisable must-haves aren't enough to call it excellent.
   const thinEvidence = req.filter((u) => !/degree|^PhD/.test(u.label)).length <= 1;

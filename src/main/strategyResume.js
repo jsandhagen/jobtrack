@@ -5,6 +5,8 @@ const { yearsOfExperience, classifyLines, SKILLS } = require('./fitScore');
 const { repeatOf } = require('../shared/resumeCheck');
 
 const THEMES = [
+  { key: 'marketplace', posting: /\b(?:aws marketplace|cloud marketplaces?|private offers?)\b/gi, evidence: /\b(?:aws marketplace|cloud marketplaces?|private offers?)\b/i, title: /partnership|allian(?:ce|ces)\b/i, needsMention: true },
+  { key: 'customer', posting: /\b(?:customer experience|customer journey|customer lifecycle|customer communications?|customer feedback|voice of (?:the )?customer|nps|csat)\b/gi, evidence: /\b(?:customer experience|customer journey|customer lifecycle|customer-facing communications?|customer communications?|customer feedback|voice of (?:the )?customer|customer health|friction points|experience patterns|nps|csat)\b/i, title: /(?:customer|client) (?:experience|success|operations)|experience program manager/i },
   { key: 'commercial', posting: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|co[- ]sell\w*|joint business planning)\b/gi, evidence: /\b(?:go[- ]to[- ]market|gtm|pipeline|revenue|sales enablement|enablement materials|joint business planning|customer transactions)\b/i, title: /gtm|go[- ]to[- ]market|revenue operations|sales strategy|partnership|allian(?:ce|ces)\b/i },
   { key: 'delivery', posting: /\b(?:program management|project management|process (?:improvement|documentation)|operating processes|release process|workstreams?|milestones?|cross[- ]functional coordination)\b/gi, evidence: /\b(?:program management|program coordinator|project manager|process (?:improvement|documentation)|operating cadences?|standardizing.*processes|workstreams?|milestones?)\b/i, proof: /\b(?:program management of \d|across \d+ .*accounts|release (?:process|notes)|process improvement|standardizing.*processes|operating cadences?)\b/i, title: /operations|program manager|chief of staff/i },
   { key: 'analytics', posting: /\b(?:dashboards?|analytics|analytical|reporting|forecast\w*|data models?|metrics|kpis?)\b/gi, evidence: /\b(?:dashboards?|analytics|analytical|reporting|forecast\w*|data models?|metrics|kpis?)\b/i, title: /gtm|revenue operations|sales strategy|business operations|product operations/i },
@@ -14,7 +16,7 @@ const THEMES = [
   { key: 'research', posting: /\b(?:emerging technolog\w*|technology trends|research|scout\w*|incubat\w*)\b/gi, evidence: /\b(?:research|emerging technolog\w*|technology trends|analyses|market and company research)\b/i, title: /emerging|innovation|research/i },
   { key: 'experiments', posting: /\b(?:prototyp\w*|proofs? of concept|pilots?|incubat\w*)\b/gi, evidence: /\b(?:prototyp\w*|proofs? of concept|pilots?)\b/i, title: /emerging|innovation/i },
   { key: 'deals', posting: /\b(?:acquisition\w*|due diligence|build\/buy\/partner|m&a)\b/gi, evidence: /\b(?:acquisition\w*|due diligence|m&a)\b/i, title: /corporate development|corporate strategy/i },
-  { key: 'partnerships', posting: /\b(?:partnership\w*|vendor evaluations?|evaluate (?:startups|vendors)|vendor selection\w*|sourcing strateg\w*)\b/gi, evidence: /\b(?:partnership\w*|evaluated.*vendors?|vendor selection\w*|sourcing strateg\w*)\b/i, title: /partnership|allian(?:ce|ces)\b/i },
+  { key: 'partnerships', posting: /\b(?:partnership\w*|vendor evaluations?|evaluate (?:startups|vendors)|vendor selection\w*|sourcing strateg\w*)\b/gi, evidence: /\b(?:partnership\w*|partner (?:strategies|strategy|programs?|relationships?|operations)|aws marketplace|cloud marketplaces?|evaluated.*vendors?|vendor selection\w*|sourcing strateg\w*)\b/i, title: /partnership|allian(?:ce|ces)\b/i },
   { key: 'planning', posting: /\b(?:annual.*planning|quarterly.*planning|planning (?:process|cycle)|operating (?:cadence|rhythm)|okrs?|business reviews|budget planning|headcount)\b/gi, evidence: /\b(?:annual.*planning|quarterly.*planning|planning (?:process|cycle)|operating (?:cadence|rhythm)|okrs?|business reviews|budget planning|headcount)\b/i, title: /chief of staff|strategy\s*(?:&|and)\s*operations|strategy\s*(?:&|and)\s*planning/i },
   { key: 'investment', posting: /\b(?:business cases?|financial models?|financial modeling|investment\w*|cost optimization|it spend|cost models?|budgets?)\b/gi, evidence: /\b(?:business cases?|financial models?|financial modeling|investment\w*|cost optimization|it spend|cost models?|budgets?|due diligence|evaluated.*vendors?)\b/i, title: /corporate strategy|cio advisory|finance/i },
   { key: 'transformation', posting: /\b(?:technology roadmaps?|it roadmaps?|operating models?|modernization|cloud (?:migration|strategy)|transformation)\b/gi, evidence: /\b(?:technology roadmaps?|it strategies|operating models?|modernization|cloud (?:migration|strategy)|transformation)\b/i, title: /technology strategy|it strategy|cio advisory|modernization|transformation/i },
@@ -25,8 +27,9 @@ function strategyFocus(job = {}) {
   if (!/strateg(?:y|ist)|competitive|market (?:intelligence|insights?|research)|chief of staff|emerging technology|office of the cto|operations|program manager|partnership|allian(?:ce|ces)\b/i.test(job.title || '')) return [];
   const text = String(job.text || '');
   const required = classifyLines(text).filter((line) => line.kind === 'required').map((line) => line.original).join('\n');
-  return THEMES.flatMap((theme) => {
+  const focus = THEMES.flatMap((theme) => {
     const mentions = [...text.matchAll(theme.posting)].length;
+    if (theme.needsMention && !mentions) return [];
     // The title's function matters more than repeated generic words in a JD,
     // and is the work even when the body never names it: a Business Program
     // Manager whose posting says "lead executive programs", not "program management".
@@ -35,6 +38,13 @@ function strategyFocus(job = {}) {
     const mustHave = [...required.matchAll(theme.posting)].length > 0;
     return [{ ...theme, primary, weight: (primary ? 10 : mustHave ? 7 : 1.5) + Math.min(2, mentions * 0.4) }];
   });
+  // A customer-experience program is judged on customer outcomes. Generic
+  // program delivery remains useful but can't stand in for that evidence.
+  if (focus.some((t) => t.key === 'customer' && t.primary)) {
+    const delivery = focus.find((t) => t.key === 'delivery');
+    if (delivery) { delivery.primary = false; delivery.weight = Math.min(delivery.weight, 7); }
+  }
+  return focus;
 }
 
 function strategyEvidence(focus, text) {
@@ -55,6 +65,8 @@ function mainClause(text) {
 
 // How each kind of strategy work is named in a summary.
 const AREA_NAMES = {
+  marketplace: 'cloud marketplace partnerships',
+  customer: 'customer experience',
   commercial: 'go-to-market strategy',
   delivery: 'program management',
   analytics: 'data analysis',
@@ -134,6 +146,10 @@ function strategySummary(job, doc, ranked) {
   // A long one reads as a second bullet up top: its main clause says enough.
   const wordCount = (t) => String(t).replace(/\s*\([^)]*\)/g, '').split(/\s+/).filter(Boolean).length;
   const text = wordCount(proof.text) <= 30 && !repeatsFigure(proof.text) ? proof.text.replace(/[.!?]+$/, '') : mainClause(proof.text);
+  // Shortening can remove the clause that made this relevant (for example,
+  // market forecasting after a competitive-research opener). Judge the
+  // actual sentence the reader will see, not the full source bullet.
+  if (primaryKeys.size && !focus.some((t) => t.primary && t.evidence.test(text)) && !inSector({ text })) return lead;
   const achievement = proof.role !== current && proof.role.organization
     ? `At ${proof.role.organization}, ${text.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())}`
     : text;

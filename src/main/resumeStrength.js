@@ -128,10 +128,13 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
 
   // 2. Must-haves a bullet or the summary shows (degrees are Education's, the
   // kind of experience is the role's, soft skills aren't screened on).
-  const { units } = P;
+  const { units, kinds } = P;
   const texts = [summary, ...bullets].map(lower);
   const shown = units.filter((u) => Math.max(0, ...texts.map((t) => u.match(t))) >= 0.6);
-  const mustHaves = units.length ? shown.length / units.length : null;
+  const roleTexts = roles.map((r) => lower(`${r.title}\n${(r.bullets || []).map((b) => b.text).join('\n')}`));
+  const shownKinds = kinds.filter((u) => roleTexts.some((t) => u.match(t) >= 0.6));
+  const mustHaves = units.length + kinds.length ? (shown.length + shownKinds.length) / (units.length + kinds.length) : null;
+  if (shownKinds.length < kinds.length) notes.push('The page does not yet show every required kind of work; adding tool names alone will not close that gap.');
 
   // 2b. Depth in the work the job is titled for: a CI manager's reader wants
   // the competitive work you've done, not one CI bullet and the rest program
@@ -144,6 +147,14 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
     for (const r of ranked) if (!r.hidden && shownRoles.has(r.experienceId) && titled(lower(r.text)) && !yours.some((t) => sameFact(t, r.text))) yours.push(r.text);
     const want = Math.min(3, Math.max(yours.length, bullets.filter((t) => titled(lower(t))).length));
     if (want) depth = Math.min(1, bullets.filter((t) => titled(lower(t))).length / want);
+    // Several generic partnership bullets cannot replace the one piece of
+    // marketplace evidence a marketplace role needs. Keep each distinct
+    // primary area that the candidate can actually demonstrate on this page.
+    const available = primary.filter((theme) => ranked.some((r) => !r.hidden && shownRoles.has(r.experienceId) && theme.evidence.test(r.text)));
+    if (depth !== null && available.length) {
+      const covered = available.filter((theme) => bullets.some((t) => theme.evidence.test(t))).length / available.length;
+      depth *= covered;
+    }
     if (depth !== null && depth < 1) notes.push('More of your bullets show the work this job is titled for than the page carries.');
   }
 

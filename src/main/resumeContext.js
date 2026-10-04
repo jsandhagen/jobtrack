@@ -305,10 +305,10 @@ function phrasedElsewhere(phrase, bankLower) {
   // These heads describe different activities depending on their modifier:
   // proposal generation is not demand generation, and adoption trends are
   // not supply-growth trends. Shared words don't establish related work.
-  if (/\b(?:generation|trends?|communications?)$/.test(phrase)) return null;
+  if (/\b(?:generation|trends?|communications?|delivery|reports?)$/.test(phrase)) return null;
   const head = words[words.length - 1].replace(/s$/, '');
   if (head.length < 4 || GENERIC_HEADS.has(words[words.length - 1]) || GENERIC_HEADS.has(head)) return null;
-  for (const m of bankLower.matchAll(new RegExp(`\\b([a-z/-]+)\\s+(${head}\\w*)\\b`, 'g'))) {
+  for (const m of bankLower.matchAll(new RegExp(`\\b([a-z/-]+)\\s+(${head}s?)\\b`, 'g'))) {
     const mod = m[1];
     if (NOT_MODIFIERS.test(mod) || words.includes(mod)) continue;
     // "analytical reports" for "analyst reports": a look-alike word, a different thing.

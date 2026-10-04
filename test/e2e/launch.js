@@ -23,10 +23,14 @@ async function launch({ data, shots } = {}) {
   shots = shots || path.join(os.tmpdir(), 'sprout-e2e-shots');
   fs.mkdirSync(data, { recursive: true });
   fs.mkdirSync(shots, { recursive: true });
+  // Editors built on Electron may export this for their child tools. The
+  // journey needs a desktop app, not Electron's Node-only command line.
+  const env = { ...process.env, JOBTRACK_DATA_DIR: data };
+  delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({
     executablePath: electronBin,
     args: ['--no-sandbox', `--user-data-dir=${path.join(data, 'chromium')}`, ROOT],
-    env: { ...process.env, JOBTRACK_DATA_DIR: data },
+    env,
     timeout: 60000,
   });
   // The dashboard is one of two windows (the other is the popup overlay).

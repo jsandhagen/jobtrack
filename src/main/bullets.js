@@ -940,14 +940,25 @@ function atsSummary(job, bank) {
   // one would claim the whole career was that job) or a fragment ("technical program").
   const field = kinds
     .filter((k) => !/\b(?:manager|owner|analyst|engineer|developer|consultant|program|coordinator|scientist|designer|director|lead|specialist|architect)s?$/.test(k))
+    // A describing word split off its noun ("a strategy or operating role"):
+    // "7 years in operating" isn't English.
+    .filter((k) => !/^(?:operating|operational|leading|growing|emerging|working|existing|ongoing|managing)$/.test(k))
     .sort((a, b) => b.split(' ').length - a.split(' ').length)
     .slice(0, 2);
   // As the posting writes it, but a word it also writes in lower case is a
   // common word, not a name: "Forrester", "Excel", "OKRs", "AI" keep their
-  // capitals; "Strategy" in a title doesn't.
-  const wording = (term) => {
-    const m = text.match(new RegExp(`(?<![A-Za-z0-9])${escapeRe(term)}(?![A-Za-z0-9])`, 'i'));
-    const w = m ? m[0] : term;
+  // capitals; "Strategy" in a title doesn't. Nor does a word capitalized only
+  // because it starts a line ("- Forecast demand", "- Statistics, ..."),
+  // unless your own bullets or skills write it that way ("Built Excel models").
+  const ownCased = bank.bullets.filter((b) => !b.hidden).map((b) => b.text).join('\n');
+  const atStart = (s, i) => /(?:^|[.!?:•*·\n–]|(?:^|\s)-)\s*$/.test(s.slice(Math.max(0, i - 4), i));
+  const midSentence = (s, word) => [...s.matchAll(new RegExp(`(?<![A-Za-z0-9])${escapeRe(word)}(?![A-Za-z0-9])`, 'g'))].some((x) => !atStart(s, x.index));
+  const wording = (term, asCapitalized = false) => {
+    const all = [...text.matchAll(new RegExp(`(?<![A-Za-z0-9])${escapeRe(term)}(?![A-Za-z0-9])`, 'gi'))];
+    const mid = all.find((x) => !atStart(text, x.index));
+    let w = mid ? mid[0] : all.length ? all[0][0] : term;
+    const first = (w.match(/^[A-Z][a-z'+#]+(?![A-Za-z])/) || [])[0];
+    if (!asCapitalized && !mid && first && !midSentence(ownCased, first) && !(bank.skills || []).some((x) => new RegExp(`(?<![A-Za-z0-9])${escapeRe(first)}(?![A-Za-z0-9])`).test(String(x)))) w = w.replace(/^./, (c) => c.toLowerCase());
     return w.replace(/[A-Za-z][A-Za-z0-9'+#-]*/g, (word) => (/^[A-Z]?[a-z'+#-]+$/.test(word) && new RegExp(`(?<![A-Za-z0-9])${escapeRe(lower(word))}(?![A-Za-z0-9])`).test(text) ? lower(word) : word));
   };
   // Skills the posting names that your resume shows in the same words (not
@@ -956,7 +967,7 @@ function atsSummary(job, bank) {
   const add = (name, rank) => {
     const n = lower(name);
     // Things you know or did, not a job title ("Product Manager") or a verb phrase ("analyze usage").
-    if (/\b(?:manager|owner|analyst|engineer|developer|consultant|program|coordinator|scientist|designer|director)s?$/.test(n) || /^(?:analy[sz]e|build|built|run|ran|lead|led|manage|drive|own)\b/.test(n) || /\b(?:leaders|leadership|executives|stakeholders|customers|teams|partners|clients)$/.test(n)) return;
+    if (/\b(?:manager|owner|analyst|engineer|developer|consultant|program|coordinator|scientist|designer|director)s?$/.test(n) || /^(?:analy[sz]e|build|built|run|ran|lead|led|manage|drive|own)\b/.test(n) || /^(?:write|prepare|perform|conduct|support|track|present|deliver|develop|create|maintain|monitor|identify|ensure|partner|collaborate|work|investigate|review|define|translate|install|read|repair|counsel|enforce|inspect|coordinate|communicate|answer|resolve|assist|provide|apply|teach|serve|handle|follow|negotiate|recommend|evaluate|assess|implement|configure|deploy|administer|operate)\s+\w/.test(n) || /\b(?:leaders|leadership|executives|stakeholders|customers|teams|partners|clients)$/.test(n)) return;
     if (items.some((x) => lower(x.name) === n) || field.some((f) => n.includes(f) || f.includes(n))) return;
     items.push({ name, rank });
   };
@@ -975,8 +986,11 @@ function atsSummary(job, bank) {
     // A phrase, not a preposition with an object ("for the CTO").
     if (/^(?:for|with|to|by|at|in|of|on|from)\b/.test(term)) continue;
     // "Tech strategy" reads as "tech strategy" mid-sentence.
+    const capitalized = wording(term, true).replace(/^([A-Z])([a-z]+)(?= [a-z])/, (m, a, b) => a.toLowerCase() + b);
+    // Judged as the posting capitalizes it (a lone "Forecast" isn't named
+    // unless you list it), shown as it reads mid-sentence.
+    if (/^[A-Z][a-z]*[A-Z]|^[A-Z][a-z]+$/.test(capitalized) && !/[A-Z]{2,}/.test(capitalized) && !phraseRe(term).test(listed)) continue;
     const w = wording(term).replace(/^([A-Z])([a-z]+)(?= [a-z])/, (m, a, b) => a.toLowerCase() + b);
-    if (/^[A-Z][a-z]*[A-Z]|^[A-Z][a-z]+$/.test(w) && !/[A-Z]{2,}/.test(w) && !phraseRe(term).test(listed)) continue;
     add(w, (KIND_RANK[kind] || 2) * 10 + mentions - (term.length <= 3 ? 5 : 0));
   }
   // And the posting's phrases your bullets already say ("executive presentations").
@@ -991,7 +1005,7 @@ function atsSummary(job, bank) {
   // asks for, but a keyword search won't find it in the employer's name: say it.
   const jobSkills = classifyJobSkills(text);
   const industry = Object.entries(EMPLOYER_EVIDENCE).find(([skill, re]) => jobSkills.has(skill) && !SKILLS[skill].some((p) => p.test(bankText)) && bank.experiences.some((e) => e.id === current.id && re.test(lower(`${e.organization}, ${e.dates || e.start || ''}`))));
-  const lead = `${current.title}${current.organization ? ` at ${current.organization}${industry ? ` (${wording(jobSkills.get(industry[0]).term)})` : ''}` : ''}${years >= 2 ? `, with ${years} years${field.length ? ` in ${list(field.map((f) => wording(f).replace(/\b[A-Z][a-z]+\b/g, (w) => lower(w))))}` : ' of experience'}` : ''}.`;
+  const lead = `${current.title}${current.organization ? ` at ${current.organization}${industry ? ` (${inlineCase(wording(jobSkills.get(industry[0]).term))})` : ''}` : ''}${years >= 2 ? `, with ${years} years${field.length ? ` in ${list(field.map((f) => wording(f).replace(/\b[A-Z][a-z]+\b/g, (w) => lower(w))))}` : ' of experience'}` : ''}.`;
   return top.length >= 2 ? `${lead} Experience includes ${list(top)}.` : lead;
 }
 
@@ -1134,20 +1148,28 @@ function addIndustryWords(doc, job) {
     added.push({ skill, term, employer: role.organization });
   }
   for (const [employer, terms] of byEmployer) {
-    const ts = terms.map((t, i) => (i ? t.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()) : t));
+    const ts = terms.map(inlineCase);
     const words = ts.length > 1 ? `${ts.slice(0, -1).join(', ')} and ${ts[ts.length - 1]}` : ts[0];
     const summary = String(doc.summary || '');
     const at = summary.toLowerCase().indexOf(employer.toLowerCase());
     // Named where the summary names the employer. A sentence of its own
     // ("Enterprise Software experience at Appian.") reads to a hiring manager
     // as filler written for a keyword search, so it isn't added.
-    if (at >= 0 && !summary.slice(at + employer.length).startsWith(' (')) {
+    // Not inside a possessive: "Appian (SaaS)'s Office of the CTO".
+    const after = summary.slice(at + employer.length);
+    if (at >= 0 && !after.startsWith(' (') && !/^['’]s?\b/.test(after)) {
       doc.summary = `${summary.slice(0, at + employer.length)} (${words})${summary.slice(at + employer.length)}`;
     } else {
       for (let i = added.length - 1; i >= 0; i--) if (added[i].employer === employer) added.splice(i, 1);
     }
   }
   return { doc, added };
+}
+
+// Mid-sentence, in parentheses: "Enterprise Software" and "Software company"
+// read as "enterprise software" and "software company"; "SaaS" and "AI" stay.
+function inlineCase(term) {
+  return String(term || '').replace(/[A-Za-z][A-Za-z0-9'+#-]*/g, (w) => (/^[A-Z][a-z'+#-]+$/.test(w) ? w.toLowerCase() : w));
 }
 
 // "postgresql" as the posting writes it ("PostgreSQL").
@@ -1415,13 +1437,15 @@ function mergeTwins(keep, other) {
 // is reworded, so every line stays one you wrote.
 const TUNE_ROUNDS = 5;
 const TUNE_POOL = 10;
-// How a page is valued: strength (0-1) x 100, plus half a point per ATS
-// point, less 5 for each point under the floor. So 0.01 of strength is worth
-// 2 ATS points while the page stays at or above the floor.
+// How a page is valued: strength (0-1) x 100, plus a quarter point per ATS
+// point, less half a point more for each point under the floor. Strength for
+// the role comes first everywhere: 0.01 of strength is worth 4 ATS points at
+// or above the floor and still more than 1 below it, so ATS only decides
+// between pages that read about as well.
 const ATS_FLOOR = 75;
 const STRENGTH_POINTS = 100;
-const ATS_ABOVE_FLOOR = 0.5;
-const ATS_BELOW_FLOOR = 5;
+const ATS_ABOVE_FLOOR = 0.25;
+const ATS_BELOW_FLOOR = 0.5;
 function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, summary }) {
   const ResumeDoc = require('../shared/resumeDoc');
   const { atsScore, skillsOfLines } = require('./atsScore');

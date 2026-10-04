@@ -145,6 +145,10 @@ const SKILLS = {
   'Social Media': [/\bsocial media\b/],
   Sales: [/\bsales\b(?!\s+tax)/, /\bquota\b/, /\bpipeline generation\b/],
   CRM: [/\bcrm\b/, /\bsalesforce\b/, /\bhubspot\b/],
+  Salesforce: [/\bsalesforce\b/, /\bsfdc\b/],
+  HubSpot: [/\bhubspot\b/],
+  'Voice of Customer': [/\bvoice of (?:the )?customer\b/, /\bvoc\b/],
+  'Digital Operations': [/\bdigital operations\b/, /\bit operations\b/],
   // technology strategy & consulting
   Consulting: [/\bconsult(?:ing|ancy)\b/, /\b(?:it|technology|management|strategy) consultant\b/, /\badvisory (?:practice|firm|services)\b/, /\bclient engagements?\b/],
   'Technology Strategy': [/\b(?:technology|tech|it|digital|enterprise technology) strateg(?:y|ies)\b/],

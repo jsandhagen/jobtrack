@@ -102,7 +102,7 @@ const slug = (s) => String(s || 'x').replace(/\W+/g, '-').slice(0, 40);
     }
 
     // 3. The journey on the best fits: save, Fit & ATS, Ask if applicable, Review and add, Optimize.
-    const best = results.filter((r) => r.score >= STRETCH).sort((a, b) => b.score - a.score).slice(0, 2);
+    const best = results.filter((r) => r.score >= STRETCH).sort((a, b) => b.score - a.score).slice(0, process.env.JOURNEY_ALL ? results.length : 2);
     let added = false;
     for (const [i, r] of best.entries()) {
       const name = r.job.title;
@@ -158,13 +158,26 @@ const slug = (s) => String(s || 'x').replace(/\W+/g, '-').slice(0, 40);
           boosts: [...document.querySelectorAll('.qa-boost')].map((b) => b.innerText),
           footInView: (() => { const f = document.querySelector('.qa-foot'); const c = document.querySelector('#modalCard'); if (!f || !c) return false; const a = f.getBoundingClientRect(); const b = c.getBoundingClientRect(); return a.bottom <= b.bottom + 1 && a.top >= b.top; })(),
         }));
-        check('spike', `${name}: Spike's questions show their strength boost`, qa.n > 0 && qa.boosts.length === qa.n, `${qa.n} questions; ${qa.boosts.join(', ')}`);
+        check('spike', `${name}: Spike's questions show their estimated benefit`, qa.n > 0 && qa.boosts.length === qa.n, `${qa.n} questions; ${qa.boosts.join(', ')}`);
         check('spike', `${name}: Skip and the count stay in view`, qa.footInView);
         await page.click('[data-qa-skip]');
       } else check('spike', `${name}: (info) Spike had nothing to ask`, true);
       await page.waitForFunction(() => /Optimized for ATS/.test(document.querySelector('.page')?.innerText || ''), null, { timeout: 30000 }).catch(() => {});
       time('optimize', Date.now() - t);
       await page.waitForTimeout(800);
+      // Inspect the review, then accept the generated wording in this
+      // isolated test profile so we actually reach the finished editor.
+      if (await page.locator('.wr-item').count()) {
+        await shot(`2${i}-wording-review-${slug(r.job.company)}`);
+        const n = await page.evaluate(() => {
+          const rows = [...document.querySelectorAll('.wr-item')];
+          rows.forEach((row) => row.querySelector('[data-wr-choice="approve"]').click());
+          return rows.length;
+        });
+        await page.click('#wrSave');
+        await page.waitForFunction(() => document.getElementById('modal').hidden, null, { timeout: 15000 });
+        check('review', `${name}: wording decisions saved and editor accessible`, true, `${n} changes reviewed`);
+      }
       await shot(`2${i}-optimized-${slug(r.job.company)}`);
       const resume = await text('#edPage');
       const bullets = resume.split('\n').filter((l) => l.trim().length > 40);

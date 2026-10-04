@@ -4,6 +4,7 @@
 const ResumeDoc = require('../shared/resumeDoc');
 const { quoteFound, checkRewrite, checkNewText, norm } = require('./grounding');
 const { SKILLS } = require('./fitScore');
+const { supportsWording } = require('./skillSuggestions');
 
 /**
  * Ids for the prompt: roles R1…, bullets B1… (stable for one request).
@@ -50,7 +51,7 @@ function skillSupported(skill, libraryNorm) {
   if (libraryNorm.includes(s)) return true;
   // A dictionary skill counts if the documents mention it in any of its forms.
   const entry = Object.entries(SKILLS).find(([name, ps]) => norm(name) === s || ps.some((p) => p.test(s)));
-  if (entry && entry[1].some((p) => p.test(libraryNorm))) return true;
+  if (entry && supportsWording(entry[0], skill, libraryNorm)) return true;
   // Or its words, in another form and next to each other: "co-selling" where
   // the documents say "co-sell revenue" or "co-sold"; "demand generation" for
   // "demand generation". Each word's stem must start a word there.

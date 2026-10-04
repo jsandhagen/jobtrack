@@ -33,7 +33,11 @@
     const name = root ? 'Root' : 'Spike';
     const go = root ? 'write' : 'optimize';
     const M = window.SproutMascot;
-    const boost = (q) => (!root && q.boost && q.boost.strength > 0 ? `<span class="qa-boost" title="Resume strength if you answer: how strongly the page reads to a hiring manager">+${q.boost.strength} resume strength</span>` : '');
+    const boost = (q) => {
+      if (root || !q.boost) return '';
+      if (q.boost.strength > 0) return `<span class="qa-boost" title="Estimated improvement if your answer provides relevant evidence">+${q.boost.strength} resume strength</span>`;
+      return q.boost.ats > 0 ? `<span class="qa-boost" title="Estimated screening improvement if your answer provides relevant evidence">+${q.boost.ats} ATS match</span>` : '';
+    };
     const intro = compact
       ? `Only about what your documents don't show yet. Answers are saved to your library and bullet bank for every resume.`
       : `Only about what your documents don't show yet. Answer any that apply and skip the rest. Answers are saved to your library as <b>Answers you gave Sprout</b> and to your bullet bank, so every resume can use them. ${name} uses only what you tell it.`;

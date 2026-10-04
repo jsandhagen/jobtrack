@@ -220,6 +220,14 @@ test('the optimizer says the industry once in your own summary, beside the emplo
   assert.equal(bulletBank.addIndustryWords(named, SAAS_JOB).added[0].term, 'SaaS');
   assert.equal(named.summary, 'Consultant at Appian (SaaS) who builds roadmaps.');
   assert.equal(bulletBank.addIndustryWords(named, SAAS_JOB).added.length, 0, 'once');
+  // Not wedged into a possessive ("Appian (SaaS)'s Office of the CTO").
+  const possessive = { summary: 'Technology strategist in Appian’s Office of the CTO.', roles: doc.roles, skills: [] };
+  assert.equal(bulletBank.addIndustryWords(possessive, SAAS_JOB).added.length, 0);
+  assert.equal(possessive.summary, 'Technology strategist in Appian’s Office of the CTO.');
+  // Mid-sentence, a common noun the posting capitalized reads in lower case.
+  const enterprise = { summary: 'Consultant at Appian who builds roadmaps.', roles: doc.roles, skills: [] };
+  bulletBank.addIndustryWords(enterprise, { text: 'Requirements\n- Experience at an Enterprise Software company' });
+  assert.match(enterprise.summary, /Appian \(enterprise software\)/);
   // Not for an employer the list doesn't know.
   const other = { summary: 'Analyst.', roles: [{ organization: 'Deloitte Consulting', dates: '2017 – 2022', bullets: [] }], skills: [] };
   assert.equal(bulletBank.addIndustryWords(other, SAAS_JOB).added.length, 0);

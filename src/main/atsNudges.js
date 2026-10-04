@@ -84,7 +84,17 @@ function atsNudges({ ats, job, pageText, bank, doc, fixes = [], onPage = true })
   const wordings = (ats.wordingTips || []).filter(w => !INTERPERSONAL.has(w.skill) && !SOFT_SKILLS.has(w.skill) && !INDUSTRIES.has(w.skill) && isSkillPhrase(w.term) && !has(pageText, w.term));
   const unproven = wordings.filter(w => !supportsWording(w.skill, w.term, candidateText) && !supportsWording(w.skill, w.term, bankText));
   if (nowhere.length || unproven.length) {
-    const terms = [...new Set([...nowhere.map((m) => asWritten(jobText, m.anyOf ? m.anyOf[0] : m.term)), ...unproven.map(w => asWritten(jobText, w.term))])].filter(isSkillPhrase).slice(0, 3);
+    // The posting's word when it names the skill; the skill when the word is a
+    // job title, the people you'd work with or half a phrase ("Product
+    // Manager", "C-suite", "Quota", "Technical program"): nobody has "used" those.
+    const askable = (group, term) => {
+      const w = asWritten(jobText, term);
+      // "one of Product Management, Business Analysis": the first is what anyOf[0] says.
+      const skill = String(group || '').replace(/^one of /, '').split(', ')[0];
+      if (!SKILLS[skill] || !/\b(?:manager|analyst|engineer|developer|consultant|owner|director|lead|coordinator|specialist|architect|stakeholders?|c-suite|executives?|leaders?|quotas?|program|technical)s?$/i.test(w)) return w;
+      return skill.split(' / ')[0].replace(/\b[A-Z][a-z]+\b/g, (x, i) => (i ? x.toLowerCase() : x));
+    };
+    const terms = [...new Set([...nowhere.map((m) => askable(m.skill, m.anyOf ? m.anyOf[0] : m.term)), ...unproven.map(w => askable(w.skill, w.term))])].filter(isSkillPhrase).slice(0, 3);
     if (terms.length) {
       out.push({
         id: 'ask:skills',
