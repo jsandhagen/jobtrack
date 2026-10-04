@@ -101,6 +101,9 @@ async function main() {
           assert.ok(preview, 'the extension did not automatically detect the posting');
           if (preview) {
             assert.deepEqual(preview.quick, score(preview.posting), 'bridge and app scoring differ');
+            // The link the app saves with the job, to come back and apply.
+            row.postingUrl = preview.posting.url;
+            assert.ok(/^https?:\/\//.test(preview.posting.url || ''), 'no link to the posting');
             Object.assign(row, { scoreMs: preview.scoreMs, previewAfterNavigationMs: round(preview.at - started), previewAfterReadableMs: round(Math.max(0, preview.at - readableAt)), appScoreParity: true });
             const cardDeadline = performance.now() + 5000;
             while (performance.now() < cardDeadline && !(await cardText(context, p)).includes(posting.title)) await p.waitForTimeout(100);

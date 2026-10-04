@@ -52,7 +52,7 @@ function postingSide(job) {
 // set in one reads proof from it first.
 const SECTORS = ['Public Sector', 'Financial Services', 'Healthcare'];
 
-const PARTS = { lead: 0.35, mustHaves: 0.3, summary: 0.2, results: 0.15 };
+const PARTS = { lead: 0.35, mustHaves: 0.3, summary: 0.2, results: 0.15, depth: 0.25 };
 
 // A senior posting's reader looks for ownership and scale in the first lines.
 const SENIOR = /\b(?:senior|sr\.?|lead|principal|staff|head|director|vp|vice president)\b/i;
@@ -133,6 +133,20 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
   const shown = units.filter((u) => Math.max(0, ...texts.map((t) => u.match(t))) >= 0.6);
   const mustHaves = units.length ? shown.length / units.length : null;
 
+  // 2b. Depth in the work the job is titled for: a CI manager's reader wants
+  // the competitive work you've done, not one CI bullet and the rest program
+  // management with bigger numbers. Of your bullets that show that work (up to
+  // three, from the roles on the page), how many the page carries.
+  let depth = null;
+  if (primary.length) {
+    const shownRoles = new Set(roles.map((r) => r.experienceId).filter(Boolean));
+    const yours = [];
+    for (const r of ranked) if (!r.hidden && shownRoles.has(r.experienceId) && titled(lower(r.text)) && !yours.some((t) => sameFact(t, r.text))) yours.push(r.text);
+    const want = Math.min(3, Math.max(yours.length, bullets.filter((t) => titled(lower(t))).length));
+    if (want) depth = Math.min(1, bullets.filter((t) => titled(lower(t))).length / want);
+    if (depth !== null && depth < 1) notes.push('More of your bullets show the work this job is titled for than the page carries.');
+  }
+
   // 3. Results: a number or a scale on most bullets.
   const results = bullets.length ? Math.min(1, bullets.filter((t) => hasResult(t)).length / bullets.length / 0.6) : null;
 
@@ -188,7 +202,7 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
   const repeats = bullets.some((t, i) => bullets.slice(i + 1).some((u) => sameFact(t, u)));
   if (repeats) notes.push('Two bullets tell the same accomplishment.');
 
-  const parts = { lead, mustHaves, summary: summaryPart, results };
+  const parts = { lead, mustHaves, summary: summaryPart, results, depth };
   const active = Object.entries(parts).filter(([, v]) => v !== null);
   const wsum = active.reduce((s, [k]) => s + PARTS[k], 0);
   let score = wsum ? active.reduce((s, [k, v]) => s + v * PARTS[k], 0) / wsum : 0;

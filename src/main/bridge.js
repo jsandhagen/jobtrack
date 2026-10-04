@@ -104,7 +104,9 @@ function cleanPostingBody(b) {
     title: String(b.title || '').slice(0, 200),
     company: String(b.company || '').slice(0, 200),
     location: String(b.location || '').slice(0, 200),
-    url: /^https?:\/\//i.test(b.url || '') ? String(b.url).slice(0, 2000) : '',
+    // The posting's own page when the extension found one (a job picked in
+    // LinkedIn's search results), else the page it was read on.
+    url: [b.link, b.url].map((u) => String(u || '')).find((u) => /^https?:\/\//i.test(u))?.slice(0, 2000) || '',
     salary: String(b.salary || '').slice(0, 200),
     source: String(b.source || 'page').slice(0, 40),
     auto: !!b.auto,

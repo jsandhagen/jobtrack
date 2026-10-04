@@ -106,7 +106,7 @@
     if (p && p.isPosting) return p;
     const r = await ask({ type: 'framePostings' });
     const best = (r.ok ? r.value || [] : []).filter((x) => x && x.isPosting).sort((a, b) => b.text.length - a.text.length)[0];
-    return best ? { ...best, url: location.href, frameUrl: best.url } : p || { isPosting: false, url: location.href };
+    return best ? { ...best, url: location.href, link: location.href, frameUrl: best.url } : p || { isPosting: false, url: location.href };
   }
   let framesHavePosting = false;
 

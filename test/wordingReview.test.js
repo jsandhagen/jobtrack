@@ -60,3 +60,18 @@ test('benefits are not requirements, whatever their heading', () => {
     assert.ok(!labels.some((l) => /medical|dental|leave|executive|wellness|tuition/i.test(l)), labels.join(' | '));
   }
 });
+
+test('place names are never skills to ask about', () => {
+  for (const line of ['Remote (United States)', 'Experience working with clients across the United States and Canada', 'Open to candidates anywhere in the U.S.']) {
+    const job = { title: 'Strategy Analyst', text: `Strategy Analyst\n\nQualifications\n- Strong Excel skills\n- ${line}` };
+    const labels = requirementUnits(job).units.map((u) => u.label);
+    assert.ok(!labels.some((l) => /states|canada|\bu\.?s\b/i.test(l)), `${line}: ${labels.join(' | ')}`);
+  }
+});
+
+test('about five years for a job asking eight reads well under the same job asking five', () => {
+  const resume = 'EXPERIENCE\nSenior Strategy Consultant, Northwind — Oct 2021 – Sep 2024\n- Led competitive intelligence and built financial models in Excel\nStrategy Analyst, Fabrikam — Oct 2019 – Sep 2021\n- Built market analysis and business cases\nEDUCATION\nBA Economics, 2019';
+  const fit = (yrs) => localFitScore({ title: 'Senior Manager, Corporate Strategy', text: `Senior Manager, Corporate Strategy\n\nQualifications\n- ${yrs}+ years of experience in corporate strategy or management consulting\n- Strong financial modeling and Excel skills` }, [{ id: 'r', kind: 'resume', text: resume }], {}).score;
+  assert.ok(fit(5) - fit(8) >= 8, `5+: ${fit(5)}, 8+: ${fit(8)}`);
+  assert.ok(fit(8) < 65, 'not a strong match on the calibrated scale');
+});

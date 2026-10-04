@@ -214,3 +214,33 @@ test('generic extraction stays responsive on a large careers page', async () => 
     assert.ok(out.medianMs < 50, `generic extraction took ${out.medianMs.toFixed(1)}ms`);
   } finally { await p.close(); }
 });
+
+// Found checking live postings (Oct 2026): what sites put in the employer and
+// title fields, and the address a job picked in search results has.
+test('Workday: the legal-entity code comes off the employer, and "&amp;" in the title is decoded', async () => {
+  const r = await read('https://acme.wd5.myworkdayjobs.com/External/job/US-CA/Strategy-Lead_JR1', `<html><head>${ld(job({ title: 'Sr. Director, Strategy &amp; Business Development', hiringOrganization: { '@type': 'Organization', name: '2100 NVIDIA USA' } }))}</head><body><div data-automation-id="jobPostingDescription"><p>About the role</p>${DUTIES}</div></body></html>`);
+  assert.equal(r.title, 'Sr. Director, Strategy & Business Development');
+  assert.equal(r.company, 'NVIDIA USA');
+});
+
+test('a careers site named "Careers at Airbnb" gives the employer as Airbnb', async () => {
+  const r = await read('https://careers.airbnb.example/positions/8184174', `<html><head><title>Account Manager</title><meta property="og:site_name" content="Careers at Airbnb"></head><body><section class="job"><h1>Account Manager</h1>${DUTIES}</section></body></html>`);
+  assert.equal(r.company, 'Airbnb');
+});
+
+test('SmartRecruiters: the posting, its title, and the employer from microdata', async () => {
+  const r = await read('https://jobs.smartrecruiters.com/ServiceNow/744000153235011', `<html><head><title>ServiceNow Partner Manager | SmartRecruiters</title></head><body><div class="isn-overlay"><h1>Sorry, Internet Explorer 11 is no longer supported by SmartRecruiters</h1></div><main class="jobad-main job"><h1 class="job-title" itemprop="title">Partner Manager</h1><div itemprop="hiringOrganization"><meta itemprop="name" content="ServiceNow"></div><div class="job-sections"><div itemprop="description"><section class="job-section"><h2 class="title">Job Description</h2>${DUTIES}</section></div></div></main></body></html>`);
+  assert.ok(r.isPosting);
+  assert.equal(r.title, 'Partner Manager');
+  assert.equal(r.company, 'ServiceNow');
+});
+
+test('a job picked in LinkedIn or Indeed search results links to its own page, not the search', async () => {
+  const li = await read('https://www.linkedin.com/jobs/search/?currentJobId=4458016958&keywords=competitive%20intelligence', `<html><head><title>Competitive Intelligence Analyst | Qlik | LinkedIn</title></head><body><div class="job-details-jobs-unified-top-card__job-title"><h1>Competitive Intelligence Analyst</h1></div><div class="job-details-jobs-unified-top-card__company-name">Qlik</div><div id="job-details">${DUTIES}</div></body></html>`);
+  assert.equal(li.link, 'https://www.linkedin.com/jobs/view/4458016958/');
+  assert.equal(li.url, 'https://www.linkedin.com/jobs/search/?currentJobId=4458016958&keywords=competitive%20intelligence', 'the page address stays, for tracking the tab');
+  const indeed = await read('https://www.indeed.com/jobs?q=strategy&vjk=a1b2c3d4e5f6', `<html><head><title>Strategy Manager - Acme</title></head><body><h1 data-testid="jobsearch-JobInfoHeader-title">Strategy Manager</h1><div data-testid="inlineHeader-companyName">Acme</div><div id="jobDescriptionText">${DUTIES}</div></body></html>`);
+  assert.equal(indeed.link, 'https://www.indeed.com/viewjob?jk=a1b2c3d4e5f6');
+  const direct = await read('https://jobs.lever.co/acme/123', `<html><head><title>Acme - Product Manager</title></head><body><div class="posting-headline"><h2>Product Manager</h2></div><div class="content">${DUTIES}</div></body></html>`);
+  assert.equal(direct.link, 'https://jobs.lever.co/acme/123');
+});

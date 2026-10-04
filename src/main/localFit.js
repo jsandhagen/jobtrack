@@ -101,6 +101,18 @@ const EDGE_WORDS = new Set(
 );
 
 const US_STATES = new Set('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(' '));
+// Where the job is, or where its clients are, isn't something to have done:
+// "Remote (United States)", "clients across the United States and Canada".
+const PLACE_WORDS = new Set((
+  'united states america american usa us u.s. u.s.a. kingdom uk britain england scotland ireland wales canada mexico brazil argentina chile colombia ' +
+  'germany france spain italy portugal netherlands belgium switzerland austria sweden norway denmark finland poland israel india china japan korea singapore ' +
+  'australia zealand philippines vietnam indonesia africa europe european asia pacific apac emea latam amer americas nordics middle east north south west ' +
+  'western eastern central northeast northwest southeast southwest midwest coast region regions country countries nationwide worldwide globally ' +
+  'alabama alaska arizona arkansas california colorado connecticut delaware florida georgia hawaii idaho illinois indiana iowa kansas kentucky louisiana ' +
+  'maine maryland massachusetts michigan minnesota mississippi missouri montana nebraska nevada hampshire jersey mexico york carolina dakota ohio oklahoma ' +
+  'oregon pennsylvania rhode island tennessee texas utah vermont virginia washington wisconsin wyoming district columbia new and the of'
+).split(' '));
+const isPlace = (words) => words.some((w) => w !== 'and' && w !== 'the' && w !== 'of' && w !== 'new') && words.every((w) => PLACE_WORDS.has(w.replace(/[.,;:]+$/, '')));
 const GENERIC_HEAD = /\b(?:expectations|requirements|standards|guidelines|principles|best practices|concepts|topics|issues|areas|needs|goals|objectives|environments?)$/;
 // Work habits a resume can't show by wording: not requirements to score.
 const WORK_STYLE = /\b(?:basic |strong )?(?:math|mathematics|computer|typing|keyboarding|reading|writing) (?:skills|proficiency)\b|\bmath and computer\b|\bcomputer literacy\b|\battention to detail\b|\bdetail[- ]oriented\b|\bself[- ]starter\b|\bwork ethic\b|\bintellectual(?:ly)? curio|\bfast learner\b|\bsense of ownership\b|\blong hours\b/i;
@@ -118,7 +130,7 @@ function extractTerms(original, ignoreWords, ignoreText = '') {
     const clean = words0.join(' ').replace(/\s*\([^)]*$/, '').replace(/[,.;:)]+$/, '');
     const words = lower(clean).split(/\s+/).filter(Boolean);
     if (!clean || clean.length < 2 || words.length > 4 || !/[a-z]/i.test(clean)) return;
-    if (US_STATES.has(clean)) return; // "New York, NY"
+    if (US_STATES.has(clean) || isPlace(words)) return; // "New York, NY", "United States"
     // "…at the project lead or managerial level": how senior, not a skill.
     if (/^levels?$/.test(words[words.length - 1])) return;
     if (/\d\s*\+?\s*(?:years?|yrs)\b/i.test(clean)) return; // "4+ years leading teams" is a years requirement
@@ -1189,7 +1201,9 @@ function localFitScore(job, documents, profile = {}) {
   // Years short count too: 7 of the 12 asked is five years from a senior
   // executive role, though more than half the number.
   const yearsShort = yearsRatio === null ? 0 : needYears - haveYears;
-  const shortYears = yearsRatio === null ? null : yearsRatio < 0.25 ? 20 : yearsRatio < 0.4 ? 30 : yearsRatio < 0.6 ? 45 : yearsRatio < 0.7 && yearsShort >= 4 ? 44 : yearsRatio < 0.8 ? 64 : null;
+  // Five of the eight asked is three years short of a senior role: good
+  // potential at best, well under the same job asking for five.
+  const shortYears = yearsRatio === null ? null : yearsRatio < 0.25 ? 20 : yearsRatio < 0.4 ? 30 : yearsRatio < 0.6 ? 45 : yearsRatio < 0.7 && yearsShort >= 4 ? 44 : yearsRatio < 0.7 ? 52 : yearsRatio < 0.8 ? 60 : null;
   const stretch = seniority !== null && -levelsBelow >= 2;
 
   const components = { required, preferred: mean(pref), role, domain, experience, seniority };

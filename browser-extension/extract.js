@@ -41,6 +41,21 @@
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+  // "&amp;" and the like, left in by sites that encode their structured data twice.
+  const decode = (s) => {
+    if (!/&(?:#\d+|#x[\da-f]+|[a-z]+);/i.test(s || '')) return s || '';
+    const t = document.createElement('textarea');
+    t.innerHTML = s;
+    return t.value;
+  };
+  // The employer as people say it: Workday's legal-entity code ("2100 NVIDIA
+  // USA") and a careers site's own name ("Careers at Airbnb") come off.
+  const employer = (s) =>
+    clean(s)
+      .replace(/^\d{2,6}\s+(?=\S)/, '')
+      .replace(/^(?:careers|jobs|work|working)\s+(?:at|with)\s+/i, '')
+      .replace(/\s+(?:careers|jobs)(?:\s+(?:site|page|portal))?$/i, '')
+      .trim();
   // The text of part of the page, with its list items marked "- " as they
   // look on the page. innerText drops the bullets, and without them the app
   // reads short requirement lines ("SOX compliance experience") as headings
@@ -313,6 +328,14 @@
       body: ['[data-automation-id="jobPostingDescription"]'],
     },
     {
+      name: 'smartrecruiters',
+      test: /smartrecruiters\.com\//,
+      title: ['h1.job-title', 'h1[itemprop="title"]'],
+      company: [],
+      location: ['.job-details [itemprop="jobLocation"]', '.job-details'],
+      body: ['.job-sections', '[itemprop="description"]'],
+    },
+    {
       name: 'glassdoor',
       spa: true,
       test: /glassdoor\.[a-z.]+\//,
@@ -547,6 +570,11 @@
     // the app then looks for one in the text.
     if (notJobTitle(result.title)) result.title = site && site.name === 'linkedin' ? linkedInHeader(q(site.body),site).title : pageTitle();
     if (!result.company) {
+      // Microdata (SmartRecruiters and others) names the employer in a <meta>.
+      const md = document.querySelector('[itemprop="hiringOrganization"] [itemprop="name"]');
+      if (md) result.company = clean(md.getAttribute('content') || md.textContent);
+    }
+    if (!result.company) {
       const og = document.querySelector('meta[property="og:site_name"]');
       const tab = fromTabTitle();
       // Lever's tab title is "Employer - Job title"; other boards put
@@ -566,7 +594,19 @@
         }
       }
     }
+    result.title = decode(result.title);
+    result.company = employer(decode(result.company));
     // Headers and descriptions sometimes repeat the title on line one.
-    return { ...result, url: location.href, isPosting: looksLikePosting(result) };
+    return { ...result, url: location.href, link: postingUrl(), isPosting: looksLikePosting(result) };
   };
+
+  // The posting's own page, to come back to and apply: a job picked in
+  // LinkedIn's or Indeed's search results has the search as its address.
+  function postingUrl() {
+    const u = new URL(location.href);
+    const id = (k) => /^[\w-]{6,40}$/.test(u.searchParams.get(k) || '') ? u.searchParams.get(k) : '';
+    if (/(^|\.)linkedin\.com$/.test(u.hostname) && /^\/jobs\//.test(u.pathname) && !/^\/jobs\/view\//.test(u.pathname) && id('currentJobId')) return `https://www.linkedin.com/jobs/view/${id('currentJobId')}/`;
+    if (/(^|\.)indeed\.[a-z.]+$/.test(u.hostname) && !/^\/viewjob/.test(u.pathname) && (id('vjk') || id('jk'))) return `${u.origin}/viewjob?jk=${id('vjk') || id('jk')}`;
+    return location.href;
+  }
 })();

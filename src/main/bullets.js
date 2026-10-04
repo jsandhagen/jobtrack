@@ -1464,6 +1464,8 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   // The posting's most relevant bullets are candidates even when their opener
   // is a weak one ("Served as…"): what they prove matters more.
   const topIds = new Set(ranked.filter((r) => allowed.has(r.experienceId)).slice(0, 3).map((r) => r.id));
+  const primary = strategyFocus(job).filter((t) => t.primary);
+  const titled = (t) => primary.some((x) => x.evidence.test(t));
   let best = clone(start);
   let cur = { sc: score(best), rel: relevance(best) };
   let industry = null;
@@ -1473,7 +1475,7 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
       const page = best.roles.flatMap((r) => r.bullets);
       const onPage = new Set(page.map((b) => b.bulletId).filter(Boolean));
       const shownRoles = new Set(best.roles.map((r) => r.experienceId));
-      const usable = ranked.filter((r) => allowed.has(r.experienceId) && shownRoles.has(r.experienceId) && !onPage.has(r.id) && !r.hidden && (writing(r.text) >= 0 || topIds.has(r.id)));
+      const usable = ranked.filter((r) => allowed.has(r.experienceId) && shownRoles.has(r.experienceId) && !onPage.has(r.id) && !r.hidden && (writing(r.text) >= 0 || topIds.has(r.id) || titled(r.text)));
       // The strongest of the rest, plus any further down that say a posting
       // term the page is missing ("analytical", "win/loss").
       const now = read(best);
@@ -1489,7 +1491,11 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
         // the one it says again in other words (only a swap can bring it in).
         const weakest = role.bullets.map((b, k) => ({ k, r: rankOf.get(b.bulletId) || 0 })).sort((x, y) => x.r - y.r).slice(0, 3).map((x) => x.k);
         const twin = role.bullets.findIndex((b) => repeatOf(b.text, c.text));
-        for (const i of [null, ...new Set([...weakest, ...(twin >= 0 ? [twin] : [])])]) {
+        // A bullet showing the work the job is titled for (competitive
+        // intelligence for a CI manager) may take the place of any that doesn't,
+        // not only the least relevant: those are often too short to make room.
+        const offLane = titled(c.text) ? role.bullets.map((b, k) => (titled(b.text) ? -1 : k)).filter((k) => k >= 0) : [];
+        for (const i of [null, ...new Set([...weakest, ...(twin >= 0 ? [twin] : []), ...offLane])]) {
           if (i === null && page.length >= cap) continue;
           const out = i === null ? null : role.bullets[i];
           if (out && (rankOf.get(out.bulletId) || 0) > 2 * (rankOf.get(c.id) || 0) + 1) continue;
