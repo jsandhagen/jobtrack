@@ -37,6 +37,7 @@ const haveIt = require('./haveIt');
 const answersLib = require('./answers');
 const askFirst = require('./askFirst');
 const bulletBank = require('./bullets');
+const wording = require('./wordingReview');
 const ResumeDoc = require('../shared/resumeDoc');
 const ResumeCheck = require('../shared/resumeCheck');
 const { postingFromLines } = require('./pageText');
@@ -953,6 +954,8 @@ async function makeResume(appId) {
     let { doc, checks, notes } = draft.draftToDoc(out, { bank, profile, library: claude.libraryText(documents, profile), posting: job.text, ids });
     // Bullets Claude wrote from your answers go into your bullet bank, so the
     // free optimizer and later drafts have them too.
+    // Judged against your words before Claude's go into your bank below.
+    const review = wordingToReview(rec, doc);
     const kept = saveAnswerBullets(doc, out);
     const said = [kept.added && `${kept.added === 1 ? 'a new bullet' : `${kept.added} new bullets`}`, kept.reworded && `${kept.reworded === 1 ? 'a new wording of a bullet' : `${kept.reworded} new wordings of bullets`}`].filter(Boolean);
     if (said.length) notes = [...notes, `Saved ${said.join(' and ')} written from your answers to your bullet bank.`];
@@ -970,7 +973,7 @@ async function makeResume(appId) {
       if (n) notes = [...notes, `Took off ${n} of the weakest bullet${n === 1 ? '' : 's'} so it fits on ${limit === 1 ? 'one page' : 'two pages'}.`];
     }
     resumeProgressNow.delete(appId);
-    saveDoc(appId, doc, { resumeSource: 'claude', atsFit: null, resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec) });
+    saveDoc(appId, doc, { resumeSource: 'claude', atsFit: null, resumeChecks: checks, resumeNotes: notes, resumePromptVersion: out.promptVersion, builderPrev: undoPoint(rec), wordingReview: review });
     const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
     hostUpdated(updated);
     return updated;
@@ -1033,15 +1036,34 @@ function makeBaseline(appId) {
   if (!rec) throw new Error('That resume no longer exists.');
   const doc = bulletBank.baselineDoc({ profile: store.getProfile(), bank: store.getBank(), job: rec.job });
   if (rec.builder && rec.builder.doc) doc.header = ResumeDoc.fillHeader(rec.builder.doc.header, store.getProfile());
-  saveDoc(appId, doc, { resumeSource: 'baseline', atsFit: null, builderPrev: undoPoint(rec) });
+  saveDoc(appId, doc, { resumeSource: 'baseline', atsFit: null, builderPrev: undoPoint(rec), wordingReview: null });
   hostUpdated(getHost(appId));
 }
 
 function undoResume(appId) {
   const rec = getHost(appId);
   if (!rec || !rec.builderPrev) throw new Error('Nothing to undo.');
-  saveDoc(appId, rec.builderPrev.doc, { resumeSource: rec.builderPrev.source, builderPrev: undoPoint(rec) });
+  saveDoc(appId, rec.builderPrev.doc, { resumeSource: rec.builderPrev.source, builderPrev: undoPoint(rec), wordingReview: null });
   hostUpdated(getHost(appId));
+}
+
+// The wording changes on a new page for you to approve, deny or edit: what's
+// new against the page you had and your bank, plus any you hadn't answered
+// yet that are still on it.
+function wordingToReview(rec, next) {
+  const prev = rec && rec.builder && rec.builder.doc ? rec.builder.doc : null;
+  const fresh = wording.wordingChanges(prev, next, store.getBank());
+  const left = pendingWording(rec, next).filter((p) => !fresh.some((f) => f.kind === p.kind && f.after === p.after));
+  return [...fresh, ...left].map((x, i) => ({ ...x, id: `w${i}` }));
+}
+
+// Changes still waiting for an answer that are still on the page as written.
+function pendingWording(rec, doc) {
+  const items = (rec && rec.wordingReview) || [];
+  if (!items.length || !doc) return [];
+  const low = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const bullets = new Set(doc.roles.flatMap((r) => r.bullets.map((b) => low(b.text))));
+  return items.filter((it) => (it.kind === 'summary' ? low(doc.summary) === low(it.after) : it.kind === 'skills' ? low(doc.skills.join(', ')) === low(it.after) : bullets.has(low(it.after))));
 }
 
 // ATS mode: free, no AI. Picks the bank bullets that cover the most posting
@@ -1068,7 +1090,7 @@ function makeAtsResume(appId) {
   // Draft bullets from your other documents compete for the page (good fits only: the same list "Ask if applicable" offers).
   const evidence = rec.job && String(rec.job.text || '').trim() ? contextSuggestions({ job: rec.job, bank: storedBank, profile, fit: rec.quick ? rec.quick.score : null }).filter((a) => a.draft) : [];
   const optimized = bulletBank.optimizeResume({ profile, bank, job: rec.job, header, pages: store.getSettings().resumePages, scale: pageScale(), evidence });
-  saveDoc(appId, optimized.doc, { resumeSource: 'ats', resumeError: null, resumeChecks: optimized.checks, resumeNotes: optimized.notes, atsFit: { pages: optimized.pages, why: optimized.why, fixes: optimized.fixes, merges: optimized.merges || [] }, builderPrev: undoPoint(rec) });
+  saveDoc(appId, optimized.doc, { resumeSource: 'ats', resumeError: null, resumeChecks: optimized.checks, resumeNotes: optimized.notes, atsFit: { pages: optimized.pages, why: optimized.why, fixes: optimized.fixes, merges: optimized.merges || [] }, builderPrev: undoPoint(rec), wordingReview: wordingToReview(rec, optimized.doc) });
   const updated = rec.status === 'scored' ? store.setStatus(appId, 'resume-ready') : getHost(appId);
   hostUpdated(updated);
   return updated;
@@ -1278,6 +1300,8 @@ function builderState(rec) {
     enhancements: contextSuggestions({ job: rec.job, bank, profile: store.getProfile(), units, fit: rec.quick ? rec.quick.score : null }),
     // The posting's title, for the "role named up top" check.
     jobTitle: (rec.job && rec.job.title) || '',
+    // Its page, to open from the editor and apply.
+    jobUrl: (rec.job && /^https?:\/\//i.test(rec.job.url || '') && rec.job.url) || '',
     bankSize: bank.bullets.length,
     resumeSource: resumeMode(rec),
     // A saved resume (Resumes page) rather than an application's; and whether
@@ -1295,6 +1319,8 @@ function builderState(rec) {
     // Merged bullets the optimizer suggests (two bank bullets that tell one result).
     merges: resumeMode(rec) === 'ats' && rec.atsFit ? rec.atsFit.merges || [] : [],
     flagged: doc.roles.flatMap((r) => r.bullets.filter((b) => b.flag).map((b) => ({ role: r.title || r.organization, text: b.text, flag: b.flag }))),
+    // Wording changes waiting for you to approve, deny or edit.
+    wordingReview: pendingWording(rec, doc),
   };
 }
 
@@ -1892,6 +1918,17 @@ function registerIpc() {
     broadcast('state-changed');
   });
   // A rewording to the posting's words you'd rather not make: not offered again on this resume.
+  // Your answers on the wording changes: { [id]: { choice: 'approve'|'deny'|'edit', text? } }.
+  handle('builder:reviewWording', (appId, decisions) => {
+    const rec = getHost(appId);
+    if (!rec) throw new Error('That resume no longer exists.');
+    const doc = currentDoc(rec);
+    const items = pendingWording(rec, doc);
+    const answered = (it) => decisions && decisions[it.id] && ['approve', 'deny', 'edit'].includes(decisions[it.id].choice);
+    saveDoc(appId, wording.applyDecisions(doc, items.filter(answered), decisions), { wordingReview: items.filter((it) => !answered(it)) });
+    hostUpdated(getHost(appId));
+    return builderState(getHost(appId));
+  });
   handle('builder:keepWording', (appId, keys) => {
     const rec = getHost(appId);
     if (!rec) return;
@@ -2185,7 +2222,7 @@ function registerIpc() {
       for (const x of bulletBank.addIndustryWords(doc, rec.job).added) fixes.push({ kind: 'industry', term: x.term, employer: x.employer, text: `Added “${x.term}” to your summary. Recruiters know ${x.employer} is ${x.term}; a keyword search doesn't.` });
     }
     if (fixes.length) {
-      saveDoc(id, doc, { atsFit: { ...(rec.atsFit || {}), fixes: [...((rec.atsFit && rec.atsFit.fixes) || []), ...fixes] }, builderPrev: undoPoint(rec) });
+      saveDoc(id, doc, { atsFit: { ...(rec.atsFit || {}), fixes: [...((rec.atsFit && rec.atsFit.fixes) || []), ...fixes] }, builderPrev: undoPoint(rec), wordingReview: wordingToReview(rec, doc) });
       hostUpdated(getHost(id));
     }
     return builderState(getHost(id));

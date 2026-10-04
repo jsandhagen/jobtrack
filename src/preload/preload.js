@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('sprout', {
   fixPage: (id, opts) => call('builder:fixPage', id, opts),
   baselineResume: (id) => call('builder:baseline', id),
   undoResume: (id) => call('builder:undo', id),
+  reviewWording: (id, decisions) => call('builder:reviewWording', id, decisions),
   generateCoverLetter: (id) => call('app:coverLetter', id),
   exportDoc: (id, which, format, editedHtml) => call('app:export', id, which, format, editedHtml),
 

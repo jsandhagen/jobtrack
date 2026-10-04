@@ -751,6 +751,7 @@ function appRow(a, manage = false) {
     manage ? `<input type="checkbox" class="pickApp" data-id="${a.id}" ${picked.has(a.id) ? 'checked' : ''} aria-label="Select ${esc(a.job.title)}" title="Select">` : ''
   }<div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}${busy ? ' busy' : ''}" style="--s:${a.score}" title="${busy ? 'Refreshing the score…' : a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${busy ? '<span class="spinner"></span>' : a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
+    ${a.url ? postingButton(a) : ''}
     ${followUpDue(a) ? `<span class="chip due">${icon('clock', 14)} follow up</span>` : ''}
     ${a.atsAfter !== null && a.atsAfter !== undefined ? `<span class="chip lav" title="ATS screening: current resume → tailored resume">ATS ${a.atsBefore ?? '–'}→${a.atsAfter}%</span>` : ''}
     ${a.hasResume || a.hasLetter ? `<span class="chip ic-only good" title="${[a.hasResume && 'Tailored resume', a.hasLetter && 'cover letter'].filter(Boolean).join(' + ')}">${a.hasResume ? icon('doc', 15) : ''}${a.hasLetter ? icon('letter', 15) : ''}</span>` : ''}
@@ -837,7 +838,12 @@ function checkedRow(a) {
   const meta = [a.job.company, `checked ${timeAgo(a.lastSeenAt || a.createdAt)}`].filter(Boolean).join(' · ');
   return `<div class="row-item" data-app="${a.id}"><div class="pill meter ${a.dealbreaker ? 'lo' : pillClass(a.score)}" style="--s:${a.score}" title="${a.scoreSource === 'claude' ? 'Scored by Claude' : 'Free score'}${a.dealbreaker ? ' · dealbreaker' : ''}">${a.score}</div>
     <div class="grow"><div class="title">${esc(a.job.title)}</div><div class="sub">${esc(meta)}${a.dealbreaker ? ' · <b>dealbreaker</b>' : ''}</div></div>
-    <button class="small soft saveChecked" data-id="${a.id}">Save</button></div>`;
+    ${a.url ? postingButton(a) : ''}<button class="small soft saveChecked" data-id="${a.id}">Save</button></div>`;
+}
+
+// The posting's own page, so a job you saved can be applied to later.
+function postingButton(a) {
+  return `<button class="small ghost openPosting" data-url="${esc(a.url)}" title="Open the posting to apply">${icon('link', 14)} Posting</button>`;
 }
 
 // The Applications list's checkboxes, ⋯ menus and the bar above it.
@@ -1173,6 +1179,7 @@ async function renderApplication(id, { ifChanged = false } = {}) {
       <div class="grow"><div class="faint">${viaLabel(a.via)} · ${timeAgo(a.createdAt)}</div>
         <h2 style="margin:2px 0 0">${esc(a.job.title)}</h2>
         <div class="muted" style="font-weight:700">${esc([a.job.company, a.job.location].filter(Boolean).join(' · '))}</div>
+        <div class="app-link">${a.job.url ? `<a href="#" id="jobLinkTop" title="${esc(a.job.url)}">${icon('link', 14)} Open the posting to apply</a>` : `<a href="#" id="addJobLink" class="faint">${icon('link', 14)} No link saved. Add the job link</a>`}</div>
         <div class="app-chips"><span class="chip ${label === 'Dealbreaker' ? 'warn' : score >= FitScale.BANDS.strong ? 'good' : 'grow'}">${esc(label)}</span><span class="chip">${an ? 'Scored by Claude' : 'Free score'}</span>${infoBtn('fit')}${a.seenCount > 1 ? `<span class="chip lav">seen ${a.seenCount}×</span>` : ''}</div>
         <div class="app-cheer">${esc(encouragement(score, a.id.charCodeAt(1)))}</div>
       </div>
@@ -1320,6 +1327,10 @@ function wireHead(head, a, id, unsaved) {
   const ma = $('#markApplied', head);
   if (ma) ma.addEventListener('click', () => openApplyModal(a));
   $('#editJob', head).addEventListener('click', () => openEditJobModal(a));
+  const top = $('#jobLinkTop', head);
+  if (top) top.addEventListener('click', (e) => (e.preventDefault(), S.openExternal(a.job.url)));
+  const addLink = $('#addJobLink', head);
+  if (addLink) addLink.addEventListener('click', (e) => (e.preventDefault(), openEditJobModal(a)));
   $('#delApp', head).addEventListener('click', async () => {
     if (!(await askConfirm(unsaved ? 'Forget this job?' : 'Delete this application?', unsaved ? 'Forget' : 'Delete'))) return;
     await S.removeApplication(id);
@@ -1865,6 +1876,7 @@ function route({ ifChanged = false } = {}) {
   animateRings(view); // score and goal rings grow in (the application page does its own)
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => (location.hash = '#' + b.dataset.go)));
   $$('[data-app]').forEach((row) => row.addEventListener('click', () => (location.hash = `#application/${row.dataset.app}`)));
+  $$('.openPosting').forEach((b) => b.addEventListener('click', (e) => (e.stopPropagation(), S.openExternal(b.dataset.url))));
   $$('.saveChecked').forEach((b) =>
     b.addEventListener('click', (e) => {
       e.stopPropagation();

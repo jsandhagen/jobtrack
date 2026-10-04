@@ -144,6 +144,8 @@ main { overflow-y: auto; padding: 32px 40px 64px; scroll-behavior: smooth; backg
 .app-chips { display: flex; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .app-chips .chip { margin-bottom: 0; flex: none; } /* "grow" here is a colour, not the header's stretch */
 .app-cheer { margin-top: 6px; font-size: 12.5px; color: var(--ink-faint); font-weight: 600; }
+.app-link { margin-top: 4px; font-size: 13px; font-weight: 700; }
+.app-link a { display: inline-flex; align-items: center; gap: 5px; }
 .section-title { font-size: 11.5px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-faint); margin: 18px 0 8px; }
 .tabs { display: flex; width: fit-content; max-width: 100%; gap: 2px; margin-bottom: 14px; flex-wrap: wrap; padding: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; }
 .tabs button { border: 0; background: transparent; color: var(--ink-soft); border-radius: 10px; padding: 7px 14px; }
@@ -464,6 +466,19 @@ button.req:nth-child(even):hover { transform: rotate(2deg) translateY(-1px); }
 .sug-row del { background: var(--rose-soft); color: var(--ink-soft); text-decoration: line-through; border-radius: 3px; padding: 0 2px; }
 .sug-row ins { background: var(--sage-soft); color: var(--ink); text-decoration: none; font-weight: 700; border-radius: 3px; padding: 0 2px; }
 .sug-row .inline { margin-top: 4px; }
+/* Wording changes waiting for your answer: approve, deny or edit each one. */
+.wr-banner { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 10px 14px; background: var(--butter-soft); border: 1px solid var(--line); border-radius: 14px; font-size: 13.5px; }
+.wr-banner span { flex: 1; }
+.wr-list { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
+.wr-item { border-top: 1px dashed var(--line); padding: 10px 0; font-size: 13.5px; }
+.wr-item .wr-label { font-size: 11.5px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); margin-bottom: 4px; }
+.wr-item .dw-old { color: var(--ink-faint); }
+.wr-item .dw-new { margin-top: 2px; }
+.wr-item del { background: var(--rose-soft); color: var(--ink-soft); text-decoration: line-through; border-radius: 3px; padding: 0 2px; }
+.wr-item ins { background: var(--sage-soft); color: var(--ink); text-decoration: none; font-weight: 700; border-radius: 3px; padding: 0 2px; }
+.wr-choices { margin-top: 6px; }
+.wr-choices button.on { background: var(--sage-soft); border-color: var(--sage); color: var(--ink); font-weight: 800; }
+.wr-edit { width: 100%; margin-top: 6px; }
 details.tray-card summary { cursor: pointer; }
 .ed-page .rs-detail span[data-path] { display: inline; min-width: 0; }
 

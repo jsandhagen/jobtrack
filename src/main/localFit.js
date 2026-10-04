@@ -330,8 +330,8 @@ const isDegreeLine = (original) => degreeLevels(original, true).length > 0 || /\
 // insurance claims", "knowledge of compensation and benefits"): those lines
 // only go under a perks heading, or when they don't read as a duty or a
 // qualification ("Medical, dental and vision insurance").
-const PAY_LINE = /401\(?k|\bpto\b|paid time off|pay range|salary range|\$\s?\d|equal (?:opportunity|employment)|without regard to|protected categor|e-verify|fair chance|conviction records|search firms|how to apply|acceptable use policy|internal career site|parental leave|reasonable accommodation/i;
-const PERKS_HEADING = /^(?:benefits|perks|what we offer|compensation|total rewards|pay|salary|why (?:join|work)|our benefits)\b/i;
+const PAY_LINE = /401\(?k|\bpto\b|paid time off|pay range|salary range|\$\s?\d|equal (?:opportunity|employment)|without regard to|protected categor|e-verify|fair chance|conviction records|search firms|how to apply|acceptable use policy|internal career site|parental leave|reasonable accommodation|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b/i;
+const PERKS_HEADING = /^(?:(?:our |employee |your )?(?:benefits|perks)|what we offer|we offer|what (?:you(?:['’]ll| will)? get|we give|['’]s in it for you)|in return|compensation|total rewards|rewards|pay|salary|why (?:join|work|you['’]ll love)|life at\b|working (?:here|at\b))/i;
 const DUTY_START = /^(?:[-•*▪●◦✓✔➢►‣–—]|\d+[.)])?\s*(?:(?:\d+\s*\+?\s*years?)|experience|knowledge|understanding|familiarity|proficien|background|expertise|ability|certifi|licen[sc]|administer|advise|analy[sz]e|assess|assist|audit|build|calculate|conduct|configure|coordinate|design|develop|enroll|evaluate|handle|implement|investigate|lead|maintain|manage|negotiate|own|oversee|partner|perform|prepare|process|reconcile|research|resolve|review|run|support|underwrite|adjust|benchmark|model)\b/i;
 function requirementLines(text) {
   let perks = false;
@@ -693,7 +693,7 @@ function readRequirementUnits(job) {
 }
 
 // Application screening items, checked against the Profile instead of documents.
-const SCREENING_LINE = /\btravel\b[^.;]{0,40}\d{1,3}\s*%|\d{1,3}\s*%[^.;]{0,20}\btravel\b|\bclearance\b|\bsponsor(?:ship)?\b|\bcitizen(?:ship)?\b|\bdriver['’]?s licen[sc]e\b|\bwilling(?:ness)? to relocate\b/;
+const SCREENING_LINE = /\btravel\b[^.;]{0,40}\d{1,3}\s*%|\d{1,3}\s*%[^.;]{0,20}\btravel\b|\bclearance\b|\bsponsor(?:ship)?\b|\bcitizen(?:ship)?\b|\bdriver['’]?s licen[sc]e\b|\bwilling(?:ness)? to relocate\b|\bwork authori[sz]ation\b|\bauthori[sz]ed to work\b|\b(?:eligible|legally (?:able|permitted)|able) to work in\b|\bright to work\b|\b(?:located|based|reside|residing|live) in (?:the )?(?:united states|u\.?s\.?a?|canada|united kingdom|uk|eu)\b|^\W*(?:location|locations|work location|country)\s*:/;
 
 // A broad skill and its specific cases named in the same breath are one
 // requirement: "dashboards in Tableau", "cloud migration on AWS".

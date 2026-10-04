@@ -397,6 +397,7 @@ async function renderEditor(appId, app) {
 
   slot.innerHTML = `
     ${modeBar(info)}
+    ${reviewBanner(info)}
     <div class="ed${ed.wide ? ' wide' : ''}${ed.panelOpen ? ' panel-open' : ''}">
       <div class="ed-main">
         <div class="ed-bar">
@@ -415,6 +416,7 @@ async function renderEditor(appId, app) {
           </span>
           <button class="small ghost" id="edWide" aria-controls="edTray" aria-expanded="false"></button>
           <span class="ed-spacer"></span>
+          ${info.jobUrl ? `<button class="ghost small" id="edPosting" title="${esc(info.jobUrl)}">${icon('link', 14)} Job posting</button>` : ''}
           <button class="ghost small" id="edCopy" title="${info.standalone ? 'Make a new resume starting from this one' : 'Keep this resume on your Resumes page to reuse or edit later'}">${icon('doc', 14)} ${info.standalone ? 'Duplicate' : 'Save to Resumes'}</button>
           <button class="soft small" id="edMd">Markdown</button>
           <button class="primary" id="edPdf">${icon('download')} Export PDF</button>
@@ -432,17 +434,118 @@ async function renderEditor(appId, app) {
   $('#edPdf', slot).addEventListener('click', (e) => exportResume(e.currentTarget, 'pdf'));
   $('#edMd', slot).addEventListener('click', (e) => exportResume(e.currentTarget, 'md'));
   $('#edCopy', slot).addEventListener('click', (e) => copyToResumes(e.currentTarget));
+  const posting = $('#edPosting', slot);
+  if (posting) posting.addEventListener('click', () => S.openExternal(info.jobUrl));
   const len = $('#edLen', slot);
   len.value = String((info.length && info.length.want) || 'auto');
   len.addEventListener('change', () => setLength(len.value));
   $('#edFit', slot).addEventListener('click', (e) => fitToPages(e.currentTarget, +e.currentTarget.dataset.pages));
   wireZoom(slot);
   wirePaper();
+  const wr = $('#wrOpen', slot);
+  if (wr) wr.addEventListener('click', () => openWordingReview());
+  // New wording asks for your answer as soon as it's on the page.
+  const pending = info.wordingReview || [];
+  const seenKey = `${appId}\u0000${pending.map((x) => x.after).join('\u0000')}`;
+  if (pending.length && ed.reviewAsked !== seenKey) (ed.reviewAsked = seenKey), openWordingReview();
   if (edPending) {
     const { filter } = edPending;
     edPending = null;
     showRequirement(filter);
   }
+}
+
+// ---------- wording review ----------
+// When the optimizer, Claude or a fix changes your words, each change waits
+// for you: approve it, deny it (back to what you had) or edit it.
+
+function reviewBanner(info) {
+  const n = (info.wordingReview || []).length;
+  if (!n) return '';
+  return `<div class="wr-banner">${icon('pencil', 16)}<span><b>${n} wording change${n === 1 ? '' : 's'}</b> need${n === 1 ? 's' : ''} your OK before this resume goes out.</span><button class="small primary" id="wrOpen">Review ${n === 1 ? 'it' : 'them'}</button></div>`;
+}
+
+function wordingLabel(it) {
+  if (it.kind === 'summary') return it.before ? 'Summary, reworded' : 'Summary, new';
+  if (it.kind === 'skills') return `Skills line: adds ${(it.added || []).map((k) => `“${esc(k)}”`).join(', ')}`;
+  return `${it.before ? 'Bullet, reworded' : 'New bullet'}${it.role ? ` · ${esc(it.role)}` : ''}`;
+}
+
+function openWordingReview() {
+  const items = ed.info.wordingReview || [];
+  if (!items.length) return;
+  const appId = ed.appId;
+  const answers = {};
+  const card = openModal(`<h2>Approve the new wording</h2>
+    <p class="faint" style="margin-top:-4px">These words weren't yours. For each one: approve it, deny it (back to what you had), or edit it. None of it goes out on your resume until you say so.</p>
+    <div class="wr-list">${items
+      .map((it) => {
+        const d = diffWords(it.before, it.after);
+        return `<div class="wr-item" data-wr="${it.id}">
+          <div class="wr-label">${wordingLabel(it)}</div>
+          ${it.before ? `<div class="dw-old">${d.before}</div>` : ''}<div class="dw-new">${it.before ? d.after : esc(it.after)}</div>
+          <div class="inline wr-choices"><button class="small ghost" data-wr-choice="approve">Approve</button><button class="small ghost" data-wr-choice="deny">${it.before ? 'Deny, keep mine' : 'Deny, leave it out'}</button><button class="small ghost" data-wr-choice="edit">${icon('pencil', 13)} Edit</button></div>
+          <textarea class="wr-edit" rows="${it.kind === 'bullet' ? 2 : 3}" hidden>${esc(it.after)}</textarea>
+        </div>`;
+      })
+      .join('')}</div>
+    <div class="inline" style="margin-top:14px"><button class="primary" id="wrSave" disabled>Save my answers</button><span class="faint" id="wrLeft"></span></div>`);
+  const left = () => items.filter((it) => !answers[it.id] || (answers[it.id].choice === 'edit' && !answers[it.id].text.trim())).length;
+  const refresh = () => {
+    const n = left();
+    $('#wrSave', card).disabled = n > 0;
+    $('#wrLeft', card).textContent = n ? `${n} still to answer` : '';
+  };
+  $$('.wr-item', card).forEach((row) => {
+    const id = row.dataset.wr;
+    const box = $('.wr-edit', row);
+    $$('[data-wr-choice]', row).forEach((b) =>
+      b.addEventListener('click', () => {
+        const choice = b.dataset.wrChoice;
+        answers[id] = { choice, text: box.value };
+        $$('[data-wr-choice]', row).forEach((x) => x.classList.toggle('on', x === b));
+        row.classList.add('done');
+        box.hidden = choice !== 'edit';
+        if (choice === 'edit') box.focus();
+        refresh();
+      })
+    );
+    box.addEventListener('input', () => {
+      if (answers[id]) answers[id].text = box.value;
+      refresh();
+    });
+  });
+  refresh();
+  // It belongs to this resume: leaving the page closes it (the banner and
+  // Export bring it back).
+  window.addEventListener('hashchange', () => $('.wr-list', card) && !document.getElementById('modal').hidden && closeModal(), { once: true });
+  $('#wrSave', card).addEventListener('click', (e) =>
+    run(e.currentTarget, async () => {
+      if (ed.dirty && !await saveNow()) return;
+      await S.reviewWording(appId, answers);
+      closeModal();
+      if (ed.appId !== appId) return;
+      const denied = Object.values(answers).filter((a) => a.choice === 'deny').length;
+      const edited = Object.values(answers).filter((a) => a.choice === 'edit').length;
+      toast([`${items.length - denied - edited} approved`, denied && `${denied} denied`, edited && `${edited} edited`].filter(Boolean).join(' · '), 'good');
+      await renderEditor(appId, ed.app);
+    }, 'Saving…')
+  );
+}
+
+// A suggestion in your own words: change it before it goes on the page.
+function editSuggestion(text, onUse) {
+  const card = openModal(`<h2>Edit the suggestion</h2><textarea id="sugEditText" rows="4" style="width:100%">${esc(text)}</textarea>
+    <div class="inline" style="margin-top:12px"><button class="primary" id="sugEditUse">Use my version</button><button class="ghost" id="sugEditCancel">Cancel</button></div>`);
+  const box = $('#sugEditText', card);
+  box.focus();
+  $('#sugEditCancel', card).addEventListener('click', closeModal);
+  $('#sugEditUse', card).addEventListener('click', () => {
+    const t = box.value.replace(/\s+/g, ' ').trim();
+    if (!t) return;
+    closeModal();
+    onUse(t);
+  });
 }
 
 // A new saved resume from the one on screen (an application's, or a duplicate of a saved one).
@@ -457,6 +560,8 @@ async function copyToResumes(btn) {
 }
 
 async function exportResume(btn, fmt) {
+  // Wording you haven't approved doesn't go out.
+  if ((ed.info.wordingReview || []).length) return void openWordingReview();
   // A page with no name on it would go out with the "Your Name" placeholder (blank on export).
   const h = ed.doc && ed.doc.header;
   if (!(h && String(h.name || '').trim() && !/^your name$/i.test(String(h.name).trim()))) {
@@ -785,7 +890,7 @@ async function fitToPages(btn, pages) {
 
 // ---------- tray ----------
 //
-// Three rings up top (requirements shown, ATS screening, strong bullets), then
+// Two rings up top (requirements shown, ATS screening; none without a posting), then
 // three tabs: Bullets (edit and add), Job match (the three biggest ways to
 // lift the score, with how well it fits this posting and the score behind it
 // one click away) and Check (how well it's written, the same way: what needs
@@ -857,15 +962,13 @@ function renderTray() {
   const tips = pc.bullets.filter((x) => x.tips).length + pc.resume.filter((c) => !c.ok).length + flagged + ed.polish.size;
   const ring = window.SproutMascot.miniRing;
   const reqPct = req.length ? (covered / req.length) * 100 : 0;
-  const strongPct = pc.total ? (pc.strong / pc.total) * 100 : 0;
   const tile = (go, pct, segs, big, label, title) =>
     `<button data-tab-go="${go}" title="${title}"><div>${ring(pct, { color: barColor(pct), segments: segs, size: 30 })}<b>${big}</b></div><span>${label}</span></button>`;
   const head = `<div class="tray-top">
-    <div class="tray-card tray-head"><div class="tray-score">
+    ${aimed ? `<div class="tray-card tray-head"><div class="tray-score">
       ${aimed ? tile('job', reqPct, req.length <= 12 ? req.length : 0, `${covered}/${req.length}`, 'must-haves shown', "Required qualifications a bullet on this page shows. The fit score counts what all your documents show, and ATS screening reads only this page, much as the software will, so their numbers can differ.") : ''}
       ${aimed ? tile('job', info.ats.score, 0, `${info.ats.score}%`, 'ATS screening', 'How screening software is likely to read this resume when you apply for this posting') : ''}
-      ${tile('check', strongPct, pc.total && pc.total <= 12 ? pc.total : 0, `${pc.strong}/${pc.total}`, 'strong bullets', 'Bullets that pass every check')}
-    </div></div>
+    </div></div>` : ''}
     <div class="tray-tabs" role="tablist">${TABS.map(([k, label]) => `<button role="tab" data-tab="${k}" aria-selected="${ed.tab === k}" class="${ed.tab === k ? 'on' : ''}">${label}${k === 'check' && tips ? ` <span class="n">${tips}</span>` : ''}${k === 'job' && aimed && req.length - covered ? ` <span class="n">${req.length - covered}</span>` : ''}</button>`).join('')}</div>
   </div>`;
   const pane = ed.tab === 'check' ? checkPane(pc) : ed.tab === 'job' ? jobPane() : bulletsPane(pc);
@@ -935,7 +1038,7 @@ function focusPanel(pc) {
     ${!text.trim() ? `<p class="faint" style="margin:0">Start with what you did (Built, Cut, Led…) and end with what came of it. Enter starts another bullet; Backspace on an empty one removes it.</p>` : ''}
     ${meta && meta.covers.length ? `<div>${coverChips(meta.covers)}</div>` : ''}
     ${mine ? (misses.length ? `<button class="mini-check" data-tab-go="check"><b>${misses.length} tip${misses.length === 1 ? '' : 's'}</b><span>${esc(misses.map((c) => c.label.toLowerCase()).join(' · '))}</span><i>Check →</i></button>` : `<div class="mini-check ok"><b>✓ Strong bullet</b><span>passes every check</span></div>`) : ''}
-    ${sug ? `<div class="suggest"><b>${icon('sparkle', 15)} Suggested:</b> ${esc(sug.text)}${sug.why ? ` <span class="faint">(${esc(sug.why)})</span>` : ''}<div class="inline" style="margin-top:4px"><button class="small soft" data-use-sug>Use it</button><button class="small ghost" data-drop-sug>Keep mine</button></div></div>` : ''}
+    ${sug ? `<div class="suggest"><b>${icon('sparkle', 15)} Suggested:</b> ${esc(sug.text)}${sug.why ? ` <span class="faint">(${esc(sug.why)})</span>` : ''}<div class="inline" style="margin-top:4px"><button class="small soft" data-use-sug>Use it</button><button class="small ghost" data-edit-sug>${icon('pencil', 13)} Edit</button><button class="small ghost" data-drop-sug>Keep mine</button></div></div>` : ''}
     ${words.length ? `<div class="tray-role">Other wordings in your bank</div>${words.map((w, i) => `<div class="cand slim wording" data-wording="${i}" title="Use this wording">${esc(w)}</div>`).join('')}` : ''}
     ${
       b.bulletId && edited
@@ -1028,7 +1131,7 @@ function polishPanel() {
       if (!cur) return '';
       const d = diffWords(cur.text, s.text);
       return `<div class="sug-row"><div class="dw-old">${d.before}</div><div class="dw-new">${d.after}</div>
-        <div class="inline"><button class="small soft" data-sug-use="${key}">Use</button><button class="small ghost" data-sug-drop="${key}">Dismiss</button><span class="faint">${esc(s.why || '')}</span></div></div>`;
+        <div class="inline"><button class="small soft" data-sug-use="${key}">Use</button><button class="small ghost" data-sug-edit="${key}">${icon('pencil', 13)} Edit</button><button class="small ghost" data-sug-drop="${key}">Dismiss</button><span class="faint">${esc(s.why || '')}</span></div></div>`;
     })
     .join('');
   return `<div class="tray-card"><h4><span>${icon('sparkle', 16)} Suggestions (${ed.polish.size})</span> <button class="small ghost" id="sugAll">Use all</button></h4>${rows}</div>${held}`;
@@ -1072,7 +1175,7 @@ function rewordPanel() {
     .map((w, i) => {
       const d = diffWords(w.from, w.text);
       return `<div class="sug-row"><div class="dw-old">${d.before}</div><div class="dw-new">${d.after}</div><div class="faint">${esc(w.why)}</div>
-        <div class="inline"><button class="small soft" data-rw-use="${i}">Use</button><button class="small ghost" data-rw-keep="${i}">Keep mine</button><button class="small ghost" data-goto="${w.r}:${w.b}">Show me</button></div></div>`;
+        <div class="inline"><button class="small soft" data-rw-use="${i}">Use</button><button class="small ghost" data-rw-edit="${i}">${icon('pencil', 13)} Edit</button><button class="small ghost" data-rw-keep="${i}">Keep mine</button><button class="small ghost" data-goto="${w.r}:${w.b}">Show me</button></div></div>`;
     })
     .join('');
   const quoted = terms.map((t) => `“${esc(t)}”`).join(', ');
@@ -1567,6 +1670,35 @@ function wireTray() {
     if (s && ed.doc.roles[r] && ed.doc.roles[r].bullets[b]) ed.doc.roles[r].bullets[b].text = s.text;
     ed.polish.delete(key);
   };
+  // Edit: the suggestion, changed by you, goes on the page in its place.
+  const editSug = (key) => {
+    const s = ed.polish.get(key);
+    if (!s) return;
+    editSuggestion(s.text, (t) => {
+      ed.polish.set(key, { ...s, text: t });
+      useSug(key);
+      renderPaper();
+      renderTray();
+      saveNow();
+    });
+  };
+  const es = $('[data-edit-sug]', tray);
+  if (es) es.addEventListener('click', () => editSug(`${ed.focus.r}:${ed.focus.b}`));
+  $$('[data-sug-edit]', tray).forEach((b) => b.addEventListener('click', () => editSug(b.dataset.sugEdit)));
+  $$('[data-rw-edit]', tray).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const w = ed.rw[+btn.dataset.rwEdit];
+      const bl = w && ed.doc.roles[w.r] && ed.doc.roles[w.r].bullets[w.b];
+      if (!bl) return;
+      editSuggestion(w.text, (t) => {
+        remember();
+        bl.text = t;
+        renderPaper();
+        renderTray();
+        saveNow();
+      });
+    })
+  );
   const us = $('[data-use-sug]', tray);
   if (us) us.addEventListener('click', () => (useSug(`${ed.focus.r}:${ed.focus.b}`), renderPaper(), saveNow()));
   const ds = $('[data-drop-sug]', tray);
