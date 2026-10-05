@@ -964,11 +964,14 @@ function renderTray() {
   const reqPct = req.length ? (covered / req.length) * 100 : 0;
   const tile = (go, pct, segs, big, label, title) =>
     `<button data-tab-go="${go}" title="${title}"><div>${ring(pct, { color: barColor(pct), segments: segs, size: 30 })}<b>${big}</b></div><span>${label}</span></button>`;
+  const strength = info.strength;
+  const strengthPct = strength ? Math.round(strength.score * 100) : null;
   const head = `<div class="tray-top">
     ${aimed ? `<div class="tray-card tray-head"><div class="tray-score">
-      ${aimed ? tile('job', reqPct, req.length <= 12 ? req.length : 0, `${covered}/${req.length}`, 'must-haves shown', "Required qualifications a bullet on this page shows. The fit score counts what all your documents show, and ATS screening reads only this page, much as the software will, so their numbers can differ.") : ''}
-      ${aimed ? tile('job', info.ats.score, 0, `${info.ats.score}%`, 'ATS screening', 'How screening software is likely to read this resume when you apply for this posting') : ''}
-    </div></div>` : ''}
+      ${strength ? tile('job', strengthPct, 0, `${strengthPct}/100`, 'Strength for this role', 'Estimate based on relevant work, required experience, clear accomplishments and the strongest evidence on the page. Not a hiring probability.') : tile('job', reqPct, req.length <= 12 ? req.length : 0, `${covered}/${req.length}`, 'must-haves shown', 'Required qualifications shown on this page')}
+      ${tile('job', info.ats.score, 0, `${info.ats.score}%`, 'ATS visibility', 'Estimated keyword and screening coverage. A high score does not establish relevant experience or guarantee an interview.')}
+    </div><p class="faint" style="margin:8px 0 0">${covered}/${req.length} must-haves shown${strength ? ' · Strength is an estimate' : ''}</p>
+    ${strength && strength.notes.length ? `<p class="faint" style="margin:6px 0 0">${esc(strength.notes[0])}</p>` : ''}</div>` : ''}
     <div class="tray-tabs" role="tablist">${TABS.map(([k, label]) => `<button role="tab" data-tab="${k}" aria-selected="${ed.tab === k}" class="${ed.tab === k ? 'on' : ''}">${label}${k === 'check' && tips ? ` <span class="n">${tips}</span>` : ''}${k === 'job' && aimed && req.length - covered ? ` <span class="n">${req.length - covered}</span>` : ''}</button>`).join('')}</div>
   </div>`;
   const pane = ed.tab === 'check' ? checkPane(pc) : ed.tab === 'job' ? jobPane() : bulletsPane(pc);

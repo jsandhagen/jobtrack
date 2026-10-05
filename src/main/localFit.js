@@ -1157,7 +1157,8 @@ function functionGap(job, lib) {
     // Designing territories and setting quotas are operations work. They
     // don't establish that this person carries a quota or closes deals.
     const signals = f.name === 'sales' ? t
-      .replace(/\b(?:territory (?:design|planning|alignment|coverage)|quota (?:setting|planning|allocation)|(?:set|setting|design|designing|allocate|allocating) (?:sales )?quotas?)\b/g, '') : t;
+      .replace(/\b(?:territory (?:design|planning|alignment|coverage)|quota (?:setting|planning|allocation)|(?:set|setting|design|designing|allocate|allocating) (?:sales )?quotas?)\b/g, '')
+      .replace(/\bquotas?\s+or\s+(?:(?:partner[- ]influence|partner)\s+)?mbos?\b/g, 'partner objectives') : t;
     const hits = f.signals.filter((re) => re.test(signals)).length + (f.title && f.title.test(lower(job.title)) ? 2 : 0);
     if (hits >= 2 && !f.shown.test(lib)) return f.name;
   }

@@ -15,6 +15,7 @@
 // A no is remembered (settings.declinedQualifications), so the same thing
 // isn't asked about on every posting.
 const { SKILLS } = require('./fitScore');
+const { isSkillPhrase } = require('./skillSuggestions');
 
 const lower = (s) => String(s || '').trim().toLowerCase();
 
@@ -40,7 +41,10 @@ function isSkill(label) {
   if (!t || optionsOf(t) || AREA.test(t)) return false;
   const known = Object.keys(SKILLS).some((k) => lower(k) === lower(t));
   if (known) return true;
-  return t.split(/\s+/).length <= 3 && !CONTEXT.test(t) && !/\s(?:or|and)\s/i.test(t);
+  // Unknown extracted phrases are experience to explain, not verified skill
+  // names. Keep recognized partner tools/programs; never put an arbitrary
+  // two-word fragment in the resume just because the candidate clicked Yes.
+  return isSkillPhrase(t) && /^(?:ACE|APN|CPPO|PPO)$/i.test(t);
 }
 
 // How the card asks about it: "AWS, GCP or Azure", "Experience managing

@@ -59,6 +59,22 @@ function numbers(text) {
   return out;
 }
 
+// A matching digit is not a matching metric: $9M cannot support $9B or 9%.
+function measures(text) {
+  const out = new Set();
+  const re = /([$£€¥]\s*)?\d+(?:[.,]\d+)*(?:\s*(?:million|billion|thousand|[kmb]\b|%|percent\b))?/gi;
+  for (const m of String(text || '').matchAll(re)) {
+    if (!m[1] && !/(?:[kmb%]|million|billion|thousand|percent)$/i.test(m[0])) continue;
+    out.add(m[0].toLowerCase().replace(/[,\s]/g, '').replace(/million$/, 'm').replace(/billion$/, 'b').replace(/thousand$/, 'k').replace(/percent$/, '%'));
+  }
+  return out;
+}
+
+function unsupportedMeasures(text, evidence) {
+  const known = measures(evidence);
+  return [...measures(text)].filter((m) => !known.has(m));
+}
+
 // Words that name something specific: acronyms, CamelCase, product-like
 // capitalised words that aren't at the start of a sentence.
 function namedTerms(text) {
@@ -87,12 +103,18 @@ const HARMLESS = new Set(
  * products / places that neither the original bullet nor the candidate's
  * documents mention.
  */
-function checkRewrite(original, edited, library) {
+function checkRewrite(original, edited, library, numberEvidence = library) {
   const problems = [];
   const orig = numbers(original);
-  const lib = numbers(library);
+  const lib = numbers(numberEvidence);
   const newNums = [...numbers(edited)].filter((n) => !orig.has(n) && !lib.has(n));
   if (newNums.length) problems.push(`adds a number not in your documents (${newNums.join(', ')})`);
+  const changed = unsupportedMeasures(edited, `${original}\n${numberEvidence}`);
+  if (changed.length) problems.push(`changes a metric or its units without source evidence (${changed.join(', ')})`);
+  if (/^(?:Supported|Assisted|Helped|Contributed|Participated)\b/i.test(original.trim())
+      && /^(?:Led|Owned|Directed|Headed|Managed|Spearheaded)\b/i.test(edited.trim())) {
+    problems.push('claims ownership where the source describes a supporting contribution');
+  }
   const origTerms = namedTerms(original);
   const libText = norm(library);
   const newTerms = [...namedTerms(edited)].filter((t) => !HARMLESS.has(t) && !origTerms.has(t) && !libText.includes(t));
@@ -111,6 +133,8 @@ function checkNewText(text, library, posting = '') {
   const lib = numbers(library);
   const newNums = [...numbers(text)].filter((n) => !lib.has(n) && !numbers(posting).has(n));
   if (newNums.length) problems.push(`number not found in your documents (${newNums.join(', ')})`);
+  const changed = unsupportedMeasures(text, library);
+  if (changed.length) problems.push(`metric or units not found in your documents (${changed.join(', ')})`);
   const libText = norm(library);
   const postText = norm(posting);
   const unknown = [...namedTerms(text)].filter((t) => !HARMLESS.has(t) && !libText.includes(t) && !postText.includes(t));

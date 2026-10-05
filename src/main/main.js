@@ -1291,6 +1291,7 @@ function builderState(rec) {
       .filter((e) => !inDoc.has(e.id))
       .map((e) => ({ id: e.id, title: e.title, organization: e.organization, isProject: !!e.isProject, hidden: !!e.hidden, count: bank.bullets.filter((b) => b.experienceId === e.id).length })),
     coverage,
+    strength: require('./resumeStrength').resumeStrength(doc, rec.job || {}, { ranked }),
     units: units.map((u) => ({ key: u.key, label: u.label, kind: u.kind })),
     ats: { score: ats.score, grade: ats.grade, tips: ats.tips.slice(0, 10), components: ats.components, gaps },
     // The posting's words for skills the bullets show in other words, for you to confirm.

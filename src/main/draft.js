@@ -4,7 +4,7 @@
 const ResumeDoc = require('../shared/resumeDoc');
 const { quoteFound, checkRewrite, checkNewText, norm } = require('./grounding');
 const { SKILLS } = require('./fitScore');
-const { supportsWording } = require('./skillSuggestions');
+const { supportsWording, isSkillPhrase, positiveMention } = require('./skillSuggestions');
 
 /**
  * Ids for the prompt: roles R1…, bullets B1… (stable for one request).
@@ -47,8 +47,10 @@ function promptIds(bank, docRoles, experiences = bank.experiences) {
 
 function skillSupported(skill, libraryNorm) {
   const s = norm(skill);
-  if (!s) return false;
-  if (libraryNorm.includes(s)) return true;
+  if (!s || !isSkillPhrase(skill)) return false;
+  const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const exact = new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, 'g');
+  if ([...libraryNorm.matchAll(exact)].some((m) => positiveMention(libraryNorm, m.index, m[0].length, skill))) return true;
   // A dictionary skill counts if the documents mention it in any of its forms.
   const entry = Object.entries(SKILLS).find(([name, ps]) => norm(name) === s || ps.some((p) => p.test(s)));
   if (entry && supportsWording(entry[0], skill, libraryNorm)) return true;
@@ -60,7 +62,9 @@ function skillSupported(skill, libraryNorm) {
   const stem = (w) => w.replace(/(?:ing|ed|es|s|ion|ions)$/, '').replace(/(?<=sel)l$/, '');
   const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const forms = (w) => { const st = stem(w); return st.length < 3 ? esc(w) : `${esc(st)}\\w*${/sell$/.test(st) ? `|${esc(st.replace(/sell$/, 'sold'))}` : ''}`; };
-  return new RegExp(`(?:^|[^a-z0-9])${words.map((w) => `(?:${forms(w)})`).join('[^a-z0-9]+')}(?:$|[^a-z0-9])`).test(libraryNorm);
+  // Shared modifiers: "KPI/OKR tracking" also explicitly says KPI tracking.
+  const formsPattern = new RegExp(`(?<![a-z0-9])${words.map((w) => `(?:${forms(w)})`).join('(?:/[a-z0-9+#-]+)?[^a-z0-9/]+')}(?![a-z0-9])`, 'g');
+  return [...libraryNorm.matchAll(formsPattern)].some((m) => positiveMention(libraryNorm, m.index, m[0].length, skill));
 }
 
 /**
@@ -70,7 +74,9 @@ function skillSupported(skill, libraryNorm) {
  */
 function draftToDoc(out, { bank, profile, library, posting, ids }) {
   const checks = [];
-  const libNorm = norm(library);
+  // Keep evidence boundaries so "No Python" in one note does not negate
+  // a real SQL accomplishment on the following line.
+  const libNorm = String(library || '').split(/\r?\n/).map(norm).join('\n');
   const roles = [];
   const seen = new Set();
   for (const item of out.experience || []) {
@@ -78,17 +84,23 @@ function draftToDoc(out, { bank, profile, library, posting, ids }) {
     if (!e || seen.has(e.id)) continue;
     seen.add(e.id);
     const bullets = [];
+    const roleEvidence = bank.bullets.filter((b) => b.experienceId === e.id && !b.hidden)
+      .flatMap((b) => [b.text, ...(b.variants || [])]).join('\n');
     for (const b of item.bullets || []) {
       const text = String(b.text || '').trim();
       if (!text) continue;
       // A question, or a line of "Answers you gave Sprout" copied whole, is never a bullet.
       if (/(?:^|\s)(?:Q|A|Question|Answer)\s*:/i.test(text) || /\?\s*$/.test(text)) continue;
       const src = b.from_bullet && ids.bulletById.get(b.from_bullet);
+      if (src && src.experienceId !== e.id) {
+        checks.push(`Left out a bullet assigned to ${e.organization || e.title}: its source belongs to a different role.`);
+        continue;
+      }
       let problems;
       if (src) {
         // An edited bank bullet may only rephrase: compare with its known wordings.
         const originals = [src.text, ...(src.variants || [])].join('\n');
-        problems = checkRewrite(originals, text, library);
+        problems = checkRewrite(originals, text, library, roleEvidence);
       } else {
         problems = [];
         if (!b.source_quote || !quoteFound(b.source_quote, library)) problems.push("couldn't find its source in your documents");
@@ -114,7 +126,8 @@ function draftToDoc(out, { bank, profile, library, posting, ids }) {
   roles.sort((a, b) => (a.isProject - b.isProject) || order.get(a.experienceId) - order.get(b.experienceId));
 
   const summary = String(out.summary || '').trim();
-  const summaryProblems = checkNewText(summary, library, posting);
+  // The posting describes the employer's wishes, never candidate facts.
+  const summaryProblems = checkNewText(summary, library);
   if (summaryProblems.length) checks.push(`Summary: ${summaryProblems.join('; ')}`);
 
   const skills = [];

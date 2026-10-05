@@ -293,28 +293,12 @@ const clip = (t, n) => (t.length <= n ? t : `${t.slice(0, n).replace(/\s+\S*$/, 
 
 // A posting phrase you've covered in other words ("secondary research" when
 // your bullets say "competitive research"): ask whether it's the same work.
-const GENERIC_HEADS = new Set('strategy strategies management operations experience skills work programs program initiatives teams team solutions services development support leadership business'.split(' '));
-// Words that say who a thing is for or how often, not what it is: "executive
-// reports" aren't "analyst reports".
-const NOT_MODIFIERS = /^(?:the|a|an|and|or|of|to|for|with|in|on|by|our|their|its|this|that|these|across|from|into|over|more|most|all|any|each|both|daily|weekly|monthly|quarterly|annual|key|detailed|various|multiple|several|executive|senior|client|customer|internal|external|team|leadership|ad-hoc|structured)$|(?:ed|ing|ly)$/;
 function phrasedElsewhere(phrase, bankLower) {
-  const words = phrase.split(/\s+/);
-  if (words.length < 2) return null;
-  // People, not documents: "direct reports" isn't "analytical reports" said another way.
-  if (/^(?:direct|indirect) reports?$/.test(phrase)) return null;
-  // These heads describe different activities depending on their modifier:
-  // proposal generation is not demand generation, and adoption trends are
-  // not supply-growth trends. Shared words don't establish related work.
-  if (/\b(?:generation|trends?|communications?|delivery|reports?)$/.test(phrase)) return null;
-  const head = words[words.length - 1].replace(/s$/, '');
-  if (head.length < 4 || GENERIC_HEADS.has(words[words.length - 1]) || GENERIC_HEADS.has(head)) return null;
-  for (const m of bankLower.matchAll(new RegExp(`\\b([a-z/-]+)\\s+(${head}s?)\\b`, 'g'))) {
-    const mod = m[1];
-    if (NOT_MODIFIERS.test(mod) || words.includes(mod)) continue;
-    // "analytical reports" for "analyst reports": a look-alike word, a different thing.
-    if (words.slice(0, -1).some((w) => w !== mod && w.slice(0, 5) === mod.slice(0, 5))) continue;
-    return `${mod} ${m[2]}`;
-  }
+  // A shared last word is not evidence of equivalent work. Only offer a
+  // relationship we can explain, with the necessary context in the source.
+  // Other missing phrases remain gaps, never automatic wording suggestions.
+  if (/^competitor launches$/.test(phrase) && /\b(?:competitive intelligence|competitor strategies)\b/.test(bankLower)
+      && /\bproduct launches\b/.test(bankLower)) return 'product launches';
   return null;
 }
 

@@ -69,7 +69,8 @@ function atsNudges({ ats, job, pageText, bank, doc, fixes = [], onPage = true })
 
   // 3. Required skills the page doesn't show: in your bank (easy), or nowhere (ask).
   const missing = (ats.missingSkills || []).filter((m) => m.kind === 'required' && !INTERPERSONAL.has(m.skill) && !SOFT_SKILLS.has(m.skill) && !INDUSTRIES.has(m.skill));
-  const inBank = (m) => (SKILLS[m.skill] ? SKILLS[m.skill].some((p) => p.test(bankText)) : (m.anyOf || [m.term]).some((t) => has(bankText, t)));
+  const inBank = (m) => (m.anyOf || [m.term || m.skill]).some((term) => SKILLS[m.skill]
+    ? supportsWording(m.skill, term, bankText) : has(bankText, term));
   const fromBank = missing.filter(inBank);
   const nowhere = missing.filter((m) => !inBank(m));
   for (const m of fromBank.slice(0, 2)) {

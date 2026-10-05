@@ -1444,7 +1444,7 @@ const TUNE_POOL = 10;
 // between pages that read about as well.
 const ATS_FLOOR = 75;
 const STRENGTH_POINTS = 100;
-const ATS_ABOVE_FLOOR = 0.25;
+const ATS_ABOVE_FLOOR = 0.1;
 const ATS_BELOW_FLOOR = 0.5;
 function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, summary }) {
   const ResumeDoc = require('../shared/resumeDoc');

@@ -15,6 +15,7 @@ test('new wording opens a review: each change needs approve, deny or edit, and n
   const info = {
     doc, roles: doc.roles.map(() => ({ more: [], bullets: [] })), otherRoles: [], coverage: [], units: [],
     ats: { score: 78, grade: 'A', tips: [], components: {}, gaps: [] },
+    strength: { score: 0.72, notes: ['Show a specific example of the required work.'] },
     rewords: [], rewordTerms: [], nudges: null, jobTitle: job.title, bankSize: bank.bullets.length,
     resumeSource: 'ats', standalone: true, hasTarget: true,
     length: { ...R.measure(doc), want: 'auto', why: 'Fits on one page.' },
@@ -80,6 +81,9 @@ test('new wording opens a review: each change needs approve, deny or edit, and n
     await page.locator('#edPosting').click();
     assert.deepEqual(await page.evaluate(() => window.__wr.calls.at(-1)), { action: 'open', url: 'https://jobs.example.com/cos-cto' });
     assert.equal(await page.locator('.tray-score > button').count(), 2);
+    assert.match(await page.locator('.tray-score > button').first().innerText(), /72\/100\s*Strength for this role/);
+    assert.match(await page.locator('.tray-score > button').last().innerText(), /78%\s*ATS visibility/);
+    assert.ok(await page.getByText('Show a specific example of the required work.').isVisible());
     assert.ok(!(await page.locator('.tray-score').innerText()).includes('strong bullets'));
     assert.deepEqual(errors, []);
   } finally {

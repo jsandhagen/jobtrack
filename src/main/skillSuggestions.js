@@ -58,6 +58,11 @@ function positiveMention(text, at, length, skill) {
   const tail = text.slice(at + length).split(/\n|;|\. |\bbut\b/)[0];
   const before = text.slice(start, at);
   const clause = before + text.slice(at, at + length) + tail;
+  // Product research proves research, not hands-on use of that product.
+  // Keep "analyzed competitor pricing using Python" as positive evidence.
+  if (/\b(?:researched|reviewed|tracked|compared|evaluated|analyzed)\b/i.test(before)
+      && /\b(?:competitors?|pricing|product strateg(?:y|ies)|product launches|market positioning)\b/i.test(clause)
+      && !/\b(?:using|with|in)\s*$/i.test(before)) return false;
   if (/\b(?:no|without|never|not|lack(?:s|ed|ing)?|limited|little)\b(?! only)[^.\n;]{0,65}$/i.test(before)
       || /\b(?:learn(?:ing)?|stud(?:y|ying)|interested in|exposure to|familiar(?:ity)? with|plan(?:ning)? to|hope to)\b[^.\n;]{0,50}$/i.test(before)
       || /^\s*(?:experience\s*)?(?:not yet|only learning|currently learning|team\b|partners?\b)/i.test(tail)) return false;
@@ -126,4 +131,4 @@ function validatedAddition(job, doc, input) {
   return { skill: entry[0], term, addition: skillAddition(doc, entry[0], term) };
 }
 
-module.exports = { compatibleWording, sameSkillTerm, isSkillPhrase, evidenceSpans, supportsWording, skillAddition, candidateSkillText, validatedAddition };
+module.exports = { compatibleWording, sameSkillTerm, isSkillPhrase, positiveMention, evidenceSpans, supportsWording, skillAddition, candidateSkillText, validatedAddition };

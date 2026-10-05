@@ -14,6 +14,7 @@ module.exports = [
   { name: 'explicitly absent experience', term: 'Python', text: 'No Python experience; currently learning Python.' },
   { name: 'working with a platform team', term: 'AWS', text: 'Worked with the AWS team to build a business case.' },
   { name: 'requirements without candidate evidence', term: 'Kubernetes', text: 'Researched competitors and market trends.' },
+  { name: 'product research is not product use', term: 'HubSpot', text: 'Reviewed HubSpot product strategy and pricing.' },
   { name: 'sales sentence fragment', own: 'Sales', term: 'Sell can accelerate deals', text: 'Built sales enablement materials.' },
   { name: 'analysis instruction fragment', own: 'Data Analysis', term: 'Analyze business performance data', text: 'Analyzed customer data using SQL.' },
   { name: 'AWS acronym expansion', own: 'AWS', term: 'Amazon Web Services', text: 'Deployed services on AWS.', safe: true },

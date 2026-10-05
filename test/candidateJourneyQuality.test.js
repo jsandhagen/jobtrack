@@ -29,6 +29,8 @@ test('quota and territory planning do not turn business operations into quota-ca
   }
   const sales = { title: 'Account Executive', text: 'Own a territory and meet sales quotas. Close new deals and generate pipeline. Requirements\n5+ years in SaaS sales' };
   assert.ok(shownFit(localFitScore(sales, documents)).screens.some((s) => /sales role/.test(s.reason)));
+  const alliance = { title: 'Strategic Alliance Executive', text: 'Manage AWS partnerships.\nRequirements\n4+ years in partner operations\nInfluence pipeline generation.\nExceed revenue quotas or partner-influence MBOs.' };
+  assert.ok(!shownFit(localFitScore(alliance, documents)).screens.some((s) => /sales role/.test(s.reason)));
 });
 
 test('a named CRM is a specific requirement; another CRM does not satisfy it', () => {
@@ -40,9 +42,78 @@ test('a named CRM is a specific requirement; another CRM does not satisfy it', (
   assert.equal(hubspot.match('built hubspot dashboards'), 1);
   assert.equal(skillSupported('HubSpot', 'built salesforce dashboards'), false, 'the AI draft must not introduce a different CRM either');
   assert.equal(skillSupported('CRM', 'built salesforce dashboards'), true, 'a named CRM still supports the broader skill');
+  assert.equal(skillSupported('HubSpot', 'no hubspot experience'), false);
+  assert.equal(skillSupported('R', 'prepared reports'), false);
+  assert.equal(skillSupported('SQL', 'currently learning sql'), false);
+  assert.equal(skillSupported('KPI Tracking', 'owned kpi/okr tracking for partners'), true);
+  assert.equal(skillSupported('HubSpot', 'reviewed hubspot product strategy and pricing'), false);
+  assert.equal(skillSupported('Python', 'analyzed competitor pricing using python'), true);
   assert.ok(!units.some((u) => u.label === 'CRM'), 'do not double-count the broad category');
   assert.ok(atsScore(job, 'Consultant 2020 - Present\nBuilt Salesforce dashboards using Excel and PowerPoint').score
     < atsScore(job, 'Consultant 2020 - Present\nBuilt HubSpot dashboards using Excel and PowerPoint').score);
+});
+
+test('unrecognized requirement fragments never become resume skills on confirmation', () => {
+  const H = require('../src/main/haveIt');
+  for (const phrase of ['direct authority', 'regional revenue', 'structured frameworks', 'Digital', 'Voice', 'MBO', 'UNRECOGNIZED']) {
+    const bank = { skills: [], confirmed: [] };
+    assert.equal(H.recordYes(bank, phrase).where, 'confirmed', phrase);
+    assert.deepEqual(bank.skills, []);
+  }
+  assert.equal(H.recordYes({ skills: [] }, 'ACE').where, 'skills');
+});
+
+test('role strength rewards relevant evidence rather than an unrelated large number or a skills list', () => {
+  const job = { title: 'Competitive Intelligence Manager', text: 'Requirements\n3+ years in competitive intelligence\nBuild battlecards and analyze win/loss trends.' };
+  const page = (text) => ({ summary: 'Consultant in competitive intelligence.', skills: ['Competitive Intelligence', 'Win/loss', 'Battlecards'], roles: [{ title: 'Consultant', bullets: [{ text }] }] });
+  const direct = resumeStrength(page('Led competitive intelligence and built battlecards for 40 enterprise sales engagements'), job);
+  const unrelated = resumeStrength(page('Managed sponsorship funding of $80M across 300 events'), job);
+  assert.ok(direct.score > unrelated.score + 0.2);
+  assert.ok(unrelated.score < 0.7);
+  const deliverable = resumeStrength(page('Produced win/loss battlecards and objection handling guides for enterprise sellers'), job);
+  assert.ok(deliverable.parts.results > 0, 'useful outputs count without inventing a metric');
+});
+
+test('the displayed role strength acknowledges missing stated tenure', () => {
+  const doc = { summary: 'Competitive intelligence consultant.', roles: [{ title: 'Competitive Intelligence Consultant', dates: '2023 - 2025', bullets: [{ text: 'Built competitive intelligence battlecards for 40 enterprise deals' }] }] };
+  const job = { title: 'Competitive Intelligence Manager', text: 'Requirements\n7+ years in competitive intelligence\nCreate battlecards.' };
+  const result = resumeStrength(doc, job);
+  assert.ok(result.score < 0.7);
+  assert.match(result.notes[0], /7\+ years/);
+});
+
+test('the writer cannot move a source accomplishment to another employer', () => {
+  const D = require('../src/main/draft');
+  const bank = bankFor();
+  const ids = D.promptIds(bank, [], B.resumeExperiences(bank, {}));
+  const wrong = ids.roles[1].bullets[0];
+  const { doc, checks } = D.draftToDoc({ summary: '', skills: [], experience: [{ role_id: ids.roles[0].id, bullets: [{ from_bullet: wrong.id, text: wrong.text }] }] }, { bank, profile: {}, library: source, posting: '', ids });
+  assert.ok(!doc.roles[0].bullets.some(b => b.text === wrong.text));
+  assert.ok(checks.some(s => /different role/.test(s)));
+});
+
+test('AI summaries cannot borrow qualifications from the posting or metrics from a different role', () => {
+  const D = require('../src/main/draft');
+  const bank = bankFor();
+  bank.bullets.push({ id: 'other-metric', experienceId: bank.experiences[1].id, text: 'Built reports for 987 clients', variants: [] });
+  const library = source + '\nBuilt reports for 987 clients';
+  const ids = D.promptIds(bank, [], B.resumeExperiences(bank, {}));
+  const out = { summary: 'Consultant with 17 years of HubSpot experience.', skills: [], experience: [{ role_id: 'R1', bullets: [{ from_bullet: ids.roles[0].bullets[0].id, text: 'Led reporting for 987 clients' }] }] };
+  const result = D.draftToDoc(out, { bank, profile: {}, library, posting: 'Requirements: 17 years using HubSpot', ids });
+  assert.match(result.checks.join(' '), /17/);
+  assert.match(result.checks.join(' '), /hubspot/i);
+  assert.match(result.doc.roles[0].bullets[0].flag, /987/);
+  const separateNotes = D.draftToDoc({ summary: '', skills: ['SQL', 'Python'], experience: [] }, { bank, profile: {}, library: 'No Python experience\nBuilt reporting dashboards in SQL', posting: '', ids });
+  assert.deepEqual(separateNotes.doc.skills, ['SQL'], 'negative evidence must not leak into the next line');
+});
+
+test('rewrites preserve metric units and contribution level', () => {
+  const { checkRewrite } = require('../src/main/grounding');
+  const original = 'Supported partner programs with $9M in customer transactions';
+  assert.deepEqual(checkRewrite(original, 'Supported partner programs with $9 million in customer transactions', original), []);
+  assert.match(checkRewrite(original, 'Supported partner programs with $9B in transactions', original).join(' '), /units/);
+  assert.match(checkRewrite(original, 'Supported partner programs with 9% growth', original).join(' '), /units/);
+  assert.match(checkRewrite(original, 'Led partner programs with $9M in transactions', original).join(' '), /ownership/);
 });
 
 test('multiword operational requirements retain their meaning', () => {

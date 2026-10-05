@@ -8,7 +8,7 @@
 // Deterministic and offline, built from the same requirement reading as the
 // fit score, so it re-scores instantly after every edit. 0-1, with a grade.
 const { requirementUnits } = require('./localFit');
-const { SKILLS, INTERPERSONAL, SOFT_SKILLS, EMPLOYER_EVIDENCE, classifyJobSkills, yearsOfExperience } = require('./fitScore');
+const { SKILLS, INTERPERSONAL, SOFT_SKILLS, EMPLOYER_EVIDENCE, classifyJobSkills, yearsOfExperience, requiredYears } = require('./fitScore');
 const { strategyFocus } = require('./strategyResume');
 const { repeatOf, hasResult } = require('../shared/resumeCheck');
 
@@ -19,14 +19,28 @@ const lower = (s) => String(s || '').toLowerCase();
 // worked out once. Bounded: cleared when it grows past what one big bank needs.
 const bounded = (map, n) => (map.size > n && map.clear(), map);
 const pairs = new Map();
+let pairCount = 0;
 const sameFact = (a, b) => {
-  const key = a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`;
-  let v = pairs.get(key);
-  if (v === undefined) bounded(pairs, 50000).set(key, (v = !!repeatOf(a, b)));
-  return v;
+  const forward = pairs.get(a);
+  if (forward && forward.has(b)) return forward.get(b);
+  const reverse = pairs.get(b);
+  if (reverse && reverse.has(a)) return reverse.get(a);
+  const value = !!repeatOf(a, b);
+  // Reuse existing strings as keys. Joining two long bullets on every
+  // comparison spent more time allocating/hashing than reading the score.
+  if (pairCount >= 50000) { pairs.clear(); pairCount = 0; }
+  if (!pairs.has(a)) pairs.set(a, new Map());
+  pairs.get(a).set(b, value);
+  pairCount++;
+  return value;
 };
 const postings = new Map();
 const yearsSeen = new Map();
+function careerYears(roles) {
+  const key = roles.map((r) => `${r.title}, ${r.dates || ''}`).join('\n');
+  if (!yearsSeen.has(key)) bounded(yearsSeen, 200).set(key, yearsOfExperience(key));
+  return yearsSeen.get(key);
+}
 function postingSide(job) {
   const key = `${job.title || ''}\u0000${job.text || ''}`;
   let p = postings.get(key);
@@ -52,7 +66,7 @@ function postingSide(job) {
 // set in one reads proof from it first.
 const SECTORS = ['Public Sector', 'Financial Services', 'Healthcare'];
 
-const PARTS = { lead: 0.35, mustHaves: 0.3, summary: 0.2, results: 0.15, depth: 0.25 };
+const PARTS = { lead: 0.25, mustHaves: 0.3, summary: 0.1, results: 0.15, depth: 0.2, relevance: 0.3 };
 
 // A senior posting's reader looks for ownership and scale in the first lines.
 const SENIOR = /\b(?:senior|sr\.?|lead|principal|staff|head|director|vp|vice president)\b/i;
@@ -107,7 +121,7 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
   const firstTexts = (first.bullets || []).map((b) => b.text);
   // Without the ranker's view, the lead is judged by the checks below alone.
   if (lead === null && firstTexts.length) lead = 1;
-  const titled = (t) => primary.some((x) => x.evidence.test(t));
+  const titled = (t) => primary.some((x) => x.evidence.test(t) || (x.proof && x.proof.test(t)));
   if (firstTexts.length && primary.length && !titled(firstTexts[0]) && firstTexts.some(titled)) {
     lead = (lead ?? 1) * 0.75;
     notes.push('Your first bullet isn\'t the work this job is titled for; a bullet lower down is.');
@@ -133,8 +147,10 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
   const shown = units.filter((u) => Math.max(0, ...texts.map((t) => u.match(t))) >= 0.6);
   const roleTexts = roles.map((r) => lower(`${r.title}\n${(r.bullets || []).map((b) => b.text).join('\n')}`));
   const shownKinds = kinds.filter((u) => roleTexts.some((t) => u.match(t) >= 0.6));
-  const mustHaves = units.length + kinds.length ? (shown.length + shownKinds.length) / (units.length + kinds.length) : null;
+  const mustHaves = units.length + kinds.length ? (shown.length + 2 * shownKinds.length) / (units.length + 2 * kinds.length) : null;
   if (shownKinds.length < kinds.length) notes.push('The page does not yet show every required kind of work; adding tool names alone will not close that gap.');
+  const missing = units.filter((u) => !shown.includes(u)).map((u) => require('./haveIt').question(u.label));
+  if (missing.length) notes.push(`Required evidence not yet shown: ${missing.slice(0, 3).join('; ')}.`);
 
   // 2b. Depth in the work the job is titled for: a CI manager's reader wants
   // the competitive work you've done, not one CI bullet and the rest program
@@ -159,7 +175,20 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
   }
 
   // 3. Results: a number or a scale on most bullets.
-  const results = bullets.length ? Math.min(1, bullets.filter((t) => hasResult(t)).length / bullets.length / 0.6) : null;
+  // Relevant evidence matters more than an impressive number from unrelated
+  // work. A skills list or a rewritten summary cannot supply this evidence.
+  const relevant = (t) => primary.length
+    ? titled(lower(t)) || themes.some((x) => x.weight >= 7 && (x.evidence.test(t) || (x.proof && x.proof.test(t))))
+    : [...units, ...kinds].some((u) => u.match(lower(t)) >= 0.6);
+  const relevance = bullets.length && (primary.length || units.length || kinds.length)
+    ? Math.min(1, bullets.filter(relevant).length / bullets.length / 0.7) : null;
+  if (relevance !== null && relevance < 0.7) notes.push('More of the page could show direct evidence of the target work. Review the supporting bullets for relevance.');
+  // Concrete outputs used for a stated purpose count too. Research and
+  // enablement often have meaningful deliverables without a measured uplift.
+  const usefulOutput = (t) => /\b(?:built|created|produced|authored|designed|developed|rebuilt|prepared)\b/i.test(t)
+    && /\b(?:battlecards?|briefs?|presentations?|guides?|dashboards?|reports?|models?|workflows?|playbooks?|materials)\b/i.test(t)
+    && /\b(?:for|to|used by|supporting|inform|enable|accelerate)\b/i.test(t);
+  const results = bullets.length ? Math.min(1, bullets.filter((t) => (hasResult(t) || usefulOutput(t)) && (relevance === null || relevant(t))).length / bullets.length / 0.6) : null;
 
   // 4. The summary: says something the first bullets don't, and shows the
   // posting's sector when the page has proof from it.
@@ -188,9 +217,7 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
     const proofOk = !proofs.length || !primary.length || proofs.some(inLane);
     // Years the summary claims, against what the role dates show.
     const claimed = summary.match(/\b(\d{1,2})\+?\s+years\b/i);
-    const datedKey = roles.map((r) => `${r.title}, ${r.dates}`).join('\n');
-    if (!yearsSeen.has(datedKey)) bounded(yearsSeen, 200).set(datedKey, Math.floor(yearsOfExperience(datedKey) || 0));
-    const dated = yearsSeen.get(datedKey);
+    const dated = Math.floor(careerYears(roles) || 0);
     const yearsOff = claimed && dated ? Number(claimed[1]) - dated : 0;
     const yearsPart = yearsOff < -1 ? 0.75 : yearsOff > 1 ? 0.6 : 1;
     // Keyword-rich filler should not beat a concise, equally relevant
@@ -213,10 +240,19 @@ function resumeStrength(doc, job, { ranked = [] } = {}) {
   const repeats = bullets.some((t, i) => bullets.slice(i + 1).some((u) => sameFact(t, u)));
   if (repeats) notes.push('Two bullets tell the same accomplishment.');
 
-  const parts = { lead, mustHaves, summary: summaryPart, results, depth };
+  const parts = { lead, mustHaves, summary: summaryPart, results, depth, relevance };
   const active = Object.entries(parts).filter(([, v]) => v !== null);
   const wsum = active.reduce((s, [k]) => s + PARTS[k], 0);
   let score = wsum ? active.reduce((s, [k, v]) => s + v * PARTS[k], 0) / wsum : 0;
+  // Good ordering and prose cannot compensate fully for missing required
+  // experience. Apply the evidence coverage to the whole assessment too.
+  if (mustHaves !== null) score *= 0.75 + 0.25 * mustHaves;
+  const needYears = requiredYears(job.text || '');
+  const haveYears = careerYears(roles);
+  if (needYears > 0 && haveYears !== null && haveYears !== undefined && haveYears + 0.5 < needYears) {
+    score *= Math.sqrt(Math.min(1, haveYears / needYears));
+    notes.unshift(`The posting asks for ${needYears}+ years; the roles on this page show about ${Math.floor(haveYears)}.`);
+  }
   if (repeats) score *= 0.85;
   return { score, grade: score >= 0.85 ? 'A' : score >= 0.72 ? 'B' : score >= 0.58 ? 'C' : 'D', parts, notes };
 }

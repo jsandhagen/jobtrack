@@ -355,7 +355,7 @@ function scoreKeywords(rawJobText, resumeLower, company) {
 }
 
 // Short postings without enough phrases: distinctive single words.
-function scoreKeywordWords(jobText, resumeLower, company) {
+const keywordWordTerms = memoize(function (jobText, company) {
   const companyWords = new Set(lower(company).split(/\W+/));
   // Degree lines are scored by education (where a master's meets a bachelor's
   // requirement), so "bachelor", "degree" and the field aren't keywords here.
@@ -381,6 +381,11 @@ function scoreKeywordWords(jobText, resumeLower, company) {
     .filter(([t]) => !FILLER.has(t) && !generic(t) && !companyWords.has(t) && ![...skillWords].some((s) => s.includes(t)))
     .sort((a, b) => b[1] - a[1])
     .slice(0, 25);
+  return terms;
+});
+
+function scoreKeywordWords(jobText, resumeLower, company) {
+  const terms = keywordWordTerms(jobText, company);
   if (!terms.length) return null;
   // Like Taleo's "related terms" search: other forms of the word count too
   // ("managed" finds "management"), but not synonyms.
