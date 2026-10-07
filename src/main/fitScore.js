@@ -155,7 +155,7 @@ const SKILLS = {
   'Digital Transformation': [/\b(?:digital|technology|it|business) transformations?\b/, /\btransformation (?:programs?|engagements?|initiatives?|roadmaps?)\b/, /\b(?:it|legacy|system|systems|platform|technology) moderni[sz]ation\b/, /\bmoderni[sz](?:e|ing) (?:legacy|the|its|our)\b/, /\bdigital maturity\b/],
   // Digitising or automating a product or process: closer to the work than a buzzword.
   'Digital Products': [/\bdigiti[sz](?:ed|ation|ing)\b/, /\bautomated (?:underwriting|decision|workflows?|processes|products?|platform)\b/, /\bautomat(?:ed|ing) (?:manual|the) (?:process|workflow|review)/, /\bproduct launch(?:es)?\b/, /\blaunch(?:ed)? (?:of )?(?:\d+ )?(?:new |digital )?products?\b/],
-  Roadmapping: [/\b(?:technology|it|transformation|digital|implementation|multi-year|\d-year)?\s*roadmaps?\b/],
+  Roadmapping: [/\b(?:technology|it|transformation|digital|implementation|multi-year|\d-year)?\s*roadmap(?:s|ping)?\b/],
   'Business Cases': [/\bbusiness cases?\b/, /\bcost[- ]benefit\b/, /\broi analys[ie]s\b/, /\bvalue (?:sizing|cases?)\b/, /\bsizing value\b/, /\binvestment cases?\b/, /\bcosts? and benefits\b/, /\btco\b/, /\btotal cost of ownership\b/],
   // Quantified business value on a resume ("$3M in annual revenue"): evidence toward business cases.
   'Business Impact': [/\$\s?\d[\d.,]*\s?(?:m|mm|k|b|million|billion)?\+?\s*(?:\w+\s){0,4}(?:revenue|savings|cost reduction|value|benefits?|funding)\b/],
@@ -347,17 +347,21 @@ const STOPWORDS = new Set(
 const REQUIRED_CUE = /\b((?<!\bas )required|^requirements|must|minimum|basic qualifications|you have|what you.?ll need|essential)\b/;
 const PREFERRED_CUE = /\b(preferred|nice[- ]to[- ]haves?|bonus|plus|desired|desirable|ideally|good to have|helpful|beneficial|advantageous|an asset|additional qualifications|extra credit|standout qualities)\b/;
 // "No Java experience required", "Python is not required": not a requirement.
-const NEGATED_CUE = /\bnot (?:required|necessary|needed|a requirement|mandatory)\b|\bno\b[^.;]{0,40}\b(?:required|necessary|needed)\b/;
+const NEGATED_CUE = /\bnot (?:required|necessary|needed|a requirement|mandatory)\b|\bno\b[^.;]{0,120}\b(?:required|necessary|needed)\b|\b(?:do not|don't) need\b|\boptional\b/;
 // Example lists ("languages may include Python, R, MATLAB", "other useful
 // tools include SAS") name options, not things every applicant must have.
 const OPTIONAL_CUE = /\b(may include|not limited to|such as|e\.g\.|for example|other useful|also useful|one or more of|any of the following)/;
 // Lists whose items are alternatives without being optional: "projects
 // involving process frameworks: ITIL, ISO 20000, COBIT" asks for one of them.
-const ALTERNATIVES_CUE = new RegExp(`${OPTIONAL_CUE.source}|\\b(one or more (?:projects|engagements) involving|(?:frameworks?|tools|platforms|technologies|methodologies|certifications)\\s*:)|\\s[—–]\\s(?=[^—–.;]*,[^—–.;]*,)`);
+const ALTERNATIVES_CUE = new RegExp(`${OPTIONAL_CUE.source}|\\b(?:at least one (?:of|area)|one of (?:these|the following))\\b|\\b(one or more (?:projects|engagements) involving|(?:frameworks?|tools|platforms|technologies|methodologies|certifications)\\s*:)|\\s[—–]\\s(?=[^—–.;]*,[^—–.;]*,)`);
 
 // EEO, security-policy and recruiter notices: never qualifications.
 const BOILERPLATE_LINE =
-  /\bscammers\b|\b(?:recruiting|recruitment) scams?\b|\bbanking info\b|benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|e-verify|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|internal career site|privacy (?:notice|policy)|personal data|applicable data protection|scams?|fraudulent (?:job|recruit|offers?)|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b/i;
+  /\bscammers\b|\b(?:recruiting|recruitment) scams?\b|\bbanking info\b|\b(?:employee benefits?|benefits package|health insurance|life insurance|dental insurance)\b|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|e-verify|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|internal career site|privacy (?:notice|policy)|personal data|applicable data protection|scams?|fraudulent (?:job|recruit|offers?)|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b/i;
+
+function skillEvidence(text, skill) {
+  return require('./skillSuggestions').evidenceSpans(text, skill).length > 0;
+}
 
 function lower(s) {
   return (s || '').toLowerCase();
@@ -461,12 +465,32 @@ function withoutPerks(jobText) {
 // Tag every non-empty posting line as required / preferred / neutral, using
 // both the line's own wording and the section heading it sits under. `about`
 // marks the employer describing itself (companyVoice, or an "About us" section).
+// Preserve explicitly alternative lists before line classification discards indentation.
+function requirementText(text) {
+  const lines = String(text || '').split('\n');
+  const result = [];
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    if (/\b(?:at least one (?:of|area)|one of (?:these|the following))\b/i.test(line)) {
+      line = line.replace(/;\s*/g, ' or ');
+      const indent = lines[i].match(/^\s*/)[0].length;
+      const options = [];
+      while (i + 1 < lines.length && /^\s*[-•*]\s+/.test(lines[i + 1]) && lines[i + 1].match(/^\s*/)[0].length > indent) {
+        options.push(lines[++i].replace(/^\s*[-•*]\s+/, '').trim());
+      }
+      if (options.length) line += ' ' + options.join(' or ');
+    }
+    result.push(line);
+  }
+  return result.join('\n');
+}
+
 function classifyLines(jobText) {
   const out = [];
   let section = 'neutral';
   let aboutSection = false;
   let roleSection = false;
-  for (const rawLine of withoutPerks(jobText).split('\n')) {
+  for (const rawLine of withoutPerks(requirementText(jobText)).split('\n')) {
     const original = stripMarkdown(rawLine.trim());
     const line = original.toLowerCase();
     if (!line) continue;
@@ -492,7 +516,7 @@ function classifyLines(jobText) {
     const sectionKind = section;
     if (isHeading && lineKind !== section) section = lineKind;
     // "We require 5+ years of Python" still asks it.
-    out.push({ line, original, kind: lineKind, isHeading, section: sectionKind, about: about && lineKind === 'neutral' });
+    out.push({ line, original, kind: lineKind, isHeading, section: sectionKind, about: (about || (isHeading && COMPANY_HEADING.test(line))) && lineKind === 'neutral' });
   }
   return out;
 }
@@ -501,7 +525,7 @@ function classifyLines(jobText) {
 // useful languages include Java, SAS" doesn't make Java and SAS required.
 // Keeps "e.g." and "Ph.D." intact.
 function clauses(original, lineKind, section = lineKind) {
-  const parts = original.split(/(?<=[!?;])\s+|(?<=[a-z0-9)]{2}\.)\s+(?=[A-Z])/).filter((c) => c.trim());
+  const parts = original.split(/,?\s+and\s+(?=(?:build|develop|create|prepare|present|lead|manage|deliver)\b)|(?<=[!?;])\s+|(?<=[a-z0-9)]{2}\.)\s+(?=[A-Z])/).filter((c) => c.trim());
   return parts.map((c) => {
     const cl = c.toLowerCase();
     let kind = lineKind;
@@ -854,6 +878,7 @@ const classifyJobSkills = memoize(readJobSkills);
 const requiredYears = memoize(readRequiredYears);
 
 module.exports = {
+  skillEvidence,
   withoutNegated,
   WATCH_LINE,
   SKILLS,
@@ -885,3 +910,4 @@ module.exports = {
   requiredYears,
   fitLabel,
 };
+

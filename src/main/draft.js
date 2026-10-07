@@ -100,10 +100,12 @@ function draftToDoc(out, { bank, profile, library, posting, ids }) {
       if (src) {
         // An edited bank bullet may only rephrase: compare with its known wordings.
         const originals = [src.text, ...(src.variants || [])].join('\n');
-        problems = checkRewrite(originals, text, library, roleEvidence);
+        problems = checkRewrite(originals, text, library, originals);
       } else {
         problems = [];
         if (!b.source_quote || !quoteFound(b.source_quote, library)) problems.push("couldn't find its source in your documents");
+        if (b.source_quote && !quoteFound(b.source_quote, roleEvidence)) problems.push('source does not belong to this role');
+        if (b.source_quote && quoteFound(b.source_quote, library)) problems.push(...checkRewrite(b.source_quote, text, library, b.source_quote));
         problems.push(...checkNewText(text, library));
       }
       // Bullet problems stay on the bullet itself (the editor marks it); `checks` is for the rest.

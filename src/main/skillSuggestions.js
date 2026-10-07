@@ -61,11 +61,12 @@ function positiveMention(text, at, length, skill) {
   // Product research proves research, not hands-on use of that product.
   // Keep "analyzed competitor pricing using Python" as positive evidence.
   if (/\b(?:researched|reviewed|tracked|compared|evaluated|analyzed)\b/i.test(before)
-      && /\b(?:competitors?|pricing|product strateg(?:y|ies)|product launches|market positioning)\b/i.test(clause)
+      && (/^(?:AWS|Azure|GCP|Kubernetes|Docker|Python|Java|JavaScript|TypeScript|SQL|Salesforce|SAP|Oracle|Terraform|React|Node\.js)$/i.test(skill) || /\b(?:competitors?|pricing|product strateg(?:y|ies)|product launches|market positioning)\b/i.test(clause))
       && !/\b(?:using|with|in)\s*$/i.test(before)) return false;
   if (/\b(?:no|without|never|not|lack(?:s|ed|ing)?|limited|little)\b(?! only)[^.\n;]{0,65}$/i.test(before)
       || /\b(?:learn(?:ing)?|stud(?:y|ying)|interested in|exposure to|familiar(?:ity)? with|plan(?:ning)? to|hope to)\b[^.\n;]{0,50}$/i.test(before)
       || /^\s*(?:experience\s*)?(?:not yet|only learning|currently learning|team\b|partners?\b)/i.test(tail)) return false;
+  if (/^\s+(?:engineers?|developers?|administrators?|teams?|specialists?|partners?)\b/i.test(tail) && /\b(?:collaborat\w*|partner\w*|work(?:ed|ing)?)\s+with\b/i.test(before)) return false;
   const span = text.slice(at, at + length).trim();
   if (!withoutCollaborators(clause).toLowerCase().includes(span.toLowerCase())) return false;
   if (skill === 'Technical Writing' && /\b(?:review(?:ed|ing)?|read|reading|researched|studied|analy[sz]ed)\b[^.\n;]{0,65}$/i.test(before)) return false;

@@ -23,7 +23,7 @@
 //
 // Everything here is deterministic and offline so it can re-score instantly
 // after every edit.
-const { SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, EMPLOYER_EVIDENCE, EMPLOYER_HEADING, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS, withoutPerks } = require('./fitScore');
+const { skillEvidence, SKILLS, SOFT_SKILLS, SOFT_TERM_WORDS, INTERPERSONAL, RELATED, EMPLOYER_EVIDENCE, EMPLOYER_HEADING, isGenericTitle, classifyJobSkills, classifyLines, clauses, significantTerms, requiredYears, yearsOfExperience, STOPWORDS, withoutPerks } = require('./fitScore');
 const { layoutChecks } = require('./layout');
 const { screeningCheck } = require('./screening');
 const { phraseCasing } = require('./postingCase');
@@ -168,7 +168,7 @@ function scoreSkills(jobSkills, resumeLower, resumeSkills) {
   const hard = { have: 0, total: 0, matched: [], missing: [] };
   const soft = { have: 0, total: 0, matched: [], missing: [] };
   const wordingTips = [];
-  const units = skillUnits(jobSkills);
+  const units = skillUnits(jobSkills).filter((u) => !u.about);
   for (const u of units) {
     const bucket = u.skills.every((s) => SOFT_SKILLS.has(s)) ? soft : hard;
     // Skills a posting keeps coming back to matter more (as in Jobscan), capped at 1.5x.
@@ -189,12 +189,13 @@ function scoreSkills(jobSkills, resumeLower, resumeSkills) {
   }
   // Strict systems (Taleo keyword search, recruiter boolean searches) check
   // every term on its own, "or" or not — so this rate stays per keyword.
-  const literalHits = [...jobSkills.values()].filter(({ term }) => containsTerm(resumeLower, term)).length;
+  const candidateSkills = [...jobSkills.values()].filter((u) => !u.about);
+  const literalHits = candidateSkills.filter(({ term }) => containsTerm(resumeLower, term)).length;
   return {
     hard,
     soft,
     units,
-    strictRate: jobSkills.size ? literalHits / jobSkills.size : null,
+    strictRate: candidateSkills.length ? literalHits / candidateSkills.length : null,
     wordingTips,
   };
 }
@@ -228,7 +229,7 @@ function scoreExperience(jobText, resumeText) {
 }
 
 // Benefits, pay and EEO boilerplate aren't things a resume should echo.
-const BOILERPLATE_LINE = /benefit|insurance|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|apply|perks|parental leave|stock|equity|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b|\bauthori[sz]ed to work\b|\bwork authori[sz]ation\b|\beligible to work in\b/i;
+const BOILERPLATE_LINE = /\b(?:employee benefits?|benefits package|health insurance|life insurance|dental insurance)\b|401\(?k|\bpto\b|paid time off|vacation|salary|compensation|pay range|equal (?:opportunity|employment)|veteran|disabilit|accommodation|background check|how to apply|perks|parental leave|stock options|equity compensation|without regard to|protected categor|acceptable use policy|search firms|fair chance|conviction records|\b(?:medical|dental|vision)\b[^.;]{0,40}\b(?:dental|vision|insurance|coverage|plans?|benefits|care)\b|\b(?:sick|family|bereavement|maternity|paternity|parental|medical|caregiver|paid|holiday) leave\b|\bleave (?:policy|policies)\b|\bwellness (?:program|stipend|benefits?|allowance)\b|\btuition (?:reimbursement|assistance)\b|\bcommuter benefits\b|\bexecutive (?:coaching|wellness|mentorship)\b|\bauthori[sz]ed to work\b|\bwork authori[sz]ation\b|\beligible to work in\b/i;
 const FILLER = new Set(
   'advice gaps topics deliverables record basic another advanced accuracy analyze tech-savvy delightful exciting passionate amazing great world class fast-paced dynamic today ideal awesome unique mission people values culture nice familiarity full-time part-time contract remote hybrid on-site onsite professional used focus possible various unique primarily motivates subject matter experts expert smes sme end-to-end lifecycle lifecycles'.split(' ')
 );
@@ -302,7 +303,7 @@ function readPostingPhrases(jobText, company = '') {
   const counts = new Map();
   let started = false;
   for (const l of classifyLines(jobText)) {
-    if (l.isHeading || BOILERPLATE_LINE.test(l.line)) continue;
+    if (l.isHeading || l.about || BOILERPLATE_LINE.test(l.line)) continue;
     // The company pitch before the first list isn't what the job asks for.
     if (/^[-•*▪●◦]/.test(l.original)) started = true;
     if (!started && l.kind === 'neutral') continue;
@@ -334,7 +335,7 @@ function readPostingPhrases(jobText, company = '') {
 // The posting's phrases a recruiter would search for. Dictionary skills have their own component.
 const keywordTerms = memoize((jobText, company) => {
   // The perks section goes first, while its heading still marks where it starts.
-  jobText = withoutPerks(jobText).split('\n').filter((l) => !BOILERPLATE_LINE.test(l)).join('\n');
+  jobText = classifyLines(jobText).filter((l) => !l.about && !BOILERPLATE_LINE.test(l.line)).map((l) => l.original).join('\n');
   const skillWords = Object.values(SKILLS).flat();
   return { jobText, terms: postingPhrases(jobText, company).filter((t) => !skillWords.some((re) => re.test(t))).slice(0, 15) };
 });
@@ -498,7 +499,7 @@ const lineSkills = memoize((line) => readSkillsIn(lower(line)), { size: 4000 });
 const skillsOfLines = (lines) => new Set(lines.flatMap((l) => [...lineSkills(l)]));
 function readSkillsIn(resumeLower) {
   const found = new Set();
-  for (const [skill, patterns] of Object.entries(SKILLS)) if (patterns.some((p) => p.test(resumeLower))) found.add(skill);
+  for (const [skill, patterns] of Object.entries(SKILLS)) if (skillEvidence(resumeLower, skill)) found.add(skill);
   return found;
 }
 

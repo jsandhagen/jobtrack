@@ -18,7 +18,7 @@
 // Roles two or more levels below yours, in your own line of work, are capped
 // below a strong match (overqualified).
 // Dealbreakers and screening-question conflicts cap the score at 30.
-const { WATCH_LINE, SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, withoutTeams, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel, withoutNegated } = require('./fitScore');
+const { skillEvidence, WATCH_LINE, SKILLS, RELATED, EMPLOYER_EVIDENCE, WORK_EVIDENCE, SOFT_TERM_WORDS, withoutCollaborators, withoutTeams, INTERPERSONAL, STOPWORDS, isGenericTitle, BOILERPLATE_LINE, classifyLines, clauses, alternativeRuns, mentionStart, stripFieldsOfStudy, requiredYears, yearsOfExperience, fitLabel, withoutNegated } = require('./fitScore');
 const { degreeLevel, degreeLevels, degreeRequirements, isVerbForm } = require('./atsScore');
 const { screeningCheck } = require('./screening');
 const degreeFields = require('./degreeFields');
@@ -600,7 +600,7 @@ function readRequirementUnits(job) {
     if (SCREENING_LINE.test(line) || /\b(?:in[- ]office|on[- ]site|onsite) (?:position|role|job)\b|\b(?:office location|walking distance|commut(?:e|ing))\b/.test(line)) continue;
     if (INTEREST.test(original)) continue;
     // The employer on itself stays context, whatever a clause says ("security is essential").
-    if (about) kind = 'neutral';
+    if (about) continue;
     // With no requirements list, the posting's lines about the job are what it
     // asks; its lines about the employer stay context (companyVoice).
     const effKind = kind === 'neutral' && !hasRequiredSection && !about ? 'required' : kind;
@@ -626,7 +626,7 @@ function readRequirementUnits(job) {
       for (const p of patterns) if ((hit = skillLine.match(p))) break;
       const employer = EMPLOYER_EVIDENCE[skill];
       const work = WORK_EVIDENCE[skill];
-      if (hit) found.push({ key: 's:' + skill, label: skill, skill, match: (t) => (patterns.some((p) => p.test(t)) || (employer && employer.test(t)) || (work && work.test(t)) ? 1 : 0), index: mentionStart(hit), end: hit.index + hit[0].length });
+      if (hit) found.push({ key: 's:' + skill, label: skill, skill, match: (t) => (skillEvidence(t, skill) || (employer && employer.test(t)) || (work && work.test(t)) ? 1 : 0), index: mentionStart(hit), end: hit.index + hit[0].length });
     }
     // Only mine free-form terms from qualification-ish lines, not the company
     // blurb — and not degree lines, which count as one "degree" requirement.

@@ -103,7 +103,7 @@ const HARMLESS = new Set(
  * products / places that neither the original bullet nor the candidate's
  * documents mention.
  */
-function checkRewrite(original, edited, library, numberEvidence = library) {
+function checkRewrite(original, edited, library, numberEvidence = original) {
   const problems = [];
   const orig = numbers(original);
   const lib = numbers(numberEvidence);
@@ -111,12 +111,23 @@ function checkRewrite(original, edited, library, numberEvidence = library) {
   if (newNums.length) problems.push(`adds a number not in your documents (${newNums.join(', ')})`);
   const changed = unsupportedMeasures(edited, `${original}\n${numberEvidence}`);
   if (changed.length) problems.push(`changes a metric or its units without source evidence (${changed.join(', ')})`);
-  if (/^(?:Supported|Assisted|Helped|Contributed|Participated)\b/i.test(original.trim())
-      && /^(?:Led|Owned|Directed|Headed|Managed|Spearheaded)\b/i.test(edited.trim())) {
+  if (/\b(?:Supported|Assisted|Helped|Contributed|Participated)\b/i.test(original)
+      && /\b(?:Led|Owned|Directed|Headed|Managed|Spearheaded)\b/i.test(edited)
+      && !/\b(?:Led|Owned|Directed|Headed|Managed|Spearheaded)\b/i.test(original)) {
     problems.push('claims ownership where the source describes a supporting contribution');
   }
+  // A proposal or evaluation cannot become a delivered production outcome.
+  if (/\b(?:evaluat(?:ed|ion|ing)|assess(?:ed|ment|ing)|research(?:ed|ing)?|propos(?:ed|al)|recommend(?:ed|ation)|plan(?:ned|ning))\b/i.test(original)
+      && /\b(?:deploy(?:ed|ment)|implement(?:ed|ation)|launched|achieved|realized|delivered|operated|administered)\b/i.test(edited)
+      && !/\b(?:deploy(?:ed|ment)|implement(?:ed|ation)|launched|achieved|realized|delivered|operated|administered)\b/i.test(original)) {
+    problems.push('turns research or a planned outcome into delivered work');
+  }
+  const outcomes = [ /\b(?:costs?|spend|expenses?|savings)\b/i, /\b(?:revenue|sales|bookings)\b/i,
+    /\b(?:onboarding)\b/i, /\b(?:reporting)\b/i, /\b(?:latency|response time)\b/i ];
+  if (measures(edited).size && outcomes.some((axis) => axis.test(edited) && !axis.test(original))
+      && outcomes.some((axis) => axis.test(original))) problems.push('changes what the source metric measures');
   const origTerms = namedTerms(original);
-  const libText = norm(library);
+  const libText = norm(`${original}\n${numberEvidence}`);
   const newTerms = [...namedTerms(edited)].filter((t) => !HARMLESS.has(t) && !origTerms.has(t) && !libText.includes(t));
   if (newTerms.length) problems.push(`mentions ${newTerms.map((t) => `"${t}"`).join(', ')}, which isn't in your documents`);
   return problems;
@@ -125,19 +136,17 @@ function checkRewrite(original, edited, library, numberEvidence = library) {
 /**
  * Problems with a newly written sentence (summary, cover-letter paragraph,
  * resume bullet without a bank source): numbers and named terms must exist
- * somewhere in the candidate's documents or profile; the posting's text is
- * allowed for words that describe the job (not claims about the candidate).
+ * in the candidate's documents. A posting never supplies candidate evidence.
  */
 function checkNewText(text, library, posting = '') {
   const problems = [];
   const lib = numbers(library);
-  const newNums = [...numbers(text)].filter((n) => !lib.has(n) && !numbers(posting).has(n));
+  const newNums = [...numbers(text)].filter((n) => !lib.has(n));
   if (newNums.length) problems.push(`number not found in your documents (${newNums.join(', ')})`);
   const changed = unsupportedMeasures(text, library);
   if (changed.length) problems.push(`metric or units not found in your documents (${changed.join(', ')})`);
   const libText = norm(library);
-  const postText = norm(posting);
-  const unknown = [...namedTerms(text)].filter((t) => !HARMLESS.has(t) && !libText.includes(t) && !postText.includes(t));
+  const unknown = [...namedTerms(text)].filter((t) => !HARMLESS.has(t) && !libText.includes(t));
   if (unknown.length) problems.push(`mentions ${unknown.map((t) => `"${t}"`).join(', ')}, which isn't in your documents`);
   return problems;
 }

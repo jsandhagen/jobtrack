@@ -3,7 +3,7 @@
 // that fit a posting best. Everything here is offline and free.
 const crypto = require('crypto');
 const { overlap, repeatOf, checkBullet } = require('../shared/resumeCheck');
-const { SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators, yearsOfExperience } = require('./fitScore');
+const { skillEvidence, SKILLS, STOPWORDS, significantTerms, classifyJobSkills, INTERPERSONAL, EMPLOYER_EVIDENCE, withoutCollaborators, yearsOfExperience } = require('./fitScore');
 const { requirementUnits } = require('./localFit');
 const { degreeLevel } = require('./atsScore');
 const { strategyFocus, strategyEvidence, strategySummary, strategyChecks } = require('./strategyResume');
@@ -77,7 +77,7 @@ function similarity(a, b) {
 function skillTags(text) {
   const t = lower(withoutCollaborators(text));
   return Object.entries(SKILLS)
-    .filter(([, ps]) => ps.some((p) => p.test(t)))
+    .filter(([name]) => skillEvidence(t, name))
     .map(([name]) => name);
 }
 
@@ -1572,7 +1572,8 @@ function tuneForAts(start, { job, bank, profile, ranked, allowed, pages, scale, 
   const ownWritten = (Array.isArray(bank.summaries) && bank.summaries.length ? bank.summaries : [bank.summary]).filter(Boolean).map(tidyText);
   const own = ownWritten.flatMap((t) => {
     const m = t.match(/\b(\d{1,2})(\+?)\s+years\b/i);
-    if (!m || !dated || Number(m[1]) >= dated - 1) return [t];
+    // Dates establish total tenure, not tenure in a specialty. Preserve scoped claims.
+    if (!m || !dated || Number(m[1]) >= dated - 1 || /^(?:\s+(?:of\s+)?experience)?\s+(?:in|with|of|as|leading|supporting|developing)\b/i.test(t.slice(m.index + m[0].length))) return [t];
     const fixed = t.replace(m[0], `${dated}${m[2]} years`);
     yearsFixed.set(fixed, { from: Number(m[1]), to: dated });
     return [t, fixed];

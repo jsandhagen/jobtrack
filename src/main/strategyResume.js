@@ -24,9 +24,10 @@ const THEMES = [
 ];
 
 function strategyFocus(job = {}) {
-  if (!/strateg(?:y|ist)|competitive|market (?:intelligence|insights?|research)|chief of staff|emerging technology|office of the cto|operations|program manager|partnership|allian(?:ce|ces)\b/i.test(job.title || '')) return [];
-  const text = String(job.text || '');
-  const required = classifyLines(text).filter((line) => line.kind === 'required').map((line) => line.original).join('\n');
+  if (!/strateg(?:y|ist)|competitive|market (?:intelligence|insights?|research)|chief of staff|emerging technology|office of the cto|cio advis|technology advis|enterprise architect|strategic planning|operations|program manager|partnership|allian(?:ce|ces)\b/i.test(job.title || '')) return [];
+  const lines = classifyLines(String(job.text || '')).filter((line) => !line.about);
+  const text = lines.map((line) => line.original).join('\n');
+  const required = lines.filter((line) => line.kind === 'required').map((line) => line.original).join('\n');
   const focus = THEMES.flatMap((theme) => {
     const mentions = [...text.matchAll(theme.posting)].length;
     if (theme.needsMention && !mentions) return [];
@@ -188,3 +189,4 @@ function strategyChecks(job, doc) {
 }
 
 module.exports = { strategyFocus, strategyEvidence, strategySummary, strategyChecks };
+

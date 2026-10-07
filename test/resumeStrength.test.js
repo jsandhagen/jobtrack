@@ -75,11 +75,11 @@ test('document drafts stay off the page for a stretch role', () => {
   assert.ok(!out.doc.roles.some((r) => r.bullets.some((b) => b.flag)));
 });
 
-test('the optimizer brings an out-of-date "5 years" in your own summary up to your role dates', () => {
+test('the optimizer preserves specialty tenure when earlier roles were in another field', () => {
   const { out } = optimize(P.kickboardCI);
-  assert.match(out.doc.summary, /7 years/);
-  assert.doesNotMatch(out.doc.summary, /\b5 years/);
-  assert.ok(out.notes.some((n) => /5 years brought up to the 7/.test(n)), out.notes.join(' '));
+  assert.match(out.doc.summary, /5 years of experience in competitive intelligence/);
+  assert.doesNotMatch(out.doc.summary, /7 years of experience in competitive intelligence/);
+  assert.ok(!out.notes.some((n) => /5 years brought up to the 7/.test(n)));
 });
 
 test('the summary never says a bullet on the page again, and its proof is the posting\'s kind of work', () => {
@@ -105,3 +105,4 @@ test('two bullets that tell one result: the merge is offered, built only from th
   assert.ok(m && out.doc.roles[0].bullets.some((b) => b.bulletId === m.bulletId && b.text === m.from), JSON.stringify(out.merges));
   assert.match(m.text, /\$9M\+ in customer transactions via AWS Marketplace/);
 });
+
