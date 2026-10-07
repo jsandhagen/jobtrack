@@ -657,6 +657,9 @@ function readJobSkills(jobText) {
         break;
       }
     }
+    if (WATCH_LINE.test(line) && !found.some((f) => f.skill === 'Competitive Analysis')) {
+      found.push({ skill: 'Competitive Analysis', term: line.trim(), index: 0, end: line.length });
+    }
     // "Operations" inside "strategy & operations" is the same mention.
     const own = found.filter((f) => !found.some((g) => g !== f && g.index <= f.index && g.end >= f.end && g.end - g.index > f.end - f.index));
     found.splice(0, found.length, ...own);

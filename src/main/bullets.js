@@ -1198,7 +1198,8 @@ const isInternship = (e) => !e.isProject && INTERNSHIP.test(e.title || '');
 /**
  * The roles a resume for this job draws from, most recent first. Once you
  * have two years of other work, internships are left off (recruiters read
- * them as filler by then), unless the job is itself an internship. You can
+ * them as filler by then), unless they hold unique required evidence or the
+ * job is itself an internship. You can
  * still add one back in the editor. Roles you've said to leave off
  * (`hidden`) never come back on their own.
  */
@@ -1207,7 +1208,10 @@ function resumeExperiences(bank, job) {
   if (job && INTERNSHIP.test(job.title || '')) return all;
   const work = all.filter((e) => !e.isProject && !isInternship(e));
   if (careerYears({ experiences: work }) < 2) return all;
-  return all.filter((e) => !isInternship(e));
+  const required = job && job.text ? bulletUnits(job).filter((u) => u.kind === 'required') : [];
+  const textFor = (roles) => [bank.skills?.join(', ') || '', ...bank.bullets.filter((b) => !b.hidden && roles.some((e) => e.id === b.experienceId)).map((b) => b.text)].join('\n');
+  const recent = textFor(all.filter((e) => !isInternship(e)));
+  return all.filter((e) => !isInternship(e) || required.some((u) => u.match(recent.toLowerCase(), recent) < 0.6 && u.match(textFor([e]).toLowerCase(), textFor([e])) >= 1));
 }
 
 // ---------- assembling a resume ----------

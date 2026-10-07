@@ -60,8 +60,8 @@ function positiveMention(text, at, length, skill) {
   const clause = before + text.slice(at, at + length) + tail;
   // Product research proves research, not hands-on use of that product.
   // Keep "analyzed competitor pricing using Python" as positive evidence.
-  if (/\b(?:researched|reviewed|tracked|compared|evaluated|analyzed)\b/i.test(before)
-      && (/^(?:AWS|Azure|GCP|Kubernetes|Docker|Python|Java|JavaScript|TypeScript|SQL|Salesforce|SAP|Oracle|Terraform|React|Node\.js)$/i.test(skill) || /\b(?:competitors?|pricing|product strateg(?:y|ies)|product launches|market positioning)\b/i.test(clause))
+  if (/\b(?:research(?:ed|ing)|review(?:ed|ing)|track(?:ed|ing)|compar(?:ed|ing)|evaluat(?:ed|ing)|assess(?:ed|ing)|analy[sz](?:ed|ing))\b/i.test(before)
+      && (/^(?:AWS|Azure|GCP|Kubernetes|Docker|Python|Java|JavaScript|TypeScript|SQL|Salesforce|ServiceNow|ERP|SAP|Oracle(?: ERP)?|Workday|Snowflake|Terraform|React|Node\.js)$/i.test(skill) || /\b(?:competitors?|pricing|product strateg(?:y|ies)|product launches|market positioning)\b/i.test(clause))
       && !/\b(?:using|with|in)\s*$/i.test(before)) return false;
   if (/\b(?:no|without|never|not|lack(?:s|ed|ing)?|limited|little)\b(?! only)[^.\n;]{0,65}$/i.test(before)
       || /\b(?:learn(?:ing)?|stud(?:y|ying)|interested in|exposure to|familiar(?:ity)? with|plan(?:ning)? to|hope to)\b[^.\n;]{0,50}$/i.test(before)
